@@ -26,8 +26,10 @@ __attribute__((used, externally_visible)) void *memcpy(void *d, const void *s, s
 #include <string.h>
 #endif
 
+#ifdef __ELF__ /* app name and API level, for the calculator's installer */
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "Crossy Road";
 const uint32_t eadk_api_level __attribute__((section(".rodata.eadk_api_level"))) = 0;
+#endif
 
 #define SW 320
 #define SH 240
@@ -489,7 +491,11 @@ static void init_palette(void) {
 
 // ceil(v - 0.5): index of the first pixel whose center is at or after v
 // (a single VCVTP instruction on the Cortex-M7).
+#ifdef __clang__
+static inline int ceil_half(float v) { return (int)__builtin_ceilf(v - 0.5f); }
+#else
 static inline int ceil_half(float v) { return (int)__builtin_lceilf(v - 0.5f); }
+#endif
 
 #ifdef HOST_STATS
 long st_polys, st_lines, st_pixels;

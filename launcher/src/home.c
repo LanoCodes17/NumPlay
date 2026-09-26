@@ -120,6 +120,11 @@ static void scene(void *ctx) {
   uint32_t top = gfx_lerp888(item_color(h->item[a], 0), item_color(h->item[b], 0), t);
   uint32_t bottom = gfx_lerp888(item_color(h->item[a], 1), item_color(h->item[b], 1), t);
   gfx_vgrad(0, 0, SCREEN_W, SCREEN_H, top, bottom);
+  /* a faint dot grid gives the background some texture */
+  for (int y = (gfx_y0 + 15) / 16 * 16 + 8 - 16; y < gfx_y1; y += 16) {
+    if (y < gfx_y0) continue;
+    for (int x = 8; x < SCREEN_W; x += 16) gfx_fill_alpha(x, y, 2, 1, 0xFFFF, 22);
+  }
 
   float z = ui_ease_in_out(h->zoom);
   int ui_alpha = (int)(256 * (1 - z));
@@ -178,7 +183,7 @@ static int build_items(home_t *h) {
   return h->n;
 }
 
-int np_home(int *selected) {
+int np_home(int *selected, bool returning) {
   ui_init();
   home_t h = {0};
   build_items(&h);
@@ -192,6 +197,8 @@ int np_home(int *selected) {
     h.pos = h.sel + 1.2f;
     first_open = false;
   }
+  bool unzooming = returning && h.item[h.sel] == *selected && *selected >= 0;
+  if (unzooming) h.zoom = 1;
   ui_keys_t keys = {np_keys(), 0, 0};  /* ignore keys still held from before */
   uint32_t last = np_millis();
   bool dirty = true;
@@ -213,7 +220,7 @@ int np_home(int *selected) {
         h.badge = 0;
       }
       if (pressed & K_OK) result = h.item[h.sel];
-      if (pressed & K_HOME) return -2;
+      if (pressed & (K_HOME | K_BACK)) return -2;
     }
     /* motion */
     float pos = ui_approach(h.pos, (float)h.sel, dt, 0.075f);
@@ -243,6 +250,11 @@ int np_home(int *selected) {
           if (h.shot_time * 22 / SHOT_MS != before) dirty = true;  /* the progress bar moves */
         }
       }
+    }
+    if (unzooming) {
+      h.zoom = NP_MAX(h.zoom - dt / 0.26f, 0.f);
+      unzooming = h.zoom > 0;
+      dirty = true;
     }
     if (result != -3) {
       if (result == -1 || !settled) {

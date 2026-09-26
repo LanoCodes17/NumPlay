@@ -68,8 +68,8 @@ sim-module: output/npsim/sim-module.o
 output/npsim/sim-module.o: $(addprefix src/,$(SOURCES)) src/pack.bin src/*.h
 	@mkdir -p output/npsim
 	$(Q) cd src && xxd -i -n pack_bin pack.bin > ../output/npsim/pack_bin.c
-	$(Q) for f in $(SOURCES); do cc -std=gnu11 -O2 -fPIC -fvisibility=hidden -fsingle-precision-constant -Wno-unused-function \
+	$(Q) for f in $(SOURCES); do cc -std=gnu11 -O2 -fPIC -fsingle-precision-constant -Wno-unused-function \
 	  $(shell $(NWLINK) eadk-cflags-simulator) -DNO_STORAGE -Dpack_data=pack_bin -Dmain=np_numdrive_main \
 	  -c src/$$f -o output/npsim/$${f%.c}.o || exit 1; done
-	$(Q) cc -fPIC -fvisibility=hidden -c output/npsim/pack_bin.c -o output/npsim/pack_bin.o
+	$(Q) cc -fPIC -c output/npsim/pack_bin.c -o output/npsim/pack_bin.o
 	$(Q) ld -r output/npsim/*.o -exported_symbol _np_numdrive_main -o $@

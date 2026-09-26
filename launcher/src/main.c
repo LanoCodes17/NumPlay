@@ -9,8 +9,10 @@ const uint32_t eadk_api_level __attribute__((section(".rodata.eadk_api_level")))
 int main(void) {
   np_finish_pending_uninstalls();
   int selected = np_game_count ? 0 : -1;
+  bool returning = false;
   for (;;) {
-    int r = np_home(&selected);
+    int r = np_home(&selected, returning);
+    returning = false;
     if (r == -2) break;
     if (r == -1) {
       np_settings();
@@ -18,6 +20,7 @@ int main(void) {
     }
     np_game_run(r);
     np_wait_release();
+    returning = true;
   }
   np_wait_release();
   return 0;

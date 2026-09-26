@@ -80,7 +80,7 @@ int np_uninstall(int game, void (*progress)(int done, int total));
 void np_finish_pending_uninstalls(void);
 
 /* ---- the screens (home.c, settings.c) */
-int np_home(int *selected);              /* returns a game index, -1 for settings, -2 to quit */
+int np_home(int *selected, bool returning); /* a game index, -1 for settings, -2 to quit */
 void np_settings(void);
 
 #endif

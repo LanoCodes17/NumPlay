@@ -13,8 +13,10 @@
 
 #ifndef HOST
 #include <eadk.h>
+#ifdef __ELF__ /* app name and API level, for the calculator's installer */
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "NumDrive";
 const uint32_t eadk_api_level __attribute__((section(".rodata.eadk_api_level"))) = 0;
+#endif
 #endif
 
 enum { ST_PLAY, ST_CARD, ST_LEVELS };
@@ -232,11 +234,7 @@ int main(int argc, char **argv) {
         state = ST_PLAY;
         continue;
       }
-      if (hit & KEY(K_BACK)) {
-        state = ST_CARD;
-        dirty = true;
-        continue;
-      }
+      if (hit & KEY(K_BACK)) break; /* leave the game (Home also works, but it closes NumPlay too) */
       if (dirty) levels_draw(lsel, lscroll);
       dirty = false;
     }

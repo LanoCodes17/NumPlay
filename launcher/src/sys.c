@@ -63,6 +63,8 @@ int np_battery_level(void) { return (int)(SVC2(4, 0, 0) & 0xFF); }
 bool np_battery_charging(void) { return (SVC2(3, 0, 0) & 0xFF) != 0; }
 bool np_flash_erase_sector(int sector) { return (SVC2(30, sector, 1) & 0xFF) != 0; }
 bool np_flash_write(void *dst, const void *src, uint32_t len) { return (SVC4(32, dst, src, len, 1) & 0xFF) != 0; }
+void np_interrupts_lock(void) { SVC2(10, 0, 0); }
+void np_interrupts_unlock(void) { SVC2(13, 0, 0); }
 
 #else /* simulator */
 
@@ -85,6 +87,8 @@ bool np_flash_write(void *dst, const void *src, uint32_t len) {
   (void)dst, (void)src, (void)len;
   return false;
 }
+void np_interrupts_lock(void) {}
+void np_interrupts_unlock(void) {}
 #endif
 
 int np_software_major(void) {

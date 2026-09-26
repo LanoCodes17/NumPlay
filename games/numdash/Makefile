@@ -62,6 +62,6 @@ build/module.o: $(DEVICE_OBJECTS) | build/.stamp
 sim-module: build/sim-module.o
 build/sim-module.o: $(COMMON) src/platform_eadk.c src/main.c $(HEADERS) node_modules/nwlink/bin/nwlink | build/.stamp
 	mkdir -p build/sim
-	for f in $(COMMON) src/platform_eadk.c src/main.c; do cc -std=c11 -O2 -fPIC -fvisibility=hidden -Isrc \
+	for f in $(COMMON) src/platform_eadk.c src/main.c; do cc -std=c11 -O2 -fPIC -Isrc \
 	  $(shell $(NWLINK) eadk-cflags-simulator) -Dmain=np_numdash_main -c $$f -o build/sim/$$(basename $$f .c).o || exit 1; done
 	ld -r build/sim/*.o -exported_symbol _np_numdash_main -o $@

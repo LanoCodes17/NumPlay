@@ -65,6 +65,6 @@ $(BUILD)/module.o: src/crossy.c $(BUILD)/rom.inc | $(BUILD)
 
 sim-module: $(BUILD)/sim-module.o
 $(BUILD)/sim-module.o: src/crossy.c | $(BUILD)
-	cc -std=c11 -O2 -fno-math-errno -fPIC -fvisibility=hidden -DPLATFORM_SIM=1 -I$(EADK_INC) -Dmain=np_crossyroad_main \
+	cc -std=c11 -O2 -fno-math-errno -fPIC -DPLATFORM_SIM=1 -I$(EADK_INC) -Dmain=np_crossyroad_main \
 	  -c src/crossy.c -o $(BUILD)/sim.o
 	ld -r $(BUILD)/sim.o -exported_symbol _np_crossyroad_main -o $@

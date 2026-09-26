@@ -25,5 +25,9 @@ uint32_t np_crc32_words(const uint32_t *data, uint32_t words);
 int np_battery_level(void);   /* 0 empty .. 3+ full, -1 unknown */
 bool np_battery_charging(void);
 bool np_flash_erase_sector(int sector);
+/* While locked, the Home key cannot interrupt the app (Epsilon's circuit
+ * breaker), so a critical section runs to its end. */
+void np_interrupts_lock(void);
+void np_interrupts_unlock(void);
 bool np_flash_write(void *dst, const void *src, uint32_t len);
 #endif

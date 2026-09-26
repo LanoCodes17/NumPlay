@@ -100,7 +100,9 @@ int np_uninstall(int i, void (*progress)(int, int)) {
   const np_game_t *g = &np_games[i];
   if (!np_uninstall_supported()) return NP_UNINSTALL_UNSUPPORTED;
   if (!np_battery_ok()) return NP_UNINSTALL_BATTERY;
+  np_interrupts_lock();
   for (const char *const *r = g->records; r && *r; r++) np_storage_delete(*r);
+  np_interrupts_unlock();
 #if NP_SIMULATOR
   for (int k = 0; k <= 4; k++) {
     if (progress) progress(k, 4);
@@ -111,7 +113,10 @@ int np_uninstall(int i, void (*progress)(int, int)) {
 #else
   uint32_t a = (uint32_t)(uintptr_t)g->begin, b = (uint32_t)(uintptr_t)g->end;
   if (!range_ok(a, b)) return NP_UNINSTALL_FAILED;
-  return wipe(a, b, progress);
+  np_interrupts_lock();  /* Home must not stop us halfway */
+  int r = wipe(a, b, progress);
+  np_interrupts_unlock();
+  return r;
 #endif
 }
 
@@ -126,7 +131,9 @@ void np_finish_pending_uninstalls(void) {
     uint32_t s0 = (a + SECTOR - 1) & ~(SECTOR - 1), s1 = b & ~(SECTOR - 1);
     if (s1 < s0) s0 = s1 = b;
     if (zeroed(a, s0) && erased(s0, s1) && zeroed(s1, b)) continue;
+    np_interrupts_lock();
     wipe(a, b, 0);
+    np_interrupts_unlock();
   }
 #endif
 }

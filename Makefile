@@ -57,7 +57,7 @@ ENTRY_tetris = np_tetris_main
 $(B)/tetris/raw.o: FORCE | $(B)
 	mkdir -p $(B)/tetris
 	cd games/tetris/tetris && NWLINK="$(NWLINK)" $(CARGO) build --release --quiet
-	$(ARM_LD) -r --gc-sections -e np_tetris_main -u np_tetris_main \
+	$(ARM_LD) -r -z noexecstack --gc-sections -e np_tetris_main -u np_tetris_main \
 	  games/tetris/tetris/target/thumbv7em-none-eabihf/release/libtetris.a -o $@
 
 $(B)/modules/%.o: FORCE | $(B)
@@ -131,8 +131,8 @@ SIM_tetris = $(B)/sim/tetris.o
 SIM_CFLAGS = -std=gnu11 -O2 -fPIC -DNP_SIMULATOR=1 $(EADK_SIM_CFLAGS) -Ilauncher/src -Wall -Wno-unused-parameter
 
 $(B)/sim/tetris.o: FORCE | $(B)
-	cd games/tetris/tetris && NWLINK="$(NWLINK)" $(CARGO) build --release --quiet --target aarch64-apple-darwin
-	ld -r -exported_symbol _np_tetris_main -u _np_tetris_main \
+	cd games/tetris/tetris && NWLINK="$(NWLINK)" $(CARGO) build --lib --release --quiet --target aarch64-apple-darwin
+	cc -r -nostdlib -arch arm64 -Wl,-u,_np_tetris_main -Wl,-exported_symbol,_np_tetris_main \
 	  games/tetris/tetris/target/aarch64-apple-darwin/release/libtetris.a -o $@
 
 $(B)/sim/%.mod: FORCE | $(B)

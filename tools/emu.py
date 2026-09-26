@@ -208,7 +208,8 @@ class Calculator:
         self.insns = 0
         self.exited = False
         self.svc_counts = {}
-        uc.hook_add(UC_HOOK_INTR, self._intr)
+        self.locks = self.max_locks = 0
+        self.intr_hook = uc.hook_add(UC_HOOK_INTR, self._intr)
         uc.hook_add(UC_HOOK_CODE, self._draw_string, begin=DRAW_STRING_HOOK, end=DRAW_STRING_HOOK + 1)
         uc.hook_add(UC_HOOK_CODE, self._exit, begin=EXIT_HOOK, end=EXIT_HOOK + 1)
         uc.hook_add(UC_HOOK_MEM_INVALID, self._invalid)
@@ -352,13 +353,13 @@ class Calculator:
             self.rng ^= (self.rng << 5) & 0xFFFFFFFF
             ret = self.rng
         elif n == 23:  # event get
-            ret = 0xFFFF
+            ret = 216  # Ion::Events::None
             s = self.keyboard_state()
             for k in range(64):
                 if s >> k & 1:
                     ret = k
                     break
-            if ret == 0xFFFF:
+            if ret == 216:
                 self.now_ms += 10
         elif n in (1,):
             ret = 128
@@ -388,6 +389,11 @@ class Calculator:
                 uc.mem_write(dst, bytes(a & b for a, b in zip(old, new)))
                 self.now_ms += length / 1024
             ret = 1 if ok else 0
+        elif n == 10:  # circuit breaker lock: Home cannot interrupt until unlock
+            self.locks += 1
+            self.max_locks = max(self.max_locks, self.locks)
+        elif n == 13:
+            self.locks -= 1
         elif n == 15:  # Ion::crc32Byte(data, length)
             ret = epsilon_crc32(bytes(uc.mem_read(r0, r1)))
         elif n == 16:  # Ion::crc32DoubleWord(data, words)

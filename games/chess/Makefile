@@ -57,6 +57,6 @@ $(BUILD_DIR)/module.o: $(SRC) src/chess.h src/sprites.h | $(BUILD_DIR)
 sim-module: $(BUILD_DIR)/sim-module.o
 $(BUILD_DIR)/sim-module.o: src/main.c src/chess.c src/chess.h src/sprites.h | $(BUILD_DIR)
 	$(Q) mkdir -p $(BUILD_DIR)/sim
-	$(Q) for f in main chess; do cc -std=c99 -O2 -fPIC -fvisibility=hidden $(shell $(NWLINK) eadk-cflags-simulator) \
+	$(Q) for f in main chess; do cc -std=c99 -O2 -fPIC $(shell $(NWLINK) eadk-cflags-simulator) \
 	  -Dmain=np_chess_main -c src/$$f.c -o $(BUILD_DIR)/sim/$$f.o || exit 1; done
 	$(Q) ld -r $(BUILD_DIR)/sim/*.o -exported_symbol _np_chess_main -o $@

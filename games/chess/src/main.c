@@ -3,8 +3,10 @@
 #include "chess.h"
 #include "sprites.h"
 
+#ifdef __ELF__ /* app name and API level, for the calculator's installer */
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "Chess";
 const uint32_t eadk_api_level __attribute__((section(".rodata.eadk_api_level"))) = 0;
+#endif
 
 typedef uint16_t C;
 #define RGB(r, g, b) ((C)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))

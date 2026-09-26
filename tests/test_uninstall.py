@@ -32,6 +32,9 @@ def main():
     ap.add_argument("nwa")
     ap.add_argument("--out", default="build/test_uninstall")
     ap.add_argument("--game", default="crossyroad")
+    ap.add_argument("--cut-power", type=int, default=0,
+                    help="stop the calculator after this many flash operations, then check that the next launch "
+                         "finishes the job")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     c = emu.Calculator(a.nwa)
@@ -82,7 +85,36 @@ def main():
     c.keys = keys
     shots = {dialog: "1_warning", hold + 900: "2_holding", done: "3_done", listing: "4_list", home: "5_home"}
     c.pending_shots = sorted((ms, os.path.join(a.out, name + ".png")) for ms, name in shots.items())
-    c.run(t + 3000)
+    if a.cut_power:
+        original = c._intr
+
+        def intr(uc, intno, data):
+            original(uc, intno, data)
+            if len(c.flash_log) >= a.cut_power and not c.exited:
+                c.exited = True  # power cut: nothing more runs
+                uc.emu_stop()
+        c.uc.hook_del(c.intr_hook)
+        c.intr_hook = c.uc.hook_add(emu.UC_HOOK_INTR, intr)
+        c.run(t + 3000)
+        if len(c.flash_log) < a.cut_power:
+            fail("the uninstall did not reach the power cut")
+        print(f"power cut after {len(c.flash_log)} flash operations")
+        # power back on: RAM is gone, flash stays; NumPlay starts and should finish the job
+        c.uc.hook_del(c.intr_hook)
+        c.intr_hook = c.uc.hook_add(emu.UC_HOOK_INTR, original)
+        c.exited = False
+        c.locks = c.max_locks = 0  # the kernel starts afresh too
+        ops = len(c.flash_log)
+        c.pc = c.entry | 1
+        c.uc.reg_write(emu.UC_ARM_REG_SP, emu.STACK_TOP)
+        c.uc.reg_write(emu.UC_ARM_REG_LR, emu.EXIT_HOOK | 1)
+        start = c.now_ms
+        c.keys = [(start + 2500, start + 2590, emu.KEYS["home"])]
+        c.pending_shots = [(start + 2400, os.path.join(a.out, "after_power_cut.png"))]
+        c.run(start + 4000)
+        print(f"next launch: {len(c.flash_log) - ops} flash operations to finish the uninstall")
+    else:
+        c.run(t + 3000)
     if not c.exited:
         fail("NumPlay did not quit")
 
@@ -113,6 +145,8 @@ def main():
         b, e = c.symbols[f"np_{g}_begin"], c.symbols[f"np_{g}_end"]
         if struct.unpack_from("<I", flash, off(b))[0] != 0x3147504E or struct.unpack_from("<I", flash, off(e) - 4)[0] != 0x444E4550:
             fail(f"{g} lost its marks")
+    if c.locks != 0 or c.max_locks != 1:
+        fail(f"Home interrupt lock not balanced (depth {c.locks}, max {c.max_locks})")
     erased = sum(1 for op in c.flash_log if op[0] == "erase")
     print(f"flash: {target} block {begin:#x}-{end:#x} ({(end - begin) / 1024:.1f} KB) wiped, "
           f"{erased} sectors erased, nothing else changed")

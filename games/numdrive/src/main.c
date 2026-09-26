@@ -19,7 +19,7 @@ const uint32_t eadk_api_level __attribute__((section(".rodata.eadk_api_level")))
 #endif
 #endif
 
-enum { ST_PLAY, ST_CARD, ST_LEVELS };
+enum { ST_PLAY, ST_CARD, ST_LEVELS, ST_QUIT };
 #define SHOT_FRAMES 10 /* viewfinder shown before the photo */
 
 static int win_timer = -1, lose_timer = -1;
@@ -119,7 +119,7 @@ int main(int argc, char **argv) {
     return plat_end(1);
   }
   int state = ST_PLAY, kind = CARD_PAUSE, anim = 0, sel = 1, lsel = 0, lscroll = 0;
-  bool dirty = true;
+  bool dirty = true, qyes = false;
   uint64_t prev = 0;
   uint32_t last = plat_millis();
   int acc = 0;
@@ -191,13 +191,28 @@ int main(int argc, char **argv) {
         render_frame(hud_post);
     } else if (state == ST_CARD) {
       int nb = card_buttons();
-      if (nb > 1) {
-        if ((hit & KEY(K_LEFT)) && sel > 0) sel--, dirty = true;
-        if ((hit & KEY(K_RIGHT)) && sel < nb - 1) sel++, dirty = true;
-      } else {
-        sel = 1;
-      }
       bool ok = (hit & (KEY(K_OK) | KEY(K_EXE))) != 0;
+      if (sel == CARD_SEL_QUIT) { /* Quit game, under the other buttons */
+        if (hit & KEY(K_UP)) sel = 1, dirty = true;
+        if (ok) {
+          state = ST_QUIT;
+          qyes = false;
+          dirty = true;
+          continue;
+        }
+      } else {
+        if (nb > 1) {
+          if ((hit & KEY(K_LEFT)) && sel > 0) sel--, dirty = true;
+          if ((hit & KEY(K_RIGHT)) && sel < nb - 1) sel++, dirty = true;
+        } else {
+          sel = 1;
+        }
+        if (hit & KEY(K_DOWN)) sel = CARD_SEL_QUIT, dirty = true;
+      }
+      if ((hit & KEY(K_BACK)) && kind == CARD_PAUSE) { /* Back resumes, as it paused */
+        state = ST_PLAY;
+        continue;
+      }
       if ((hit & KEY(K_BACK)) || (ok && kind == CARD_PAUSE && sel == 2)) { /* the "<" arrow or Levels */
         state = ST_LEVELS;
         lsel = cur;
@@ -205,7 +220,7 @@ int main(int argc, char **argv) {
         dirty = true;
         continue;
       }
-      if (ok) {
+      if (ok && sel != CARD_SEL_QUIT) {
         if (kind == CARD_PAUSE && sel == 1) {
           state = ST_PLAY;
         } else {
@@ -221,6 +236,19 @@ int main(int argc, char **argv) {
       if (kind != CARD_PAUSE || full) card_draw(anim, sel, full);
       dirty = false;
       anim++;
+    } else if (state == ST_QUIT) {
+      /* asks first: Back sits right next to OK */
+      if (hit & (KEY(K_LEFT) | KEY(K_RIGHT))) qyes = !qyes, dirty = true;
+      bool ok = (hit & (KEY(K_OK) | KEY(K_EXE))) != 0;
+      if (ok && qyes) break;
+      if (ok || (hit & KEY(K_BACK))) {
+        state = ST_CARD;
+        anim = 14;
+        dirty = true;
+        continue;
+      }
+      if (dirty) quit_draw(qyes);
+      dirty = false;
     } else {
       int old = lsel;
       if (hit & KEY(K_LEFT)) lsel--;
@@ -236,7 +264,12 @@ int main(int argc, char **argv) {
         state = ST_PLAY;
         continue;
       }
-      if (hit & KEY(K_BACK)) break; /* leave the game (Home also works, but it closes NumPlay too) */
+      if (hit & KEY(K_BACK)) { /* back to the card */
+        state = ST_CARD;
+        anim = 14;
+        dirty = true;
+        continue;
+      }
       if (dirty) levels_draw(lsel, lscroll);
       dirty = false;
     }

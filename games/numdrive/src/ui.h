@@ -17,8 +17,11 @@ void ui_capture_background(void);
 /* card screen; anim counts frames since the card appeared; sel is the focused button */
 void card_setup(int kind, int level);
 void card_draw(int anim, int sel, bool full);
+#define CARD_SEL_QUIT 9 /* sel: the Quit game button under the others */
 int card_buttons(void); /* number of buttons (1 to 3) */
 /* level select */
 void levels_draw(int sel, int scroll);
+/* "Quit game?" over the blurred background, Yes focused or not */
+void quit_draw(bool yes);
 
 #endif

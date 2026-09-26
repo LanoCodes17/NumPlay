@@ -145,12 +145,13 @@ struct Rom {
   uint8_t obstacle_pct[12];
   uint8_t kinds[4];
   int8_t dx[4], dz[4];
-  char font_chars[23];
-  uint8_t font_w[22];
-  uint16_t font[22][10];
+  char font_chars[30];
+  uint8_t font_w[29];
+  uint16_t font[29][10];
   uint16_t hand_ol[14], hand_in[14];
   char save_name[15];
   char s_crossy[7], s_road[5], s_new_top[8];
+  char s_quit[10], s_quit_q[11], s_no[3], s_yes[4];
 };
 
 struct State {
@@ -161,6 +162,8 @@ struct State {
   float st_time, game_time, fade, restart_t;
   float eagle_x, eagle_y, eagle_z;
   int state, paused, show_logo, new_top, restarting, eagle_on;
+  int pause_sel;            // on the pause screen: 0 the game, 1 Quit game
+  int quitting, quit_sel;   // the "QUIT GAME?" question is open; 1 on YES
   int score, top_score, coins;
   int gen_next, set_left, set_type, prev_dir, start_end;
   uint32_t rng_s;
@@ -216,6 +219,9 @@ static struct State G;
 #define eagle_z G.eagle_z
 #define state G.state
 #define paused G.paused
+#define pause_sel G.pause_sel
+#define quitting G.quitting
+#define quit_sel G.quit_sel
 #define show_logo G.show_logo
 #define new_top G.new_top
 #define restarting G.restarting
@@ -420,8 +426,8 @@ static const struct Rom rom_init = {
   .dz = {1, 0, -1, 0},
   // Font: the original's blocky digits (decoded from the game) and matching
   // capitals. 10 rows; bit 11 is the leftmost column.
-  .font_chars = "0123456789ACDENOPRSTWY",
-  .font_w = {10, 5, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 12, 10},
+  .font_chars = "0123456789ACDEGILMNOPQRSTUWY?",
+  .font_w = {10, 5, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 10, 12, 10, 10, 10, 10, 10, 10, 10, 10, 12, 10, 10},
   .font = {
     GLYPH(0x1FE, 0x3FF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3FF, 0x1FE),  // 0
     GLYPH(0x3C0, 0x3E0, 0x1E0, 0x1E0, 0x1E0, 0x1E0, 0x1E0, 0x1E0, 0x1E0, 0x1E0),  // 1
@@ -437,14 +443,21 @@ static const struct Rom rom_init = {
     GLYPH(0x1FF, 0x3FF, 0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3FF, 0x1FF),  // C
     GLYPH(0x3FE, 0x3FF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3FF, 0x3FE),  // D
     GLYPH(0x1FF, 0x3FF, 0x3C0, 0x3C0, 0x3F8, 0x3F8, 0x3C0, 0x3C0, 0x3FF, 0x1FF),  // E
+    GLYPH(0x1FF, 0x3FF, 0x3C0, 0x3C0, 0x3DF, 0x3DF, 0x3CF, 0x3CF, 0x3FF, 0x1FF),  // G
+    GLYPH(0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3C0),  // I
+    GLYPH(0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3C0, 0x3FF, 0x1FF),  // L
+    {0xF0F, 0xF9F, 0xFFF, 0xFFF, 0xF6F, 0xF6F, 0xF0F, 0xF0F, 0xF0F, 0xF0F},  // M
     GLYPH(0x3CF, 0x3EF, 0x3FF, 0x3FF, 0x3DF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF),  // N
     GLYPH(0x1FE, 0x3FF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3FF, 0x1FE),  // O
     GLYPH(0x3FE, 0x3FF, 0x3CF, 0x3CF, 0x3FF, 0x3FE, 0x3C0, 0x3C0, 0x3C0, 0x3C0),  // P
+    GLYPH(0x1FE, 0x3FF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3EF, 0x3FE, 0x3FF, 0x1F3),  // Q
     GLYPH(0x3FE, 0x3FF, 0x3CF, 0x3CF, 0x3FE, 0x3FF, 0x3CF, 0x3CF, 0x3CF, 0x3CF),  // R
     GLYPH(0x1FF, 0x3FF, 0x3C0, 0x3C0, 0x3FE, 0x1FF, 0x00F, 0x00F, 0x3FF, 0x3FE),  // S
     GLYPH(0x3FF, 0x3FF, 0x078, 0x078, 0x078, 0x078, 0x078, 0x078, 0x078, 0x078),  // T
+    GLYPH(0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3FF, 0x1FE),  // U
     {0xF0F, 0xF0F, 0xF0F, 0xF6F, 0xF6F, 0xFFF, 0xFFF, 0xF9F, 0xF0F, 0xF0F},  // W
     GLYPH(0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3FF, 0x1FE, 0x078, 0x078, 0x078, 0x078),  // Y
+    GLYPH(0x1FE, 0x3FF, 0x00F, 0x00F, 0x07E, 0x078, 0x078, 0x000, 0x078, 0x078),  // ?
   },
   // Pixel-art pointing hand (tap hint), 12x14: outline and fill masks.
   .hand_ol = {0x0E0, 0x1B0, 0x1B0, 0x1BE, 0x1B5, 0x7B5, 0x9D5, 0x8C1,
@@ -455,6 +468,10 @@ static const struct Rom rom_init = {
   .s_crossy = "CROSSY",
   .s_road = "ROAD",
   .s_new_top = "NEW TOP",
+  .s_quit = "QUIT GAME",
+  .s_quit_q = "QUIT GAME?",
+  .s_no = "NO",
+  .s_yes = "YES",
 };
 #endif
 
@@ -477,6 +494,10 @@ static const struct Rom rom_init = {
 #define str_crossy G.rom.s_crossy
 #define str_road G.rom.s_road
 #define str_new_top G.rom.s_new_top
+#define str_quit G.rom.s_quit
+#define str_quit_q G.rom.s_quit_q
+#define str_no G.rom.s_no
+#define str_yes G.rom.s_yes
 
 static void init_palette(void) {
   for (int i = 0; i < NCOLORS; i++) shade[i] = i;
@@ -1087,12 +1108,16 @@ static void start_hop(int dir) {
   P.log = -1;
 }
 
+static void write_save(void);
+
+// Coins are saved as soon as they are collected: they add up across rounds.
 static void collect_coin(void) {
   Lane *L = lane_at(iround(P.z));
   int col = iround(P.x);
   if (L->coin != NO_COIN && L->coin == col && fabs_(P.x - col) < 0.4f && fabs_(P.z - L->row) < 0.4f) {
     L->coin = NO_COIN;
     coins++;
+    write_save();
     spawn_parts(col, P.base + 0.3f, L->row, 8, C_GOLD, C_COIN, 1.0f, 3.0f);
   }
   if (L->type == L_RIVER && P.log >= 0) {
@@ -1100,6 +1125,7 @@ static void collect_coin(void) {
     if (o->coin >= 0 && fabs_(o->x - o->kind * 0.5f + 0.5f + o->coin - P.x) < 0.4f) {
       o->coin = -1;
       coins++;
+      write_save();
       spawn_parts(P.x, P.base + 0.3f, L->row, 8, C_GOLD, C_COIN, 1.0f, 3.0f);
     }
   }
@@ -1424,7 +1450,7 @@ static float bob_of(const Lane *L, int idx) {
 static void draw_coin(float x, float g, float z) {
   float sx = sx_of(x, z);
   if (sx < -10 || sx > SW + 10) return;
-  float a = game_time * 3.2f;
+  float a = game_time * 1.6f;  // a turn in 0.6 s
   float ph = a - (int)a;  // 0..1 turn
   float c = ph < 0.5f ? 1 - ph * 4 : -3 + ph * 4;
   float ac = fabs_(c), w = 0.2f * ac + 0.02f, d = 0.2f * (1 - ac) + 0.02f;
@@ -1643,11 +1669,12 @@ static void draw_coin_icon(int x, int y) {
   fill_rect(x + 7, y + 6, 4, 4, C_COIN);
 }
 
+// The coins ever collected, top right; smaller once too wide for the corner.
 static void draw_coins_hud(void) {
   char buf[12];
   itoa_(coins, buf);
-  int w = text_width(buf, 2);
-  text_ol(SW - 28 - w, 6, buf, 2, C_GOLD);
+  int sc = text_width(buf, 2) > 110 ? 1 : 2, w = text_width(buf, sc);
+  text_ol(SW - 28 - w, sc == 2 ? 6 : 11, buf, sc, C_GOLD);
   draw_coin_icon(SW - 22, 8);
 }
 
@@ -1699,11 +1726,32 @@ static void draw_play_button(int cx, int y) {
   for (int i = 0; i < 10; i++) fill_rect(cx - 9 + i * 2, y + 9 + i, 2, 22 - 2 * i, C_WHITE);
 }
 
+// A small button with an outline, blue when selected.
+static void draw_small_button(int cx, int y, const char *s, int on) {
+  int w = text_width(s, 1) + 18;
+  fill_rect(cx - w / 2 - 2, y - 2, w + 4, 22, C_OUTLINE);
+  fill_rect(cx - w / 2, y, w, 18, on ? C_WHITE : C_GRAY);
+  fill_rect(cx - w / 2 + 2, y + 2, w - 4, 14, on ? C_BTN : C_GRAY);
+  text_ol(cx - text_width(s, 1) / 2 + 1, y + 4, s, 1, C_WHITE);
+}
+
+// Paused: the pause bars (white while they are selected: any move resumes), and Quit game below.
 static void draw_pause(void) {
-  fill_rect(140, 94, 16, 48, C_OUTLINE);
-  fill_rect(164, 94, 16, 48, C_OUTLINE);
-  fill_rect(142, 96, 12, 44, C_WHITE);
-  fill_rect(166, 96, 12, 44, C_WHITE);
+  int c = pause_sel ? C_GRAY : C_WHITE;
+  fill_rect(140, 84, 16, 48, C_OUTLINE);
+  fill_rect(164, 84, 16, 48, C_OUTLINE);
+  fill_rect(142, 86, 12, 44, c);
+  fill_rect(166, 86, 12, 44, c);
+  draw_small_button(160, 150, str_quit, pause_sel);
+}
+
+// Leaving asks first: Back sits right next to OK.
+static void draw_quit_question(void) {
+  fill_rect(24, 68, 272, 104, C_OUTLINE);
+  fill_rect(26, 70, 268, 100, C_BTN_S);
+  text_ol(160 - text_width(str_quit_q, 2) / 2, 84, str_quit_q, 2, C_WHITE);
+  draw_small_button(120, 132, str_no, !quit_sel);
+  draw_small_button(200, 132, str_yes, quit_sel);
 }
 
 static void render(void) {
@@ -1731,7 +1779,8 @@ static void render(void) {
     }
   }
   draw_coins_hud();
-  if (paused) draw_pause();
+  if (paused && !quitting) draw_pause();
+  if (quitting) draw_quit_question();
 }
 
 // ---------------------------------------------------------------------------
@@ -1795,7 +1844,7 @@ static void load_save(void) {
   const uint8_t *d = f + 2 + sizeof(save_name);
   uint32_t v[3];
   for (int i = 0; i < 3; i++) v[i] = d[4 * i] | d[4 * i + 1] << 8 | d[4 * i + 2] << 16 | (uint32_t)d[4 * i + 3] << 24;
-  if (save_sum(v[0], v[1]) != v[2] || v[0] > 1000000 || v[1] > 1000000) return;
+  if (save_sum(v[0], v[1]) != v[2] || v[0] > 999999999 || v[1] > 999999999) return;
   top_score = (int)v[0];
   coins = (int)v[1];
 }
@@ -1944,13 +1993,23 @@ int main(int argc, char *argv[]) {
     else if (PRESSED(eadk_key_right)) dir = 1;
     else if (PRESSED(eadk_key_down)) dir = 2;
     else if (PRESSED(eadk_key_left)) dir = 3;
-    if (PRESSED(eadk_key_back)) {
-      if (state == ST_PLAY && !paused) paused = 1;
+    int ok = PRESSED(eadk_key_ok) || PRESSED(eadk_key_exe);
+    if (quitting) {
+      if (PRESSED(eadk_key_left) || PRESSED(eadk_key_right)) quit_sel ^= 1;
+      if (PRESSED(eadk_key_back)) quitting = 0;
+      else if (ok && quit_sel) break;
+      else if (ok) quitting = 0;
+      dir = -1;
+    } else if (PRESSED(eadk_key_back)) {
+      if (state == ST_PLAY && !paused) paused = 1, pause_sel = 0;
       else if (paused) paused = 0;
-      else break;
-    }
-    if (paused) {
-      if (dir >= 0) paused = 0;
+      else quitting = 1, quit_sel = 0;  // title or game over: nothing to pause
+      dir = -1;
+    } else if (paused) {
+      if (PRESSED(eadk_key_down)) pause_sel = 1;
+      else if (pause_sel && PRESSED(eadk_key_up)) pause_sel = 0;
+      else if (pause_sel && ok) quitting = 1, quit_sel = 0;
+      else if (!pause_sel && dir >= 0) paused = 0;
       dir = -1;
     }
     if (dir >= 0 && !restarting) {
@@ -1997,6 +2056,7 @@ int main(int argc, char *argv[]) {
 #endif
     present();
   }
+  write_save();
 #if PLATFORM_DEVICE && !defined(HOST)
   g9 = caller_r9;
 #endif

@@ -406,13 +406,20 @@ static void card_btns(int sel, int yb) {
       g_text_c(&font_s, lx, yb + 25 - font_s.base, "Levels", C_WHITE, 32);
     }
     /* focus ring */
-    int fx = sel == 0 ? xb : sel == 1 ? xb + ws : xb + wb - wl;
-    int fw = sel == 0 ? ws : sel == 1 ? wb - ws - wl : wl;
-    g_rect(fx + 1, yb + 1, fw - 2, 1, C_WHITE, 26);
-    g_rect(fx + 1, yb + h - 5, fw - 2, 1, C_WHITE, 26);
-    g_rect(fx + 1, yb + 1, 1, h - 5, C_WHITE, 26);
-    g_rect(fx + fw - 2, yb + 1, 1, h - 5, C_WHITE, 26);
+    if (sel != CARD_SEL_QUIT) {
+      int fx = sel == 0 ? xb : sel == 1 ? xb + ws : xb + wb - wl;
+      int fw = sel == 0 ? ws : sel == 1 ? wb - ws - wl : wl;
+      g_rect(fx + 1, yb + 1, fw - 2, 1, C_WHITE, 26);
+      g_rect(fx + 1, yb + h - 5, fw - 2, 1, C_WHITE, 26);
+      g_rect(fx + 1, yb + 1, 1, h - 5, C_WHITE, 26);
+      g_rect(fx + fw - 2, yb + 1, 1, h - 5, C_WHITE, 26);
+    }
   }
+  /* Quit game, small, under the others (Down to reach it) */
+  int qw = g_text_w(&font_s, "Quit game") + 16, qy = yb + h + 5;
+  bool q = sel == CARD_SEL_QUIT;
+  g_button(160 - qw / 2, qy, qw, 15, 5, q ? C_BLUE : C_GRAY, q ? C_BLUE_D : C_GRAY_D, q);
+  g_text_c(&font_s, 160, qy + 12 - font_s.base, "Quit game", C_WHITE, 32);
 }
 
 void card_draw(int anim, int sel, bool full) {
@@ -493,8 +500,8 @@ void card_draw(int anim, int sel, bool full) {
       }
     }
     g_begin(buf, sy, n);
-    if (full || (ybtn - 3 < sy + n && ybtn + 33 > sy)) card_btns(sel, ybtn);
-    if (full) {
+    if (full || (ybtn - 3 < sy + n && ybtn + 54 > sy)) card_btns(sel, ybtn);
+    if (full && cd.kind != CARD_PAUSE) { /* Back: the level list (on the pause card, Back resumes) */
       g_icon(&ic_back, 34, 84, C_WHITE, 32);
       g_icon(&ic_back, 35, 84, C_WHITE, 32);
     }
@@ -561,6 +568,28 @@ void levels_draw(int sel, int scroll) {
     if (sy < 110 && sy + n > 84) {
       g_icon(&ic_back, 34, 84, C_WHITE, 32);
       g_icon(&ic_back, 35, 84, C_WHITE, 32);
+    }
+    plat_push(0, sy, SCREEN_W, n, buf);
+  }
+}
+
+/* ------------------------------------------------------------------ quit */
+void quit_draw(bool yes) {
+  for (int sy = 0; sy < SCREEN_H; sy += STRIP_H) {
+    int n = SCREEN_H - sy < STRIP_H ? SCREEN_H - sy : STRIP_H;
+    uint16_t *buf = render_buffer();
+    for (int r = 0; r < n; r++) bg_row(buf + r * SCREEN_W, sy + r, 0, SCREEN_W);
+    g_begin(buf, sy, n);
+    g_rrect(63, 75, 200, 94, 12, C_SHADOW, 13);
+    g_rrect(59, 71, 202, 94, 13, C_BLACK, 32);
+    g_rrect(60, 72, 200, 92, 12, C_WHITE, 32);
+    g_text_c(&font_m, 160, 100 - font_m.base, "Quit game?", C_OUTLINE, 32);
+    g_text_c(&font_s, 160, 116 - font_s.base, "You can come back anytime.", C_CAPTION, 32);
+    for (int k = 0; k < 2; k++) {
+      bool on = k == yes;
+      int x = k ? 170 : 80;
+      g_button(x, 126, 70, 26, 6, on ? C_BLUE : C_GRAY, on ? C_BLUE_D : C_GRAY_D, on);
+      g_text_c(&font_s, x + 35, 126 + 17 - font_s.base, k ? "Yes" : "No", C_WHITE, 32);
     }
     plat_push(0, sy, SCREEN_W, n, buf);
   }

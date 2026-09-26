@@ -29,16 +29,40 @@
 
 Click a file to download it. Not sure which one? Take the first.
 
-| | File | What it is |
-| :---: | --- | --- |
-| <img src="docs/media/icon.png" width="56" alt="NumPlay icon"> | **[NumPlay.nwa](https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay.nwa)** | **All 5 games in one app. Start here!** |
-| <img src="docs/media/icon-invisible.png" width="56" alt="A blank white icon"> | [NumPlay-Invisible.nwa](https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay-Invisible.nwa) | The same app, hidden. Its icon is plain white, like the calculator's home screen, and it has no name, so it looks like an empty spot. |
-| <img src="docs/media/icon-matrices.png" width="56" alt="A Matrices icon in the calculator's style"> | [NumPlay-Matrices.nwa](https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay-Matrices.nwa) | The same app, in disguise. It looks like a math app called **Matrices**, next to the calculator's own apps. |
-| <img src="docs/media/thumb_numdash.png" width="96" alt="NumDash"> | [NumDash.nwa](https://github.com/Mason363/NumPlay/releases/latest/download/NumDash.nwa) | Only NumDash: jump to the beat |
-| <img src="docs/media/thumb_crossyroad.png" width="96" alt="Crossy Road"> | [CrossyRoad.nwa](https://github.com/Mason363/NumPlay/releases/latest/download/CrossyRoad.nwa) | Only Crossy Road: hop, dodge, survive |
-| <img src="docs/media/thumb_numdrive.png" width="96" alt="NumDrive"> | [NumDrive.nwa](https://github.com/Mason363/NumPlay/releases/latest/download/NumDrive.nwa) | Only NumDrive: drive, flip, finish |
-| <img src="docs/media/thumb_tetris.png" width="96" alt="Tetris"> | [Tetris.nwa](https://github.com/Mason363/NumPlay/releases/latest/download/Tetris.nwa) | Only Tetris: stack and clear lines |
-| <img src="docs/media/thumb_chess.png" width="96" alt="Chess"> | [NumChess.nwa](https://github.com/Mason363/NumPlay/releases/latest/download/NumChess.nwa) | Only Chess: bots, puzzles, 2 players |
+<table>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/icon.png" width="64" alt="NumPlay icon"></td>
+    <td><b><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay.nwa">NumPlay.nwa</a></b><br><b>All 5 games in one app. Start here!</b></td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/icon-invisible.png" width="64" alt="A blank white icon"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay-Invisible.nwa">NumPlay-Invisible.nwa</a><br>The same app, hidden. Its icon is plain white, like the calculator's home screen, and it has no name, so it looks like an empty spot.</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/icon-matrices.png" width="64" alt="A Matrices icon in the calculator's style"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay-Matrices.nwa">NumPlay-Matrices.nwa</a><br>The same app, in disguise. It looks like a math app called <b>Matrices</b>, next to the calculator's own apps.</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_numdash.png" width="112" alt="NumDash"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumDash.nwa">NumDash.nwa</a><br>Only NumDash: jump to the beat</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_crossyroad.png" width="112" alt="Crossy Road"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/CrossyRoad.nwa">CrossyRoad.nwa</a><br>Only Crossy Road: hop, dodge, survive</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_numdrive.png" width="112" alt="NumDrive"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumDrive.nwa">NumDrive.nwa</a><br>Only NumDrive: drive, flip, finish</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_tetris.png" width="112" alt="Tetris"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Tetris.nwa">Tetris.nwa</a><br>Only Tetris: stack and clear lines</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_chess.png" width="112" alt="Chess"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumChess.nwa">NumChess.nwa</a><br>Only Chess: bots, puzzles, 2 players</td>
+  </tr>
+</table>
 
 The first three are the same app with the same games: only the icon and the name change. Your progress is saved on the calculator either way.
 

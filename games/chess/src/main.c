@@ -87,25 +87,6 @@ static void rrect(int x, int y, int w, int h, int r, C c) {
   }
 }
 
-static void disc(int cx, int cy, int r, C c) { rrect(cx - r, cy - r, 2 * r, 2 * r, r, c); }
-
-/* Thick anti-aliased line blended over the screen. */
-static void stroke(float x0, float y0, float x1, float y1, float w, C c) {
-  int bx = (x0 < x1 ? x0 : x1) - w - 1, by = (y0 < y1 ? y0 : y1) - w - 1;
-  int bw = (x0 < x1 ? x1 - x0 : x0 - x1) + 2 * w + 3, bh = (y0 < y1 ? y1 - y0 : y0 - y1) + 2 * w + 3;
-  float ex = x1 - x0, ey = y1 - y0, l2 = ex * ex + ey * ey;
-  for (int j = 0; j < bh; j++) {
-    eadk_rect_t R = {bx, by + j, bw, 1};
-    eadk_display_pull_rect(R, buf);
-    for (int i = 0; i < bw; i++) {
-      float px = bx + i + 0.5f - x0, py = by + j + 0.5f - y0, t = clampf((px * ex + py * ey) / l2);
-      px -= ex * t, py -= ey * t;
-      buf[i] = mix(buf[i], c, (int)(32 * clampf(w / 2 + 0.5f - __builtin_sqrtf(px * px + py * py))));
-    }
-    eadk_display_push_rect(R, buf);
-  }
-}
-
 static void dim(int x, int y, int w, int h) {
   for (int j = 0; j < h; j++) {
     eadk_rect_t R = {x, y + j, w, 1};
@@ -163,6 +144,139 @@ static void sprite(int pc, int X, int Y, int small) {
       }
     }
   eadk_display_push_rect(R, buf);
+}
+
+/* ------------------------------------------------------------ Widgets */
+
+/* Menus, dialogs and the side panel are drawn into memory, then sent to the
+ * screen in one go, so nothing on screen is cleared first. Their texts are left
+ * out of that piece and drawn by the calculator right after: its text routine
+ * paints its own background, so every pixel changes once and nothing flickers. */
+#define WPIX (200 * 56)
+static C wbuf[WPIX];
+static struct {
+  int x, y, w, h, nt;
+  struct {
+    int16_t x, y;
+    uint8_t big, n;
+    C fg, bg;
+    char s[16];
+  } t[8];
+} W;
+
+static void w_begin(int x, int y, int w, int h, C bg) {
+  if (w * h > WPIX) h = WPIX / w;
+  W.x = x, W.y = y, W.w = w, W.h = h, W.nt = 0;
+  for (int i = 0; i < w * h; i++) wbuf[i] = bg;
+}
+
+/* the same, over what the screen shows there */
+static void w_grab(int x, int y, int w, int h) {
+  w_begin(x, y, w, h, 0);
+  eadk_display_pull_rect((eadk_rect_t){x, y, w, W.h}, wbuf);
+}
+
+/* Anti-aliased rounded rectangle over what is drawn so far (screen coordinates). */
+static void w_rrect(int x, int y, int w, int h, int r, C c) {
+  for (int j = 0; j < h; j++) {
+    int yy = y + j - W.y;
+    if (yy < 0 || yy >= W.h) continue;
+    float dy = j < r ? r - j - 0.5f : j >= h - r ? j + 0.5f - (h - r) : 0;
+    C *row = wbuf + yy * W.w;
+    for (int i = 0; i < w; i++) {
+      int xx = x + i - W.x;
+      if (xx < 0 || xx >= W.w) continue;
+      float dx = i < r ? r - i - 0.5f : i >= w - r ? i + 0.5f - (w - r) : 0;
+      if (dx == 0 || dy == 0) {
+        row[xx] = c;
+        continue;
+      }
+      float d = __builtin_sqrtf(dx * dx + dy * dy) - r;
+      row[xx] = mix(row[xx], c, (int)(32 * clampf(0.5f - d)));
+    }
+  }
+}
+
+static void w_disc(int cx, int cy, int r, C c) { w_rrect(cx - r, cy - r, 2 * r, 2 * r, r, c); }
+
+/* Thick anti-aliased line. */
+static void w_stroke(float x0, float y0, float x1, float y1, float w, C c) {
+  float ex = x1 - x0, ey = y1 - y0, l2 = ex * ex + ey * ey;
+  for (int yy = 0; yy < W.h; yy++)
+    for (int xx = 0; xx < W.w; xx++) {
+      float px = W.x + xx + 0.5f - x0, py = W.y + yy + 0.5f - y0, t = clampf((px * ex + py * ey) / l2);
+      px -= ex * t, py -= ey * t;
+      float a = clampf(w / 2 + 0.5f - __builtin_sqrtf(px * px + py * py));
+      if (a > 0) wbuf[yy * W.w + xx] = mix(wbuf[yy * W.w + xx], c, (int)(32 * a));
+    }
+}
+
+static void w_sprite(int pc, int X, int Y, int small) {
+  int s = small ? 15 : 30;
+  for (int y = 0; y < s; y++) {
+    int yy = Y + y - W.y;
+    if (yy < 0 || yy >= W.h) continue;
+    for (int x = 0; x < s; x++) {
+      int xx = X + x - W.x;
+      if (xx < 0 || xx >= W.w) continue;
+      C *o = &wbuf[yy * W.w + xx];
+      if (small) {
+        C a = mix(shade(pc, 2 * x, 2 * y, *o), shade(pc, 2 * x + 1, 2 * y, *o), 16);
+        C b = mix(shade(pc, 2 * x, 2 * y + 1, *o), shade(pc, 2 * x + 1, 2 * y + 1, *o), 16);
+        *o = mix(a, b, 16);
+      } else {
+        *o = shade(pc, x, y, *o);
+      }
+    }
+  }
+}
+
+static void w_text(const char *s, int x, int y, int big, C fg, C bg) {
+  if (W.nt >= 8) return;
+  int k = W.nt++, n = 0;
+  strncpy(W.t[k].s, s, 15);
+  W.t[k].s[15] = 0;
+  for (const char *c = W.t[k].s; *c; c++) n += (*c & 0xC0) != 0x80;
+  W.t[k].x = (int16_t)x, W.t[k].y = (int16_t)y, W.t[k].big = (uint8_t)big, W.t[k].n = (uint8_t)n;
+  W.t[k].fg = fg, W.t[k].bg = bg;
+}
+
+static void w_ctext(const char *s, int cx, int y, int big, C fg, C bg) {
+  int n = 0;
+  for (const char *c = s; *c; c++) n += (*c & 0xC0) != 0x80;
+  w_text(s, cx - n * (big ? 10 : 7) / 2, y, big, fg, bg);
+}
+
+/* Sends the piece around its texts (rows without text in blocks), then the texts. */
+static void w_end(void) {
+  int b0 = -1;
+  for (int j = 0; j <= W.h; j++) {
+    int sy = W.y + j, cut = 0;
+    for (int k = 0; j < W.h && k < W.nt && !cut; k++) cut = sy >= W.t[k].y && sy < W.t[k].y + (W.t[k].big ? 18 : 14);
+    if (j < W.h && !cut) {
+      if (b0 < 0) b0 = j;
+      continue;
+    }
+    if (b0 >= 0) eadk_display_push_rect((eadk_rect_t){W.x, W.y + b0, W.w, j - b0}, wbuf + b0 * W.w);
+    b0 = -1;
+    if (j == W.h) break;
+    for (int x = W.x; x < W.x + W.w;) {
+      int next = W.x + W.w, over = x;
+      for (int k = 0; k < W.nt; k++) {
+        if (sy < W.t[k].y || sy >= W.t[k].y + (W.t[k].big ? 18 : 14)) continue;
+        int t0 = W.t[k].x, t1 = t0 + W.t[k].n * (W.t[k].big ? 10 : 7);
+        if (t0 <= x && x < t1 && t1 > over) over = t1;
+        else if (t0 > x && t0 < next) next = t0;
+      }
+      if (over > x) {
+        x = over;
+        continue;
+      }
+      eadk_display_push_rect((eadk_rect_t){x, sy, next - x, 1}, wbuf + j * W.w + (x - W.x));
+      x = next;
+    }
+  }
+  for (int k = 0; k < W.nt; k++) text(W.t[k].s, W.t[k].x, W.t[k].y, W.t[k].big, W.t[k].fg, W.t[k].bg);
 }
 
 /* -------------------------------------------------------------- Board */
@@ -285,125 +399,212 @@ static int arrow(int e, int *i, int n, int horiz) {
 
 static void button(int x, int y, int w, int h, const char *s, int on, int icon) {
   C c = on ? GREEN : CARD;
-  rrect(x, y, w, h, 8, c);
+  w_begin(x, y, w, h, BG);
+  w_rrect(x, y, w, h, 8, c);
   if (icon) {
     int ty = y + (h - 40) / 2;
-    rrect(x + 8, ty, 40, 40, 9, SQ_L);
+    w_rrect(x + 8, ty, 40, 40, 9, SQ_L);
     if (icon == KING) {
-      sprite(KING, x + 6, ty + 5, 0);
-      sprite(KING | BLACK, x + 20, ty + 5, 0);
+      w_sprite(KING, x + 6, ty + 5, 0);
+      w_sprite(KING | BLACK, x + 20, ty + 5, 0);
     } else {
-      sprite(icon, x + 13, ty + 5, 0);
+      w_sprite(icon, x + 13, ty + 5, 0);
     }
-    text(s, x + 60, y + (h - 18) / 2, 1, WHITE, c);
+    w_text(s, x + 60, y + (h - 18) / 2, 1, WHITE, c);
   } else {
-    ctext(s, x + w / 2, y + (h - 18) / 2, 1, on ? WHITE : RGB(0xDD, 0xDC, 0xDA), c);
+    w_ctext(s, x + w / 2, y + (h - 18) / 2, 1, on ? WHITE : RGB(0xDD, 0xDC, 0xDA), c);
+  }
+  w_end();
+}
+
+/* Vertical list of buttons. Returns chosen index or -1. A move redraws only
+   the two buttons it changes. */
+static int list(const char *const *items, const uint8_t *icons, int n, int x, int w, int h, int gap, int *i) {
+  int y0 = (240 - n * h - (n - 1) * gap) / 2;
+  for (int k = 0; k < n; k++) button(x, y0 + k * (h + gap), w, h, items[k], k == *i, icons ? icons[k] : 0);
+  for (;;) {
+    int e = key(100000), o = *i;
+    if (arrow(e, i, n, 0)) {
+      button(x, y0 + o * (h + gap), w, h, items[o], 0, icons ? icons[o] : 0);
+      button(x, y0 + *i * (h + gap), w, h, items[*i], 1, icons ? icons[*i] : 0);
+    }
+    if (e == K_OK) return *i;
+    if (e == K_BACK) return -1;
   }
 }
 
-/* Vertical list of buttons. Returns chosen index or -1. */
-static int list(const char *const *items, const uint8_t *icons, int n, int x, int w, int h, int gap, int *i) {
-  int y0 = (240 - n * h - (n - 1) * gap) / 2, redraw = 1;
+/* "Quit game?" over whatever is on screen: 1 to quit. Back sits right next to
+   OK, so leaving the game always asks first. */
+static void quit_buttons(int yes, int first) {
+  w_grab(40, 116, 160, 60);
+  if (first) w_rrect(40, 64, 160, 112, 12, BG);
+  else w_rrect(46, 120, 148, 44, 0, BG);
+  for (int k = 0; k < 2; k++) {
+    C c = k == yes ? GREEN : CARD;
+    w_rrect(50 + k * 74, 124, 66, 36, 8, c);
+    w_ctext(k ? "Yes" : "No", 83 + k * 74, 133, 1, WHITE, c);
+  }
+  w_end();
+}
+
+static int confirm_quit(void) {
+  w_grab(40, 64, 160, 52);
+  w_rrect(40, 64, 160, 112, 12, BG);
+  w_ctext("Quit game?", 120, 84, 1, WHITE, BG);
+  w_end();
+  int yes = 0;
+  quit_buttons(yes, 1);
   for (;;) {
-    if (redraw)
-      for (int k = 0; k < n; k++) button(x, y0 + k * (h + gap), w, h, items[k], k == *i, icons ? icons[k] : 0);
     int e = key(100000);
-    redraw = arrow(e, i, n, 0);
-    if (e == K_OK) return *i;
-    if (e == K_BACK) return -1;
+    if (e == K_LEFT || e == K_RIGHT) quit_buttons(yes = !yes, 0);
+    if (e == K_OK) return yes;
+    if (e == K_BACK) return 0;
   }
 }
 
 static int main_menu(int *i) {
   static const char *const items[] = {"Play", "Puzzles", "2 Players"};
   static const uint8_t icons[] = {KNIGHT | BLACK, QUEEN | BLACK, KING};
-  fill(0, 0, 320, 240, BG);
-  return list(items, icons, 3, 60, 200, 56, 14, i);
+  for (;;) {
+    fill(0, 0, 320, 240, BG);
+    int k = list(items, icons, 3, 60, 200, 56, 14, i);
+    if (k >= 0 || confirm_quit()) return k;
+  }
 }
 
-static void avatar(int b, int cx, int cy, int r) {
-  disc(cx, cy, r, BOTS[b].col);
-  sprite(BOTS[b].pc, cx - 15, cy - 16, 0);
+static void w_avatar(int b, int cx, int cy, int r) {
+  w_disc(cx, cy, r, BOTS[b].col);
+  w_sprite(BOTS[b].pc, cx - 15, cy - 16, 0);
+}
+
+static void bot_row(int k) {
+  C c = k == bot ? CARD : BG;
+  w_begin(6, k * 20, 148, 20, BG);
+  w_rrect(6, k * 20, 148, 20, 6, c);
+  w_disc(20, k * 20 + 10, 5, BOTS[k].col);
+  w_text(BOTS[k].name, 32, k * 20 + 3, 0, k == bot ? WHITE : RGB(0xC8, 0xC7, 0xC5), c);
+  char e[6];
+  itoa(BOTS[k].elo, e);
+  w_text(e, 146 - 7 * (int)strlen(e), k * 20 + 3, 0, DIM, c);
+  w_end();
+}
+
+/* the chosen bot on the right: its avatar, then its name and Elo, whose old
+   text is covered by the new one and the margins around it */
+static void bot_info(void) {
+  w_begin(200, 22, 80, 80, BG);
+  w_avatar(bot, 240, 62, 40);
+  w_end();
+  w_begin(170, 110, 140, 44, BG);
+  w_ctext(BOTS[bot].name, 240, 114, 1, WHITE, BG);
+  char e[6];
+  itoa(BOTS[bot].elo, e);
+  w_ctext(e, 240, 136, 0, DIM, BG);
+  w_end();
+}
+
+static void side_button(int k) {
+  int x = 184 + k * 40;
+  w_begin(x, 172, 32, 32, BG);
+  w_rrect(x, 172, 32, 32, 8, k == pside ? GREEN : CARD);
+  w_sprite(KING | (k == 1 ? 16 : k == 2 ? BLACK : 0), x + 1, 173, 0);
+  w_end();
 }
 
 static int bot_select(void) {
   fill(0, 0, 320, 240, BG);
-  int redraw = 1;
+  for (int k = 0; k < NBOTS; k++) bot_row(k);
+  bot_info();
+  for (int k = 0; k < 3; k++) side_button(k);
   for (;;) {
-    if (redraw) {
-      for (int k = 0; k < NBOTS; k++) {
-        C c = k == bot ? CARD : BG;
-        rrect(6, k * 20, 148, 20, 6, c);
-        disc(20, k * 20 + 10, 5, BOTS[k].col);
-        text(BOTS[k].name, 32, k * 20 + 3, 0, k == bot ? WHITE : RGB(0xC8, 0xC7, 0xC5), c);
-        char e[6];
-        itoa(BOTS[k].elo, e);
-        text(e, 146 - 7 * strlen(e), k * 20 + 3, 0, DIM, c);
-      }
-      fill(160, 0, 160, 240, BG);
-      avatar(bot, 240, 62, 40);
-      ctext(BOTS[bot].name, 240, 114, 1, WHITE, BG);
-      char e[6];
-      itoa(BOTS[bot].elo, e);
-      ctext(e, 240, 136, 0, DIM, BG);
-      for (int k = 0; k < 3; k++) {
-        int x = 184 + k * 40;
-        rrect(x, 172, 32, 32, 8, k == pside ? GREEN : CARD);
-        sprite(KING | (k == 1 ? 16 : k == 2 ? BLACK : 0), x + 1, 173, 0);
-      }
-    }
     int e = key(100000), o = bot, os = pside;
     arrow(e, &bot, NBOTS, 0);
     arrow(e, &pside, 3, 1);
-    redraw = o != bot || os != pside;
+    if (bot != o) {
+      bot_row(o);
+      bot_row(bot);
+      bot_info();
+    }
+    if (pside != os) {
+      side_button(os);
+      side_button(pside);
+    }
     if (e == K_OK) return 1;
     if (e == K_BACK) return 0;
   }
 }
 
+static void tc_card(int k) {
+  int x = 12 + (k & 3) * 76, y = 64 + (k >> 2) * 64;
+  char s[8], *o = s;
+  if (TC[k].min) {
+    o = itoa(TC[k].min, o);
+    *o++ = '+';
+    itoa(TC[k].inc, o);
+  } else {
+    strcpy(s, "\xE2\x88\x9E");
+  }
+  C c = k == tc ? GREEN : CARD;
+  w_begin(x, y, 68, 52, BG);
+  w_rrect(x, y, 68, 52, 8, c);
+  w_ctext(s, x + 34, y + 17, 1, WHITE, c);
+  w_end();
+}
+
 static int time_select(void) {
   fill(0, 0, 320, 240, BG);
-  int redraw = 1;
+  for (int k = 0; k < 8; k++) tc_card(k);
   for (;;) {
-    if (redraw)
-      for (int k = 0; k < 8; k++) {
-        int x = 12 + (k & 3) * 76, y = 64 + (k >> 2) * 64;
-        char s[8], *o = s;
-        if (TC[k].min) {
-          o = itoa(TC[k].min, o);
-          *o++ = '+';
-          itoa(TC[k].inc, o);
-        } else {
-          strcpy(s, "\xE2\x88\x9E");
-        }
-        rrect(x, y, 68, 52, 8, k == tc ? GREEN : CARD);
-        ctext(s, x + 34, y + 17, 1, WHITE, k == tc ? GREEN : CARD);
-      }
     int e = key(100000), o = tc;
     if (e == K_LEFT && tc & 3) tc--;
     if (e == K_RIGHT && (tc & 3) < 3) tc++;
     if (e == K_UP && tc > 3) tc -= 4;
     if (e == K_DOWN && tc < 4) tc += 4;
-    redraw = o != tc;
+    if (tc != o) {
+      tc_card(o);
+      tc_card(tc);
+    }
     if (e == K_OK) return 1;
     if (e == K_BACK) return 0;
   }
 }
 
-/* Modal list drawn over the dimmed board. */
+/* The pause menu: a list drawn over the dimmed board, with Quit game under it,
+   small. Returns the chosen index, or -1 for Back. */
+static void overlay_item(const char *const *items, int n, int y, int it, int on) {
+  C c = on ? GREEN : it == n ? CARD : BG;
+  if (it < n) {
+    w_begin(46, y + 6 + it * 36, 148, 36, BG);
+    w_rrect(46, y + 6 + it * 36, 148, 36, 8, c);
+    w_ctext(items[it], 120, y + 15 + it * 36, 1, WHITE, c);
+  } else {
+    int qy = y + n * 36 + 12;
+    w_begin(70, qy, 100, 20, BG);
+    w_rrect(70, qy, 100, 20, 7, c);
+    w_ctext("Quit game", 120, qy + 3, 0, on ? WHITE : RGB(0xDD, 0xDC, 0xDA), c);
+  }
+  w_end();
+}
+
 static int overlay(const char *const *items, int n) {
-  dim(0, 0, 240, 240);
-  int h = n * 36 + 12, y = (240 - h) / 2, i = 0;
-  rrect(40, y, 160, h, 12, BG);
+  int h = n * 36 + 38, y = (240 - h) / 2, i = 0;
   for (;;) {
-    for (int k = 0; k < n; k++) {
-      C c = k == i ? GREEN : BG;
-      rrect(46, y + 6 + k * 36, 148, 36, 8, c);
-      ctext(items[k], 120, y + 15 + k * 36, 1, WHITE, c);
+    dim(0, 0, 240, 240);
+    rrect(40, y, 160, h, 12, BG);
+    for (int k = 0; k <= n; k++) overlay_item(items, n, y, k, k == i);
+    for (;;) {
+      int e = key(100000), o = i;
+      if (arrow(e, &i, n + 1, 0)) {
+        overlay_item(items, n, y, o, 0);
+        overlay_item(items, n, y, i, 1);
+      }
+      if (e == K_BACK) return -1;
+      if (e != K_OK) continue;
+      if (i < n) return i;
+      if (confirm_quit()) np_jump(leave);
+      break;
     }
-    int e = key(100000);
-    arrow(e, &i, n, 0);
-    if (e == K_OK || e == K_BACK) return e == K_OK ? i : -1;
+    draw_board(); /* not quitting: the board again, and the menu over it */
   }
 }
 
@@ -425,7 +626,7 @@ static void captures(int c, int y) {
     int n = START[t] - P.cnt[(!c) << 3 | t];
     for (int k = 0; k < n; k++, x += 7) {
       if (x > 302) x = 244, y += 15;
-      sprite(t | (!c) << 3, x, y, 1);
+      w_sprite(t | (!c) << 3, x, y, 1);
     }
     if (n > 0) x += 6;
   }
@@ -433,7 +634,7 @@ static void captures(int c, int y) {
   if (d > 0) {
     char s[6] = "+";
     itoa(d, s + 1);
-    text(s, x > 290 ? 244 : x + 4, x > 290 ? y + 15 : y, 0, DIM, BG);
+    w_text(s, x > 290 ? 244 : x + 4, x > 290 ? y + 15 : y, 0, DIM, BG);
   }
 }
 
@@ -449,81 +650,104 @@ static void fmt_clock(int32_t ms, char *o) {
   }
 }
 
-static void clock_pill(int c, int y) {
+static void pill(int c, int y) {
   int on = P.side == c;
   C bg = on ? (tm[c] < 10000 && TC[tc].min ? RED : WHITE) : CARD, fg = on ? (bg == RED ? WHITE : INK) : DIM;
-  rrect(244, y, 72, 34, 8, bg);
+  w_rrect(244, y, 72, 34, 8, bg);
   if (TC[tc].min) {
     char s[8];
     fmt_clock(tm[c], s);
-    ctext(s, 280, y + 8, 1, fg, bg);
+    w_ctext(s, 280, y + 8, 1, fg, bg);
   } else {
-    sprite(KING | c << 3, 265, y + 2, 0);
+    w_sprite(KING | c << 3, 265, y + 2, 0);
   }
+}
+
+/* one clock, ticking: redrawn in one piece */
+static void clock_pill(int c, int y) {
+  w_begin(244, y, 72, 34, BG);
+  pill(c, y);
+  w_end();
 }
 
 static void feedback(int ok) {
-  fill(244, 84, 72, 76, BG);
-  if (ok < 0) return;
-  disc(280, 120, 26, ok ? GREEN : RED);
-  if (ok) {
-    stroke(268, 121, 276, 129, 5, WHITE);
-    stroke(276, 129, 292, 112, 5, WHITE);
-  } else {
-    stroke(270, 110, 290, 130, 5, WHITE);
-    stroke(290, 110, 270, 130, 5, WHITE);
+  w_begin(244, 84, 72, 76, BG);
+  if (ok >= 0) {
+    w_disc(280, 120, 26, ok ? GREEN : RED);
+    if (ok) {
+      w_stroke(268, 121, 276, 129, 5, WHITE);
+      w_stroke(276, 129, 292, 112, 5, WHITE);
+    } else {
+      w_stroke(270, 110, 290, 130, 5, WHITE);
+      w_stroke(290, 110, 270, 130, 5, WHITE);
+    }
   }
+  w_end();
 }
 
-static void puzzle_rating(void) {
+static void rating_texts(void) {
   char s[8];
-  fill(240, 176, 80, 64, BG);
   itoa(prating, s);
-  ctext(s, 280, 186, 1, WHITE, BG);
+  w_ctext(s, 280, 186, 1, WHITE, BG);
   if (pdelta) {
     char *o = s;
     if (pdelta > 0) *o++ = '+';
     itoa(pdelta, o);
-    ctext(s, 280, 208, 0, pdelta > 0 ? GREEN : RED, BG);
+    w_ctext(s, 280, 208, 0, pdelta > 0 ? GREEN : RED, BG);
   }
 }
 
-static void panel(void) {
+static void puzzle_rating(void) {
+  w_begin(240, 176, 80, 64, BG);
+  rating_texts();
+  w_end();
+}
+
+/* everything in the panel, into the piece being drawn (the panel is drawn in
+   two halves, each clipping what it does not cover) */
+static void panel_items(void) {
   int top = !flip;
-  fill(240, 0, 80, 240, BG);
   if (mode == M_PUZ) {
     int s = !PZ.start.side;
     C bg = s ? RGB(0x10, 0x10, 0x10) : WHITE;
-    rrect(244, 8, 72, 34, 8, bg);
+    w_rrect(244, 8, 72, 34, 8, bg);
     char t[10] = "Mate in ";
     t[8] = '0' + PZ.mate;
-    ctext(PZ.mate ? t : "Best move", 280, 18, 0, s ? WHITE : INK, bg);
+    w_ctext(PZ.mate ? t : "Best move", 280, 18, 0, s ? WHITE : INK, bg);
     if (pstreak > 1) {
       char k[12];
       strcpy(itoa(pstreak, k), " in a row");
-      ctext(k, 280, 52, 0, DIM, BG);
+      w_ctext(k, 280, 52, 0, DIM, BG);
     }
-    puzzle_rating();
+    rating_texts();
     return;
   }
   if (mode == M_BOT) {
-    avatar(bot, 280, 24, 18);
-    ctext(BOTS[bot].name, 280, 46, 1, WHITE, BG);
+    w_avatar(bot, 280, 24, 18);
+    w_ctext(BOTS[bot].name, 280, 46, 1, WHITE, BG);
     char e[6];
     itoa(BOTS[bot].elo, e);
-    ctext(e, 280, 66, 0, DIM, BG);
+    w_ctext(e, 280, 66, 0, DIM, BG);
     captures(top, 88);
   } else {
-    clock_pill(top, 6);
-    clock_pill(!top, 200);
+    pill(top, 6);
+    pill(!top, 200);
     captures(top, 46);
   }
   captures(!top, mode == M_BOT ? 200 : 164);
   if (hp) {
     char n[8];
     strcpy(itoa((hp + 1) / 2, n), P.side ? "." : "...");
-    ctext(n, 280, 112 - (mode == M_2P) * 8, 0, DIM, BG);
-    ctext(lastsan, 280, 128 - (mode == M_2P) * 8, 1, WHITE, BG);
+    w_ctext(n, 280, 112 - (mode == M_2P) * 8, 0, DIM, BG);
+    w_ctext(lastsan, 280, 128 - (mode == M_2P) * 8, 1, WHITE, BG);
+  }
+}
+
+static void panel(void) {
+  for (int half = 0; half < 2; half++) {
+    w_begin(240, half * 120, 80, 120, BG);
+    panel_items();
+    w_end();
   }
 }
 
@@ -608,6 +832,15 @@ static int human(int e) {
 
 /* ---------------------------------------------------------------- Game */
 
+static void over_button(int k, int on) {
+  static const char *const b[2] = {"Rematch", "Menu"};
+  C c = on ? GREEN : CARD;
+  w_begin(30 + k * 94, 130, 86, 38, BG);
+  w_rrect(30 + k * 94, 130, 86, 38, 8, c);
+  w_ctext(b[k], 73 + k * 94, 140, 1, WHITE, c);
+  w_end();
+}
+
 static int game_over(const char *title, const char *why) {
   eadk_timing_msleep(400);
   dim(0, 0, 240, 240);
@@ -615,15 +848,13 @@ static int game_over(const char *title, const char *why) {
   ctext(title, 120, 74, 1, WHITE, BG);
   ctext(why, 120, 98, 0, DIM, BG);
   int i = 0;
+  for (int k = 0; k < 2; k++) over_button(k, k == i);
   for (;;) {
-    static const char *const b[2] = {"Rematch", "Menu"};
-    for (int k = 0; k < 2; k++) {
-      C c = k == i ? GREEN : CARD;
-      rrect(30 + k * 94, 130, 86, 38, 8, c);
-      ctext(b[k], 73 + k * 94, 140, 1, WHITE, c);
+    int e = key(100000), o = i;
+    if (arrow(e, &i, 2, 1)) {
+      over_button(o, 0);
+      over_button(i, 1);
     }
-    int e = key(100000);
-    arrow(e, &i, 2, 1);
     if (e == K_OK) return !i;
     if (e == K_BACK) return 0;
   }

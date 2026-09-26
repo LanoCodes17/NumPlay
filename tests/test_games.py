@@ -43,7 +43,7 @@ def every(t0, t1, step, key, d=80):
 GAMES = {
     "crossyroad": ("CrossyRoad.nwa", "crossyroad.sav",
                    every(1500, 9000, 350, "up"), 12000, every(1500, 4000, 400, "up"), 6000),
-    "chess": ("NumChess.nwa", None, presses((1500, "ok"), (2500, "ok")), 4000, [], 2500),
+    "chess": ("NumChess.nwa", "numchess.sav", presses((1500, "ok"), (2500, "ok")), 4000, [], 2500),
     "numdash": ("NumDash.nwa", "numdash.nds", presses((2500, "ok"), (4000, "ok"), (5500, "ok")), 9000,
                 presses((2500, "ok")), 5000),
     # pause, level list, next level, play: that saves the level to start from
@@ -58,9 +58,12 @@ GAMES = {
 SEEDS = {
     # the first level done and last played
     "numdrive": b"MD" + bytes([1] + [0] * 24) + b"\0\0\0",
+    # puzzle rating 1234, a streak of 3, the bot Hugo, side 1, a 10-minute clock
+    "chess": bytes([ord("C"), 1, 1234 & 255, 1234 >> 8, 3, 0, 7, 1 | 4 << 2]),
 }
 CHECKS = {
     "numdrive": (lambda v: v[27] == 1, lambda v: v[27] == 0),  # last played level
+    "chess": (lambda v: v == SEEDS["chess"],) * 2,  # read back and kept
 }
 
 

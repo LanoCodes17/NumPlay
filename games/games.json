@@ -84,7 +84,9 @@
     "top": "0x7FA650",
     "bottom": "0x22211E",
     "accent": "0x81B64C",
-    "records": [],
+    "records": [
+      "numchess.sav"
+    ],
     "shots": [
       "docs/italian.png",
       "docs/bots.png",

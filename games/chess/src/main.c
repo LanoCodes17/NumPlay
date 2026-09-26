@@ -1,6 +1,7 @@
 #include <eadk.h>
 #include <string.h>
 #include "../../common/epsilon_app.h"
+#include "../../common/epsilon_files.h"
 #include "../../common/jump.h"
 #include "chess.h"
 #include "sprites.h"
@@ -757,6 +758,33 @@ void ui_tick(void) {
   }
 }
 
+/* -------------------------------------------------------------- Saving */
+
+/* The puzzle rating and streak, and the last bot, side and clock. */
+static const char SAVE_NAME[] = "numchess.sav";
+
+static void save(void) {
+  uint8_t s[8] = {'C', 1, (uint8_t)prating, (uint8_t)(prating >> 8), (uint8_t)pstreak, (uint8_t)(pstreak >> 8),
+                  (uint8_t)bot, (uint8_t)(pside | tc << 2)};
+  ef_write(SAVE_NAME, s, sizeof s);
+}
+
+static void load(void) {
+  uint32_t n;
+  const uint8_t *s = ef_read(SAVE_NAME, &n);
+  if (!s || n != 8 || s[0] != 'C' || s[1] != 1) return;
+  int r = s[2] | s[3] << 8;
+  if (r >= 100 && r <= 4000) prating = r, pstreak = s[4] | s[5] << 8;
+  if (s[6] < NBOTS) bot = s[6];
+  if ((s[7] & 3) < 3) pside = s[7] & 3;
+  tc = s[7] >> 2 & 7;
+}
+
+static int quit(void) {
+  save();
+  return np_app_end();
+}
+
 static void rate(int won) {
   int e = 16 + (prating - PZ.rating) / 25;
   e = e < 2 ? 2 : e > 30 ? 30 : e;
@@ -764,6 +792,7 @@ static void rate(int won) {
   prating += pdelta;
   if (prating < 100) prating = 100;
   pstreak = won ? pstreak + 1 : 0;
+  save();
 }
 
 /* Generate the next puzzle while the solved one stays on screen. */
@@ -891,11 +920,12 @@ static int puzzle_menu(int *i) {
 
 int main(void) {
   np_app_begin();
-  if (np_save_jump(leave)) return np_app_end();
+  if (np_save_jump(leave)) return quit();
   ch_init();
+  load();
   int m = 0, pk = 0;
   for (;;) {
-    if (main_menu(&m) < 0) return np_app_end();
+    if (main_menu(&m) < 0) return quit();
     if (m == 0 && bot_select()) game(M_BOT);
     if (m == 1 && puzzle_menu(&pk) >= 0) puzzles(pk);
     if (m == 2 && time_select()) game(M_2P);

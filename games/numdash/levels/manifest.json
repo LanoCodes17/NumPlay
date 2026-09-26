@@ -1,0 +1,68 @@
+{
+  "source": "https://github.com/AleFunky/gd3ds/tree/cdea1c2fad3d67fa17d2cfa781013b0ee58bb280/romfs/main_levels",
+  "levels": [
+    {
+      "name": "STEREO MADNESS",
+      "file": "levels/reference/StereoMadness.gmd",
+      "sha256": "e42799a8d482d3a99d6f91f715de89258c2f95d4ea863151fe617bdb7c661ed3",
+      "objects": 2272,
+      "events": 19,
+      "compressed_bytes": 2247,
+      "skipped_ids": {}
+    },
+    {
+      "name": "BACK ON TRACK",
+      "file": "levels/reference/BackOnTrack.gmd",
+      "sha256": "6e77d5d126da52f8010cc775030e2376c685bd2dd930f7bc7f7eddc13da85f75",
+      "objects": 1530,
+      "events": 15,
+      "compressed_bytes": 1486,
+      "skipped_ids": {}
+    },
+    {
+      "name": "POLARGEIST",
+      "file": "levels/reference/Polargeist.gmd",
+      "sha256": "bb75d5f0ab577c7586c1143202f54dd39ba9237ed49a20cab3132092161b8e02",
+      "objects": 1509,
+      "events": 22,
+      "compressed_bytes": 1934,
+      "skipped_ids": {}
+    },
+    {
+      "name": "DRY OUT",
+      "file": "levels/reference/DryOut.gmd",
+      "sha256": "29349b1d9a72cf832a7236674e0360834203c35a16d90ebe2152bbbe72b3b0e3",
+      "objects": 1402,
+      "events": 42,
+      "compressed_bytes": 1823,
+      "skipped_ids": {}
+    },
+    {
+      "name": "BASE AFTER BASE",
+      "file": "levels/reference/BaseAfterBase.gmd",
+      "sha256": "f43634e6b4f5e0d02ff903f7890e478a1b61ba714b960d684aed0e85fa3ae94f",
+      "objects": 2126,
+      "events": 20,
+      "compressed_bytes": 2332,
+      "skipped_ids": {}
+    },
+    {
+      "name": "CAN'T LET GO",
+      "file": "levels/reference/CantLetGo.gmd",
+      "sha256": "0e081466ff06567cf8eddbcb2a0b6580867838be30bcff74954d7f1bc9b0aa4d",
+      "objects": 1691,
+      "events": 13,
+      "compressed_bytes": 2049,
+      "skipped_ids": {}
+    },
+    {
+      "name": "JUMPER",
+      "file": "levels/reference/Jumper.gmd",
+      "sha256": "20918d084e122190dff545fc20a2a91037bd82e0dce5db002486fdf6563c862a",
+      "objects": 2767,
+      "events": 46,
+      "compressed_bytes": 2498,
+      "skipped_ids": {}
+    }
+  ]
+}

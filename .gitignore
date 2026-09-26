@@ -1,0 +1,7 @@
+build/
+tools/.fonts/
+__pycache__/
+*.pyc
+.DS_Store
+games/tetris/*/target/
+games/tetris/tetris/src/data/image.nppm

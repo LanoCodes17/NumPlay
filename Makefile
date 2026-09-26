@@ -1,0 +1,161 @@
+# NumPlay: one launcher app with every game, plus each game on its own.
+#
+#   make            build/NumPlay.nwa and build/apps/*.nwa (the release files)
+#   make check      link NumPlay.nwa like the calculator does, print sizes, check RAM
+#   make sim        build/NumPlay.nwb for the Epsilon simulator
+#   make emu        run NumPlay.nwa in the ARM emulator (tools/emu.py)
+#   make clean
+#
+# Needs arm-none-eabi-gcc (with newlib), Node.js for nwlink, Python 3 with
+# Pillow, and Rust with the thumbv7em-none-eabihf target for Tetris.
+
+NWLINK ?= npx --yes -- nwlink@1.0.0
+ARM_CC = arm-none-eabi-gcc
+ARM_LD = arm-none-eabi-ld
+ARM_OBJCOPY = arm-none-eabi-objcopy
+PY ?= python3
+CARGO ?= cargo
+B = build
+RAM_LIMIT = 153676
+
+EADK_CFLAGS := $(shell $(NWLINK) eadk-cflags-device)
+EADK_SIM_CFLAGS := $(shell $(NWLINK) eadk-cflags-simulator)
+
+.SECONDEXPANSION:
+
+# Per-game facts (order, screenshots) come from games/games.json.
+$(B)/games.mk: games/games.json tools/games_mk.py | $(B)
+	$(PY) tools/games_mk.py $< > $@
+-include $(B)/games.mk
+
+LAUNCHER_SRC = $(wildcard launcher/src/*.c)
+LAUNCHER_H = $(wildcard launcher/src/*.h)
+ARM_CFLAGS = -std=gnu11 $(EADK_CFLAGS) -Os -Wall -Wextra -Wno-unused-parameter -fno-math-errno \
+  -fno-tree-loop-distribute-patterns -ffunction-sections -fdata-sections -Ilauncher/src
+ARM_LINK = -nostartfiles --specs=nano.specs -Wl,--relocatable -Wl,--gc-sections -Wl,-e,main \
+  -Wl,-u,eadk_app_name -Wl,-u,eadk_app_icon -Wl,-u,eadk_api_level
+
+.PHONY: all nwa apps check sim emu clean FORCE
+all: nwa apps
+nwa: $(B)/NumPlay.nwa
+
+$(B):
+	mkdir -p $(B)/modules $(B)/gen $(B)/arm $(B)/apps $(B)/sim
+
+# ------------------------------------------------------------------ modules
+# Each game builds itself as a partially linked object (its own Makefile's
+# `module` target), then becomes a NumPlay module: one block of flash, its RAM
+# moved into the shared arena, `main` renamed np_<game>_main.
+MOD_numdash = games/numdash/build/module.o
+MOD_crossyroad = games/crossyroad/output/module.o
+MOD_numdrive = games/numdrive/output/device/module.o
+MOD_chess = games/chess/output/module.o
+MOD_tetris = $(B)/tetris/raw.o
+ENTRY = main
+ENTRY_tetris = np_tetris_main
+
+$(B)/tetris/raw.o: FORCE | $(B)
+	mkdir -p $(B)/tetris
+	cd games/tetris/tetris && NWLINK="$(NWLINK)" $(CARGO) build --release --quiet
+	$(ARM_LD) -r --gc-sections -e np_tetris_main -u np_tetris_main \
+	  games/tetris/tetris/target/thumbv7em-none-eabihf/release/libtetris.a -o $@
+
+$(B)/modules/%.o: FORCE | $(B)
+	@if [ "$*" != tetris ]; then $(MAKE) --no-print-directory -C games/$* module NWLINK="$(NWLINK)"; \
+	else $(MAKE) --no-print-directory $(MOD_tetris); fi
+	$(ARM_LD) -r -d -T tools/module.ld $(MOD_$*) -o $(B)/modules/$*.1.o
+	$(ARM_OBJCOPY) --keep-global-symbol=$(or $(ENTRY_$*),$(ENTRY)) $(B)/modules/$*.1.o $(B)/modules/$*.2.o
+	$(PY) tools/npmodule.py $(B)/modules/$*.2.o $@ --game $* --index $(INDEX_$*) \
+	  --entry $(or $(ENTRY_$*),$(ENTRY)) --json $(B)/modules/$*.json
+
+MODULES = $(foreach g,$(GAMES),$(B)/modules/$(g).o)
+
+# ------------------------------------------------------------------ generated glue
+$(B)/gen/gametable.c: games/games.json tools/gen_games.py $(MODULES)
+	$(PY) tools/gen_games.py games/games.json $(B)/modules $(B)/gen
+
+$(B)/gen/shots_%.c: games/games.json tools/shots.py $$(SHOTS_$$*) | $(B)
+	cd games/$* && $(PY) ../../tools/shots.py --id $* --index $(INDEX_$*) $(COLORS_$*) ../../$@ $(SHOTS_REL_$*)
+
+# ------------------------------------------------------------------ NumPlay.nwa
+ARM_OBJS = $(patsubst launcher/src/%.c,$(B)/arm/%.o,$(LAUNCHER_SRC)) $(B)/arm/gametable.o $(B)/arm/arena.o \
+  $(B)/arm/marks.o $(foreach g,$(GAMES),$(B)/arm/shots_$(g).o)
+
+$(B)/arm/%.o: launcher/src/%.c $(LAUNCHER_H) | $(B)
+	$(ARM_CC) $(ARM_CFLAGS) -flto -c $< -o $@
+$(B)/arm/gametable.o: $(B)/gen/gametable.c launcher/src/np.h
+	$(ARM_CC) $(ARM_CFLAGS) -c $< -o $@
+$(B)/arm/shots_%.o: $(B)/gen/shots_%.c launcher/src/np.h
+	$(ARM_CC) $(ARM_CFLAGS) -c $< -o $@
+$(B)/arm/arena.o $(B)/arm/marks.o: $(B)/arm/%.o: $(B)/gen/gametable.c
+	$(ARM_CC) $(EADK_CFLAGS) -c $(B)/gen/$*.s -o $@
+$(B)/icon.o: launcher/assets/icon.png | $(B)
+	$(NWLINK) png-icon-o $< $@
+
+$(B)/NumPlay.nwa: $(ARM_OBJS) $(MODULES) $(B)/icon.o
+	$(ARM_CC) $(ARM_CFLAGS) $(ARM_LINK) -Wl,-T,$(B)/gen/numplay.ld -flinker-output=nolto-rel \
+	  $(ARM_OBJS) $(MODULES) $(B)/icon.o -lm -lgcc -o $@
+	arm-none-eabi-strip --strip-unneeded $@
+	@$(PY) tools/sizes.py $@ $(B)/modules
+
+check: $(B)/NumPlay.nwa
+	$(NWLINK) nwa-bin --ram-length $(RAM_LIMIT) $< $(B)/NumPlay.bin
+	@echo "NumPlay.nwa installs as $$(wc -c < $(B)/NumPlay.bin) bytes; its RAM fits in $(RAM_LIMIT) bytes"
+
+# ------------------------------------------------------------------ games on their own
+APP_numdash = games/numdash/build/numdash.nwa:NumDash.nwa
+APP_crossyroad = games/crossyroad/output/crossyroad.nwa:CrossyRoad.nwa
+APP_numdrive = games/numdrive/output/device/numdrive.nwa:NumDrive.nwa
+APP_chess = games/chess/output/chess.nwa:NumChess.nwa
+APP_tetris = games/tetris/tetris/target/thumbv7em-none-eabihf/release/tetris:Tetris.nwa
+
+apps: | $(B)
+	$(MAKE) -C games/numdash build NWLINK="node node_modules/nwlink/bin/nwlink"
+	$(MAKE) -C games/crossyroad NWLINK="$(NWLINK)"
+	$(MAKE) -C games/numdrive NWLINK="$(NWLINK)"
+	$(MAKE) -C games/chess build NWLINK="$(NWLINK)"
+	cd games/tetris/tetris && NWLINK="$(NWLINK)" $(CARGO) build --release --quiet
+	cp $(word 1,$(subst :, ,$(APP_numdash))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numdash)))
+	cp $(word 1,$(subst :, ,$(APP_crossyroad))) $(B)/apps/$(word 2,$(subst :, ,$(APP_crossyroad)))
+	cp $(word 1,$(subst :, ,$(APP_numdrive))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numdrive)))
+	cp $(word 1,$(subst :, ,$(APP_chess))) $(B)/apps/$(word 2,$(subst :, ,$(APP_chess)))
+	cp $(word 1,$(subst :, ,$(APP_tetris))) $(B)/apps/$(word 2,$(subst :, ,$(APP_tetris)))
+	arm-none-eabi-strip --strip-unneeded $(B)/apps/Tetris.nwa
+
+# ------------------------------------------------------------------ simulator
+SIM_numdash = games/numdash/build/sim-module.o
+SIM_crossyroad = games/crossyroad/output/sim-module.o
+SIM_numdrive = games/numdrive/output/npsim/sim-module.o
+SIM_chess = games/chess/output/sim-module.o
+SIM_tetris = $(B)/sim/tetris.o
+SIM_CFLAGS = -std=gnu11 -O2 -fPIC -DNP_SIMULATOR=1 $(EADK_SIM_CFLAGS) -Ilauncher/src -Wall -Wno-unused-parameter
+
+$(B)/sim/tetris.o: FORCE | $(B)
+	cd games/tetris/tetris && NWLINK="$(NWLINK)" $(CARGO) build --release --quiet --target aarch64-apple-darwin
+	ld -r -exported_symbol _np_tetris_main -u _np_tetris_main \
+	  games/tetris/tetris/target/aarch64-apple-darwin/release/libtetris.a -o $@
+
+$(B)/sim/%.mod: FORCE | $(B)
+	@if [ "$*" != tetris ]; then $(MAKE) --no-print-directory -C games/$* sim-module NWLINK="$(NWLINK)"; \
+	else $(MAKE) --no-print-directory $(SIM_tetris); fi
+
+$(B)/sim/gen/gametable.c: games/games.json tools/gen_games.py $(MODULES)
+	$(PY) tools/gen_games.py games/games.json $(B)/modules $(B)/sim/gen --simulator
+
+sim: $(B)/NumPlay.nwb
+$(B)/NumPlay.nwb: $(LAUNCHER_SRC) $(LAUNCHER_H) $(B)/sim/gen/gametable.c $(foreach g,$(GAMES),$(B)/gen/shots_$(g).c) \
+  $(foreach g,$(GAMES),$(B)/sim/$(g).mod)
+	cc $(SIM_CFLAGS) -shared -undefined dynamic_lookup $(LAUNCHER_SRC) launcher/sim/*.c $(B)/sim/gen/gametable.c \
+	  $(foreach g,$(GAMES),$(B)/gen/shots_$(g).c) $(foreach g,$(GAMES),$(SIM_$(g))) -o $@
+
+# ------------------------------------------------------------------ tools
+emu: $(B)/NumPlay.nwa
+	$(PY) tools/emu.py $< --ms 4000 --shots 3000 --out $(B)/emu
+
+clean:
+	rm -rf $(B)
+	-$(MAKE) -C games/numdash clean
+	-$(MAKE) -C games/crossyroad clean
+	-$(MAKE) -C games/numdrive clean
+	-$(MAKE) -C games/chess clean
+	-cd games/tetris/tetris && $(CARGO) clean

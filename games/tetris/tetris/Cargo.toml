@@ -1,0 +1,26 @@
+[package]
+name = "tetris"
+version = "0.2.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+
+[profile.dev]
+panic = "abort"
+
+[dependencies]
+heapless = "0.8.0"
+numworks_utils = { path = "../numworks_utils", version = "*" }
+
+[build-dependencies]
+nppm_decoder = { path = "../nppm_decoder", version = "*" }

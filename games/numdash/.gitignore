@@ -1,0 +1,9 @@
+build/
+node_modules/
+*.ndsave
+*.tmp
+__pycache__/
+.DS_Store
+tools/fonts/*.ttf
+numdash.store
+numdash.store.tmp

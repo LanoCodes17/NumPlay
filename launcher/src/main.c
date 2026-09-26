@@ -29,6 +29,11 @@ static bool home_pressed;
 int main(void) {
   np_session_begin();
   np_finish_pending_uninstalls();
+  /* started as Matrices (Settings): NumPlay opens only through its secret */
+  np_config_t cfg;
+  np_config_load(&cfg);
+  if (cfg.disguise && !np_matrices(&cfg)) return np_session_end();
+  np_wait_release();
   int selected = np_game_count ? 0 : -1;
   bool returning = false;
   for (;;) {

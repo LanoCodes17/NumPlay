@@ -48,6 +48,6 @@ typedef struct {
   const uint8_t *data;
 } np_icon_t;
 extern const np_icon_t np_icon_gear, np_icon_warning, np_icon_trash, np_icon_play, np_icon_check, np_icon_back,
-    np_icon_left, np_icon_right, np_icon_logo;
+    np_icon_left, np_icon_right, np_icon_logo, np_icon_heart;
 void gfx_icon(const np_icon_t *icon, int x, int y, color_t c, int a256);
 #endif

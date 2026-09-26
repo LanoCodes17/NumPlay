@@ -40,7 +40,9 @@ $(B)/games.mk: games/games.json tools/games_mk.py | $(B)
 
 LAUNCHER_SRC = $(wildcard launcher/src/*.c)
 LAUNCHER_H = $(wildcard launcher/src/*.h)
-ARM_CFLAGS = -std=gnu11 $(EADK_CFLAGS) -Os -Wall -Wextra -Wno-unused-parameter -fno-math-errno \
+# the release version, shown in NumPlay's settings (a release is tagged v$(VERSION))
+VERSION := $(shell cat VERSION)
+ARM_CFLAGS = -std=gnu11 $(EADK_CFLAGS) -DNP_VERSION='"$(VERSION)"' -Os -Wall -Wextra -Wno-unused-parameter -fno-math-errno \
   -fno-tree-loop-distribute-patterns -ffunction-sections -fdata-sections -Ilauncher/src
 ARM_LINK = -nostartfiles --specs=nano.specs -Wl,--relocatable -Wl,--gc-sections -Wl,-e,main \
   -Wl,-u,eadk_app_name -Wl,-u,eadk_app_icon -Wl,-u,eadk_api_level
@@ -93,7 +95,7 @@ $(B)/gen/shots_%.c: games/games.json tools/shots.py $$(SHOTS_$$*) | $(B)
 ARM_OBJS = $(patsubst launcher/src/%.c,$(B)/arm/%.o,$(LAUNCHER_SRC)) $(B)/arm/gametable.o $(B)/arm/arena.o \
   $(B)/arm/marks.o $(foreach g,$(GAMES),$(B)/arm/shots_$(g).o)
 
-$(B)/arm/%.o: launcher/src/%.c $(LAUNCHER_H) | $(B)
+$(B)/arm/%.o: launcher/src/%.c $(LAUNCHER_H) VERSION | $(B)
 	$(ARM_CC) $(ARM_CFLAGS) -flto -c $< -o $@
 $(B)/arm/gametable.o: $(B)/gen/gametable.c launcher/src/np.h
 	$(ARM_CC) $(ARM_CFLAGS) -c $< -o $@
@@ -145,7 +147,7 @@ SIM_crossyroad = games/crossyroad/output/sim-module.o
 SIM_numdrive = games/numdrive/output/sim-module.o
 SIM_chess = games/chess/output/sim-module.o
 SIM_tetris = $(B)/sim/tetris.o
-SIM_CFLAGS = -std=gnu11 -O2 -fPIC -DNP_SIMULATOR=1 $(EADK_SIM_CFLAGS) -Ilauncher/src -Wall -Wno-unused-parameter
+SIM_CFLAGS = -std=gnu11 -O2 -fPIC -DNP_SIMULATOR=1 -DNP_VERSION='"$(VERSION)"' $(EADK_SIM_CFLAGS) -Ilauncher/src -Wall -Wno-unused-parameter
 
 $(B)/sim/tetris.o: FORCE | $(B)
 	cd games/tetris/tetris && NWLINK="$(NWLINK)" $(CARGO) build --lib --release --quiet --target aarch64-apple-darwin

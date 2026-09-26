@@ -7,6 +7,10 @@ rustflags = [
     "link-arg=-no-gc-sections",
     "-C",
     "target-cpu=cortex-m7",
+    # addresses as plain words (no movw/movt pairs), which NumPlay can move
+    # into its shared RAM (tools/npmodule.py)
+    "-C",
+    "target-feature=+no-movt",
 ]
 
 [build]

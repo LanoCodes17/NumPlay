@@ -59,6 +59,8 @@ def main():
         L.append(f"int np_{i}_main(void);")
         recs = ", ".join(json.dumps(r) for r in g["records"])
         L.append(f"static const char *const {i}_records[] = {{{recs + ', ' if recs else ''}NULL}};")
+        prog = ", ".join(json.dumps(r) for r in g.get("reset", g["records"]))
+        L.append(f"static const char *const {i}_progress[] = {{{prog + ', ' if prog else ''}NULL}};")
         L.append("")
     if a.simulator:
         L.append("/* The simulator has no flash blocks and gives each game its own RAM. */")
@@ -83,7 +85,7 @@ def main():
         L.append(f"  {{{c_str(i)}, {c_str(g['title'])}, {c_str(g['tagline'])}, {c_str(g.get('credit'))},")
         L.append(f"   {g['top']}, {g['bottom']}, {g['accent']}, np_{i}_begin, np_{i}_end, np_{i}_main,")
         L.append(f"   RAM(np_{i}_data), INIT(np_{i}_init), SIZE({s['data']}), RAM(np_{i}_bss), SIZE({s['bss']}),")
-        L.append(f"   np_{i}_shots, {len(g['shots'])}, {i}_records, {est}}},")
+        L.append(f"   np_{i}_shots, {len(g['shots'])}, {i}_records, {i}_progress, {est}}},")
     L.append("};")
     L.append(f"const int np_game_count = {len(games)};")
     open(os.path.join(a.out, "gametable.c"), "w").write("\n".join(L) + "\n")

@@ -17,7 +17,10 @@
     "shots": [
       "docs/screenshots/menu.png"
     ],
-    "repo": "https://github.com/Mason363/NumDash"
+    "repo": "https://github.com/Mason363/NumDash",
+    "reset": [
+      "numdash.nds"
+    ]
   },
   {
     "id": "crossyroad",

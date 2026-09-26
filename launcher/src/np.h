@@ -58,6 +58,7 @@ typedef struct {
   const np_shot_t *shots;
   uint8_t nshots;
   const char *const *records;            /* save files, deleted on uninstall */
+  const char *const *progress;           /* the ones Reset deletes (not levels made in an editor) */
   uint32_t est_size;                     /* code and data, for the simulator */
 } np_game_t;
 
@@ -71,6 +72,19 @@ void np_game_run(int i);
 /* ---- storage (storage.c): Epsilon's record file system */
 bool np_storage_delete(const char *name);   /* true if gone (or never there) */
 uint32_t np_storage_record_size(const char *name);
+/* deletes a game's progress (np_game_t.progress); true if all of it is gone */
+bool np_reset_game(int game);
+
+/* NumPlay's own settings, in the file numplay.set */
+enum { NP_SECRET_XNT, NP_SECRET_VAR, NP_SECRET_TOOLBOX, NP_SECRET_PI, NP_SECRET_SQRT, NP_SECRET_MENU, NP_SECRET_COUNT };
+typedef struct {
+  bool disguise;  /* start as Matrices, a calculator app; NumPlay opens through the secret */
+  uint8_t secret; /* NP_SECRET_* */
+} np_config_t;
+void np_config_load(np_config_t *c);
+bool np_config_save(const np_config_t *c);
+/* Matrices, the disguise: true when the secret was used (open NumPlay), false to quit */
+bool np_matrices(const np_config_t *c);
 
 /* ---- uninstalling (flash.c) */
 enum { NP_UNINSTALL_OK, NP_UNINSTALL_UNSUPPORTED, NP_UNINSTALL_BATTERY, NP_UNINSTALL_FAILED };

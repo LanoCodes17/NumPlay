@@ -129,6 +129,16 @@ def logo(w, h):
     return finish(im, w, h)
 
 
+def heart(w, h):
+    im, d = canvas(w, h)
+    W, H = w * S, h * S
+    r = W * 0.27
+    for cx in (W * 0.28, W * 0.72):
+        d.ellipse([cx - r, H * 0.08, cx + r, H * 0.08 + 2 * r], fill=255)
+    d.polygon([(W * 0.04, H * 0.42), (W * 0.96, H * 0.42), (W * 0.5, H * 0.96)], fill=255)
+    return finish(im, w, h)
+
+
 ICONS = [
     ("gear", lambda: gear(42)),
     ("warning", lambda: warning(46, 40)),
@@ -139,6 +149,7 @@ ICONS = [
     ("left", lambda: chevron(8, 14, True)),
     ("right", lambda: chevron(8, 14, False)),
     ("logo", lambda: logo(22, 15)),
+    ("heart", lambda: heart(10, 9)),
 ]
 
 

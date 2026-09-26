@@ -1195,7 +1195,11 @@ static void collide_static(Body *bd, const WElem *we, int so) {
               else drop = shape_solid_at(sh, v3((nx > 0 ? mxx : mnx) + nx * 0.02f, fminf(fmaxf(py, mny + 0.02f), mxy - 0.02f), qz));
             } else {
               float sx = nx > 0 ? 1.0f : -1.0f, sy = ny > 0 ? 1.0f : -1.0f;
-              bool inx = shape_solid_at(sh, v3(px + sx * 0.02f, py, qz)), iny = shape_solid_at(sh, v3(px, py + sy * 0.02f, qz));
+              /* the neighbours just past the collider's two faces. Not just past the point: a body sunk
+                 into the collider's corner has its point inside the collider, where this would find the
+                 collider itself, and push a bridge resting on a pier's corner out sideways. */
+              bool inx = shape_solid_at(sh, v3((sx > 0 ? mxx : mnx) + sx * 0.02f, fminf(fmaxf(py, mny + 0.02f), mxy - 0.02f), qz));
+              bool iny = shape_solid_at(sh, v3(fminf(fmaxf(px, mnx + 0.02f), mxx - 0.02f), (sy > 0 ? mxy : mny) + sy * 0.02f, qz));
               if (inx && iny) drop = true;
               else if ((inx || iny) && le.circle) {
                 float r = le.hx, ccx = px + nx * (r - k->depth), ccy = py + ny * (r - k->depth);
@@ -1887,6 +1891,40 @@ static void solve_joints(bool first) {
   (void)first;
 }
 
+/* The split pass pushes penetrating bodies apart without adding speed, but it
+ * used to ignore joints: a drawbridge landing hard on a pier was pushed out
+ * whole, hinge and all, and then wedged there with its hinge pulled apart,
+ * until the joint's correction flung it back up. Locked degrees of freedom
+ * now carry the split pushes too, so they move a jointed body as a whole. */
+static void solve_split_joints(void) {
+  for (int ji = 0; ji < njoints; ji++) {
+    Joint *j = &joints[ji];
+    if (j->b < 0 || bodies[j->b].obj < 0 || (j->a >= 0 && bodies[j->a].obj < 0)) continue;
+    Body *A, *B;
+    float rax, ray, rbx, rby, cx, cy, ex, ey, ang;
+    joint_frame(j, &A, &B, &rax, &ray, &rbx, &rby, &cx, &cy, &ex, &ey, &ang);
+    for (int k = 0; k < 3; k++) {
+      if (j->lo[k] != j->hi[k]) continue;
+      if (k < 2) {
+        float nx = k == 0 ? cx : -cy, ny = k == 0 ? cy : cx;
+        float m = eff_mass(A, rax, ray, B, rbx, rby, nx, ny);
+        if (m <= 0) continue;
+        float vx = B->pvx - B->pw * rby, vy = B->pvy + B->pw * rbx;
+        if (A) vx -= A->pvx - A->pw * ray, vy -= A->pvy + A->pw * rax;
+        float d = -m * (vx * nx + vy * ny);
+        if (A) apply_p(A, rax, ray, -nx * d, -ny * d);
+        apply_p(B, rbx, rby, nx * d, ny * d);
+      } else {
+        float ik = (A ? A->invi * A->lockr : 0) + B->invi * B->lockr;
+        if (ik <= 1e-9f) continue;
+        float d = -(B->pw - (A ? A->pw : 0)) / ik;
+        if (A) A->pw -= d * A->invi * A->lockr;
+        B->pw += d * B->invi * B->lockr;
+      }
+    }
+  }
+}
+
 /* ------------------------------------------------------------------- step */
 void phys_step(void) {
   /* joint solver state and contacts live in the free arena space: nothing is allocated during a step
@@ -1948,7 +1986,10 @@ void phys_step(void) {
   }
   warm_store();
   for (int i = 0; i < nbodies; i++) bodies[i].pvx = bodies[i].pvy = bodies[i].pw = bodies[i].pvz = 0;
-  for (int it = 0; it < ITER; it++) solve_split();
+  for (int it = 0; it < ITER; it++) {
+    solve_split();
+    if (jok) solve_split_joints();
+  }
   /* events */
   nevents = 0;
   for (int i = 0; i < ncon; i++) {

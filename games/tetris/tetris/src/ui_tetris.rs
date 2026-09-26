@@ -119,8 +119,8 @@ pub fn draw_stable_ui(level: u16, level_lines: u16, score: u32, high_score: u32)
     draw_lines_number(level_lines);
 }
 
-/// A number right-padded to 6 characters: zeros for scores, spaces otherwise.
-fn padded(value: u32, zeros: bool) -> String<8> {
+/// A score, padded with zeros to 6 digits.
+fn padded(value: u32) -> String<8> {
     let mut txt: String<8> = String::new();
     if value > 999_999 {
         txt.push_str("999999\0").unwrap();
@@ -129,7 +129,7 @@ fn padded(value: u32, zeros: bool) -> String<8> {
     let mut digits: String<11> = string_from_u32(value);
     digits.pop();
     for _ in 0..(6 - digits.chars().count()) {
-        txt.push(if zeros { '0' } else { ' ' }).unwrap();
+        txt.push('0').unwrap();
     }
     txt.push_str(digits.as_str()).unwrap();
     txt.push('\0').unwrap();
@@ -138,19 +138,33 @@ fn padded(value: u32, zeros: bool) -> String<8> {
 
 pub fn draw_score(score: u32, high_score: bool) {
     draw_label(
-        padded(score, true).as_str(),
+        padded(score).as_str(),
         RIGHT_X,
         TOP_Y,
         if high_score { 1 } else { 3 },
     );
 }
 
+/// Draws a number centred on its row, clearing what was there before.
+fn draw_value(value: u32, panel_x: u16, panel_y: u16, row: u16) {
+    push_rect_uniform(
+        Rect {
+            x: panel_x + FRAME,
+            y: panel_y + FRAME + 4 + row * LINE,
+            width: PANEL_W - 2 * FRAME,
+            height: LINE - 2,
+        },
+        COLOR_CONFIG.bckgrd,
+    );
+    draw_label(string_from_u32(value).as_str(), panel_x, panel_y, row);
+}
+
 pub fn draw_level(level: u16) {
-    draw_label(padded(level as u32, false).as_str(), RIGHT_X, BOTTOM_Y, 1);
+    draw_value(level as u32, RIGHT_X, BOTTOM_Y, 1);
 }
 
 pub fn draw_lines_number(line: u16) {
-    draw_label(padded(line as u32, false).as_str(), RIGHT_X, BOTTOM_Y, 3);
+    draw_value(line as u32, RIGHT_X, BOTTOM_Y, 3);
 }
 
 /// Draws a given tetrimino.

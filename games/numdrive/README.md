@@ -1,3 +1,5 @@
+> **NumDrive is part of [NumPlay](../../README.md)**, every NumWorks game in one app. Get it with all the others, or on its own as `NumDrive.nwa` from the [latest release](https://github.com/Mason363/NumPlay/releases/latest).
+
 # NumDrive: Drive Mad for NumWorks
 
 NumDrive is a Drive Mad style driving game for the NumWorks N0120 calculator.
@@ -12,7 +14,7 @@ NumDrive is a Drive Mad style driving game for the NumWorks N0120 calculator.
 
 ## Install
 
-1. Download `NumDrive.nwa` from the [latest release](https://github.com/Mason363/NumDrive/releases/latest).
+1. Download [`NumDrive.nwa`](https://github.com/Mason363/NumPlay/releases/latest/download/NumDrive.nwa) from the [latest NumPlay release](https://github.com/Mason363/NumPlay/releases/latest).
 2. Plug your calculator into a computer and open [my.numworks.com/apps](https://my.numworks.com/apps) in Chrome or Edge.
 3. Upload `NumDrive.nwa` and send it to the calculator.
 4. Open NumDrive from the home screen.
@@ -26,6 +28,7 @@ NumDrive is a Drive Mad style driving game for the NumWorks N0120 calculator.
 | OK or Back | Pause |
 | Arrows, then OK | Pick a button or a level |
 | Back on a card | Level list |
+| Back on the level list | Quit |
 | Home | Quit |
 
 Your progress is saved on the calculator.

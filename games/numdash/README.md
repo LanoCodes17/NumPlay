@@ -1,10 +1,12 @@
+> **NumDash is part of [NumPlay](../../README.md)**, every NumWorks game in one app. Get it with all the others, or on its own as `NumDash.nwa` from the [latest release](https://github.com/Mason363/NumPlay/releases/latest).
+
 # NumDash
 
 **Geometry Dash on your NumWorks calculator.**
 
 NumDash is a fan-made version of Geometry Dash that runs right on a NumWorks graphing calculator. Jump over spikes, fly the ship, collect secret coins and try to beat the first seven levels of the real game, all with the calculator's keys.
 
-### [⬇ Download NumDash.nwa](https://github.com/Mason363/NumDash/releases/latest/download/NumDash.nwa)
+### [⬇ Download NumDash.nwa](https://github.com/Mason363/NumPlay/releases/latest/download/NumDash.nwa)
 
 <img src="docs/screenshots/menu.png" width="640" alt="The NumDash main menu">
 
@@ -12,7 +14,7 @@ NumDash is a fan-made version of Geometry Dash that runs right on a NumWorks gra
 
 You only need the calculator, its USB cable and a computer with Chrome or Edge.
 
-1. **Download** [NumDash.nwa](https://github.com/Mason363/NumDash/releases/latest/download/NumDash.nwa) (the button above).
+1. **Download** [NumDash.nwa](https://github.com/Mason363/NumPlay/releases/latest/download/NumDash.nwa) (the button above).
 2. **Plug** your calculator into the computer with the USB cable.
 3. **Open** [my.numworks.com/apps](https://my.numworks.com/apps) and follow the steps to send the file to your calculator.
 4. **Play:** on the calculator, press the Home key and open **NumDash**.
@@ -88,4 +90,4 @@ make test          # tests, level replays and random-input tests
 make run           # desktop version (arrow keys, Space to jump, Esc to go back)
 ```
 
-`make assets` and `make levels` rebuild the graphics and level data (Python 3 with numpy and Pillow). Changing the `VERSION` file on `main` publishes a new release automatically.
+`make assets` and `make levels` rebuild the graphics and level data (Python 3 with numpy and Pillow).

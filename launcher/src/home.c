@@ -201,7 +201,7 @@ int np_home(int *selected, bool returning) {
   if (unzooming) h.zoom = 1;
   ui_keys_t keys = {np_keys(), 0, 0};  /* ignore keys still held from before */
   uint32_t last = np_millis();
-  bool dirty = true;
+  bool dirty = true, bar_dirty = false;
   int result = -3;
   for (;;) {
     uint32_t now = np_millis();
@@ -246,8 +246,8 @@ int np_home(int *selected, bool returning) {
         } else {
           uint32_t before = h.shot_time * 22 / SHOT_MS;
           h.shot_time += elapsed;
-          if (h.shot_time >= SHOT_MS) h.slide = 0.0001f;
-          if (h.shot_time * 22 / SHOT_MS != before) dirty = true;  /* the progress bar moves */
+          if (h.shot_time >= SHOT_MS) h.slide = 0.0001f, dirty = true;
+          if (h.shot_time * 22 / SHOT_MS != before) bar_dirty = true;  /* only the progress bar moves */
         }
       }
     }
@@ -274,7 +274,10 @@ int np_home(int *selected, bool returning) {
     }
     if (dirty) {
       ui_frame(scene, &h);
-      dirty = false;
+      dirty = bar_dirty = false;
+    } else if (bar_dirty) {
+      gfx_render(scene, &h, 176, 192);  /* the strip holding the progress bar */
+      bar_dirty = false;
     } else {
       np_sleep(16);
     }

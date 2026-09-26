@@ -1,3 +1,5 @@
+> **NumChess is part of [NumPlay](../../README.md)**, every NumWorks game in one app. Get it with all the others, or on its own as `NumChess.nwa` from the [latest release](https://github.com/Mason363/NumPlay/releases/latest).
+
 <p align="center">
   <img src="docs/icon.png" width="84" alt="NumChess icon">
 </p>
@@ -10,13 +12,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Mason363/NumChess/releases/latest"><img src="https://img.shields.io/github/v/release/Mason363/NumChess?label=release&color=81b64c" alt="Latest release"></a>
-  <a href="https://github.com/Mason363/NumChess/actions/workflows/build.yml"><img src="https://github.com/Mason363/NumChess/actions/workflows/build.yml/badge.svg" alt="Build status"></a>
+  <a href="https://github.com/Mason363/NumPlay/releases/latest"><img src="https://img.shields.io/github/v/release/Mason363/NumPlay?label=release&color=81b64c" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/installed%20size-20%20KB-3a3835" alt="Installed size: 20 KB">
 </p>
 
 <p align="center">
-  <a href="https://github.com/Mason363/NumChess/releases/latest/download/chess.nwa"><b>Download chess.nwa</b></a>
+  <a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumChess.nwa"><b>Download NumChess.nwa</b></a>
   &nbsp;·&nbsp; <a href="#install">Install</a>
   &nbsp;·&nbsp; <a href="#controls">Controls</a>
   &nbsp;·&nbsp; <a href="#build">Build</a>
@@ -131,9 +132,9 @@ All the rules are included: castling, en passant, underpromotion, and draws by s
 
 ## Install
 
-1. Download **[chess.nwa](https://github.com/Mason363/NumChess/releases/latest/download/chess.nwa)** from the [latest release](https://github.com/Mason363/NumChess/releases/latest).
+1. Download **[NumChess.nwa](https://github.com/Mason363/NumPlay/releases/latest/download/NumChess.nwa)** from the [latest NumPlay release](https://github.com/Mason363/NumPlay/releases/latest).
 2. Plug the calculator into your computer and open **[my.numworks.com/apps](https://my.numworks.com/apps)** in Chrome or Edge.
-3. Upload `chess.nwa`. **Chess** appears at the end of the calculator's home screen.
+3. Upload `NumChess.nwa`. **Chess** appears at the end of the calculator's home screen.
 
 If you're building from source, `make run` builds and installs in one step.
 
@@ -175,4 +176,4 @@ make test     # engine tests on the host: perft on six positions, hashing, searc
 make run      # install on a connected calculator
 ```
 
-Every push is built by GitHub Actions. Pushing a `v*` tag publishes a release with `chess.nwa` attached.
+NumPlay's GitHub Actions build every push and publish `NumChess.nwa` with each NumPlay release.

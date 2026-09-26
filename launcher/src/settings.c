@@ -145,10 +145,11 @@ static void dialog_scene(void *ctx) {
   strcat(line, g->title);
   strcat(line, "?");
   gfx_text_center(&np_font_title, 160, 80, line, 0xFFFF, 256);
-  strcpy(line, "This deletes ");
-  strcat(line, g->title);
-  int y = gfx_paragraph(&np_font_body, 160, 102, 290, 16, line, 0xFFFF, 240);
-  y = gfx_paragraph(&np_font_body, 160, y, 290, 16, "and all of its saved progress. You can't undo this.", 0xFFFF, 240);
+  char body[96];
+  strcpy(body, "This deletes ");
+  strcat(body, g->title);
+  strcat(body, " and all of its saved progress. You can't undo this.");
+  int y = gfx_paragraph(&np_font_body, 160, 102, 280, 16, body, 0xFFFF, 240);
   gfx_paragraph(&np_font_small, 160, y + 4, 290, 13,
                 "To play it again, you'll have to reinstall all of NumPlay from my.numworks.com/apps, and "
                 "reinstalling may reset your progress in every game.",

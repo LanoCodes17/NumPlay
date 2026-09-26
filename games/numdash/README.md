@@ -4,7 +4,7 @@
 
 **Geometry Dash on your NumWorks calculator.**
 
-NumDash is a fan-made version of Geometry Dash that runs right on a NumWorks graphing calculator. Jump over spikes, fly the ship, collect secret coins and try to beat the first seven levels of the real game, all with the calculator's keys.
+NumDash is a fan-made version of Geometry Dash that runs right on a NumWorks graphing calculator. Jump over spikes, fly the ship, flip the ball, collect secret coins and try to beat the first nine levels of the real game, all with the calculator's keys.
 
 ### [⬇ Download NumDash.nwa](https://github.com/Mason363/NumPlay/releases/latest/download/NumDash.nwa)
 
@@ -27,13 +27,13 @@ That's it. Your progress is saved on the calculator, so you can close the game a
 
 ### The real levels
 
-Stereo Madness, Back on Track, Polargeist, Dry Out, Base After Base, Can't Let Go and Jumper, with the same obstacles, colour changes and 3 hidden coins in each one.
+Stereo Madness, Back on Track, Polargeist, Dry Out, Base After Base, Can't Let Go, Jumper, Time Machine and Cycles, with the same obstacles, colour changes and 3 hidden coins in each one.
 
 <img src="docs/screenshots/level-select.png" width="320" alt="Picking a level"> <img src="docs/screenshots/gameplay.png" width="320" alt="Jumping through Stereo Madness">
 
 ### It plays like the original
 
-The jump, the gravity, the ship and every pad and orb behave like they do in Geometry Dash, so the timing you already know works here too.
+The jump, the gravity, the ship, the ball and every pad and orb behave like they do in Geometry Dash, so the timing you already know works here too.
 
 <img src="docs/screenshots/ship.png" width="320" alt="Flying the ship"> <img src="docs/screenshots/pause.png" width="320" alt="The pause menu">
 
@@ -57,14 +57,14 @@ Pick your icon colours in the icon kit, change settings like the progress bar or
 
 | Key | What it does |
 | --- | --- |
-| **OK**, **EXE** or **Up** | Jump. Hold it to keep jumping, or to fly up in the ship |
+| **OK**, **EXE** or **Up** | Jump. Hold it to keep jumping, to fly up in the ship, or to flip the ball |
 | **Back** | Pause the game, or go back in menus |
 | **Arrows** | Move around the menus |
 | **0** | Place a checkpoint (in practice mode) |
 | **Backspace** | Remove your last checkpoint |
 | **Home** | Save and quit |
 
-The **?** button on the main menu shows these again, plus the level editor keys.
+The **?** button on the main menu shows these again. For the level editor, **KEYS** on the My Levels screen draws the keyboard with what each key does.
 
 ## Good to know
 

@@ -22,7 +22,8 @@ static SceneOpts opts;
 static bool settings_open;
 static int settings_sel, clear_armed;
 static const char *const slot_names[CUSTOM_SLOTS] = {"MY LEVEL 1", "MY LEVEL 2", "MY LEVEL 3"};
-static const char *const theme_names[LEVEL_COUNT] = {"BLUE", "PINK", "GREEN", "RED", "OCEAN", "PURPLE", "VIOLET"};
+static const char *const theme_names[LEVEL_COUNT] = {"BLUE", "PINK", "GREEN", "RED", "OCEAN", "PURPLE", "VIOLET",
+                                                              "LIME", "PLUM"};
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 

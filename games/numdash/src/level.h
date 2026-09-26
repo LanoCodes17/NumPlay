@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include "objdefs.h"
 
-#define LEVEL_COUNT 7
+#define LEVEL_COUNT 9
 #define MAX_OBJECTS 4096
 
 /* Runtime object: GD units, sorted by x. xf: rotation (90 degree steps,

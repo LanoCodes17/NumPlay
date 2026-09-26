@@ -10,7 +10,7 @@ the same order as the original game.
 NONE, SOLID, HAZARD, SPECIAL = range(4)
 # Special behaviours
 SP = ['NONE', 'PAD_Y', 'PAD_P', 'PAD_B', 'ORB_Y', 'ORB_P', 'ORB_B', 'GRAV_N', 'GRAV_F',
-      'PORTAL_CUBE', 'PORTAL_SHIP', 'COIN']
+      'PORTAL_CUBE', 'PORTAL_SHIP', 'COIN', 'PORTAL_BALL']
 # Colour types for draw parts
 CT = ['OBJ', 'BLACK', 'WHITE', 'P1ADD', 'P2ADD', 'GLOW', 'GLOW_Y', 'GLOW_B', 'GLOW_P']
 # Layer ranks (drawing order); the player is drawn at LAYER_PLAYER.
@@ -60,6 +60,8 @@ OBJECTS = [
     ('PORTAL_CUBE', [12], SPECIAL, 34, 86, 'PORTAL_CUBE', 0, [('portal_cube_front', 5, 0, 'PORTAL_FRONT', 'WHITE', 0), ('portal_cube_back', -6, 0, 'PORTAL_BACK', 'WHITE', 0)]),
     ('PORTAL_SHIP', [13], SPECIAL, 34, 86, 'PORTAL_SHIP', 0, [('portal_ship_front', 5, 0, 'PORTAL_FRONT', 'WHITE', 0), ('portal_ship_back', -6, 0, 'PORTAL_BACK', 'WHITE', 0)]),
     ('COIN', [1329, 142], SPECIAL, 40, 40, 'COIN', 0, [('coin0', 0, 0, 'COIN', 'WHITE', F_COIN)]),
+    # added after the first release: new objects go last, custom levels store these indices
+    ('PORTAL_BALL', [47], SPECIAL, 34, 86, 'PORTAL_BALL', 0, [('portal_ball_front', 5, 0, 'PORTAL_FRONT', 'WHITE', 0), ('portal_ball_back', -6, 0, 'PORTAL_BACK', 'WHITE', 0)]),
 ]
 
 # Level trigger objects become events rather than objects.
@@ -71,7 +73,7 @@ TRAIL_TRIGGERS = {32: 1, 33: 0}
 # Palette offered by the level editor, in GD's build-tab order.
 EDITOR = ['BLOCK', 'GRID_T', 'GRID_TL', 'GRID_LTR', 'GRID_LR', 'GRID_C', 'PLANK',
           'SPIKE', 'SPIKE_SMALL', 'SPIKE_MED', 'PIT', 'PAD_Y', 'PAD_P', 'PAD_B', 'ORB_Y',
-          'PORTAL_SHIP', 'PORTAL_CUBE', 'GRAV_F', 'GRAV_N', 'COIN', 'GRID_DECO', 'ROD1', 'ROD2',
+          'PORTAL_SHIP', 'PORTAL_CUBE', 'PORTAL_BALL', 'GRAV_F', 'GRAV_N', 'COIN', 'GRID_DECO', 'ROD1', 'ROD2',
           'ROD3', 'DSPIKES3', 'DSPIKES4', 'CHAIN', 'STAR']
 
 INDEX = {o[0]: i + 1 for i, o in enumerate(OBJECTS)}     # type 0 = none

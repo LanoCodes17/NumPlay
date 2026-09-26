@@ -42,10 +42,11 @@ enum {
   OT_PORTAL_CUBE = 36,
   OT_PORTAL_SHIP = 37,
   OT_COIN = 38,
-  OT_COUNT = 39
+  OT_PORTAL_BALL = 39,
+  OT_COUNT = 40
 };
 enum { HIT_NONE, HIT_SOLID, HIT_HAZARD, HIT_SPECIAL };
-enum { SP_NONE, SP_PAD_Y, SP_PAD_P, SP_PAD_B, SP_ORB_Y, SP_ORB_P, SP_ORB_B, SP_GRAV_N, SP_GRAV_F, SP_PORTAL_CUBE, SP_PORTAL_SHIP, SP_COIN };
+enum { SP_NONE, SP_PAD_Y, SP_PAD_P, SP_PAD_B, SP_ORB_Y, SP_ORB_P, SP_ORB_B, SP_GRAV_N, SP_GRAV_F, SP_PORTAL_CUBE, SP_PORTAL_SHIP, SP_COIN, SP_PORTAL_BALL };
 enum { CT_OBJ, CT_BLACK, CT_WHITE, CT_P1ADD, CT_P2ADD, CT_GLOW, CT_GLOW_Y, CT_GLOW_B, CT_GLOW_P };
 enum { LAYER_DECO_BACK, LAYER_RODS, LAYER_ROD_BALLS, LAYER_DETAIL, LAYER_SPECIAL_GLOW, LAYER_SPECIAL, LAYER_PORTAL_BACK, LAYER_BLOCK_GLOW, LAYER_PLAYER, LAYER_COIN, LAYER_PORTAL_FRONT, LAYER_FILL, LAYER_BLOCK, LAYER_COUNT };
 enum { PF_PULSE = 1, PF_RANDOM3 = 2, PF_COIN = 4, PF_ANIM = 8 };
@@ -53,6 +54,6 @@ enum { EV_COLOR = 1, EV_FADE = 2, EV_TRAIL = 3 };
 typedef struct { int16_t sprite; int8_t dx4, dy4; uint8_t layer, ctype, flags; } ObjPart;
 typedef struct { uint16_t gd_id; uint8_t hit, special; uint16_t w10, h10; int8_t editor_dy; uint8_t nparts; ObjPart parts[2]; } ObjDef;
 extern const ObjDef objdefs[OT_COUNT];
-#define EDITOR_TYPES 28
+#define EDITOR_TYPES 29
 extern const uint8_t editor_types[EDITOR_TYPES];
 #endif

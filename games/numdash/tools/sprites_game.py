@@ -341,6 +341,7 @@ PORTAL_STYLE = {
     'grav_yellow': (hexc('fffbb0'), hexc('ffdc30'), hexc('ff9c00')),
     'cube': (hexc('c8ffc0'), hexc('3cff3c'), hexc('00b400')),
     'ship': (hexc('ffc8ff'), hexc('ff5cff'), hexc('d000d0')),
+    'ball': (hexc('ffd4c4'), hexc('ff6a3c'), hexc('d82800')),
 }
 
 
@@ -379,7 +380,7 @@ def gravity_portal_art(style, part):
 
 
 def mode_portal_art(style, part):
-    """Cube / ship portals (IDs 12/13): crescent, black cage with windows, dots."""
+    """Cube / ship / ball portals (IDs 12/13/47): crescent, black cage with windows, dots."""
     colors = PORTAL_STYLE[style]
     light, mid, dark = colors
     a = Art(px(40) + 1, px(92) + 1)
@@ -464,6 +465,26 @@ def cube_layers():
     p.erase((m <= 2.9).astype(np.float32))
     s = Art(px(30), px(30))
     s.paint((m <= 4.0).astype(np.float32), WHITE, 1.0)
+    return p, s
+
+
+def ball_layers():
+    """Default ball: a black-rimmed disc in the primary colour, with a
+    secondary centre and four spokes, so it is seen rolling."""
+    p = Art(px(30), px(30))
+    u, v = p.grid()
+    r = np.hypot(u, v)
+    ang = np.arctan2(v, u)
+    body = r < 15
+    p.paint(body.astype(np.float32), WHITE, 1.0)
+    p.paint((body & (r > 13.4)).astype(np.float32), BLACK, 1.0)
+    p.paint(((r > 12.2) & (r <= 13.4)).astype(np.float32), (0.72, 0.72, 0.72), 1.0)
+    spoke = (np.abs(np.sin(2 * (ang - math.pi / 4))) * r < 1.3) & (r > 6.5) & (r < 12.5)
+    p.paint(spoke.astype(np.float32), BLACK, 1.0)
+    p.paint(((r > 5.2) & (r < 7.0)).astype(np.float32), BLACK, 1.0)
+    p.erase((r <= 5.2).astype(np.float32))
+    s = Art(px(30), px(30))
+    s.paint((r <= 5.4).astype(np.float32), WHITE, 1.0)
     return p, s
 
 
@@ -557,7 +578,7 @@ def game_sprites():
     for st in ('grav_blue', 'grav_yellow'):
         add('portal_%s_back' % st, gravity_portal_art(st, 'back'), 'PAL4')
         add('portal_%s_front' % st, gravity_portal_art(st, 'front'), 'PAL4')
-    for st in ('cube', 'ship'):
+    for st in ('cube', 'ship', 'ball'):
         add('portal_%s_back' % st, mode_portal_art(st, 'back'), 'PAL4')
         add('portal_%s_front' % st, mode_portal_art(st, 'front'), 'PAL4')
     for f in range(4):
@@ -568,4 +589,7 @@ def game_sprites():
     sp, ssec = ship_layers()
     add('ship1_p', sp, 'LA44')
     add('ship1_s', ssec, 'LA44')
+    bp, bs = ball_layers()
+    add('ball1_p', bp, 'LA44')
+    add('ball1_s', bs, 'LA44')
     return out

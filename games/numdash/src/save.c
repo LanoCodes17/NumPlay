@@ -49,14 +49,17 @@ void progress_encode(const Progress *p, uint8_t out[PROGRESS_BYTES]) {
 
 bool progress_decode(Progress *p, const uint8_t *in, size_t len) {
   if (len < PROGRESS_BYTES || memcmp(in, "NDS1", 4) || rd32(in + 4) != nd_crc32(in + 8, PROGRESS_BYTES - 8)) return false;
-  if (in[8] != 1 || in[9] != LEVEL_COUNT || in[10] != CUSTOM_SLOTS) return false;
+  /* A save from a release with fewer levels keeps its stats: the custom
+     slots follow the built-in levels, so they move up. */
+  int levels = in[9];
+  if (in[8] != 1 || levels == 0 || levels > LEVEL_COUNT || in[10] != CUSTOM_SLOTS) return false;
   const uint8_t *q = in + 12;
-  for (int i = 0; i < LEVEL_SLOTS; i++, q += 12)
+  for (int i = 0; i < levels + CUSTOM_SLOTS; i++, q += 12)
     if (q[0] > 100 || q[1] > 100 || q[2] > 7) return false;
   progress_defaults(p);
   q = in + 12;
-  for (int i = 0; i < LEVEL_SLOTS; i++, q += 12) {
-    LevelStat *s = &p->lv[i];
+  for (int i = 0; i < levels + CUSTOM_SLOTS; i++, q += 12) {
+    LevelStat *s = &p->lv[i < levels ? i : i - levels + LEVEL_COUNT];
     s->normal = q[0]; s->practice = q[1]; s->coins = q[2];
     s->attempts = rd32(q + 4);
     s->jumps = rd32(q + 8);
@@ -65,7 +68,8 @@ bool progress_decode(Progress *p, const uint8_t *in, size_t len) {
   p->color1 = q[8] < 42 ? q[8] : 0;
   p->color2 = q[9] < 42 ? q[9] : 3;
   p->options = q[10];
-  p->last_level = q[11] < LEVEL_SLOTS ? q[11] : 0;
+  int last = q[11] < levels ? q[11] : q[11] - levels + LEVEL_COUNT;
+  p->last_level = q[11] < levels + CUSTOM_SLOTS ? (uint8_t)last : 0;
   return true;
 }
 

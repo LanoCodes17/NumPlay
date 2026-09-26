@@ -237,8 +237,9 @@ void scene_draw_player_icon(int mode, float cx, float cy, float rot, float scale
     gfx_sprite_ex(SPR_SHIP1_P, x16, y16 + (int)(2 * 16 * s * scale), a16, (int)(256 * scale), fl, p1, alpha, BLEND_NORMAL);
     return;
   }
-  gfx_sprite_ex(SPR_CUBE1_S, x16, y16, a16, (int)(256 * scale), 0, p2, alpha, BLEND_NORMAL);
-  gfx_sprite_ex(SPR_CUBE1_P, x16, y16, a16, (int)(256 * scale), 0, p1, alpha, BLEND_NORMAL);
+  bool ball = mode == MODE_BALL;
+  gfx_sprite_ex(ball ? SPR_BALL1_S : SPR_CUBE1_S, x16, y16, a16, (int)(256 * scale), 0, p2, alpha, BLEND_NORMAL);
+  gfx_sprite_ex(ball ? SPR_BALL1_P : SPR_CUBE1_P, x16, y16, a16, (int)(256 * scale), 0, p1, alpha, BLEND_NORMAL);
 }
 
 static void draw_player(void) {

@@ -71,7 +71,7 @@ static void fresh_app(void) {
 
 static void test_levels(void) {
   static Level L;
-  static const uint16_t counts[LEVEL_COUNT] = {2272, 1530, 1509, 1402, 2126, 1691, 2767};
+  static const uint16_t counts[LEVEL_COUNT] = {2272, 1530, 1509, 1402, 2126, 1691, 2767, 3563, 3852};
   for (unsigned i = 0; i < LEVEL_COUNT; i++) {
     assert(level_load_builtin(&L, i));
     assert(L.count == counts[i]);
@@ -196,6 +196,18 @@ static void test_storage(void) {
     prog[i] ^= 0x10;
   }
   assert(progress_decode(&q, prog, sizeof(prog)));
+  /* a save from the 7-level release: the custom slots' stats move up */
+  memset(prog, 0, sizeof(prog));
+  memcpy(prog, "NDS1", 4);
+  prog[8] = 1; prog[9] = 7; prog[10] = CUSTOM_SLOTS;
+  prog[12 + 12 * 2] = 77;             /* level 3 */
+  prog[12 + 12 * 8] = 42;             /* custom slot 2 */
+  prog[12 + 12 * 10 + 11] = 8;        /* last played: custom slot 2 */
+  uint32_t sum = nd_crc32(prog + 8, PROGRESS_BYTES - 8);
+  for (int k = 0; k < 4; k++) prog[4 + k] = (uint8_t)(sum >> (8 * k));
+  assert(progress_decode(&q, prog, sizeof(prog)));
+  assert(q.lv[2].normal == 77 && q.lv[7].normal == 0 && q.lv[8].normal == 0);
+  assert(q.lv[LEVEL_COUNT + 1].normal == 42 && q.last_level == LEVEL_COUNT + 1);
 }
 
 static void test_custom(void) {
@@ -338,6 +350,12 @@ static void test_editor(void) {
   tap(K_OK);
   settle();
   assert(app.screen == SCR_EDITOR);
+  /* the key guide shows the first time only */
+  assert(!(progress.options & OPT_KEYS_SEEN));
+  tap(K_RIGHT);
+  assert(editor_object_count() == 0);
+  tap(K_OK);
+  assert(progress.options & OPT_KEYS_SEEN);
   for (int i = 0; i < 5; i++) { tap(K_RIGHT); tap(K_OK); }
   tap(K_PLUS);
   for (int i = 0; i < 6; i++) tap(K_PLUS);

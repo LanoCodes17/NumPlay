@@ -31,6 +31,8 @@ LEVELS = [
     ('BaseAfterBase', 'BASE AFTER BASE', 3, 5, 142),
     ('CantLetGo', "CAN'T LET GO", 3, 6, 144),
     ('Jumper', 'JUMPER', 4, 7, 175),
+    ('TimeMachine', 'TIME MACHINE', 4, 8, 143),
+    ('Cycles', 'CYCLES', 4, 9, 128),
 ]
 
 

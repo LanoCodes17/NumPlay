@@ -3,6 +3,8 @@ CC = cc
 PYTHON ?= python3
 NWLINK = node node_modules/nwlink/bin/nwlink
 WARN = -Wall -Wextra -Werror -Wno-misleading-indentation
+# Like the calculator's build: no fused multiply-add, so replays play out the same.
+HOST_FP = -ffp-contract=off
 CORE = src/game.c src/level.c src/inflate.c src/leveldata.c src/objdefs.c src/assets.c src/gfx.c src/scene.c src/fx.c src/save.c
 COMMON = $(CORE) src/ui.c src/app.c src/menu.c src/play.c src/editor.c
 DEVICE_SOURCES = $(COMMON) src/platform_eadk.c src/main.c
@@ -35,19 +37,19 @@ check: build/numdash.nwa
 	$(NWLINK) nwa-bin $< build/numdash.bin
 simulator: build/numdash-sim
 build/numdash-sim: $(COMMON) src/platform_sdl.c src/main.c $(HEADERS) | build/.stamp
-	$(CC) -std=c11 -O2 $(WARN) -Isrc $$(sdl2-config --cflags) $(COMMON) src/platform_sdl.c src/main.c $$(sdl2-config --libs) -lm -o $@
+	$(CC) -std=c11 -O2 $(HOST_FP) $(WARN) -Isrc $$(sdl2-config --cflags) $(COMMON) src/platform_sdl.c src/main.c $$(sdl2-config --libs) -lm -o $@
 build/tests: $(COMMON) tests/test.c $(HEADERS) | build/.stamp
-	$(CC) -std=c11 -O1 -g $(WARN) -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc $(COMMON) tests/test.c -lm -o $@
+	$(CC) -std=c11 -O1 -g $(HOST_FP) $(WARN) -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc $(COMMON) tests/test.c -lm -o $@
 test: build/tests
 	./build/tests
-	@for i in 1 2 3 4 5 6 7; do ./build/tests --replay $$((i-1)) tests/replays/level$$i.txt || exit 1; done
+	@for i in 1 2 3 4 5 6 7 8 9; do ./build/tests --replay $$((i-1)) tests/replays/level$$i.txt || exit 1; done
 	./build/tests --monkey 1 60000
 	./build/tests --monkey 2 60000
 run: simulator
 	./build/numdash-sim
 # Native module for the official Epsilon simulator (nwlink >= 0.0.19).
 epsilon-app: | build/.stamp
-	$(CC) -std=c11 -O2 -Isrc $(shell $(NWLINK) eadk-cflags-simulator) $(COMMON) src/platform_eadk.c src/main.c $(shell $(NWLINK) eadk-ldflags-simulator) -Wl,-undefined,dynamic_lookup -o build/numdash.nwb
+	$(CC) -std=c11 -O2 $(HOST_FP) -Isrc $(shell $(NWLINK) eadk-cflags-simulator) $(COMMON) src/platform_eadk.c src/main.c $(shell $(NWLINK) eadk-ldflags-simulator) -Wl,-undefined,dynamic_lookup -o build/numdash.nwb
 clean:
 	rm -rf build
 

@@ -180,10 +180,12 @@ void fx_update(Game *g, float dt, color_t p1, color_t p2, bool practice) {
         break;
       }
       case FX_ORB_TOUCH: circle(e->x, e->y, CE_ORB_TOUCH, 0xffff, e->obj, false); break;
-      case FX_PORTAL: circle(e->x, e->y, CE_PORTAL, e->arg ? rgb(255, 0, 255) : rgb(0, 255, 50), e->obj, false); break;
+      case FX_PORTAL:
+        circle(e->x, e->y, CE_PORTAL, e->arg == 2 ? rgb(255, 90, 40) : e->arg ? rgb(255, 0, 255) : rgb(0, 255, 50), e->obj, false);
+        break;
       case FX_GRAVITY:
         circle(e->x, e->y, CE_PORTAL, e->arg ? rgb(255, 200, 0) : rgb(0, 200, 255), e->obj, false);
-        trail_on = true;
+        if (p->mode != MODE_BALL) trail_on = true;
         break;
       case FX_COIN:
         if (practice) break;
@@ -217,6 +219,18 @@ void fx_update(Game *g, float dt, color_t p1, color_t p2, bool practice) {
         drag_acc = 0;
       }
       if (p->on_ground) trail_on = false;
+    } else if (p->mode == MODE_BALL) {
+      /* dust while it rolls; the trail only after orbs and pads */
+      if (p->on_ground || p->on_ceiling) {
+        trail_on = false;
+        emit_rate(&drag_acc, 100, dt);
+        while (drag_acc >= 1) {
+          drag_acc -= 1;
+          spawn(PE_DRAG, p->x, p->upside ? p->y + 13 : p->y - 13, p1, true, 0, false, 0, p->upside ? 270 : 90);
+        }
+      } else {
+        drag_acc = 0;
+      }
     } else {
       trail_on = true;
       float r = p->rot * 3.14159265f / 180.f, s = p->upside ? -1.f : 1.f;
@@ -262,7 +276,8 @@ void fx_update(Game *g, float dt, color_t p1, color_t p2, bool practice) {
   bool sample = trail_acc >= 1.0f / 40;
   if (sample) trail_acc -= 1.0f / 40;
   if (trail_acc > 0.1f) trail_acc = 0;
-  if (!g->dead && (trail_on || g->ending) && !(p->mode == MODE_CUBE && p->on_ground)) {
+  bool rolling = p->mode == MODE_BALL && (p->on_ground || p->on_ceiling);
+  if (!g->dead && (trail_on || g->ending) && !(p->mode == MODE_CUBE && p->on_ground) && !rolling) {
     if (sample) {
       if (trail_len < TRAIL_N) trail_len++;
       for (int i = trail_len - 1; i > 0; i--) { trail_x[i] = trail_x[i - 1]; trail_y[i] = trail_y[i - 1]; }
@@ -387,7 +402,7 @@ void fx_draw_player_trail(void) {
     float sx, sy;
     to_screen(gh->x, gh->y, false, &sx, &sy);
     float k = gh->life / 0.45f;
-    scene_draw_player_icon(gh->mode == MODE_SHIP ? MODE_CUBE : MODE_CUBE, sx, sy, gh->rot, gh->mode == MODE_SHIP ? 0.5f + 0.4f * k : 0.8f + 0.2f * k,
+    scene_draw_player_icon(gh->mode == MODE_BALL ? MODE_BALL : MODE_CUBE, sx, sy, gh->rot, gh->mode == MODE_SHIP ? 0.5f + 0.4f * k : 0.8f + 0.2f * k,
                            col_p1, col_p2, gh->upside, (unsigned)(k * 0.7f * 256));
   }
   /* streak: a tapered ribbon through the recent positions */

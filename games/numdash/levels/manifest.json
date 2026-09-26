@@ -63,6 +63,30 @@
       "events": 46,
       "compressed_bytes": 2498,
       "skipped_ids": {}
+    },
+    {
+      "name": "TIME MACHINE",
+      "file": "levels/reference/TimeMachine.gmd",
+      "sha256": "9892fedc491a190403b109f6561edcc8085f0ad802773cab076ac70eea9fb369",
+      "objects": 3563,
+      "events": 30,
+      "compressed_bytes": 4541,
+      "skipped_ids": {
+        "45": 3,
+        "46": 3
+      }
+    },
+    {
+      "name": "CYCLES",
+      "file": "levels/reference/Cycles.gmd",
+      "sha256": "7da96eba59a34ca99d20081838c35468bf29312051fbe8bd178c62ff1edbd9e5",
+      "objects": 3852,
+      "events": 66,
+      "compressed_bytes": 4313,
+      "skipped_ids": {
+        "45": 2,
+        "46": 1
+      }
     }
   ]
 }

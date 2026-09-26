@@ -6,7 +6,7 @@
 
 #define ND_HZ 240
 #define ND_DT (1.0f / ND_HZ)
-enum { MODE_CUBE = 0, MODE_SHIP = 1 };
+enum { MODE_CUBE = 0, MODE_SHIP = 1, MODE_BALL = 2 };
 enum { BUF_NONE = 0, BUF_READY = 1, BUF_END = 2 };
 /* Visible world: 480 x 360 GD units (20 px blocks); ground sits 90 units
  * above the bottom edge when the camera is at rest, as in GD. */
@@ -18,6 +18,7 @@ enum { BUF_NONE = 0, BUF_READY = 1, BUF_END = 2 };
 typedef struct {
   float x, y, vy, gravity, rot, target_rot, time_since_ground, ceil_inv;
   float ground_y, ceiling_y, snap_diff;
+  float spin;       /* ball: rolling speed, 1 on a surface, -0.7 in the air */
   int32_t snap_frame, frame, coyote;
   int16_t snap_obj;
   uint8_t mode, speed, buffer;

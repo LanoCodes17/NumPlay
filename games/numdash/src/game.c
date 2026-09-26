@@ -1,4 +1,4 @@
-/* Geometry Dash 2.x cube/ship physics at 240 Hz.
+/* Geometry Dash 2.x cube/ship/ball physics at 240 Hz.
  *
  * Constants and collision rules follow the reverse-engineered values used by
  * the gd3ds project (itself based on the Pathfinder mod's physics): velocities
@@ -14,13 +14,23 @@ static const float CUBE_JUMP[4] = {573.481728f, 603.7217172f, 616.681728f, 606.4
 static const float CUBE_GRAV[4] = {-2747.52f, -2794.1082f, -2786.4f, -2799.36f};
 static const float VEL_THRESH[4] = {101.541492f, 103.485494592f, 103.377492f, 103.809492f};
 enum { J_YPAD, J_YORB, J_BPAD, J_BORB, J_PPAD, J_PORB };
-/* [speed][jump type][cube, ship] for normal-size players */
-static const float JUMPS[4][6][2] = {
-  {{864, 432}, {573.48f, 573.48f}, {-345.6f, -229.392f}, {-229.392f, -229.392f}, {561.6f, 302.4f}, {412.884f, 212.166f}},
-  {{864, 432}, {603.72f, 603.72f}, {-345.6f, -345.6f}, {-241.488f, -241.488f}, {561.6f, 302.4f}, {434.7f, 223.398f}},
-  {{864, 432}, {616.68f, 616.68f}, {-345.6f, -345.6f}, {-246.672f, -246.672f}, {561.6f, 302.4f}, {443.988f, 228.15f}},
-  {{864, 432}, {606.42f, 606.42f}, {-345.6f, -345.6f}, {-242.568f, -242.568f}, {561.6f, 302.4f}, {436.644f, 224.37f}},
+/* [speed][jump type][cube, ship, ball] for normal-size players */
+static const float JUMPS[4][6][3] = {
+  {{864, 432, 518.4f}, {573.48f, 573.48f, 401.436f}, {-345.6f, -229.392f, -160.5744f}, {-229.392f, -229.392f, -160.5744f},
+   {561.6f, 302.4f, 362.88f}, {412.884f, 212.166f, 309.0906f}},
+  {{864, 432, 518.4f}, {603.72f, 603.72f, 422.604f}, {-345.6f, -345.6f, -207.36f}, {-241.488f, -241.488f, -169.0416f},
+   {561.6f, 302.4f, 362.88f}, {434.7f, 223.398f, 325.4202f}},
+  {{864, 432, 518.4f}, {616.68f, 616.68f, 431.676f}, {-345.6f, -345.6f, -207.36f}, {-246.672f, -246.672f, -172.6704f},
+   {561.6f, 302.4f, 362.88f}, {443.988f, 228.15f, 332.3754f}},
+  {{864, 432, 518.4f}, {606.42f, 606.42f, 424.494f}, {-345.6f, -345.6f, -207.36f}, {-242.568f, -242.568f, -169.7976f},
+   {561.6f, 302.4f, 362.88f}, {436.644f, 224.37f, 326.8566f}},
 };
+/* ball: gravity, the push when it flips, and how fast it rolls (degrees per second) */
+#define BALL_GRAV (-1676.46672f)
+#define BALL_HEIGHT 240.0f
+#define BALL_AIR_SPIN 0.7f
+static const float BALL_JUMP[4] = {-172.044007f, -181.11601f, -185.00401f, -181.92601f};
+static const float BALL_ROLL[4] = {120 / (0.2f * 1.2405638f), 120 / 0.2f, 120 / (0.2f * 0.80424345f), 120 / (0.2f * 0.6657693f)};
 #define ROT_SPEED 415.3848f
 #define CEILING_INVUL 0.1f
 #define DRAG_TIME 0.1f
@@ -76,12 +86,12 @@ static float slerp_angle(float from, float to, float t) {
 }
 #define DEG (3.14159265f / 180.0f)
 
-static void set_bounds_for_portal(Game *g, float portal_y) {
+static void set_bounds_for_portal(Game *g, float portal_y, float height) {
   Player *p = &g->p;
-  float v = (portal_y - (300 + 60) / 2.0f) / 30.0f, c = ceilf(v);
+  float v = (portal_y - (height + 60) / 2.0f) / 30.0f, c = ceilf(v);
   if (fabsf(v - roundf(v)) < 1e-6f) c += 1;
   p->ground_y = c > 0 ? c * 30 : 0;
-  p->ceiling_y = p->ground_y + 300;
+  p->ceiling_y = p->ground_y + height;
   g->cam_intended_y = (p->ground_y + p->ceiling_y) / 2 - (VIEW_H / 2 - GROUND_OFFSET);
 }
 
@@ -98,7 +108,7 @@ void game_start(Game *g, const Level *L, bool first_attempt) {
   p->on_ground = true;
   if (L->start_mode == MODE_SHIP) {
     p->mode = MODE_SHIP;
-    set_bounds_for_portal(g, 150);
+    set_bounds_for_portal(g, 150, 300);
   }
   for (int c = 0; c < CH_COUNT; c++) {
     memcpy(g->ch[c].cur, L->colors[c], 3);
@@ -120,13 +130,13 @@ static void clamp_ground(Game *g) {
   Player *p = &g->p;
   if (p->y - 15 < p->ground_y) {
     if (p->ceil_inv <= 0 && p->mode == MODE_CUBE && p->upside) kill(g, -1);
-    if (grav(p, p->vy) <= 0) set_velocity(p, 0, false);
+    if (grav(p, p->vy) <= 0) set_velocity(p, 0, p->mode == MODE_BALL);
     p->y = p->ground_y + 15;
     p->snap_frame = 0;
   }
   if (p->y + 15 > p->ceiling_y) {
     if (p->ceil_inv <= 0 && p->mode == MODE_CUBE && !p->upside) kill(g, -1);
-    if (grav(p, p->vy) >= 0) set_velocity(p, 0, false);
+    if (grav(p, p->vy) >= 0) set_velocity(p, 0, p->mode == MODE_BALL);
     p->y = p->ceiling_y - 15;
   }
 }
@@ -187,7 +197,7 @@ static void solid(Game *g, unsigned i, float ox, float oy, float hw, float hh) {
 static void special(Game *g, unsigned i, const LObj *o, bool hold) {
   Player *p = &g->p;
   const ObjDef *d = &objdefs[o->type];
-  int m = p->mode == MODE_SHIP ? 1 : 0;
+  int m = p->mode; /* the JUMPS column */
   bool used = game_used(g, i);
   switch (d->special) {
     case SP_PAD_Y: case SP_PAD_P:
@@ -220,6 +230,7 @@ static void special(Game *g, unsigned i, const LObj *o, bool hold) {
         if (d->special == SP_ORB_B) { p->upside = !p->upside; p->ceil_inv = CEILING_INVUL; }
         p->on_ground = false; p->on_ceiling = false; p->inverse_rot = false; p->left_ground = true;
         p->buffer = BUF_END; p->jumped = true;
+        p->spin = -BALL_AIR_SPIN;
         update_rot_dir(p);
         g->jumps++;
         set_used(g, i);
@@ -244,7 +255,7 @@ static void special(Game *g, unsigned i, const LObj *o, bool hold) {
       p->ground_y = 0;
       p->ceiling_y = 999999;
       if (p->mode != MODE_CUBE) {
-        p->vy /= 2;
+        if (p->mode != MODE_BALL) p->vy /= 2;
         p->ceil_inv = CEILING_INVUL;
         p->snap_rot = true;
         p->mode = MODE_CUBE;
@@ -253,9 +264,25 @@ static void special(Game *g, unsigned i, const LObj *o, bool hold) {
       }
       set_used(g, i);
       break;
+    case SP_PORTAL_BALL:
+      if (used) break;
+      set_bounds_for_portal(g, o->y, BALL_HEIGHT);
+      if (p->mode != MODE_BALL) {
+        if (p->mode == MODE_SHIP) {
+          p->vy /= 2;
+          if (hold) p->buffer = BUF_READY; /* holding through the portal flips at once */
+        }
+        p->mode = MODE_BALL;
+        p->spin = -BALL_AIR_SPIN;
+        p->inverse_rot = false;
+        p->snap_rot = true;
+        fx(g, FX_PORTAL, 2, (int)i, o->x, o->y);
+      }
+      set_used(g, i);
+      break;
     case SP_PORTAL_SHIP:
       if (used) break;
-      set_bounds_for_portal(g, o->y);
+      set_bounds_for_portal(g, o->y, 300);
       if (p->mode != MODE_SHIP) {
         p->vy /= 2;
         p->mode = MODE_SHIP;
@@ -348,6 +375,27 @@ static void ship_mode(Game *g, bool hold) {
   else if (p->gravity > 0 && p->vy > SHIP_MAX) p->vy = SHIP_MAX;
 }
 
+/* A press on a floor or ceiling flips gravity, with a small push towards the
+   other side (as in GD, a press just before landing counts: the buffer). */
+static void ball_mode(Game *g, const Player *old) {
+  Player *p = &g->p;
+  p->gravity = BALL_GRAV;
+  if (p->on_ground || p->on_ceiling) p->spin = 1;
+  bool coyote = p->upside && p->coyote < 16;
+  if ((p->on_ground || p->on_ceiling || coyote) && p->buffer == BUF_READY) {
+    p->upside = !p->upside;
+    set_velocity(p, BALL_JUMP[p->speed], old->buffer == BUF_READY);
+    p->buffer = BUF_END;
+    p->spin = -BALL_AIR_SPIN;
+    p->on_ground = false;
+    p->jumped = true;
+    g->jumps++;
+    fx(g, FX_JUMP, 0, -1, p->x, p->y);
+  }
+  if (p->vy < -810) p->vy = -810;
+  if (p->vy > 810) p->vy = 810;
+}
+
 static void run_player(Game *g, const Player *old, bool hold, bool pressed) {
   Player *p = &g->p;
   if (!p->left_ground) {
@@ -369,7 +417,9 @@ static void run_player(Game *g, const Player *old, bool hold, bool pressed) {
   } else {
     p->coyote = 1 << 30;
   }
-  if (p->mode == MODE_CUBE) cube_mode(g, hold, pressed); else ship_mode(g, hold);
+  if (p->mode == MODE_CUBE) cube_mode(g, hold, pressed);
+  else if (p->mode == MODE_BALL) ball_mode(g, old);
+  else ship_mode(g, hold);
   p->time_since_ground += ND_DT;
   if (!p->vel_override) {
     float nv = p->vy + p->gravity * ND_DT;
@@ -394,6 +444,8 @@ static void run_player(Game *g, const Player *old, bool hold, bool pressed) {
     } else {
       p->rot = p->target_rot;
     }
+  } else if (p->mode == MODE_BALL) {
+    p->rot += p->spin * BALL_ROLL[p->speed] * (p->upside ? -1 : 1) * ND_DT;
   } else {
     float dx = p->x - old->x, dy = p->y - old->y, ang = atan2f(-dy, dx);
     if (p->snap_rot) p->rot = ang / DEG;

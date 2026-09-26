@@ -58,7 +58,8 @@ def main():
     records[3:3] = [(n, bytes(range(12))) for n in own[1:2]]
     c.set_records(records, cached="script.py")
 
-    # Home: the settings card is last. Settings: the games are listed in order.
+    # Home: the settings card is last. Settings: the games are listed in order,
+    # each with Reset and Uninstall.
     installed = [g for g in order]
     row = installed.index(target)
     t = 1500
@@ -72,6 +73,8 @@ def main():
     for _ in range(row):
         keys.append((t, t + 90, emu.KEYS["down"]))
         t += 300
+    t += 500
+    keys.append((t, t + 90, emu.KEYS["right"]))      # Uninstall, next to Reset on the row
     t += 500
     keys.append((t, t + 90, emu.KEYS["ok"]))         # open the warning
     dialog = t + 600

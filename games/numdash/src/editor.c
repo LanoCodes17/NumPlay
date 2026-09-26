@@ -75,6 +75,9 @@ static bool save_level(void) {
 
 unsigned editor_object_count(void) { return count; }
 
+static bool keys_open; /* the key guide (see below) */
+static bool keys_tick(void);
+
 void editor_flush(void) {
   if (app.dirty) save_level();
 }
@@ -95,6 +98,7 @@ void editor_open(int slot) {
   }
   app.testing = false;
   settings_open = false;
+  keys_open = !(progress.options & OPT_KEYS_SEEN); /* the first time: which key does what */
   fx_reset();
   fill_level(&edit_level, slot, &meta, count);
 }
@@ -239,6 +243,7 @@ static void settings_tick(void) {
 
 void editor_tick(void) {
   if (app.fading_out) return;
+  if (keys_tick()) return;
   if (settings_open) { settings_tick(); return; }
   uint32_t h = app.hit;
   if (h & K_BACK) {
@@ -306,6 +311,114 @@ void editor_frame(float dt) {
   opts.hide_player = true;
   opts.time = app.t;
   scene_prepare(g, &opts);
+}
+
+/* ------------------------------------------------------------ key guide */
+
+/* The calculator's keys (its screen left out), and the ones the editor uses
+ * labelled on both sides: the key's name, what it does, and a line to it.
+ * Shown the first time the editor opens, and from My Levels anytime. */
+
+typedef struct {
+  int16_t x, y;     /* the key's centre on the drawing */
+  const char *name, *what;
+} KeyLabel;
+
+/* sorted from top to bottom on each side, so the lines do not cross */
+static const KeyLabel keys_left[] = {
+    {159, 57, "HOME", "QUIT"},           {126, 66, "ARROWS", "MOVE"},
+    {121, 95, "SHIFT", "ROTATE"},        {136, 95, "ALPHA", "UNDO"},
+    {151, 95, "X,N,T", "COPY BLOCK"},    {136, 108, "LN", "SETTINGS"},
+    {123, 178, "0", "CHANGE MODE"},
+};
+static const KeyLabel keys_right[] = {
+    {181, 62, "OK", "USE THE MODE"},     {198, 62, "BACK", "SAVE, LEAVE"},
+    {166, 95, "VAR", "SAVE"},            {181, 95, "TOOLBOX", "NEXT BLOCK"},
+    {196, 95, "BACKSPACE", "DELETE"},    {177, 164, "+", "NEXT BLOCK"},
+    {195, 164, "-", "PREV BLOCK"},       {195, 178, "EXE", "PLAYTEST"},
+};
+
+static void thin_line(int x0, int y0, int x1, int y1, color_t c, unsigned a) {
+  int dx = x1 > x0 ? x1 - x0 : x0 - x1, dy = y1 > y0 ? y0 - y1 : y1 - y0;
+  int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx + dy;
+  for (;;) {
+    gfx_blend(x0, y0, 1, 1, c, a);
+    if (x0 == x1 && y0 == y1) break;
+    int e2 = 2 * err;
+    if (e2 >= dy) err += dy, x0 += sx;
+    if (e2 <= dx) err += dx, y0 += sy;
+  }
+}
+
+static bool key_used(int x, int y) {
+  if (x >= 111 && x < 142 && y >= 52 && y < 83) return true; /* the arrows */
+  for (unsigned i = 0; i < sizeof keys_left / sizeof *keys_left; i++)
+    if (keys_left[i].x >= x && keys_left[i].x < x + 16 && keys_left[i].y >= y && keys_left[i].y < y + 11) return true;
+  for (unsigned i = 0; i < sizeof keys_right / sizeof *keys_right; i++)
+    if (keys_right[i].x >= x && keys_right[i].x < x + 16 && keys_right[i].y >= y && keys_right[i].y < y + 11) return true;
+  return false;
+}
+
+static void key(int x, int y, int w, int h, color_t c) {
+  color_t face = key_used(x, y) ? rgb(255, 214, 90) : c;
+  gfx_round_rect(x, y, w, h, 3, rgb(90, 90, 96), 256);
+  gfx_round_rect(x + 1, y + 1, w - 2, h - 2, 2, face, 256);
+}
+
+static void keys_draw(void) {
+  gfx_blend(0, 0, GFX_W, GFX_H, rgb(10, 14, 40), 235);
+  ui_title(FONT_BIG, 160, 22, "EDITOR KEYS");
+  /* the calculator, without its screen */
+  gfx_round_rect(108, 42, 104, 152, 10, rgb(60, 62, 70), 256);
+  gfx_round_rect(110, 44, 100, 148, 9, rgb(236, 236, 238), 256);
+  key(122, 52, 9, 9, 0xffff);   /* up */
+  key(122, 72, 9, 9, 0xffff);   /* down */
+  key(111, 62, 10, 9, 0xffff);  /* left */
+  key(132, 62, 10, 9, 0xffff);  /* right */
+  gfx_round_rect(150, 53, 19, 9, 4, rgb(255, 176, 40), 256);  /* home */
+  gfx_round_rect(150, 68, 19, 9, 4, rgb(50, 50, 56), 256);    /* on/off */
+  gfx_round_rect(175, 56, 13, 13, 6, rgb(90, 90, 96), 256);   /* OK */
+  gfx_round_rect(176, 57, 11, 11, 5, rgb(255, 214, 90), 256);
+  gfx_round_rect(192, 56, 13, 13, 6, rgb(90, 90, 96), 256);   /* back */
+  gfx_round_rect(193, 57, 11, 11, 5, rgb(255, 214, 90), 256);
+  for (int r = 0; r < 3; r++)
+    for (int c = 0; c < 6; c++) key(114 + c * 15, 90 + r * 13, 14, 11, 0xffff);
+  for (int r = 0; r < 4; r++)
+    for (int c = 0; c < 5; c++) key(114 + c * 18, 131 + r * 14, 17, 12, 0xffff);
+  /* the labels: the key's name, what it does, and a line to the key */
+  color_t line = rgb(255, 150, 0);
+  unsigned nl = sizeof keys_left / sizeof *keys_left, nr = sizeof keys_right / sizeof *keys_right;
+  for (unsigned i = 0; i < nl; i++) {
+    const KeyLabel *k = &keys_left[i];
+    int y = 48 + (int)i * 23;
+    gfx_text_right(FONT_SMALL, 100, y + 8, k->name, GOLD_TOP, GOLD_BOTTOM, 256);
+    gfx_text_right(FONT_SMALL, 100, y + 18, k->what, 0xffff, 0xffff, 220);
+    thin_line(102, y + 4, k->x, k->y, line, 256);
+    gfx_round_rect(k->x - 1, k->y - 1, 3, 3, 1, line, 256);
+  }
+  for (unsigned i = 0; i < nr; i++) {
+    const KeyLabel *k = &keys_right[i];
+    int y = 44 + (int)i * 20;
+    gfx_text(FONT_SMALL, 220, y + 8, k->name, GOLD_TOP, GOLD_BOTTOM, 256);
+    gfx_text(FONT_SMALL, 220, y + 18, k->what, 0xffff, 0xffff, 220);
+    thin_line(218, y + 4, k->x, k->y, line, 256);
+    gfx_round_rect(k->x - 1, k->y - 1, 3, 3, 1, line, 256);
+  }
+  gfx_text_center(FONT_SMALL, 160, 232, "OK: GOT IT", 0xffff, 0xffff, 230);
+}
+
+/* while the guide is open it takes the keys; closing it the first time
+   remembers it was seen */
+static bool keys_tick(void) {
+  if (!keys_open) return false;
+  if (app_hit(K_OK | K_EXE | K_BACK)) {
+    keys_open = false;
+    if (!(progress.options & OPT_KEYS_SEEN)) {
+      progress.options |= OPT_KEYS_SEEN;
+      app_save_progress();
+    }
+  }
+  return true;
 }
 
 /* ------------------------------------------------------------ drawing */
@@ -403,14 +516,21 @@ void editor_draw(void) {
   gfx_text_right(FONT_SMALL, 314, 12, "EXE: PLAYTEST", 0xffff, 0xffff, 200);
   gfx_text_right(FONT_SMALL, 314, 24, "LN: SETTINGS", 0xffff, 0xffff, 200);
   if (settings_open) settings_draw();
+  if (keys_open) keys_draw();
 }
 
 /* ------------------------------------------------------------ my levels */
 
 void creator_tick(void) {
+  if (keys_tick()) return;
   if (app_hit(K_BACK)) { app_go(SCR_MENU); return; }
-  if (app_hit(K_UP)) app.row = (app.row + CUSTOM_SLOTS - 1) % CUSTOM_SLOTS;
-  if (app_hit(K_DOWN)) app.row = (app.row + 1) % CUSTOM_SLOTS;
+  /* row -1: the Editor keys button above the levels */
+  if (app_hit(K_UP)) app.row = app.row < 0 ? CUSTOM_SLOTS - 1 : app.row - 1;
+  if (app_hit(K_DOWN)) app.row = app.row == CUSTOM_SLOTS - 1 ? -1 : app.row + 1;
+  if (app.row < 0) {
+    if (app_accept()) keys_open = true;
+    return;
+  }
   if (app_hit(K_LEFT | K_RIGHT)) app.sel ^= 1;
   if (app_accept()) {
     app.slot = app.row;
@@ -461,4 +581,6 @@ void creator_draw(void) {
   gfx_round_rect(26, 212, 268, 8, 3, 0, 256);
   gfx_vgrad(28, 213, 264, 5, rgb(190, 242, 72), rgb(80, 150, 30));
   gfx_text_center(FONT_SMALL, 160, 234, "UP DOWN: LEVEL    LEFT RIGHT: EDIT / PLAY", 0xffff, 0xffff, 200);
+  ui_text_button(262, 26, 70, 20, "KEYS", app.row < 0 ? BTN_GREEN : BTN_GRAY, app.row < 0 ? 1.12f : 1);
+  if (keys_open) keys_draw();
 }

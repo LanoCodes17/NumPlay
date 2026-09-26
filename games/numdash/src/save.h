@@ -8,7 +8,8 @@
 #define CUSTOM_SLOTS 3
 #define CUSTOM_MAX 800
 #define LEVEL_SLOTS (LEVEL_COUNT + CUSTOM_SLOTS)
-enum { OPT_PERCENT = 1, OPT_BAR = 2, OPT_FPS = 4, OPT_AUTOCHECK = 8, OPT_LOWDETAIL = 16, OPT_NOSHAKE = 32 };
+enum { OPT_PERCENT = 1, OPT_BAR = 2, OPT_FPS = 4, OPT_AUTOCHECK = 8, OPT_LOWDETAIL = 16, OPT_NOSHAKE = 32,
+       OPT_KEYS_SEEN = 64 /* the editor's key guide was shown */ };
 
 typedef struct {
   uint8_t normal, practice, coins;   /* best percentages, coin bits */

@@ -7,7 +7,7 @@
 #include <math.h>
 #include <string.h>
 
-enum { PAUSE_PRACTICE, PAUSE_RESUME, PAUSE_MENU, PAUSE_REPLAY, PAUSE_QUIT };
+enum { PAUSE_PRACTICE, PAUSE_RESUME, PAUSE_MENU, PAUSE_REPLAY };
 enum { POP_NONE, POP_COMPLETE, POP_NEWBEST };
 #define FIREWORK_TIME 2.0f
 #define MENU_TIME 3.5f
@@ -218,18 +218,11 @@ static void restart_session(void) {
 /* ------------------------------------------------------------ input */
 
 static void pause_tick(void) {
-  if (app.sel == PAUSE_QUIT) {
-    /* Quit game, small under the buttons: asks first */
-    if (app_hit(K_UP)) app.sel = PAUSE_RESUME;
-  } else {
-    if (app_hit(K_LEFT)) app.sel = (app.sel + 3) % 4;
-    if (app_hit(K_RIGHT)) app.sel = (app.sel + 1) % 4;
-    if (app_hit(K_DOWN)) app.sel = PAUSE_QUIT;
-  }
+  if (app_hit(K_LEFT)) app.sel = (app.sel + 3) % 4;
+  if (app_hit(K_RIGHT)) app.sel = (app.sel + 1) % 4;
   if (app_hit(K_BACK)) { app.paused = false; return; }
   if (!app_accept()) return;
   switch (app.sel) {
-    case PAUSE_QUIT: app_dialog_quit(); break;
     case PAUSE_PRACTICE:
       flush_jumps();
       app.practice = !app.practice;
@@ -455,12 +448,9 @@ static void pause_draw(void) {
   ui_sprite(SPR_BTN_MENU, 204, 176, sel_scale(PAUSE_MENU, app.sel), 256);
   ui_sprite(SPR_BTN_REPLAY, 268, 176, sel_scale(PAUSE_REPLAY, app.sel), 256);
   static const char *const hints[4] = {"PRACTICE MODE", "RESUME", "MENU", "RESTART"};
-  if (app.sel != PAUSE_QUIT) {
-    const char *h = hints[app.sel];
-    if (app.sel == PAUSE_PRACTICE && app.practice) h = "NORMAL MODE";
-    gfx_text_center(FONT_SMALL, 160, 205, h, rgb(255, 255, 140), rgb(255, 200, 0), 256);
-  }
-  ui_text_button(160, 224, 92, 18, "QUIT GAME", app.sel == PAUSE_QUIT ? BTN_GREEN : BTN_GRAY, app.sel == PAUSE_QUIT ? 1.1f : 1.0f);
+  const char *h = hints[app.sel];
+  if (app.sel == PAUSE_PRACTICE && app.practice) h = "NORMAL MODE";
+  gfx_text_center(FONT_SMALL, 160, 222, h, rgb(255, 255, 140), rgb(255, 200, 0), 256);
 }
 
 static void draw_chain(int x, int y0, int y1) {

@@ -47,8 +47,10 @@ GAMES = {
     "numdash": ("NumDash.nwa", "numdash.nds", presses((2500, "ok"), (4000, "ok"), (5500, "ok")), 9000,
                 presses((2500, "ok")), 5000),
     # pause, level list, next level, play: that saves the level to start from
-    "numdrive": ("NumDrive.nwa", "drivemad.sav", presses((1500, "ok"), (2000, "back"), (2500, "right"), (3000, "ok")),
-                 5000, presses((1500, "ok"), (2000, "back"), (2500, "left"), (3000, "ok")), 5000),
+    # (held keys: the pause card's frames are slow while it slides in)
+    "numdrive": ("NumDrive.nwa", "drivemad.sav",
+                 presses((1500, "ok", 250), (2000, "back", 250), (2500, "right", 250), (3000, "ok", 250)), 5000,
+                 presses((1500, "ok", 250), (2000, "back", 250), (2500, "left", 250), (3000, "ok", 250)), 5000),
     "tetris": ("Tetris.nwa", "tetris.sav", presses((1200, "ok")) + every(2500, 7000, 500, "up"), 8000,
                presses((1200, "ok"), (2500, "ok")), 5000),
 }

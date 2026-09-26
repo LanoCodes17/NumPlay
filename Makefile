@@ -101,6 +101,7 @@ $(B)/arm/shots_%.o: $(B)/gen/shots_%.c launcher/src/np.h
 	$(ARM_CC) $(ARM_CFLAGS) -c $< -o $@
 $(B)/arm/arena.o $(B)/arm/marks.o: $(B)/arm/%.o: $(B)/gen/gametable.c
 	$(ARM_CC) $(EADK_CFLAGS) -c $(B)/gen/$*.s -o $@
+.SECONDARY: $(foreach v,$(VARIANTS),$(B)/variant/$(v)-name.o $(B)/variant/$(v)-icon.o)
 $(B)/variant/%-name.o: launcher/app_name.c Makefile | $(B)
 	mkdir -p $(B)/variant
 	$(ARM_CC) $(ARM_CFLAGS) '-DNP_APP_NAME=$(NAME_$*)' -c $< -o $@

@@ -23,44 +23,23 @@
 #define C_GREEN_D RGB(0x26, 0x8f, 0x34)
 #define C_TILE_B RGB(0x00, 0x7a, 0xee)
 #define C_TILE_BD RGB(0x00, 0x58, 0xc0)
-#define C_LOCK RGB(0x68, 0x76, 0x95)
-#define C_LOCK_D RGB(0x56, 0x62, 0x7e)
 #define C_SHADOW RGB(0x10, 0x1c, 0x58)
 #define C_TITLE_O RGB(0x19, 0x1a, 0x1b)
 
 /* ------------------------------------------------------------------- HUD */
 static int hud_t;
-static uint8_t hud_btn, hud_used;
-static int fade_l, fade_r;
+static uint8_t hud_btn;
 float hud_score, hud_coins;
 
 void hud_reset(void) {
   hud_t = 0;
   hud_score = hud_coins = -1;
-  hud_btn = hud_used = 0;
-  fade_l = fade_r = 32;
+  hud_btn = 0;
 }
 
 void hud_tick(uint8_t buttons) {
   hud_t++;
   hud_btn = buttons;
-  hud_used |= buttons;
-  if ((hud_used & 1) && fade_l > 0) fade_l -= 4;
-  if ((hud_used & 2) && fade_r > 0) fade_r -= 4;
-}
-
-static void hint_box(int x, int y, const Icon *ic, bool on) {
-  if (on) {
-    g_rect(x, y, 18, 18, C_WHITE, 29);
-    g_icon(ic, x + 6, y + 6, sky565, 32);
-  } else {
-    g_rect(x + 2, y + 2, 14, 14, C_WHITE, 10);
-    g_rect(x, y, 18, 2, C_WHITE, 20);
-    g_rect(x, y + 16, 18, 2, C_WHITE, 20);
-    g_rect(x, y + 2, 2, 14, C_WHITE, 20);
-    g_rect(x + 16, y + 2, 2, 14, C_WHITE, 20);
-    g_icon(ic, x + 6, y + 6, C_WHITE, 24);
-  }
 }
 
 /* Set Score counter text: white halo, dark outline and a face with a darker extruded bottom */
@@ -159,19 +138,13 @@ void hud_draw(uint16_t *px, int y, int n) {
     }
   }
   draw_counters();
-  if (y + n > 104 && y < 122) {
-    hint_box(16, 104, &ic_left, hud_btn & 1);
-    hint_box(286, 104, &ic_right, (hud_btn & 2) != 0);
-  }
   if (y + n > 180 && y < 216) {
-    if (fade_l > 0) {
-      g_icon(&ic_back, 36, 184, C_WHITE, fade_l * 14 / 32);
-      g_icon(&ic_back, 37, 184, C_WHITE, fade_l * 14 / 32);
-    }
-    if (fade_r > 0) {
-      g_icon(&ic_next, 274, 184, C_WHITE, fade_r * 14 / 32);
-      g_icon(&ic_next, 275, 184, C_WHITE, fade_r * 14 / 32);
-    }
+    /* the driving arrows: faint, and white while their key is held */
+    int al = hud_btn & 1 ? 32 : 14, ar = hud_btn & 2 ? 32 : 14;
+    g_icon(&ic_back, 36, 184, C_WHITE, al);
+    g_icon(&ic_back, 37, 184, C_WHITE, al);
+    g_icon(&ic_next, 274, 184, C_WHITE, ar);
+    g_icon(&ic_next, 275, 184, C_WHITE, ar);
   }
 }
 
@@ -360,7 +333,7 @@ void card_setup(int kind, int lvl) {
   }
 }
 
-int card_buttons(void) { return cd.kind == CARD_LOSE ? 1 : 2; }
+int card_buttons(void) { return cd.kind == CARD_LOSE ? 1 : cd.kind == CARD_PAUSE ? 3 : 2; }
 
 /* 2x2 bilinear sample of a text run, returns alpha 0..32 */
 static int run_texel(const Run *r, int x, int y) {
@@ -405,28 +378,36 @@ static void card_btns(int sel, int yb) {
     g_icon(&ic_play, 160 - 6, yb + 3, C_WHITE, 32);
     g_text_c(&font_s, 160, yb + 25 - font_s.base, "Retry", C_WHITE, 32);
   } else {
-    const int ws = 46;
-    g_rrect(x0 - 1, yb - 1, w + 2, h + 2, r + 1, C_BLACK, 32);
-    g_rrect(x0, yb, w, h, r, C_BLUE_D, 32);
-    g_rrect(x0, yb, w, h - 3, r, C_BLUE, 32);
-    /* grey restart segment on the left */
+    /* Restart (grey) | Resume or Next Level (blue), and Levels (grey) on the pause card */
+    const bool paused = cd.kind == CARD_PAUSE;
+    const int ws = 46, wl = paused ? 50 : 0, wb = paused ? 192 : w, xb = 160 - wb / 2;
+    g_rrect(xb - 1, yb - 1, wb + 2, h + 2, r + 1, C_BLACK, 32);
+    g_rrect(xb, yb, wb, h, r, C_BLUE_D, 32);
+    g_rrect(xb, yb, wb, h - 3, r, C_BLUE, 32);
     for (int yy = yb; yy < yb + h; yy++) {
       if (yy < gc.y0 || yy >= gc.y1) continue;
       uint16_t *p = gc.px + (yy - gc.y0) * SCREEN_W;
-      for (int x = x0; x < x0 + ws; x++) {
+      for (int x = xb; x < xb + wb; x++) {
+        if (x >= xb + ws && x < xb + wb - wl) continue;
         uint16_t c = p[x];
         if (c == C_BLUE) p[x] = C_GRAY;
         else if (c == C_BLUE_D) p[x] = C_GRAY_D;
         else if (c != C_BLACK) p[x] = mix565(c, C_GRAY, 20);
       }
     }
-    g_icon(&ic_restart, x0 + ws / 2 - 7, yb + 3, C_WHITE, 32);
-    g_text_c(&font_s, x0 + ws / 2, yb + 25 - font_s.base, "Restart", C_WHITE, 32);
-    int cx = x0 + ws + (w - ws) / 2;
+    g_icon(&ic_restart, xb + ws / 2 - 7, yb + 3, C_WHITE, 32);
+    g_text_c(&font_s, xb + ws / 2, yb + 25 - font_s.base, "Restart", C_WHITE, 32);
+    int cx = xb + ws + (wb - ws - wl) / 2;
     g_icon(&ic_play, cx - 7, yb + 3, C_WHITE, 32);
-    g_text_c(&font_s, cx, yb + 25 - font_s.base, cd.kind == CARD_PAUSE ? "Resume" : "Next Level", C_WHITE, 32);
+    g_text_c(&font_s, cx, yb + 25 - font_s.base, paused ? "Resume" : "Next Level", C_WHITE, 32);
+    if (paused) {
+      int lx = xb + wb - wl / 2;
+      for (int k = 0; k < 4; k++) g_rect(lx - 6 + (k & 1) * 7, yb + 4 + (k >> 1) * 7, 5, 5, C_WHITE, 32);
+      g_text_c(&font_s, lx, yb + 25 - font_s.base, "Levels", C_WHITE, 32);
+    }
     /* focus ring */
-    int fx = sel == 0 ? x0 : x0 + ws, fw = sel == 0 ? ws : w - ws;
+    int fx = sel == 0 ? xb : sel == 1 ? xb + ws : xb + wb - wl;
+    int fw = sel == 0 ? ws : sel == 1 ? wb - ws - wl : wl;
     g_rect(fx + 1, yb + 1, fw - 2, 1, C_WHITE, 26);
     g_rect(fx + 1, yb + h - 5, fw - 2, 1, C_WHITE, 26);
     g_rect(fx + 1, yb + 1, 1, h - 5, C_WHITE, 26);
@@ -534,8 +515,6 @@ void card_draw(int anim, int sel, bool full) {
 #define GX (160 - (5 * PITCH - (PITCH - TILE)) / 2)
 #define GY 46
 
-bool level_unlocked(int i) { return i == 0 || lvl_done(i) || lvl_done(i - 1); }
-
 void levels_draw(int sel, int scroll) {
   for (int sy = 0; sy < SCREEN_H; sy += STRIP_H) {
     int n = SCREEN_H - sy < STRIP_H ? SCREEN_H - sy : STRIP_H;
@@ -559,17 +538,13 @@ void levels_draw(int sel, int scroll) {
         int i = (scroll + row) * 5 + col;
         if (i >= nlevels) break;
         int lx = GX + col * PITCH;
-        uint16_t top, bot;
-        bool unl = level_unlocked(i);
-        if (lvl_done(i)) top = C_GREEN, bot = C_GREEN_D;
-        else if (unl) top = C_TILE_B, bot = C_TILE_BD;
-        else top = C_LOCK, bot = C_LOCK_D;
-        if (fade < 32 || !unl) {
+        /* every level can be played; the ones already finished are green */
+        uint16_t top = lvl_done(i) ? C_GREEN : C_TILE_B, bot = lvl_done(i) ? C_GREEN_D : C_TILE_BD;
+        if (fade < 32) {
           /* translucent tiles over the background */
-          int a = unl ? fade : fade * 24 / 32;
-          g_rrect(lx - 1, ly - 1, TILE + 2, TILE + 2, 6, C_BLACK, a);
-          g_rrect(lx, ly, TILE, TILE, 5, bot, a);
-          g_rrect(lx, ly, TILE, TILE - 3, 5, top, a);
+          g_rrect(lx - 1, ly - 1, TILE + 2, TILE + 2, 6, C_BLACK, fade);
+          g_rrect(lx, ly, TILE, TILE, 5, bot, fade);
+          g_rrect(lx, ly, TILE, TILE - 3, 5, top, fade);
         } else {
           g_button(lx, ly, TILE, TILE, 5, top, bot, i == sel);
         }
@@ -580,7 +555,7 @@ void levels_draw(int sel, int scroll) {
         num[k++] = (char)('0' + v % 10);
         num[k] = 0;
         g_text_c(&font_m, lx + TILE / 2, ly + (TILE - 3) / 2 - (font_m.cap_top + font_m.base) / 2 + 1, num, C_WHITE,
-                 unl ? fade : fade * 20 / 32);
+                 fade);
       }
     }
     if (sy < 110 && sy + n > 84) {

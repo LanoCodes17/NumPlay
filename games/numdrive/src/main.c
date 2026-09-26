@@ -95,7 +95,6 @@ static void hud_post(uint16_t *px, int y, int n) {
   else hud_draw(px, y, n);
 }
 
-extern bool level_unlocked(int i);
 
 #ifdef ARMTEST
 extern char **environ;
@@ -191,13 +190,22 @@ int main(int argc, char **argv) {
 #endif
         render_frame(hud_post);
     } else if (state == ST_CARD) {
-      if (card_buttons() == 2) {
-        if ((hit & KEY(K_LEFT)) && sel) sel = 0, dirty = true;
-        if ((hit & KEY(K_RIGHT)) && !sel) sel = 1, dirty = true;
+      int nb = card_buttons();
+      if (nb > 1) {
+        if ((hit & KEY(K_LEFT)) && sel > 0) sel--, dirty = true;
+        if ((hit & KEY(K_RIGHT)) && sel < nb - 1) sel++, dirty = true;
       } else {
         sel = 1;
       }
-      if (hit & (KEY(K_OK) | KEY(K_EXE))) {
+      bool ok = (hit & (KEY(K_OK) | KEY(K_EXE))) != 0;
+      if ((hit & KEY(K_BACK)) || (ok && kind == CARD_PAUSE && sel == 2)) { /* the "<" arrow or Levels */
+        state = ST_LEVELS;
+        lsel = cur;
+        lscroll = lsel / 5 - 2 < 0 ? 0 : lsel / 5 - 2;
+        dirty = true;
+        continue;
+      }
+      if (ok) {
         if (kind == CARD_PAUSE && sel == 1) {
           state = ST_PLAY;
         } else {
@@ -205,13 +213,6 @@ int main(int argc, char **argv) {
           start_level(next < nlevels ? next : cur);
           state = ST_PLAY;
         }
-        continue;
-      }
-      if (hit & KEY(K_BACK)) { /* the "<" arrow: level list */
-        state = ST_LEVELS;
-        lsel = cur;
-        lscroll = lsel / 5 - 2 < 0 ? 0 : lsel / 5 - 2;
-        dirty = true;
         continue;
       }
       if (kind != CARD_PAUSE)
@@ -226,7 +227,7 @@ int main(int argc, char **argv) {
       if (hit & KEY(K_RIGHT)) lsel++;
       if (hit & KEY(K_UP)) lsel -= 5;
       if (hit & KEY(K_DOWN)) lsel += 5;
-      if (lsel < 0 || lsel >= nlevels || !level_unlocked(lsel)) lsel = old;
+      if (lsel < 0 || lsel >= nlevels) lsel = old;
       if (lsel != old) dirty = true;
       if (lsel / 5 < lscroll) lscroll = lsel / 5, dirty = true;
       if (lsel / 5 > lscroll + 3) lscroll = lsel / 5 - 3, dirty = true;

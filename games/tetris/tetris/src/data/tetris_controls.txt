@@ -4,9 +4,9 @@
     - <LEFT> and <RIGHT> to move
     - <DOWN> for soft drop
     - <UP> for hard drop
-    - <OK> & <BACK> to rotate left and right
+    - <OK> & <TOOLBOX> to rotate left and right
     - <BACKSPACE> (<clear>) to hold the tetri
-    - <SHIFT> to pause
+    - <BACK> to pause
 
     Every full line disappears
     Get more points by clearing

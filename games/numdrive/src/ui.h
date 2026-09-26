@@ -17,7 +17,7 @@ void ui_capture_background(void);
 /* card screen; anim counts frames since the card appeared; sel is the focused button */
 void card_setup(int kind, int level);
 void card_draw(int anim, int sel, bool full);
-int card_buttons(void); /* number of buttons (1 or 2) */
+int card_buttons(void); /* number of buttons (1 to 3) */
 /* level select */
 void levels_draw(int sel, int scroll);
 

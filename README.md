@@ -43,6 +43,10 @@ Click a file to download it. Not sure which one? Take the first.
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay-Matrices.nwa">NumPlay-Matrices.nwa</a><br>The same app, in disguise. It looks like a math app called <b>Matrices</b>, next to the calculator's own apps.</td>
   </tr>
   <tr>
+    <td></td>
+    <td><img src="docs/media/home_invisible.png" width="240" alt="The calculator's home screen with NumPlay-Invisible installed: the spot after Settings looks empty"> <img src="docs/media/home_matrices.png" width="240" alt="The calculator's home screen with NumPlay-Matrices installed, next to the calculator's own apps"><br><sub>On the home screen: the invisible one is really there, in the empty spot after Settings. The Matrices one sits among the calculator's own apps.</sub></td>
+  </tr>
+  <tr>
     <td width="120" align="center"><img src="docs/media/thumb_numdash.png" width="112" alt="NumDash"></td>
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumDash.nwa">NumDash.nwa</a><br>Only NumDash: jump to the beat</td>
   </tr>

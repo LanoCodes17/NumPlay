@@ -45,7 +45,8 @@ const CHOICES_WITH_SAVE: &[&str] = &[
     "Exit\0",
 ];
 
-fn confirm_dialog(prompt: &str, cfg: &ColorConfig) -> bool {
+/// Asks a yes/no question; No is selected first, and Back answers No.
+pub fn confirm_dialog(prompt: &str, cfg: &ColorConfig) -> bool {
     let dialog_w = 200u16;
     let dialog_h = (LARGE_CHAR_HEIGHT * 3) + 16;
     let dialog_x = (SCREEN_WIDTH - dialog_w) / 2;
@@ -235,8 +236,10 @@ fn start_menu_single_slot<T: GameSave>(
                     controls(controls_text, cfg);
                 }
                 _ => {
-                    fading(FADING_TIME);
-                    return StartMenuAction::Exit;
+                    if confirm_dialog("Quit game?\0", cfg) {
+                        fading(FADING_TIME);
+                        return StartMenuAction::Exit;
+                    }
                 }
             }
         } else {
@@ -258,8 +261,10 @@ fn start_menu_single_slot<T: GameSave>(
                     controls(controls_text, cfg);
                 }
                 _ => {
-                    fading(FADING_TIME);
-                    return StartMenuAction::Exit;
+                    if confirm_dialog("Quit game?\0", cfg) {
+                        fading(FADING_TIME);
+                        return StartMenuAction::Exit;
+                    }
                 }
             }
         }
@@ -332,7 +337,7 @@ pub fn pause_menu(cfg: &ColorConfig, y_offset: i16) -> u8 {
     selection(
         cfg,
         &MenuConfig {
-            choices: &["Resume\0", "Menu\0", "Exit\0"],
+            choices: &["Resume\0", "Menu\0", "Quit game\0"],
             rect_margins: (20, 10),
             dimensions: (
                 SCREEN_WIDTH * 2 / 5,

@@ -18,9 +18,9 @@ The original is released into the public domain ([UNLICENSE](UNLICENSE)). This c
 | Left / Right, or 4 / 6 | Move |
 | Down, or 2 | Soft drop |
 | Up, or 8 | Hard drop |
-| OK / Back | Rotate left / right |
+| OK / Toolbox | Rotate left / right |
 | ⌫ | Hold |
-| Shift | Pause |
+| Back | Pause, with Quit game |
 
 ## Build
 

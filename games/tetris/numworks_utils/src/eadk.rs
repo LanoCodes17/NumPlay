@@ -239,29 +239,105 @@ pub mod display {
 }
 
 pub mod keyboard {
-    use super::State;
+    use super::{key, timing, State};
 
-    /// The keys held down. 8, 4, 6 and 2 on the number pad also count as the
-    /// up, left, right and down arrows.
+    /// A key has to stay up this long to count as released, so a contact that
+    /// flickers while it is held never makes a second press.
+    const RELEASE_MS: u32 = 30;
+    /// Up (the hard drop in Tetris) is easy to brush while pressing another
+    /// arrow on the round arrow pad. It is ignored when it goes down within
+    /// NEAR_MS of another arrow, and only counts once it has been held for
+    /// UP_MS without another arrow being pressed meanwhile.
+    const NEAR_MS: u32 = 80;
+    const UP_MS: u32 = 40;
+    const OTHER_ARROWS: u64 = 1 << key::LEFT | 1 << key::RIGHT | 1 << key::DOWN;
+
+    #[derive(PartialEq, Eq)]
+    enum Up {
+        Idle,
+        Waiting,
+        On,
+        Ignored,
+    }
+
+    struct Filter {
+        last_down: [u32; 64],
+        prev: u64,
+        arrow_at: u32,
+        up: Up,
+        up_at: u32,
+    }
+
+    static mut FILTER: Filter = Filter {
+        last_down: [0; 64],
+        prev: 0,
+        arrow_at: 0,
+        up: Up::Idle,
+        up_at: 0,
+    };
+
+    /// The keys held down, debounced. 8, 4, 6 and 2 on the number pad also
+    /// count as the up, left, right and down arrows.
     #[must_use]
     pub fn scan() -> State {
         let raw = unsafe { eadk_keyboard_scan() };
         // Home and On/Off leave the app from anywhere (see crate::app)
-        if raw >> super::key::HOME & 1 != 0 || raw >> 8 & 1 != 0 {
+        if raw >> key::HOME & 1 != 0 || raw >> 8 & 1 != 0 {
             crate::app::leave();
         }
         let mut state = raw;
         for (pad, arrow) in [
-            (super::key::EIGHT, super::key::UP),
-            (super::key::FOUR, super::key::LEFT),
-            (super::key::SIX, super::key::RIGHT),
-            (super::key::TWO, super::key::DOWN),
+            (key::EIGHT, key::UP),
+            (key::FOUR, key::LEFT),
+            (key::SIX, key::RIGHT),
+            (key::TWO, key::DOWN),
         ] {
             if raw >> pad & 1 != 0 {
                 state |= 1 << arrow;
             }
         }
-        State::new(state)
+        State::new(filter(state))
+    }
+
+    fn filter(raw: u64) -> u64 {
+        // SAFETY: one thread, and nothing keeps a reference across calls
+        let f = unsafe { &mut *core::ptr::addr_of_mut!(FILTER) };
+        let now = (timing::millis() as u32).max(1);
+        let mut held = raw;
+        for k in 0..64 {
+            if raw >> k & 1 != 0 {
+                f.last_down[k] = now;
+            } else if f.last_down[k] != 0 && now.wrapping_sub(f.last_down[k]) < RELEASE_MS {
+                held |= 1 << k;
+            }
+        }
+        let arrow_pressed = held & OTHER_ARROWS & !f.prev != 0;
+        if arrow_pressed {
+            f.arrow_at = now;
+        }
+        f.prev = held;
+        let up = 1u64 << key::UP;
+        if held & up == 0 {
+            f.up = Up::Idle;
+            return held;
+        }
+        if f.up == Up::Idle {
+            if f.arrow_at != 0 && now.wrapping_sub(f.arrow_at) < NEAR_MS {
+                f.up = Up::Ignored;
+            } else {
+                f.up = Up::Waiting;
+                f.up_at = now;
+            }
+        } else if f.up == Up::Waiting && arrow_pressed {
+            f.up = Up::Ignored;
+        }
+        if f.up == Up::Waiting && now.wrapping_sub(f.up_at) >= UP_MS {
+            f.up = Up::On;
+        }
+        if f.up != Up::On {
+            held &= !up;
+        }
+        held
     }
 
     extern "C" {

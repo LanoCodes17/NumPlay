@@ -6,7 +6,7 @@ use numworks_utils::{
     },
     graphical::{draw_centered_string, ColorConfig},
     menu::{
-        pause_menu, selection,
+        confirm_dialog, pause_menu, selection,
         settings::{write_values_to_file, Setting},
         start_menu_with_save, MenuConfig, StartMenuAction,
     },
@@ -171,38 +171,42 @@ pub const CASE_SIZE: u16 = 12;
 pub const PLAYFIELD_HEIGHT: u16 = 20;
 pub const PLAYFIELD_WIDTH: u16 = 10;
 
-const ROTATE_SPEED: u64 = 150;
-const DELAYED_AUTO_SHIFT: u64 = 167;
-const AUTO_MOVE_SPEED: u64 = 33;
+/* a held arrow starts repeating after DELAYED_AUTO_SHIFT, then moves every AUTO_MOVE_SPEED:
+ * a bit slower than arcade timings, as calculator keys are pressed longer */
+const DELAYED_AUTO_SHIFT: u64 = 220;
+const AUTO_MOVE_SPEED: u64 = 40;
 const SOFT_DROP_SPEED: u64 = 33;
 
 const LEFT_KEY: u32 = key::LEFT;
 const RIGHT_KEY: u32 = key::RIGHT;
 const SOFT_DROP_KEY: u32 = key::DOWN;
 const HARD_DROP_KEY: u32 = key::UP;
-const PAUSE_KEY: u32 = key::SHIFT;
-const RIGHT_ROTATION_KEY: u32 = key::BACK;
+const PAUSE_KEY: u32 = key::BACK;
+const RIGHT_ROTATION_KEY: u32 = key::TOOLBOX;
 const LEFT_ROTATION_KEY: u32 = key::OK;
 const HOLD_KEY: u32 = key::BACKSPACE;
 
 const DEATH_MENU: MenuConfig = MenuConfig {
-    choices: &["Replay\0", "Menu\0", "Exit\0"],
+    choices: &["Replay\0", "Menu\0", "Quit game\0"],
     rect_margins: (20, 10),
     dimensions: (CASE_SIZE * (PLAYFIELD_WIDTH + 2), CASE_SIZE * 10),
     offset: (0, 60),
-    back_key_return: 2,
+    back_key_return: 1,
 };
 
 struct Timings {
     pub fall: u64,
     pub side_move: u64,
-    pub rotate: u64,
 }
 
+/// Keys held since they last did something: rotating, holding and pausing
+/// need a new press each time.
 struct Buttons {
     pub side_move: bool,
     pub rotate: bool,
     pub soft_drop: bool,
+    pub hold: bool,
+    pub pause: bool,
 }
 
 impl Buttons {
@@ -221,6 +225,12 @@ impl Buttons {
         }
         if self.soft_drop && !keyboard_state.key_down(SOFT_DROP_KEY) {
             self.soft_drop = false;
+        }
+        if self.hold && !keyboard_state.key_down(HOLD_KEY) {
+            self.hold = false;
+        }
+        if self.pause && !keyboard_state.key_down(PAUSE_KEY) {
+            self.pause = false;
         }
     }
 }
@@ -252,12 +262,15 @@ pub fn game(
     let mut timings = Timings {
         fall: timing::millis(),
         side_move: timing::millis(),
-        rotate: timing::millis(),
     };
+    // keys already down when the game starts wait for a new press
+    let start_keys = keyboard::scan();
     let mut buttons = Buttons {
         side_move: false,
-        rotate: false,
+        rotate: start_keys.key_down(LEFT_ROTATION_KEY) || start_keys.key_down(RIGHT_ROTATION_KEY),
         soft_drop: false,
+        hold: start_keys.key_down(HOLD_KEY),
+        pause: start_keys.key_down(PAUSE_KEY),
     };
     let mut blockers = Blockers {
         hold: false,
@@ -334,14 +347,15 @@ pub fn game(
 
                 draw_ghost_tetri(&current_tetri, &grid, false, ghost_piece);
                 draw_tetrimino(&current_tetri, false);
-
-                timings.side_move = timing::millis();
-                buttons.side_move = true;
             }
-        } else if (!buttons.rotate || (timings.rotate + ROTATE_SPEED < timing::millis()))
+            // the press counts even against a wall, so it never moves twice
+            timings.side_move = timing::millis();
+            buttons.side_move = true;
+        } else if !buttons.rotate
             && (keyboard_state.key_down(RIGHT_ROTATION_KEY)
                 || keyboard_state.key_down(LEFT_ROTATION_KEY))
         {
+            buttons.rotate = true;
             let new_tetri = can_rotate(
                 keyboard_state.key_down(RIGHT_ROTATION_KEY),
                 &current_tetri,
@@ -355,13 +369,11 @@ pub fn game(
 
                 draw_ghost_tetri(&current_tetri, &grid, false, ghost_piece);
                 draw_tetrimino(&current_tetri, false);
-
-                timings.rotate = timing::millis();
-                buttons.rotate = true;
             }
-        } else if !blockers.hold && keyboard_state.key_down(HOLD_KEY) {
+        } else if !blockers.hold && !buttons.hold && keyboard_state.key_down(HOLD_KEY) {
             let temp = current_tetri.clone();
             blockers.hold = true;
+            buttons.hold = true;
 
             draw_tetrimino(&current_tetri, true);
             draw_ghost_tetri(&current_tetri, &grid, true, ghost_piece);
@@ -432,7 +444,10 @@ pub fn game(
                             true,
                         );
                     }
-                    let action = selection(&COLOR_CONFIG, &DEATH_MENU, false);
+                    let mut action = selection(&COLOR_CONFIG, &DEATH_MENU, false);
+                    if action == 2 && !confirm_dialog("Quit game?\0", &COLOR_CONFIG) {
+                        action = 1; // not quitting: back to the Tetris menu
+                    }
                     // Ensure the save is deleted regardless of selection option chosen
                     delete_save("tetris", None);
                     break 'gameloop action;
@@ -494,11 +509,9 @@ pub fn game(
         }
         blockers.check_and_clear(&buttons);
 
-        if keyboard_state.key_down(PAUSE_KEY) {
-            let action = pause_menu(&COLOR_CONFIG, 0);
-            if action != 0 {
-                return action;
-            } else {
+        if keyboard_state.key_down(PAUSE_KEY) && !buttons.pause {
+            buttons.pause = true;
+            let redraw = || {
                 wait_for_vblank();
                 draw_stable_ui(level, level_lines, score, *high_score);
                 wait_for_vblank();
@@ -517,7 +530,19 @@ pub fn game(
                     draw_held_tetrimino(held_tetri_);
                 }
                 draw_next_tetrimino(&next_tetri);
+            };
+            // Quit game asks first; saying no comes back to the pause menu
+            let action = loop {
+                let a = pause_menu(&COLOR_CONFIG, 0);
+                if a != 2 || confirm_dialog("Quit game?\0", &COLOR_CONFIG) {
+                    break a;
+                }
+                redraw();
+            };
+            if action != 0 {
+                return action;
             }
+            redraw();
         }
         display::wait_for_vblank();
     }

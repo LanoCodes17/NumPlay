@@ -69,7 +69,7 @@ pub fn load_save<T: GameSave>(app: &str, slot: Option<u8>) -> Option<T> {
     let word_count = (len as usize / 4).min(MAX_STORAGE_VALUES);
 
     for i in 0..word_count {
-        let val: u32 = unsafe { data_ptr.add(i * 4).cast::<u32>().read() };
+        let val: u32 = unsafe { data_ptr.add(i * 4).cast::<u32>().read_unaligned() };
         words.push(val).ok()?;
     }
 
@@ -80,10 +80,7 @@ pub fn write_save<T: GameSave>(app: &str, slot: Option<u8>, state: &T) -> bool {
     let filename = get_save_filename(app, slot);
     let words = state.to_words();
 
-    if unsafe { extapp_fileExists(filename.as_ptr()) } {
-        unsafe { extapp_fileErase(filename.as_ptr()) };
-    }
-
+    // replaced in place when it has the same size
     unsafe {
         extapp_fileWrite(
             filename.as_ptr(),

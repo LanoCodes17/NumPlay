@@ -201,3 +201,19 @@ bool extapp_fileErase(const char *name) {
 /* Rust's prebuilt core for the host references an unwinding personality;
  * NumPlay's Rust code aborts on panic and never unwinds. */
 void rust_eh_personality(void) {}
+
+/* Tetris's app lifetime (storage.c provides it on the calculator). */
+#include <setjmp.h>
+static jmp_buf rust_leave;
+static bool rust_running;
+int np_app_run(void (*game)(void)) {
+  if (!setjmp(rust_leave)) {
+    rust_running = true;
+    game();
+  }
+  rust_running = false;
+  return 0;
+}
+void np_app_leave(void) {
+  if (rust_running) longjmp(rust_leave, 1);
+}

@@ -150,7 +150,6 @@ struct Rom {
   uint16_t font[22][10];
   uint16_t hand_ol[14], hand_in[14];
   char save_name[15];
-  uint32_t slots[2];
   char s_crossy[7], s_road[5], s_new_top[8];
 };
 
@@ -453,7 +452,6 @@ static const struct Rom rom_init = {
   .hand_in = {0x000, 0x040, 0x040, 0x040, 0x04A, 0x04A, 0x62A, 0x73E,
                                      0x7FE, 0x3FE, 0x3FC, 0x1FC, 0x000, 0x000},
   .save_name = "crossyroad.sav",
-  .slots = {0x90010000u, 0x90410000u},  // userland headers of the two firmware slots
   .s_crossy = "CROSSY",
   .s_road = "ROAD",
   .s_new_top = "NEW TOP",
@@ -476,7 +474,6 @@ static const struct Rom rom_init = {
 #define hand_ol G.rom.hand_ol
 #define hand_in G.rom.hand_in
 #define save_name G.rom.save_name
-#define slots G.rom.slots
 #define str_crossy G.rom.s_crossy
 #define str_road G.rom.s_road
 #define str_new_top G.rom.s_new_top
@@ -1740,6 +1737,9 @@ static void render(void) {
 // ---------------------------------------------------------------------------
 // Persistence
 
+// (after the global register variable: this header defines functions)
+#include "../../common/epsilon_app.h"
+
 // The calculator keeps its files in RAM; the userland header of the running
 // firmware slot tells where. Top score and coins go in a tiny record named
 // "crossyroad.sav", written only after the whole file system checks out.
@@ -1776,21 +1776,13 @@ static void fs_locate(void) {
 }
 #else
 static void fs_locate(void) {
-  uint32_t me;  // any address inside this app: this code's own
-  __asm__("mov %0, pc" : "=r"(me));
-  for (int i = 0; i < 2; i++) {
-    const volatile uint32_t *h = (const volatile uint32_t *)slots[i];
-    if (h[0] != 0xDEC0EDFEu || me < h[5] || me >= h[6]) continue;
-    uint32_t a = h[3], n = h[4];
-    if ((a & 3) || a < 0x20000000u || a > 0x24080000u || n < 4096 || n > 0x20000 || (n & 3)) continue;
-    const volatile uint32_t *st = (const volatile uint32_t *)a;
-    if (st[0] != FS_MAGIC || st[1 + n / 4] != FS_MAGIC) continue;
-    fs_buf = (uint8_t *)(a + 4);
-    fs_size = n;
-    uint8_t *f;
-    if (!fs_walk(&f)) fs_buf = 0;
-    return;
-  }
+  // the userland header can be at four places (two firmware slots, with or
+  // without an extra data sector): N0120s use the second one
+  uint32_t n = 0;
+  fs_buf = epsilon_storage(&n);
+  fs_size = n;
+  uint8_t *f;
+  if (fs_buf && !fs_walk(&f)) fs_buf = 0;
 }
 #endif
 
@@ -1934,6 +1926,7 @@ int main(int argc, char *argv[]) {
 #else
   memcpy(&G.rom, &rom_init, sizeof(rom_init));
 #endif
+  np_app_begin();
   init_palette();
   build_models();
   load_save();
@@ -1945,6 +1938,7 @@ int main(int argc, char *argv[]) {
     uint64_t k = eadk_keyboard_scan(), pr = k & ~prevk;
     prevk = k;
 #define PRESSED(key) ((pr >> (key)) & 1)
+    if (PRESSED(eadk_key_home) || PRESSED(eadk_key_on_off)) break;
     int dir = -1;
     if (PRESSED(eadk_key_up) || PRESSED(eadk_key_ok) || PRESSED(eadk_key_exe)) dir = 0;
     else if (PRESSED(eadk_key_right)) dir = 1;
@@ -2006,5 +2000,5 @@ int main(int argc, char *argv[]) {
 #if PLATFORM_DEVICE && !defined(HOST)
   g9 = caller_r9;
 #endif
-  return 0;
+  return np_app_end();
 }

@@ -1,6 +1,13 @@
 #include "platform.h"
 #include <eadk.h>
 #include <string.h>
+#include "../../common/epsilon_app.h"
+
+bool platform_begin(void) {
+  np_app_begin();
+  return true;
+}
+int platform_end(void) { return np_app_end(); }
 
 bool platform_init(void) { return true; }
 void platform_close(void) {}
@@ -57,51 +64,12 @@ void platform_strip(int y, int h, const uint16_t *pixels) {
 }
 void platform_frame_end(void) { capture_keys(); }
 
-/* Only Epsilon's documented record buffer is used. A SlotInfo pointer is
- * available after a USB transfer but can be zero after a cold boot, so a
- * unique validated storage from either firmware slot is accepted too. */
-static uint8_t *storage_at(uint32_t address, size_t *size) {
-#if PLATFORM_DEVICE
-  /* The optional extra-data sector shifts the userland header by 64 KiB. */
-  if (address != 0x90010000 && address != 0x90020000 && address != 0x90410000 && address != 0x90420000) return NULL;
-  const uint32_t *header = (const uint32_t *)(uintptr_t)address;
-  if (header[0] != 0xDEC0EDFE || header[11] != 0xDEC0EDFE) return NULL;
-  uint32_t ram = header[3], length = header[4];
-  if (length < 1024 || length > 65536 || ram < 0x24000010 || ram > 0x24040000 - length - 8 || ram % 4) return NULL;
-  const uint32_t *magic = (const uint32_t *)(uintptr_t)ram;
-  if (*magic != 0xEE0BDDBA) return NULL;
-  uint32_t footer;
-  memcpy(&footer, (const uint8_t *)magic + 4 + length, 4);
-  if (footer != 0xEE0BDDBA) return NULL;
-  *size = length;
-  return (uint8_t *)(uintptr_t)(ram + 4);
-#else
-  (void)address; (void)size;
-  return NULL;
-#endif
-}
+/* Epsilon's record buffer, found through the userland header of the
+ * software running this app (see games/common/epsilon_app.h). */
 uint8_t *platform_storage(size_t *size) {
-#if !PLATFORM_DEVICE
-  (void)size;
-  return NULL;
-#endif
-  const volatile uint32_t *slot = (const volatile uint32_t *)0x24000000;
-  if (slot[0] == 0xEFEEDBBA && slot[3] == 0xEFEEDBBA) {
-    uint8_t *a = storage_at(slot[2], size);
-    if (a) return a;
-  }
-  static const uint32_t headers[] = {0x90010000, 0x90020000, 0x90410000, 0x90420000};
-  uint8_t *match = NULL;
-  size_t matched = 0;
-  for (unsigned i = 0; i < 4; i++) {
-    size_t bytes = 0;
-    uint8_t *a = storage_at(headers[i], &bytes);
-    if (!a) continue;
-    if (match && (match != a || matched != bytes)) return NULL;
-    match = a;
-    matched = bytes;
-  }
-  if (match) *size = matched;
-  return match;
+  uint32_t n = 0;
+  uint8_t *a = epsilon_storage(&n);
+  if (a) *size = n;
+  return a;
 }
 void platform_storage_commit(void) {}

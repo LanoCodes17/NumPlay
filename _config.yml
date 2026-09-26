@@ -1,0 +1,4 @@
+title: NumPlay
+description: "Games for the NumWorks calculator: NumDash, Crossy Road, NumDrive, Tetris and Chess, in one app."
+theme: jekyll-theme-cayman
+exclude: [games, launcher, tools, tests, build, LICENSES, Makefile, .github]

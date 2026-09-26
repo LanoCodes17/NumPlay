@@ -16,11 +16,14 @@ use ui_tetris::draw_tetrimino;
 
 pub use game_tetris::start;
 
+extern "C" fn play() {
+    game_tetris::start();
+}
+
 /// Entry point when Tetris runs inside the NumPlay launcher.
 #[no_mangle]
 pub extern "C" fn np_tetris_main() -> i32 {
-    game_tetris::start();
-    0
+    numworks_utils::app::run(play)
 }
 
 pub fn thumbnail(_: Point) {

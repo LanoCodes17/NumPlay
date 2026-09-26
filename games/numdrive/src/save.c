@@ -34,31 +34,21 @@ void save_store(void) {
 }
 #else
 
+#include "../../common/epsilon_app.h"
+
 static const char rec_name[] = "drivemad.sav";
 #define SAVE_MAGIC 0x444Du
-#define USERLAND_MAGIC 0xDEC0EDFEu
-#define STORAGE_MAGIC 0xEE0BDDBAu
 
 static uint8_t *storage_buf;
 static uint32_t storage_size;
 
+/* The userland header can be at four places (two firmware slots, with or
+ * without an extra data sector): N0120s use the second one. */
 static bool find_storage(void) {
-  static const uint32_t cand[] = {0x90010000u, 0x90410000u};
-  for (int i = 0; i < 2; i++) {
-    const uint32_t *h = (const uint32_t *)cand[i];
-    if (h[0] != USERLAND_MAGIC || h[11] != USERLAND_MAGIC) continue;
-    uint32_t addr = h[3], size = h[4];
-    if (addr < 0x20000000u || addr >= 0x24080000u || size < 1024 || size > 0x20000) continue;
-    const uint32_t *fs = (const uint32_t *)addr;
-    if (fs[0] != STORAGE_MAGIC) continue;
-    uint32_t foot;
-    memcpy(&foot, (const uint8_t *)addr + 4 + size, 4);
-    if (foot != STORAGE_MAGIC) continue;
-    storage_buf = (uint8_t *)addr + 4;
-    storage_size = size;
-    return true;
-  }
-  return false;
+  uint32_t n = 0;
+  storage_buf = epsilon_storage(&n);
+  storage_size = n;
+  return storage_buf != 0;
 }
 
 static inline uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }

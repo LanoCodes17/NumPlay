@@ -25,7 +25,8 @@ import sys
 import tempfile
 
 from elftools.elf.elffile import ELFFile
-from unicorn import UC_ARCH_ARM, UC_HOOK_CODE, UC_HOOK_INTR, UC_HOOK_MEM_INVALID, UC_MODE_MCLASS, UC_MODE_THUMB, Uc, UcError
+from unicorn import (UC_ARCH_ARM, UC_HOOK_CODE, UC_HOOK_INTR, UC_HOOK_MEM_INVALID, UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE,
+                     UC_MODE_MCLASS, UC_MODE_THUMB, Uc, UcError)
 from unicorn.arm_const import (UC_ARM_REG_LR, UC_ARM_REG_PC, UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2,
                                UC_ARM_REG_R3, UC_ARM_REG_SP)
 
@@ -216,6 +217,69 @@ class Calculator:
         uc.reg_write(UC_ARM_REG_SP, STACK_TOP)
         uc.reg_write(UC_ARM_REG_LR, EXIT_HOOK | 1)
         self.pc = self.entry | 1
+
+    # ------------------------------------------------------------ checks
+    def enable_checks(self, reads=True):
+        """Watch for what would crash or corrupt a real calculator: unaligned
+        multi-word loads (LDRD, LDM, VLDR... fault on the Cortex-M7), writes to
+        flash outside the flash system calls, changes to the firmware's RAM
+        other than its file system, and the deepest stack use.
+        (Unicorn mis-runs some code with write hooks on RAM, so RAM writes are
+        checked by comparing snapshots, and the stack is painted.)"""
+        self.violations = []
+        if reads:  # loads from the file system: records sit at any byte offset
+            self.uc.hook_add(UC_HOOK_MEM_READ, self._check, begin=STORAGE, end=STORAGE + STORAGE_SIZE + 8)
+        self.uc.hook_add(UC_HOOK_MEM_WRITE, self._flash_write, begin=FLASH, end=FLASH + FLASH_SIZE - 1)
+        self.uc.mem_write(EXT_RAM_END, b"\xa5" * (STACK_TOP - EXT_RAM_END))
+        self.ram_before = bytes(self.uc.mem_read(SRAM, SRAM_SIZE))
+
+    def _flash_write(self, uc, access, addr, size, value, data):
+        self.violations.append(f"write to flash at {addr:#x} (pc {uc.reg_read(UC_ARM_REG_PC):#x})")
+
+    def stack_used(self):
+        stack = bytes(self.uc.mem_read(EXT_RAM_END, STACK_TOP - EXT_RAM_END))
+        i = 0
+        while i < len(stack) and stack[i] == 0xA5:
+            i += 1
+        return len(stack) - i
+
+    def firmware_ram_changes(self):
+        """Offsets of firmware RAM that changed, outside the file system."""
+        now = bytes(self.uc.mem_read(SRAM, SRAM_SIZE))
+        allowed = [(EXT_RAM_START, STACK_TOP), (STORAGE + 4, STORAGE + 4 + STORAGE_SIZE),
+                   (self.fs_private + 4 + 128 + 4, self.fs_private + 4 + 128 + 12)]
+        changed = []
+        for i in range(0, SRAM_SIZE, 4):
+            if now[i:i + 4] != self.ram_before[i:i + 4]:
+                a = SRAM + i
+                if not any(lo <= a < hi for lo, hi in allowed):
+                    changed.append(a)
+        return changed
+
+    def _needs_alignment(self, pc):
+        hw1, = struct.unpack("<H", self.uc.mem_read(pc, 2))
+        if hw1 >> 11 in (0x18, 0x19):  # 16-bit LDM/STM
+            return "LDM/STM"
+        if hw1 < 0xE800:
+            return None
+        hw2, = struct.unpack("<H", self.uc.mem_read(pc + 2, 2))
+        if hw1 & 0xFE40 == 0xE800:
+            return "LDM/STM"
+        if hw1 & 0xFE40 == 0xE840:
+            return "LDRD/STRD/LDREX"
+        if hw1 & 0xFE00 == 0xEC00 and (hw2 >> 9) & 7 == 5:
+            return "VLDR/VSTR/VLDM/VSTM"
+        return None
+
+    def _check(self, uc, access, addr, size, value, data):
+        if addr & 3:
+            pc = uc.reg_read(UC_ARM_REG_PC)
+            kind = self._needs_alignment(pc)
+            if kind:
+                self.violations.append(f"unaligned {kind} at {addr:#x} (pc {pc:#x})")
+
+    def app_ram_clean(self):
+        return not any(self.uc.mem_read(EXT_RAM_START, EXT_RAM_LEN))
 
     # ------------------------------------------------------------ helpers
     def reg(self, r):
@@ -453,6 +517,7 @@ def main():
     ap.add_argument("--flash-start", type=lambda s: int(s, 0), default=EXT_FLASH_START)
     ap.add_argument("--nwlink", default="nwlink")
     ap.add_argument("--records", action="store_true", help="list storage records at the end")
+    ap.add_argument("--frames", help="save raw RGB565 frames here (for tools/record.py --frames)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     c = Calculator(a.nwa, a.flash_start, a.storage, a.nwlink)
@@ -462,11 +527,20 @@ def main():
     frames = []
     g0, g1 = (int(x) for x in a.gif.split("-")) if a.gif else (None, None)
 
+    count = [0]
+
     def grab(calc):
         if g0 is not None and g0 <= calc.now_ms <= g1:
             frames.append(calc.frame_image())
+        if a.frames:
+            name = f"{count[0]:06d}_{int(calc.now_ms):06d}.raw"
+            open(os.path.join(a.frames, name), "wb").write(bytes(calc.screen))
+            count[0] += 1
 
-    c.run(a.ms, grab if a.gif else None, 1000 / a.fps if a.gif else None)
+    if a.frames:
+        os.makedirs(a.frames, exist_ok=True)
+    recording = a.gif or a.frames
+    c.run(a.ms, grab if recording else None, 1000 / a.fps if recording else None)
     if frames:
         frames[0].save(os.path.join(a.out, "anim.gif"), save_all=True, append_images=frames[1:],
                        duration=int(1000 / a.fps), loop=0)

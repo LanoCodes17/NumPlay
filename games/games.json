@@ -2,61 +2,94 @@
   {
     "id": "numdash",
     "title": "NumDash",
-    "tagline": "Geometry Dash, with the real levels",
+    "tagline": "Jump to the beat",
     "credit": null,
     "top": "0x3D6BFF",
     "bottom": "0x14124F",
     "accent": "0x35C759",
-    "records": ["numdash.nds", "numdash.ndd", "numdash1.ndl", "numdash2.ndl", "numdash3.ndl"],
-    "shots": ["docs/screenshots/menu.png", "docs/screenshots/gameplay.png", "docs/screenshots/level-complete.png"],
+    "records": [
+      "numdash.nds",
+      "numdash.ndd",
+      "numdash1.ndl",
+      "numdash2.ndl",
+      "numdash3.ndl"
+    ],
+    "shots": [
+      "docs/screenshots/menu.png",
+      "docs/screenshots/gameplay.png",
+      "docs/screenshots/level-complete.png"
+    ],
     "repo": "https://github.com/Mason363/NumDash"
   },
   {
     "id": "crossyroad",
     "title": "Crossy Road",
-    "tagline": "Hop across roads, rivers and rails",
+    "tagline": "Hop, dodge, survive",
     "credit": null,
     "top": "0x45B649",
     "bottom": "0x10421C",
     "accent": "0xFF8A1F",
-    "records": ["crossyroad.sav"],
-    "shots": ["screenshots/title.png", "screenshots/river.png", "screenshots/train.png"],
+    "records": [
+      "crossyroad.sav"
+    ],
+    "shots": [
+      "screenshots/title.png",
+      "screenshots/river.png",
+      "screenshots/train.png"
+    ],
     "repo": "https://github.com/Mason363/CrossyWorks"
   },
   {
     "id": "numdrive",
     "title": "NumDrive",
-    "tagline": "157 levels of Drive Mad style physics",
+    "tagline": "Drive, flip, finish",
     "credit": null,
     "top": "0x35A8F0",
     "bottom": "0x123A63",
     "accent": "0xFFB020",
-    "records": ["drivemad.sav"],
-    "shots": ["docs/shot1.png", "docs/shot2.png", "docs/shot3.png"],
+    "records": [
+      "drivemad.sav"
+    ],
+    "shots": [
+      "docs/shot1.png",
+      "docs/shot2.png",
+      "docs/shot3.png"
+    ],
     "repo": "https://github.com/Mason363/NumDrive"
   },
   {
     "id": "tetris",
     "title": "Tetris",
-    "tagline": "The classic, full screen. By Tatone26",
+    "tagline": "Stack and clear lines",
     "credit": "Tatone26",
     "top": "0x8A4DFF",
     "bottom": "0x1E0B45",
     "accent": "0xFF4FA3",
-    "records": ["tetris.sav", "tetris.set"],
-    "shots": ["docs/shot1.png", "docs/shot2.png", "docs/shot3.png"],
+    "records": [
+      "tetris.sav",
+      "tetris.set"
+    ],
+    "shots": [
+      "docs/shot1.png",
+      "docs/shot2.png",
+      "docs/shot3.png"
+    ],
     "repo": "https://github.com/Tatone26/Numworks-games/tree/main/apps/tetris"
   },
   {
     "id": "chess",
     "title": "Chess",
-    "tagline": "12 bots, endless puzzles, 2 players",
+    "tagline": "Bots, puzzles, 2 players",
     "credit": null,
     "top": "0x7FA650",
     "bottom": "0x22211E",
     "accent": "0x81B64C",
     "records": [],
-    "shots": ["docs/italian.png", "docs/bots.png", "docs/puzzle-mate1.png"],
+    "shots": [
+      "docs/italian.png",
+      "docs/bots.png",
+      "docs/puzzle-mate1.png"
+    ],
     "repo": "https://github.com/Mason363/NumChess"
   }
 ]

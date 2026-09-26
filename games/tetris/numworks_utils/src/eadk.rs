@@ -246,6 +246,10 @@ pub mod keyboard {
     #[must_use]
     pub fn scan() -> State {
         let raw = unsafe { eadk_keyboard_scan() };
+        // Home and On/Off leave the app from anywhere (see crate::app)
+        if raw >> super::key::HOME & 1 != 0 || raw >> 8 & 1 != 0 {
+            crate::app::leave();
+        }
         let mut state = raw;
         for (pad, arrow) in [
             (super::key::EIGHT, super::key::UP),
@@ -366,5 +370,11 @@ fn panic(info: &PanicInfo<'_>) -> ! {
         Color::WHITE,
     );
 
+    // leave cleanly after a key press, instead of freezing the calculator
+    crate::utils::wait_for_no_keydown();
+    while !keyboard::scan().any_down() {
+        timing::msleep(20);
+    }
+    crate::app::leave();
     loop {}
 }

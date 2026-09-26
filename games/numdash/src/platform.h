@@ -11,6 +11,10 @@ enum { K_LEFT = 1, K_RIGHT = 2, K_UP = 4, K_DOWN = 8, K_OK = 16, K_EXE = 32,
 
 bool platform_init(void);
 void platform_close(void);
+/* On the calculator: hold Home back while the app runs, and clear its RAM
+ * when it ends (games/common/epsilon_app.h). */
+bool platform_begin(void);
+int platform_end(void);
 /* Keys held now, plus keys pressed and released since the previous call. */
 uint32_t platform_keys(void);
 uint32_t platform_millis(void);

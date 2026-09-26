@@ -1,5 +1,5 @@
 use heapless::Vec;
-use low_level_storage::{extapp_fileErase, extapp_fileExists, extapp_fileRead, extapp_fileWrite};
+use low_level_storage::{extapp_fileExists, extapp_fileRead, extapp_fileWrite};
 
 pub mod save;
 
@@ -7,23 +7,12 @@ pub const MAX_STORAGE_VALUES: usize = 32;
 // const MAX_FILE_SIZE: usize = MAX_VALUES * 4; // which represents 64 values (each represented by a u32)
 
 pub mod low_level_storage {
-    #[link(name = "storage")]
+    // games/tetris/numworks_utils/src/storage/storage.c (on the calculator)
     extern "C" {
-        #[allow(dead_code)]
-        fn reverse32(value: u32) -> u32;
-        #[allow(dead_code)]
-        fn strcmp(s1: *const u8, s2: *const u8);
         pub fn extapp_fileExists(filename: *const u8) -> bool;
         pub fn extapp_fileRead(filename: *const u8, len: *mut u32) -> *const u8;
         pub fn extapp_fileWrite(filename: *const u8, content: *const u8, len: u32) -> bool;
         pub fn extapp_fileErase(filename: *const u8) -> bool;
-        pub fn extapp_size() -> u32;
-        pub fn extapp_address() -> u32;
-        pub fn extapp_used() -> u32;
-        pub fn extapp_nextFree() -> *mut u32;
-        pub fn extapp_isValid(address: *mut u32) -> bool;
-        pub fn extapp_calculatorModel() -> u8;
-        pub fn extapp_userlandAddress() -> *mut u32;
     }
 }
 
@@ -102,8 +91,8 @@ pub fn write_data(filename: &str, pos: Option<u32>, value: u32) -> usize {
         res = values.len() - 1;
     }
     let name = record_name(filename);
-    unsafe { extapp_fileErase(name.as_ptr()) };
-    // A full storage only means the settings are not remembered.
+    // rewritten in place when the size is unchanged; a full storage only
+    // means the settings are not remembered
     let _ = unsafe {
         extapp_fileWrite(
             name.as_ptr(),

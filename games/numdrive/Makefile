@@ -64,8 +64,8 @@ output/device/module.o: $(addprefix output/device/,$(SOURCES:.c=.o)) output/devi
 	@echo "LD      $@"
 	$(Q) arm-none-eabi-gcc $(CFLAGS) -Wl,--relocatable -nostartfiles -nostdlib -Wl,-e,main -flinker-output=nolto-rel $^ -o $@
 
-sim-module: output/npsim/sim-module.o
-output/npsim/sim-module.o: $(addprefix src/,$(SOURCES)) src/pack.bin src/*.h
+sim-module: output/sim-module.o
+output/sim-module.o: $(addprefix src/,$(SOURCES)) src/pack.bin src/*.h
 	@mkdir -p output/npsim
 	$(Q) cd src && xxd -i -n pack_bin pack.bin > ../output/npsim/pack_bin.c
 	$(Q) for f in $(SOURCES); do cc -std=gnu11 -O2 -fPIC -fsingle-precision-constant -Wno-unused-function \

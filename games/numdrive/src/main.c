@@ -107,7 +107,8 @@ int main(int argc, char **argv) {
 #ifdef ARMTEST
   environ = argv + 1; /* semihosting has no environment: pass KEY=VALUE arguments */
 #endif
-  if (!world_init()) return 1;
+  plat_begin();
+  if (!world_init()) return plat_end(1);
   save_load();
   int lvl = progress.last < nlevels ? progress.last : 0;
 #ifdef HOST
@@ -116,7 +117,7 @@ int main(int argc, char **argv) {
   if (!start_level(lvl)) {
     plat_fill(0, 0, SCREEN_W, SCREEN_H, 0xF800);
     plat_sleep(2000);
-    return 1;
+    return plat_end(1);
   }
   int state = ST_PLAY, kind = CARD_PAUSE, anim = 0, sel = 1, lsel = 0, lscroll = 0;
   bool dirty = true;
@@ -127,7 +128,7 @@ int main(int argc, char **argv) {
     uint64_t k = plat_keys();
     uint64_t hit = k & ~prev;
     prev = k;
-    if (k & KEY(K_HOME)) break;
+    if (k & (KEY(K_HOME) | KEY(K_ONOFF))) break;
     /* frame pacing: fixed 60 Hz simulation, catching up when rendering is slow */
     int steps = 1;
 #ifndef HOST
@@ -240,5 +241,5 @@ int main(int argc, char **argv) {
     }
     plat_frame_done();
   }
-  return 0;
+  return plat_end(0);
 }

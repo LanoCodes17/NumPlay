@@ -259,3 +259,6 @@ static void s_checkpoint(void) {
   sr->done[s_id] = 0;
 }
 #endif
+
+void plat_begin(void) {}
+int plat_end(int code) { return code; }

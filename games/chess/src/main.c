@@ -1,5 +1,7 @@
 #include <eadk.h>
 #include <string.h>
+#include "../../common/epsilon_app.h"
+#include "../../common/jump.h"
 #include "chess.h"
 #include "sprites.h"
 
@@ -262,9 +264,13 @@ static int prating = 800, pstreak, pdelta, spin_mode, spin_y, spin;
 
 /* -------------------------------------------------------------- Input */
 
+/* Home and On/Off leave the app from anywhere: main() set this jump. */
+static np_jump_t leave;
+
 static int key(int ms) {
   int32_t t = ms;
   int e = eadk_event_get(&t);
+  if (e == 6 || e == 8) np_jump(leave); /* Home, On/Off */
   return e == K_EXE ? K_OK : e;
 }
 
@@ -884,10 +890,12 @@ static int puzzle_menu(int *i) {
 }
 
 int main(void) {
+  np_app_begin();
+  if (np_save_jump(leave)) return np_app_end();
   ch_init();
   int m = 0, pk = 0;
   for (;;) {
-    if (main_menu(&m) < 0) return 0;
+    if (main_menu(&m) < 0) return np_app_end();
     if (m == 0 && bot_select()) game(M_BOT);
     if (m == 1 && puzzle_menu(&pk) >= 0) puzzles(pk);
     if (m == 2 && time_select()) game(M_2P);

@@ -64,7 +64,9 @@ $(B)/modules/%.o: FORCE | $(B)
 	@if [ "$*" != tetris ]; then $(MAKE) --no-print-directory -C games/$* module NWLINK="$(NWLINK)"; \
 	else $(MAKE) --no-print-directory $(MOD_tetris); fi
 	$(ARM_LD) -r -d -T tools/module.ld $(MOD_$*) -o $(B)/modules/$*.1.o
-	$(ARM_OBJCOPY) --keep-global-symbol=$(or $(ENTRY_$*),$(ENTRY)) $(B)/modules/$*.1.o $(B)/modules/$*.2.o
+	$(ARM_OBJCOPY) --keep-global-symbol=$(or $(ENTRY_$*),$(ENTRY)) \
+	  --redefine-sym eadk_keyboard_scan=np_keyboard_scan --redefine-sym eadk_event_get=np_event_get \
+	  $(B)/modules/$*.1.o $(B)/modules/$*.2.o
 	$(PY) tools/npmodule.py $(B)/modules/$*.2.o $@ --game $* --index $(INDEX_$*) \
 	  --entry $(or $(ENTRY_$*),$(ENTRY)) --json $(B)/modules/$*.json
 
@@ -125,7 +127,7 @@ apps: | $(B)
 # ------------------------------------------------------------------ simulator
 SIM_numdash = games/numdash/build/sim-module.o
 SIM_crossyroad = games/crossyroad/output/sim-module.o
-SIM_numdrive = games/numdrive/output/npsim/sim-module.o
+SIM_numdrive = games/numdrive/output/sim-module.o
 SIM_chess = games/chess/output/sim-module.o
 SIM_tetris = $(B)/sim/tetris.o
 SIM_CFLAGS = -std=gnu11 -O2 -fPIC -DNP_SIMULATOR=1 $(EADK_SIM_CFLAGS) -Ilauncher/src -Wall -Wno-unused-parameter

@@ -1,5 +1,12 @@
 #include <eadk.h>
 #include "platform.h"
+#include "../../common/epsilon_app.h"
+
+void plat_begin(void) { np_app_begin(); }
+int plat_end(int code) {
+  np_app_end();
+  return code;
+}
 
 void plat_push(int x, int y, int w, int h, const uint16_t *px) {
   eadk_rect_t r = {(uint16_t)x, (uint16_t)y, (uint16_t)w, (uint16_t)h};

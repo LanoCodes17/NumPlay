@@ -11,6 +11,9 @@ int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   if (!platform_init()) return 1;
+#if PLATFORM_DEVICE
+  platform_begin();
+#endif
   app_init();
   uint32_t prev = platform_millis(), acc = 0, fps_start = prev, frames = 0, pending = 0, render_ms = 30;
   while (app.running) {
@@ -53,5 +56,9 @@ int main(int argc, char **argv) {
 #endif
   }
   platform_close();
+#if PLATFORM_DEVICE
+  return platform_end();
+#else
   return 0;
+#endif
 }

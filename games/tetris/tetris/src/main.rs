@@ -19,7 +19,11 @@ pub static EADK_APP_API_LEVEL: u32 = 0;
 #[link_section = ".rodata.eadk_app_icon"]
 pub static EADK_APP_ICON: [u8; 3030] = *include_bytes!("../target/icon.nwi");
 
-#[no_mangle]
-pub fn main() {
+extern "C" fn play() {
     game_tetris::start();
+}
+
+#[no_mangle]
+pub fn main() -> i32 {
+    numworks_utils::app::run(play)
 }

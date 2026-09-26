@@ -2,7 +2,6 @@
 
 #if PLATFORM_DEVICE && !NP_SIMULATOR
 #define USERLAND_MAGIC 0xDEC0EDFEu
-#define SLOT_MAGIC 0xEFEEDBBAu
 
 /* System calls, numbered as in Epsilon's svcall.h (stable since 2022). The
  * kernel returns the result in r0 and may clobber r1-r3. */
@@ -40,11 +39,8 @@ const np_userland_t *np_userland(void) {
   static bool done;
   if (done) return cached;
   done = true;
-  const volatile uint32_t *slot = (const volatile uint32_t *)0x24000000;
-  if (slot[0] == SLOT_MAGIC && slot[3] == SLOT_MAGIC && valid_header(slot[2])) {
-    cached = (const np_userland_t *)slot[2];
-    return cached;
-  }
+  /* Only external flash is probed: it exists on every model (RAM addresses
+   * differ between models, and reading a missing one faults). */
   static const uint32_t candidates[] = {0x90010000, 0x90020000, 0x90410000, 0x90420000};
   for (unsigned i = 0; i < 4; i++)
     if (valid_header(candidates[i])) {
@@ -55,6 +51,25 @@ const np_userland_t *np_userland(void) {
       cached = (const np_userland_t *)candidates[i];
     }
   return cached;
+}
+
+/* The whole session runs with Home held back (Epsilon's circuit breaker),
+ * and ends with the app's RAM cleared: see games/common/epsilon_app.h. */
+extern char _data_section_start_ram[], _heap_end[];
+static bool session_locked;
+
+void np_session_begin(void) {
+  if (!np_userland()) return;
+  SVC2(10, 0, 0);
+  session_locked = true;
+}
+
+int np_session_end(void) {
+  bool unlock = session_locked;
+  for (volatile uint32_t *p = (volatile uint32_t *)(void *)_data_section_start_ram; p < (volatile uint32_t *)(void *)_heap_end; p++)
+    *p = 0;
+  if (unlock) SVC2(13, 0, 0);
+  return 0;
 }
 
 uint32_t np_crc32_bytes(const void *data, uint32_t len) { return len ? SVC2(15, data, len) : 0; }
@@ -89,6 +104,8 @@ bool np_flash_write(void *dst, const void *src, uint32_t len) {
 }
 void np_interrupts_lock(void) {}
 void np_interrupts_unlock(void) {}
+void np_session_begin(void) {}
+int np_session_end(void) { return 0; }
 #endif
 
 int np_software_major(void) {

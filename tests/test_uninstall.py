@@ -12,6 +12,7 @@ what happened to the flash and to the calculator's files.
 Usage: test_uninstall.py build/NumPlay.nwa [--out DIR]
 """
 import argparse
+import json
 import os
 import struct
 import sys
@@ -38,7 +39,9 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     c = emu.Calculator(a.nwa)
-    games = [n[3:-6] for n in c.symbols if n.startswith("np_") and n.endswith("_begin")]
+    manifest = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "games", "games.json")
+    manifest = json.load(open(manifest))
+    games = [g["id"] for g in manifest]
     order = sorted(games, key=lambda g: c.symbols[f"np_{g}_begin"])
     target = a.game
     if target not in order:
@@ -46,10 +49,13 @@ def main():
     begin, end = c.symbols[f"np_{target}_begin"], c.symbols[f"np_{target}_end"]
     flash_before = bytes(c.uc.mem_read(emu.FLASH, emu.FLASH_SIZE))
 
-    save = {"crossyroad": "crossyroad.sav", "numdrive": "drivemad.sav", "numdash": "numdash.nds",
-            "tetris": "tetris.sav", "chess": None}[target]
+    # the game's own files go with it; a script and another game's save stay
+    own = next(g["records"] for g in manifest if g["id"] == target)
+    save = own[0] if own else None
+    other = ("crossyroad.sav", bytes(range(24))) if target == "tetris" else ("tetris.set", struct.pack("<3I", 1, 1, 1234))
     records = [("pi.py", b"\x01print(3.14)\n"), (save or "none.sav", bytes(range(40))),
-               ("script.py", b"\x01import math\nprint(math.e)\n"), ("tetris.set", struct.pack("<3I", 1, 1, 1234))]
+               ("script.py", b"\x01import math\nprint(math.e)\n"), other]
+    records[3:3] = [(n, bytes(range(12))) for n in own[1:2]]
     c.set_records(records, cached="script.py")
 
     # Home: the settings card is last. Settings: the games are listed in order.
@@ -145,19 +151,23 @@ def main():
         b, e = c.symbols[f"np_{g}_begin"], c.symbols[f"np_{g}_end"]
         if struct.unpack_from("<I", flash, off(b))[0] != 0x3147504E or struct.unpack_from("<I", flash, off(e) - 4)[0] != 0x444E4550:
             fail(f"{g} lost its marks")
-    if c.locks != 0 or c.max_locks != 1:
+    # the session holds Home back, and the uninstall once more inside it
+    if c.locks != 0 or c.max_locks != 2:
         fail(f"Home interrupt lock not balanced (depth {c.locks}, max {c.max_locks})")
+    if not c.app_ram_clean():
+        fail("NumPlay did not clear its RAM when quitting")
     erased = sum(1 for op in c.flash_log if op[0] == "erase")
     print(f"flash: {target} block {begin:#x}-{end:#x} ({(end - begin) / 1024:.1f} KB) wiped, "
           f"{erased} sectors erased, nothing else changed")
 
     # ---- files
     names = [n for n, _ in c.records()]
-    if save and save in names:
-        fail(f"{save} is still there")
+    for name in own:
+        if name in names:
+            fail(f"{name} is still there")
     buf = c.storage_bytes()
     for name, content in records:
-        if name == save:
+        if name in own:
             continue
         if name not in names:
             fail(f"{name} disappeared")

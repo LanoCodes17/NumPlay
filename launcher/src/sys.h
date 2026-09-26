@@ -29,5 +29,9 @@ bool np_flash_erase_sector(int sector);
  * breaker), so a critical section runs to its end. */
 void np_interrupts_lock(void);
 void np_interrupts_unlock(void);
+/* Holds Home back for the whole session; the end clears the app's RAM and
+ * must be followed by `return` from main. */
+void np_session_begin(void);
+int np_session_end(void);
 bool np_flash_write(void *dst, const void *src, uint32_t len);
 #endif

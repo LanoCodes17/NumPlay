@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+pub mod app;
 pub mod eadk;
 pub mod graphical;
 pub mod menu;

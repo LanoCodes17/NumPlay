@@ -1,0 +1,13 @@
+---
+---
+
+@import "{{ site.theme }}";
+
+.page-header {
+  background-color: #7b43ff;
+  background-image: linear-gradient(120deg, #ff5e62, #7b43ff);
+}
+
+.main-content h1, .main-content h2, .main-content h3 {
+  color: #6a3ae0;
+}

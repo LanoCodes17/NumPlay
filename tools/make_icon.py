@@ -49,6 +49,9 @@ def icon(w=55, h=56):
 
 if __name__ == "__main__":
     im = icon()
-    im.save(sys.argv[1])
+    # the calculator ignores transparency: round the corners on the home screen's white
+    flat = Image.new("RGB", im.size, (255, 255, 255))
+    flat.paste(im, (0, 0), im)
+    flat.save(sys.argv[1])
     if len(sys.argv) > 2:
         im.resize((int(sys.argv[2]), int(int(sys.argv[2]) * 56 / 55)), Image.LANCZOS).save(sys.argv[1].replace(".png", "@big.png"))

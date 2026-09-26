@@ -139,7 +139,9 @@ def emit_objdefs():
         ps = []
         for (spr, dx, dy, layer, ct, fl) in parts:
             ident = 'SPR_' + ''.join(ch.upper() if ch.isalnum() else '_' for ch in spr)
-            ps.append('{%s,%d,%d,LAYER_%s,CT_%s,%d}' % (ident, int(round(dx * 4)), int(round(dy * 4)), layer, ct, fl))
+            dx4, dy4 = int(round(dx * 4)), int(round(dy * 4))
+            assert -128 <= dx4 <= 127 and -128 <= dy4 <= 127, f'{name}: part offset too large for int8'
+            ps.append('{%s,%d,%d,LAYER_%s,CT_%s,%d}' % (ident, dx4, dy4, layer, ct, fl))
         while len(ps) < 2:
             ps.append('{-1,0,0,0,0,0}')
         c.append('  {%d,%d,SP_%s,%d,%d,%d,%d,{%s}},' % (ids[0], hit, sp, int(round(w * 10)), int(round(hh * 10)), edy, len(parts), ','.join(ps)))

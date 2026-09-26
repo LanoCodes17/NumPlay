@@ -1,6 +1,6 @@
 name: Build
 
-# Builds NumPlay.nwa and every game on its own. Pushing a tag like v1.2.0
+# Builds NumPlay.nwa, its discreet versions and every game on its own. Pushing a tag like v1.2.0
 # publishes them as a GitHub release.
 
 on:
@@ -52,7 +52,7 @@ jobs:
         with:
           name: nwa
           path: |
-            build/NumPlay.nwa
+            build/NumPlay*.nwa
             build/apps/*.nwa
 
       - name: Release
@@ -60,5 +60,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" build/NumPlay.nwa build/apps/*.nwa \
+          gh release create "$GITHUB_REF_NAME" build/NumPlay*.nwa build/apps/*.nwa \
             --title "NumPlay $GITHUB_REF_NAME" --notes-file .github/release.md

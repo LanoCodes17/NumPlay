@@ -539,7 +539,7 @@ def game_sprites():
     add('rod1', rod_art(42.0), 'A4')
     add('rod2', rod_art(27.0), 'A4')
     add('rod3', rod_art(13.0), 'A4')
-    add('rod_ball', ball_art(15.0), 'A4')
+    add('rod_ball', ball_art(8.0), 'A4')
     add('dspikes1', mountains_art(128, 42, 9, 1), 'A4')
     add('dspikes2', mountains_art(104, 37, 7, 2), 'A4')
     add('dspikes3', mountains_art(73, 29, 6, 3), 'A4')

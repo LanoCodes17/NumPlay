@@ -1,7 +1,7 @@
 # NumPlay: one launcher app with every game, plus each game on its own.
 #
-#   make            build/NumPlay.nwa and build/apps/*.nwa (the release files)
-#   make check      link NumPlay.nwa like the calculator does, print sizes, check RAM
+#   make            build/NumPlay*.nwa and build/apps/*.nwa (the release files)
+#   make check      link the NumPlay apps like the calculator does, print sizes, check RAM
 #   make sim        build/NumPlay.nwb for the Epsilon simulator
 #   make emu        run NumPlay.nwa in the ARM emulator (tools/emu.py)
 #   make clean
@@ -17,6 +17,16 @@ PY ?= python3
 CARGO ?= cargo
 B = build
 RAM_LIMIT = 153676
+
+# NumPlay and its discreet versions: the same app, with another name and icon
+# on the calculator's home screen. Each one is a release file.
+VARIANTS = NumPlay NumPlay-Invisible NumPlay-Matrices
+NAME_NumPlay = "NumPlay"
+ICON_NumPlay = launcher/assets/icon.png
+NAME_NumPlay-Invisible = " "
+ICON_NumPlay-Invisible = launcher/assets/icon-invisible.png
+NAME_NumPlay-Matrices = "Matrices"
+ICON_NumPlay-Matrices = launcher/assets/icon-matrices.png
 
 EADK_CFLAGS := $(shell $(NWLINK) eadk-cflags-device)
 EADK_SIM_CFLAGS := $(shell $(NWLINK) eadk-cflags-simulator)
@@ -37,7 +47,7 @@ ARM_LINK = -nostartfiles --specs=nano.specs -Wl,--relocatable -Wl,--gc-sections 
 
 .PHONY: all nwa apps check sim emu clean FORCE
 all: nwa apps
-nwa: $(B)/NumPlay.nwa
+nwa: $(foreach v,$(VARIANTS),$(B)/$(v).nwa)
 
 $(B):
 	mkdir -p $(B)/modules $(B)/gen $(B)/arm $(B)/apps $(B)/sim
@@ -91,18 +101,22 @@ $(B)/arm/shots_%.o: $(B)/gen/shots_%.c launcher/src/np.h
 	$(ARM_CC) $(ARM_CFLAGS) -c $< -o $@
 $(B)/arm/arena.o $(B)/arm/marks.o: $(B)/arm/%.o: $(B)/gen/gametable.c
 	$(ARM_CC) $(EADK_CFLAGS) -c $(B)/gen/$*.s -o $@
-$(B)/icon.o: launcher/assets/icon.png | $(B)
+$(B)/variant/%-name.o: launcher/app_name.c Makefile | $(B)
+	mkdir -p $(B)/variant
+	$(ARM_CC) $(ARM_CFLAGS) '-DNP_APP_NAME=$(NAME_$*)' -c $< -o $@
+$(B)/variant/%-icon.o: $$(ICON_$$*) | $(B)
+	mkdir -p $(B)/variant
 	$(NWLINK) png-icon-o $< $@
 
-$(B)/NumPlay.nwa: $(ARM_OBJS) $(MODULES) $(B)/icon.o
+$(B)/%.nwa: $(ARM_OBJS) $(MODULES) $(B)/variant/%-name.o $(B)/variant/%-icon.o
 	$(ARM_CC) $(ARM_CFLAGS) $(ARM_LINK) -Wl,-T,$(B)/gen/numplay.ld -flinker-output=nolto-rel \
-	  $(ARM_OBJS) $(MODULES) $(B)/icon.o -lm -lgcc -o $@
+	  $(ARM_OBJS) $(MODULES) $(B)/variant/$*-name.o $(B)/variant/$*-icon.o -lm -lgcc -o $@
 	arm-none-eabi-strip --strip-unneeded $@
-	@$(PY) tools/sizes.py $@ $(B)/modules
+	@if [ "$*" = NumPlay ]; then $(PY) tools/sizes.py $@ $(B)/modules; fi
 
-check: $(B)/NumPlay.nwa
-	$(NWLINK) nwa-bin --ram-length $(RAM_LIMIT) $< $(B)/NumPlay.bin
-	@echo "NumPlay.nwa installs as $$(wc -c < $(B)/NumPlay.bin) bytes; its RAM fits in $(RAM_LIMIT) bytes"
+check: nwa
+	@for v in $(VARIANTS); do $(NWLINK) nwa-bin --ram-length $(RAM_LIMIT) $(B)/$$v.nwa $(B)/$$v.bin || exit 1; \
+	  echo "$$v.nwa installs as $$(wc -c < $(B)/$$v.bin) bytes; its RAM fits in $(RAM_LIMIT) bytes"; done
 
 # ------------------------------------------------------------------ games on their own
 APP_numdash = games/numdash/build/numdash.nwa:NumDash.nwa

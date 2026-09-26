@@ -1,10 +1,12 @@
-**New to NumPlay?** Download `NumPlay.nwa`, then add it on [my.numworks.com/apps](https://my.numworks.com/apps) with your calculator plugged in. [How to install](https://github.com/Mason363/NumPlay/blob/main/docs/install.md) · [How to play](https://github.com/Mason363/NumPlay/blob/main/docs/play.md)
+**New here?** Download `NumPlay.nwa`, then follow the [2-minute install guide](https://github.com/Mason363/NumPlay#how-to-install). [How to play](https://github.com/Mason363/NumPlay/blob/main/docs/play.md)
 
 | File | |
 | --- | --- |
-| **NumPlay.nwa** | Every game in one app |
-| NumDash.nwa | Jump to the beat |
-| CrossyRoad.nwa | Hop, dodge, survive |
-| NumDrive.nwa | Drive, flip, finish |
-| Tetris.nwa | Stack and clear lines |
-| NumChess.nwa | Bots, puzzles, 2 players |
+| **NumPlay.nwa** | All 5 games in one app. Start here! |
+| NumPlay-Invisible.nwa | The same app, hidden: a blank icon with no name |
+| NumPlay-Matrices.nwa | The same app, disguised as a math app called Matrices |
+| NumDash.nwa | Only NumDash: jump to the beat |
+| CrossyRoad.nwa | Only Crossy Road: hop, dodge, survive |
+| NumDrive.nwa | Only NumDrive: drive, flip, finish |
+| Tetris.nwa | Only Tetris: stack and clear lines |
+| NumChess.nwa | Only Chess: bots, puzzles, 2 players |

@@ -15,9 +15,7 @@
       "numdash3.ndl"
     ],
     "shots": [
-      "docs/screenshots/menu.png",
-      "docs/screenshots/gameplay.png",
-      "docs/screenshots/level-complete.png"
+      "docs/screenshots/menu.png"
     ],
     "repo": "https://github.com/Mason363/NumDash"
   },
@@ -33,9 +31,7 @@
       "crossyroad.sav"
     ],
     "shots": [
-      "screenshots/title.png",
-      "screenshots/river.png",
-      "screenshots/train.png"
+      "screenshots/title.png"
     ],
     "repo": "https://github.com/Mason363/CrossyWorks"
   },
@@ -51,9 +47,7 @@
       "drivemad.sav"
     ],
     "shots": [
-      "docs/shot1.png",
-      "docs/shot2.png",
-      "docs/shot3.png"
+      "docs/shot1.png"
     ],
     "repo": "https://github.com/Mason363/NumDrive"
   },
@@ -70,9 +64,7 @@
       "tetris.set"
     ],
     "shots": [
-      "docs/shot1.png",
-      "docs/shot2.png",
-      "docs/shot3.png"
+      "docs/shot1.png"
     ],
     "repo": "https://github.com/Tatone26/Numworks-games/tree/main/apps/tetris"
   },
@@ -88,9 +80,7 @@
       "numchess.sav"
     ],
     "shots": [
-      "docs/italian.png",
-      "docs/bots.png",
-      "docs/puzzle-mate1.png"
+      "docs/italian.png"
     ],
     "repo": "https://github.com/Mason363/NumChess"
   }

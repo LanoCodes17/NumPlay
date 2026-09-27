@@ -1,0 +1,4 @@
+output/
+# Balatro's own 1x sheets and the m6x11 font: inputs of tools/mkassets.py, kept
+# out of the repository. src/assets.c holds the art the app uses.
+assets/

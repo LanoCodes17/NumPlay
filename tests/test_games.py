@@ -53,6 +53,18 @@ GAMES = {
                  presses((1500, "ok", 250), (2000, "back", 250), (2500, "left", 250), (3000, "ok", 250)), 5000),
     "tetris": ("Tetris.nwa", "tetris.sav", presses((1200, "ok")) + every(2500, 7000, 500, "up"), 8000,
                presses((1200, "ok"), (2500, "ok")), 5000),
+    # play, new run, the small blind, pick two cards and play them; then continue the run
+    "balatro": ("Balatro.nwa", "balatro.sav",
+                presses((1500, "ok"), (2500, "ok"), (3500, "ok"), (5000, "ok"), (5400, "right"), (5800, "ok"),
+                        (6300, "exe")), 10000,
+                presses((1500, "ok"), (2500, "ok")), 5000),
+    # start, then through the bathroom and the hallway to the table; then continue
+    "buckshot": ("BuckshotRoulette.nwa", "buckshot.sav", every(1500, 14000, 900, "ok"), 16000,
+                 presses((1500, "ok")), 4000),
+    # a level, its message, then play; then back to the level select
+    "portal": ("PortalReturns.nwa", "portal.sav",
+               presses((1500, "ok"), (2500, "ok"), (3500, "ok")) + every(4000, 7000, 400, "right", 300), 8000,
+               presses((1500, "ok")), 4000),
 }
 
 

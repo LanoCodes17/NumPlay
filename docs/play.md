@@ -63,6 +63,58 @@ Don't floor it the whole way: too much gas flips the car.
 
 <br clear="right">
 
+## Balatro
+
+<img src="media/balatro.gif" width="320" align="right" alt="Balatro: a Four of a Kind scoring with five Jokers">
+
+| Key | What it does |
+| --- | --- |
+| **Arrows** | Move between cards, Jokers and buttons |
+| **OK** | Pick a card, or open a Joker or shop item (Buy, Sell, Use) |
+| **EXE** | Play hand |
+| **⌫** | Discard |
+| **Shift** | Sort by rank or suit |
+| **Alpha + Left / Right** | Move a Joker or a card |
+| **Toolbox** / **Var** | Run info / your deck |
+| **Back** | Options |
+
+Hold **OK** or **EXE** to speed up the scoring.
+
+<br clear="right">
+
+## Buckshot Roulette
+
+<img src="media/buckshot.gif" width="320" align="right" alt="Buckshot Roulette: a round against the Dealer">
+
+| Key | What it does |
+| --- | --- |
+| **Arrows** | Move between your items and the shotgun. Go up to read the Dealer's items |
+| **OK** or **EXE** | Use an item, pick up the shotgun, fire |
+| **Up / Down** | With the shotgun: aim at the Dealer / at yourself |
+| **Letter keys** | Sign the waiver (EXE signs) |
+| **Back** | Pause |
+
+Shooting yourself with a blank keeps your turn.
+
+<br clear="right">
+
+## Portal Returns
+
+<img src="media/portal.gif" width="320" align="right" alt="Portal Returns: falling through a portal and flying across a test chamber">
+
+| Key | What it does |
+| --- | --- |
+| **Left / Right** | Run |
+| **Up** | Jump |
+| **1 to 9** (not 5) | Fire a portal that way: 7 is up left, 3 is down right |
+| **5** | Switch the color of the next portal |
+| **OK** or **EXE** | Pick up or drop a cube, continue |
+| **Back** | Pause |
+
+**Help** on the title screen shows every key and every test element.
+
+<br clear="right">
+
 ## Tetris
 
 <img src="media/tetris.gif" width="320" align="right" alt="Tetris gameplay">

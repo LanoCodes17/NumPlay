@@ -5,8 +5,8 @@
 <h1 align="center">NumPlay</h1>
 
 <p align="center">
-  <b>14 free games for your NumWorks calculator, in one app.</b><br>
-  NumDash, Crossy Road, NumDrive, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, NumDance, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.
+  <b>17 free games for your NumWorks calculator, in one app.</b><br>
+  NumDash, Crossy Road, NumDrive, Balatro, Buckshot Roulette, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, NumDance, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.
 </p>
 
 <p align="center">
@@ -57,6 +57,18 @@ Click a file to download it. Not sure which one? Take the first.
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_numdrive.png" width="112" alt="NumDrive"></td>
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumDrive.nwa">NumDrive.nwa</a><br>Only NumDrive: drive, flip, finish</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_balatro.png" width="112" alt="Balatro"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Balatro.nwa">Balatro.nwa</a><br>Only Balatro: poker hands, wild jokers</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_buckshot.png" width="112" alt="Buckshot Roulette"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/BuckshotRoulette.nwa">BuckshotRoulette.nwa</a><br>Only Buckshot Roulette: you, the Dealer, one shotgun</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_portal.png" width="112" alt="Portal Returns"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/PortalReturns.nwa">PortalReturns.nwa</a><br>Only Portal Returns: think with portals</td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_tetris.png" width="112" alt="Tetris"></td>
@@ -137,11 +149,15 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
   </tr>
   <tr>
     <td><img src="docs/media/numdrive.gif" alt="NumDrive gameplay"></td>
-    <td><img src="docs/media/tetris.gif" alt="Tetris gameplay"></td>
+    <td><img src="docs/media/balatro.gif" alt="Balatro: a Four of a Kind scoring with five Jokers"></td>
   </tr>
   <tr>
+    <td><img src="docs/media/buckshot.gif" alt="Buckshot Roulette: a round against the Dealer"></td>
+    <td><img src="docs/media/portal.gif" alt="Portal Returns: falling through a portal and flying across a test chamber"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/tetris.gif" alt="Tetris gameplay"></td>
     <td><img src="docs/media/chess.gif" alt="Chess against a bot"></td>
-    <td><img src="docs/media/uninstall.gif" alt="Uninstalling a game from NumPlay's settings to free up space"></td>
   </tr>
   <tr>
     <td><img src="docs/media/numvisuals.gif" alt="NumVisuals: picking a background, then a clock"></td>
@@ -163,6 +179,9 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
     <td><img src="games/minesweeper/docs/shot.png" width="100%" alt="Minesweeper"></td>
     <td><img src="games/breakout/docs/shot.png" width="100%" alt="Block Breaker"></td>
   </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="docs/media/uninstall.gif" width="50%" alt="Uninstalling a game from NumPlay's settings to free up space"></td>
+  </tr>
 </table>
 
 ## Acknowledgements
@@ -171,6 +190,9 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
 - **[Gabriele Cirulli](https://github.com/gabrielecirulli/2048)** made 2048.
 - Snake, Solitaire and Block Breaker look and play like **Google's games** in Search, and NumDance takes its idea and scoring from the Artistic Swimming event of Google's **Doodle Champion Island Games**. They are drawn from scratch; nothing is taken from Google.
 - **[gd3ds](https://github.com/AleFunky/gd3ds)** by AleFunky and friends, whose research into Geometry Dash made NumDash possible.
+- **Balatro** by LocalThunk inspired NumPlay's Balatro, which uses art adapted from the game and the **m6x11** font by Daniel Linssen.
+- **Buckshot Roulette** by Mike Klubnika inspired NumPlay's Buckshot Roulette, whose scenes are rendered from the game through the Open Buckshot Roulette project (1503Dev). Fonts: Fake Receipt by Ray Larabie and Dot Matrix by Dionaea.
+- **[Portal Returns](https://www.cemetech.net/downloads/files/1313/x1313)** by MateoConLechuga for the TI-84 Plus CE, with sprites by CKH4 and Portal Prelude chambers ported by Unicorn from BuilderBoy's original.
 - The **Nunito** and **Rammetto One** fonts, under the SIL Open Font License ([LICENSES](LICENSES)).
 
-<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Google (Snake, Solitaire, Block Breaker, Doodle Champion Island Games) or Microsoft (Minesweeper). Tetris is a trademark of The Tetris Company, Pac-Man of Bandai Namco and Connect Four of Hasbro.</sub>
+<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, LocalThunk or Playstack (Balatro), Mike Klubnika or Critical Reflex (Buckshot Roulette), MateoConLechuga (Portal Returns), Valve (Portal), .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Google (Snake, Solitaire, Block Breaker, Doodle Champion Island Games) or Microsoft (Minesweeper). Tetris is a trademark of The Tetris Company, Pac-Man of Bandai Namco and Connect Four of Hasbro.</sub>

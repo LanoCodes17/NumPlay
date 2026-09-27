@@ -61,6 +61,9 @@ $(B):
 MOD_numdash = games/numdash/build/module.o
 MOD_crossyroad = games/crossyroad/output/module.o
 MOD_numdrive = games/numdrive/output/device/module.o
+MOD_balatro = games/balatro/output/module.o
+MOD_buckshot = games/buckshot/output/module.o
+MOD_portal = games/portal/output/module.o
 MOD_chess = games/chess/output/module.o
 MOD_numvisuals = games/numvisuals/output/module.o
 MOD_tetris = $(B)/tetris/raw.o
@@ -129,6 +132,9 @@ check: nwa
 APP_numdash = games/numdash/build/numdash.nwa:NumDash.nwa
 APP_crossyroad = games/crossyroad/output/crossyroad.nwa:CrossyRoad.nwa
 APP_numdrive = games/numdrive/output/device/numdrive.nwa:NumDrive.nwa
+APP_balatro = games/balatro/output/balatro.nwa:Balatro.nwa
+APP_buckshot = games/buckshot/output/buckshot.nwa:BuckshotRoulette.nwa
+APP_portal = games/portal/output/portal.nwa:PortalReturns.nwa
 APP_chess = games/chess/output/chess.nwa:NumChess.nwa
 APP_tetris = games/tetris/tetris/target/thumbv7em-none-eabihf/release/tetris:Tetris.nwa
 APP_numvisuals = games/numvisuals/output/numvisuals.nwa:NumVisuals.nwa
@@ -137,12 +143,18 @@ apps: | $(B)
 	$(MAKE) -C games/numdash build NWLINK="node node_modules/nwlink/bin/nwlink"
 	$(MAKE) -C games/crossyroad NWLINK="$(NWLINK)"
 	$(MAKE) -C games/numdrive NWLINK="$(NWLINK)"
+	$(MAKE) -C games/balatro build NWLINK="$(NWLINK)"
+	$(MAKE) -C games/buckshot build NWLINK="$(NWLINK)"
+	$(MAKE) -C games/portal build NWLINK="$(NWLINK)"
 	$(MAKE) -C games/chess build NWLINK="$(NWLINK)"
 	$(MAKE) -C games/numvisuals build NWLINK="$(NWLINK)"
 	cd games/tetris/tetris && NWLINK="$(NWLINK)" $(CARGO) build --release --quiet
 	cp $(word 1,$(subst :, ,$(APP_numdash))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numdash)))
 	cp $(word 1,$(subst :, ,$(APP_crossyroad))) $(B)/apps/$(word 2,$(subst :, ,$(APP_crossyroad)))
 	cp $(word 1,$(subst :, ,$(APP_numdrive))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numdrive)))
+	cp $(word 1,$(subst :, ,$(APP_balatro))) $(B)/apps/$(word 2,$(subst :, ,$(APP_balatro)))
+	cp $(word 1,$(subst :, ,$(APP_buckshot))) $(B)/apps/$(word 2,$(subst :, ,$(APP_buckshot)))
+	cp $(word 1,$(subst :, ,$(APP_portal))) $(B)/apps/$(word 2,$(subst :, ,$(APP_portal)))
 	cp $(word 1,$(subst :, ,$(APP_chess))) $(B)/apps/$(word 2,$(subst :, ,$(APP_chess)))
 	cp $(word 1,$(subst :, ,$(APP_tetris))) $(B)/apps/$(word 2,$(subst :, ,$(APP_tetris)))
 	cp $(word 1,$(subst :, ,$(APP_numvisuals))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numvisuals)))
@@ -158,6 +170,9 @@ $(STD_APPS): $(B)/apps/%.nwa: FORCE | $(B)
 SIM_numdash = games/numdash/build/sim-module.o
 SIM_crossyroad = games/crossyroad/output/sim-module.o
 SIM_numdrive = games/numdrive/output/sim-module.o
+SIM_balatro = games/balatro/output/sim-module.o
+SIM_buckshot = games/buckshot/output/sim-module.o
+SIM_portal = games/portal/output/sim-module.o
 SIM_chess = games/chess/output/sim-module.o
 SIM_numvisuals = games/numvisuals/output/sim-module.o
 SIM_tetris = $(B)/sim/tetris.o
@@ -190,6 +205,9 @@ clean:
 	-$(MAKE) -C games/numdash clean
 	-$(MAKE) -C games/crossyroad clean
 	-$(MAKE) -C games/numdrive clean
+	-$(MAKE) -C games/balatro clean
+	-$(MAKE) -C games/buckshot clean
+	-$(MAKE) -C games/portal clean
 	-$(MAKE) -C games/chess clean
 	-$(MAKE) -C games/numvisuals clean
 	-cd games/tetris/tetris && $(CARGO) clean

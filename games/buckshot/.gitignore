@@ -1,0 +1,5 @@
+output/
+__pycache__/
+# Scenes and sprites rendered from the original game: inputs of tools/pack.py,
+# kept out of the repository. src/assets.c holds the art the app uses.
+assets/

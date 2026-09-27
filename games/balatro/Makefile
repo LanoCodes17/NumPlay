@@ -1,0 +1,66 @@
+# Balatro for the NumWorks calculator.
+#   make          build output/balatro.nwa
+#   make check    link it like the calculator does and print the installed size
+#   make sim      simulator build (output/balatro.nwb) for tools/record.py
+#   make assets   regenerate src/assets.c from assets/ (Python 3, numpy, Pillow)
+#   make run      install on a connected calculator
+Q ?= @
+CC = arm-none-eabi-gcc
+NWLINK = npx --yes -- nwlink@1.0.0
+PY ?= python3
+BUILD_DIR = output
+SRC = $(wildcard src/*.c)
+HDR = $(wildcard src/*.h)
+
+CFLAGS = -std=c99 $(shell $(NWLINK) eadk-cflags-device)
+CFLAGS += -Os -Wall -fno-math-errno -fno-tree-loop-distribute-patterns -fno-reorder-functions -flto-partition=one
+CFLAGS += -flto -fno-fat-lto-objects -fwhole-program -fvisibility=internal $(EXTRA)
+LDFLAGS = -Wl,--relocatable -nostartfiles --specs=nano.specs
+LDFLAGS += -Wl,-e,main -Wl,-u,eadk_app_name -Wl,-u,eadk_app_icon -Wl,-u,eadk_api_level
+LDFLAGS += -Wl,--gc-sections -flinker-output=nolto-rel
+
+.PHONY: build run check sim assets clean module sim-module
+build: $(BUILD_DIR)/balatro.nwa
+
+run: $(BUILD_DIR)/balatro.nwa
+	$(Q) $(NWLINK) install-nwa $<
+
+check: $(BUILD_DIR)/balatro.nwa
+	$(Q) $(NWLINK) nwa-bin $< $(BUILD_DIR)/balatro.bin
+	@echo "BIN     $(BUILD_DIR)/balatro.bin: $$(wc -c < $(BUILD_DIR)/balatro.bin) bytes"
+
+$(BUILD_DIR)/balatro.nwa: $(SRC) $(HDR) $(BUILD_DIR)/icon.o
+	@echo "LD      $@"
+	$(Q) $(CC) $(CFLAGS) $(LDFLAGS) $(SRC) $(BUILD_DIR)/icon.o -lm -o $@
+	$(Q) arm-none-eabi-strip --strip-unneeded $@
+	$(Q) arm-none-eabi-size $@
+
+$(BUILD_DIR)/icon.o: src/icon.png | $(BUILD_DIR)
+	$(Q) $(NWLINK) png-icon-o $< $@
+
+$(BUILD_DIR):
+	$(Q) mkdir -p $@
+
+assets:
+	$(Q) $(PY) tools/mkassets.py
+
+sim: $(BUILD_DIR)/balatro.nwb
+$(BUILD_DIR)/balatro.nwb: $(SRC) $(HDR) | $(BUILD_DIR)
+	$(Q) cc -std=c99 -O2 -fPIC $(shell $(NWLINK) eadk-cflags-simulator) -shared -undefined dynamic_lookup \
+	  $(filter-out src/libc.c,$(SRC)) ../../launcher/sim/sim.c -o $@
+
+clean:
+	$(Q) rm -rf $(BUILD_DIR)
+
+# NumPlay launcher: the game as a module (see ../../tools/npmodule.py) for the
+# calculator, and as a relocatable object for the simulator build.
+module: $(BUILD_DIR)/module.o
+$(BUILD_DIR)/module.o: $(SRC) $(HDR) | $(BUILD_DIR)
+	$(Q) $(CC) $(CFLAGS) -Wl,--relocatable -nostartfiles -nostdlib -Wl,-e,main -flinker-output=nolto-rel $(SRC) -o $@
+
+sim-module: $(BUILD_DIR)/sim-module.o
+$(BUILD_DIR)/sim-module.o: $(SRC) $(HDR) | $(BUILD_DIR)
+	$(Q) mkdir -p $(BUILD_DIR)/sim
+	$(Q) for f in $(basename $(notdir $(filter-out src/libc.c,$(SRC)))); do cc -std=c99 -O2 -fPIC \
+	  $(shell $(NWLINK) eadk-cflags-simulator) -Dmain=np_balatro_main -c src/$$f.c -o $(BUILD_DIR)/sim/$$f.o || exit 1; done
+	$(Q) ld -r $(BUILD_DIR)/sim/*.o -exported_symbol _np_balatro_main -o $@

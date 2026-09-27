@@ -2,12 +2,15 @@
 
 | File | |
 | --- | --- |
-| **NumPlay.nwa** | All 14 games and NumVisuals in one app. Start here! |
+| **NumPlay.nwa** | All 17 games and NumVisuals in one app. Start here! |
 | NumPlay-Invisible.nwa | The same app, hidden: a blank icon with no name |
 | NumPlay-Matrices.nwa | The same app, disguised as a math app called Matrices |
 | NumDash.nwa | Only NumDash: jump to the beat |
 | CrossyRoad.nwa | Only Crossy Road: hop, dodge, survive |
 | NumDrive.nwa | Only NumDrive: drive, flip, finish |
+| Balatro.nwa | Only Balatro: poker hands, wild jokers |
+| BuckshotRoulette.nwa | Only Buckshot Roulette: you, the Dealer, one shotgun |
+| PortalReturns.nwa | Only Portal Returns: think with portals |
 | Tetris.nwa | Only Tetris: stack and clear lines |
 | NumChess.nwa | Only Chess: bots, puzzles, 2 players |
 | FlappyBird.nwa | Only Flappy Bird: flap through the pipes |

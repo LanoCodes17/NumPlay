@@ -190,7 +190,9 @@ int np_home(int *selected, bool returning) {
   ui_init();
   home_t h = {0};
   build_items(&h);
-  h.sel = h.n - 1;
+  /* the game played last, or else the first game there is: never Settings,
+   * unless it was just open or no game is left */
+  h.sel = 0;
   for (int k = 0; k < h.n; k++)
     if (h.item[k] == *selected) h.sel = k;
   if (*selected == -1) h.sel = h.n - 1;

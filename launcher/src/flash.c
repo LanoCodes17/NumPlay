@@ -130,6 +130,11 @@ void np_finish_pending_uninstalls(void) {
     if (!range_ok(a, b)) continue;
     uint32_t s0 = (a + SECTOR - 1) & ~(SECTOR - 1), s1 = b & ~(SECTOR - 1);
     if (s1 < s0) s0 = s1 = b;
+    /* Only finish what an uninstall started: it clears the first word before
+     * anything else (then, when the block starts a sector, erases it). Any
+     * other value is not ours to wipe. */
+    uint32_t head = *(const volatile uint32_t *)a;
+    if (!(head == 0 || (a == s0 && head == 0xFFFFFFFFu))) continue;
     if (zeroed(a, s0) && erased(s0, s1) && zeroed(s1, b)) continue;
     np_interrupts_lock();
     wipe(a, b, 0);

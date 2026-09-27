@@ -98,6 +98,10 @@ static bool copy_line(const uint8_t *text, uint32_t n, uint32_t *at, char name[3
   return false;
 }
 
+/* Set when a save of the copy could not come back (no room): the copy is then
+ * left as it is, so what it holds is never lost. */
+static bool restore_incomplete;
+
 void np_progress_restore(void) {
   uint32_t n = 0;
   const uint8_t *c = ef_read(COPY_NAME, &n);
@@ -106,14 +110,18 @@ void np_progress_restore(void) {
   char name[32];
   const uint8_t *data;
   uint32_t at = 0, len;
-  /* only after an update: while any of these files is here, they are newer */
-  while (copy_line(c, n, &at, name, &data, &len))
-    if (ef_read(name, &(uint32_t){0})) return;
+  /* Each save that is missing comes back; the ones that are here are newer and
+   * stay. Save by save, so that one file already made (a game played on its
+   * own before NumPlay, after an update) does not keep the others away. */
   for (at = 0; copy_line(c, n, &at, name, &data, &len);) {
+    if (ef_read(name, &(uint32_t){0})) continue;
     uint32_t size = len / 4 * 3, off = (uint32_t)(data - c);
     if (len % 4 || !len) continue;
     size -= (data[len - 1] == '=') + (data[len - 2] == '=');
-    if (!ef_write(name, NULL, size)) continue; /* appended: the copy stays where it is */
+    if (!ef_write(name, NULL, size)) { /* appended: the copy stays where it is */
+      restore_incomplete = true;
+      continue;
+    }
     c = ef_read(COPY_NAME, &n) + 1, n--;
     data = c + off;
     uint32_t got;
@@ -129,6 +137,7 @@ void np_progress_restore(void) {
 }
 
 void np_progress_backup(void) {
+  if (restore_incomplete) return;
   const char *name;
   uint32_t total = 1 + sizeof copy_head - 1 + 1, len; /* status byte, text, terminating zero */
   for (int i = 0; save_name(i, &name); i++)

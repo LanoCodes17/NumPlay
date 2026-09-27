@@ -160,9 +160,9 @@
     "title": "Solitaire",
     "tagline": "The classic card game",
     "credit": "From All the Apps by Tatone26",
-    "top": "0x17964A",
-    "bottom": "0x053A1B",
-    "accent": "0xD62828",
+    "top": "0x34A249",
+    "bottom": "0x123F20",
+    "accent": "0x1A73E8",
     "records": [
       "solitaire.sav"
     ],
@@ -177,9 +177,9 @@
     "title": "NumDance",
     "tagline": "Hit the arrows on the beat",
     "credit": null,
-    "top": "0xC24B99",
-    "bottom": "0x1E0A33",
-    "accent": "0x2FE3FF",
+    "top": "0x1E5A6E",
+    "bottom": "0x0A1030",
+    "accent": "0xFFC23F",
     "records": [
       "numdance.sav"
     ],
@@ -225,19 +225,19 @@
   },
   {
     "id": "breakout",
-    "title": "Breakout",
+    "title": "Block Breaker",
     "tagline": "Break every brick",
     "credit": null,
-    "top": "0xD24B3A",
-    "bottom": "0x1C0A08",
-    "accent": "0xE8C43A",
+    "top": "0x3A3440",
+    "bottom": "0x0E0B10",
+    "accent": "0x5784E6",
     "records": [
       "breakout.sav"
     ],
     "shots": [
       "docs/shot.png"
     ],
-    "app": "Breakout.nwa",
+    "app": "BlockBreaker.nwa",
     "repo": "https://github.com/Mason363/NumPlay/tree/main/games/breakout"
   },
   {

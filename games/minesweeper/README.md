@@ -5,12 +5,12 @@ The Windows classic for the NumWorks calculator: the gray field, the red LED cou
 <img src="docs/shot.png" width="320" alt="A game of Beginner in progress">
 
 - **Beginner** (9 x 9, 10 mines), **Intermediate** (16 x 16, 40) and **Expert** (30 x 16, 99), or a **Custom** field up to 30 x 16. Every size fits the screen whole.
-- **Your first square is always safe** and opens an area.
+- **Your first square is always safe** and opens an area (or, in Options, is only safe, like Windows).
 - **No guessing** (in Options): every field you get can be cleared by logic alone, so a loss is always your mistake, never bad luck. (Very crowded custom fields are the exception: after a second of looking, you get a normal one.)
-- **Marks (?)** like the original, if you want them.
+- **Marks (?)** like the original, if you want them, and a cursor that wraps around the edges or stops at them.
 - Best times and games won for each level, and your game is kept when you leave, to finish later. Starting another field doesn't lose it until you open that field's first square.
 
-Open a number whose mines are all flagged to open everything around it at once, like clicking both buttons on Windows; hold OK on a number to see the squares around it pressed down. The cursor wraps around the edges.
+Open a number whose mines are all flagged to open everything around it at once, like clicking both buttons on Windows; hold OK on a number to see the squares around it pressed down.
 
 ## Controls
 

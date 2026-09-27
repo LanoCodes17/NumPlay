@@ -1,10 +1,14 @@
-/* Breakout: Atari's 1976 brick breaker, and an Arcade+ mode in the spirit of
- * Arkanoid (hand-made rounds, silver and gold bricks, power-up capsules).
+/* Block Breaker: Google's brick breaker (the game in Search) for the NumWorks
+ * calculator. The dark pixel-art field, seven bricks across in Google's blue,
+ * red, yellow and green, bricks that hold a power-up (TNT, an extra ball,
+ * three balls, a wider paddle, a fireball, a laser), the big white ball and
+ * paddle, the lives as circles and the score in segments; wall after wall,
+ * each a little faster.
  *
  * Nothing is drawn straight to the screen: whatever moves or changes marks
  * the rectangle it covers, and each marked rectangle is composed in a small
- * buffer (background, walls, bricks, paddle, balls, particles, text) and
- * pushed once. A frame costs a few thousand pixels and nothing flickers. */
+ * buffer (background, bricks, paddle, balls, sparks, text) and pushed once.
+ * A frame costs a few thousand pixels and nothing flickers. */
 #include <eadk.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -12,7 +16,7 @@
 #include "../../common/epsilon_files.h"
 
 #ifdef __ELF__ /* app name and API level, for the calculator's installer */
-const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "Breakout";
+const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "Block Breaker";
 const uint32_t eadk_api_level __attribute__((section(".rodata.eadk_api_level"))) = 0;
 #endif
 
@@ -21,23 +25,24 @@ const uint32_t eadk_api_level __attribute__((section(".rodata.eadk_api_level")))
 typedef uint16_t color;
 #define RGB(c) (color)((((c) >> 8) & 0xF800) | (((c) >> 5) & 0x07E0) | (((c) >> 3) & 0x1F))
 #define WHITE 0xFFFF
-#define GRAY RGB(0x8E8E8E)
-#define BLUE RGB(0x4A6CE8)
-#define DIM RGB(0xB0B0B0)
+#define BG RGB(0x1C181F)   /* Google's night */
+#define GREY RGB(0x8E8A92) /* the score */
+#define DIM RGB(0x555257)
+#define PALE RGB(0xC9C6CC)
 #define KEY(k) (1ull << (k))
 
-/* the playfield */
-#define FX0 10 /* inside of the side walls */
-#define FX1 310
-#define TOP 28 /* the top wall, 8 pixels thick */
-#define FY0 36
-#define COLS 15
-#define ROWS 12
-#define CW 20 /* a brick's cell */
-#define CH 8
-#define BY0 52 /* the first row of bricks */
-#define PY 222 /* the top of the paddle */
-#define BS 5   /* the ball's size */
+/* the playfield: seven bricks of 30 x 16 across, 2 pixels apart */
+#define TOP 24  /* the ball bounces here, under the score */
+#define COLS 7
+#define ROWS 7
+#define BW 30
+#define BH 16
+#define GAP 2
+#define BX0 49  /* the first brick */
+#define BY0 31
+#define PY 222  /* the top of the paddle */
+#define PH 6
+#define BS 12   /* the ball's size */
 #define ONE 256 /* positions and speeds are in 256ths of a pixel */
 
 static int imin(int a, int b) { return a < b ? a : b; }
@@ -61,118 +66,78 @@ static color mix(color f, color b, int a) {
 }
 
 /* ------------------------------------------------------------------ bricks */
-enum {
-  K_NONE, K_RED, K_ORANGE, K_GREEN, K_YELLOW, /* the classic wall */
-  K_WHITE, K_ORANGE2, K_CYAN, K_GREEN2, K_RED2, K_BLUE, K_PINK, K_YELLOW2, K_SILVER, K_GOLD, K_RAINBOW
+/* Google's four colors: the face, the rim, and the icon of a power-up */
+static const color BRICK[4][3] = {
+  {RGB(0x5784E6), RGB(0x4B70C3), RGB(0x375491)}, /* blue */
+  {RGB(0xCA423E), RGB(0xAB3934), RGB(0x7E2622)}, /* red */
+  {RGB(0xECC444), RGB(0xC7A63A), RGB(0x8E7420)}, /* yellow */
+  {RGB(0x3B854B), RGB(0x326F3F), RGB(0x1F4A2A)}, /* green */
 };
-static const color kcol[15] = {
-  0, RGB(0xC84848), RGB(0xC66C3A), RGB(0x48A048), RGB(0xA2A22A),
-  RGB(0xF4F4F4), RGB(0xFF8A1C), RGB(0x30D8F0), RGB(0x3CD040), RGB(0xF03C3C), RGB(0x3868F8), RGB(0xF058D0),
-  RGB(0xF8E040), RGB(0xA8B0BC), RGB(0xD8A030)};
-/* a round's "rainbow" bricks take their colour from their row */
-static const uint8_t rainbow[ROWS] = {K_WHITE, K_ORANGE2, K_RED2, K_YELLOW2, K_BLUE, K_PINK,
-                                      K_GREEN2, K_CYAN, K_ORANGE2, K_RED2, K_YELLOW2, K_BLUE};
+enum { U_NONE, U_TNT, U_LIFE, U_MULTI, U_WIDE, U_FIRE, U_LASER, NU };
 
-/* Arcade+ rounds, all symmetric: a row is its 8 left cells (the 8th is the
-   middle one), 2 bits each, picking one of the round's 3 kinds. Q() reads
-   them as digits after a leading 1. */
-#define QD(n, p) ((n) / (p) % 10)
-#define Q(n) (uint16_t)(QD(n, 10000000) | QD(n, 1000000) << 2 | QD(n, 100000) << 4 | QD(n, 10000) << 6 | \
-                         QD(n, 1000) << 8 | QD(n, 100) << 10 | QD(n, 10) << 12 | QD(n, 1) << 14)
-#define PAL(a, b, c) (uint16_t)((a) | (b) << 4 | (c) << 8)
-typedef struct {
-  uint16_t pal, row[ROWS];
-} round_t;
-static const round_t rounds[] = {
-  {PAL(K_RAINBOW, K_SILVER, 0), /* welcome */
-   {0, Q(122222222), Q(111111111), Q(111111111), Q(111111111), Q(111111111), Q(111111111)}},
-  {PAL(K_RAINBOW, K_GOLD, 0), /* pyramid */
-   {Q(100000001), Q(100000011), Q(100000111), Q(100001111), Q(100011111), Q(100111111), Q(101111111),
-    Q(111111111), 0, Q(120002000)}},
-  {PAL(K_CYAN, K_PINK, K_SILVER), /* checkers */
-   {0, Q(133333333), Q(112121212), Q(121212121), Q(112121212), Q(121212121), Q(112121212), Q(121212121)}},
-  {PAL(K_GREEN2, K_SILVER, 0), /* invader */
-   {0, Q(100001000), Q(100000100), Q(100001111), Q(100011011), Q(100111111), Q(100101111), Q(100101000),
-    Q(100000110), 0, Q(102200220)}},
-  {PAL(K_RAINBOW, K_SILVER, K_GOLD), /* gates */
-   {0, Q(111111111), Q(111111111), 0, Q(133333302), 0, Q(111111111), 0, Q(130333333)}},
-  {PAL(K_RAINBOW, K_SILVER, K_GOLD), /* diamond */
-   {Q(130000002), Q(100000021), Q(100000211), Q(100002111), Q(100021111), Q(100002111), Q(100000211),
-    Q(100000021), Q(130000002)}},
-  {PAL(K_BLUE, K_SILVER, K_GOLD), /* pillars */
-   {Q(122222222), Q(110101010), Q(110101010), Q(110101010), Q(110101010), Q(110101010), Q(110101010),
-    Q(110101010), Q(130003000)}},
-  {PAL(K_CYAN, K_PINK, K_YELLOW2), /* chevrons */
-   {0, Q(112312312), Q(123123123), Q(131231231), Q(112312312), Q(123123123), Q(131231231), Q(112312312),
-    Q(123123123)}},
-  {PAL(K_RED2, K_SILVER, K_GOLD), /* fortress */
-   {Q(111111111), 0, Q(100333333), Q(100311111), Q(100312221), Q(100312221), Q(100311111), Q(100333000), 0,
-    Q(111000111)}},
-  {PAL(K_BLUE, K_ORANGE2, K_SILVER), /* target */
-   {0, Q(111111111), Q(112222222), Q(112111111), Q(112133333), Q(112131111), Q(112133333), Q(112111111),
-    Q(112222222), Q(111111111)}},
-  {PAL(K_RED2, K_PINK, K_GOLD), /* heart */
-   {Q(130000000), Q(100022200), Q(100211110), Q(100111111), Q(100111111), Q(100011111), Q(100001111),
-    Q(100000111), Q(100000011), Q(100000001), Q(130000000)}},
-  {PAL(K_RAINBOW, K_SILVER, K_GOLD), /* the last one */
-   {Q(122222222), Q(111111111), Q(131111111), Q(122222222), Q(111111111), Q(111133111), Q(111111111),
-    Q(122222222), 0, Q(130303030)}},
+/* The walls, 7 x 7 at most: '.' nothing, 'b' 'r' 'y' 'g' a brick of that
+   color, '#' a brick in the row's color (blue, red, yellow, green, then
+   again), and a power-up in the row's color: T TNT, + a ball, o three balls,
+   w a wider paddle, f a fireball, l a laser. The first is Google's. */
+static const char *const WALLS[][ROWS] = {
+  {"#T####+", "##+##wT", "#####o#", "###o###"},
+  {"..#w#..", ".##T##.", "###+###", "o#####o", ".#####.", "..###.."},
+  {"#.#.#.#", "T#o#l#T", "#.#.#.#", ".#.#.#.", "#.#f#.#"},
+  {"bbbbbbb", "r.....r", "r.yTy.r", "r.ywy.r", "r.....r", "ggg+ggg"},
+  {"#######", "#T###T#", "..#o#..", "#######", "..#l#..", "#w###f#"},
+  {"...#...", "..#T#..", ".#+#o#.", "#w#f#l#", ".#####.", "..###..", "...#..."},
+  {"b.r.y.g", ".T.o.T.", "g.y.r.b", ".w.f.l.", "b.r.y.g", ".......", "#+###+#"},
+  {"#######", "#.....#", "#.#T#.#", "#.#o#.#", "#.....#", "###w###"},
+  {"TTT.TTT", "#######", "##f#l##", "#######", "+#####+"},
+  {"#.#.#.#", "#.#.#.#", "#o#T#w#", "#.#.#.#", "#f#.#l#", "#######"},
+  {"yyyTyyy", "gggwggg", "bbbobbb", "rrrfrrr", "yyylyyy", "ggg+ggg", "bbbbbbb"},
+  {"T#####T", "#o#l#f#", "#######", "#w#+#w#", "#######", "T#####T"},
 };
-#define NROUNDS (int)(sizeof rounds / sizeof rounds[0])
+#define NWALLS (int)(sizeof WALLS / sizeof WALLS[0])
 
-/* a brick: its kind (4 bits), hits left (2 bits), and a flash when hit (2 bits) */
+/* a brick: its color + 1 (3 bits), its power-up (3 bits); 0 none */
 static uint8_t brick[ROWS][COLS];
+static uint8_t flash[ROWS][COLS]; /* white for a moment when it breaks next door (TNT) */
 
 /* ------------------------------------------------------------------ the game */
-enum { CLASSIC, ARCADE };
 enum { S_TITLE, S_SET, S_READY, S_PLAY, S_LOST, S_CLEAR, S_PAUSE, S_QUIT, S_OVER };
-enum { P_NONE, P_ENLARGE, P_CATCH, P_LASER };
-/* capsules: Slow, Catch, Laser, Enlarge, Disruption (three balls), Player (a
-   life) and Break (a way out to the next round), in Arkanoid's colours */
-static const char cap_letter[7] = {16, 11, 14, 13, 12, 15, 10}; /* in mini[] */
-static const color cap_col[7] = {RGB(0xF08C20), RGB(0x38C848), RGB(0xE83838), RGB(0x3C6CF0), RGB(0x30C8E8),
-                                 RGB(0x9098A8), RGB(0xE858C8)};
-static const uint8_t cap_odds[7] = {20, 18, 18, 20, 14, 4, 6};
 
 typedef struct {
   int32_t x, y, vx, vy;
-  int16_t off;          /* where it sits on the paddle when caught, in pixels */
-  int16_t tx[3], ty[3]; /* the trail */
+  int16_t off; /* where it sits on the paddle before the serve, in pixels */
+  int16_t tx[4], ty[4]; /* the trail of a fireball */
   uint8_t on, stuck;
 } ball_t;
 typedef struct {
   int16_t x, y; /* in 16ths of a pixel */
   int8_t vx, vy;
   color c;
-  uint8_t life, max;
+  uint8_t life, max, size;
 } part_t;
 typedef struct {
   int16_t x, y;
-  uint8_t on, type;
-} thing_t; /* a capsule or a laser shot */
+  uint8_t on;
+} shot_t;
 
-#define NBALL 3
-#define NPART 48
+#define NBALL 5
+#define NPART 64
 #define NSHOT 6
 static ball_t ball[NBALL];
 static part_t part[NPART];
-static thing_t cap, shot[NSHOT];
-static int mode, state, resume_state, st_t, tk, sel, tsel, round_no, start_round, bricks_left, rows_shown;
+static shot_t shot[NSHOT];
+static int state, resume_state, st_t, tk, sel, tsel, level, bricks_left, start_lv = 1;
 static int32_t score;
-static int lives, wall, hits, power, laser_cd, catch_t, warp;
-static bool demo, got_orange, got_red, shrunk, won, fresh_best, full;
+static int lives, laser_cd, wide_t, fire_t, laser_t;
+static bool demo, fresh_best, full, hinted;
 static int px, pv, spd, spd0; /* the paddle's centre and speed, the balls' speed (in 256ths) */
 static int pw, pw_to;         /* the paddle's width, and the width it is going to */
 static int demo_aim;          /* where the self-playing paddle aims */
-/* the shake: time left, strength, and the offsets of the bricks (bx, by) and of
-   everything else (sx, sy), which only moves in a big shake */
-static int shake_t, shake_a, bx, by, sx, sy;
-static bool shake_all;
+static int shake_t, shake_a, sx, sy; /* the shake: time left, strength, and the bricks' offset */
 
 /* ------------------------------------------------------------------ save */
 static struct {
-  uint8_t magic, version, reached, diff, shake, trail, pad[2];
-  uint32_t best[2];
+  uint8_t magic, version, reached, speed, shake, pad[3];
+  uint32_t best;
 } sv, saved;
 #define SAVE_NAME "breakout.sav"
 
@@ -185,15 +150,12 @@ static void save(void) {
 static void load(void) {
   uint32_t n = 0;
   const uint8_t *d = ef_read(SAVE_NAME, &n);
-  sv.magic = 'B', sv.version = 1, sv.reached = 1, sv.diff = 1, sv.shake = 1, sv.trail = 1;
-  if (d && n == sizeof sv && d[0] == 'B' && d[1] == 1 && d[2] >= 1 && d[2] <= NROUNDS && d[3] < 3 && d[4] < 2 &&
-      d[5] < 2) {
+  sv.magic = 'B', sv.version = 2, sv.reached = 1, sv.speed = 1, sv.shake = 1;
+  if (d && n == sizeof sv && d[0] == 'B' && d[1] == 2 && d[2] >= 1 && d[2] <= 99 && d[3] < 3 && d[4] < 2) {
     for (uint32_t i = 0; i < n; i++) ((uint8_t *)&sv)[i] = d[i];
-    for (int m = 0; m < 2; m++)
-      if (sv.best[m] > 999999) sv.best[m] = 0;
+    if (sv.best > 99999) sv.best = 0;
     saved = sv;
   }
-  start_round = sv.reached;
 }
 
 /* ------------------------------------------------------------------ dirty rectangles */
@@ -227,26 +189,39 @@ static void mark(int x0, int y0, int x1, int y1) {
   }
   dirty[ndirty++] = (rect_t){(int16_t)x0, (int16_t)y0, (int16_t)x1, (int16_t)y1};
 }
-/* something in the playfield, which shakes */
-static void mark_at(int x, int y, int w, int h) { mark(x + sx, y + sy, x + sx + w, y + sy + h); }
-static void mark_cell(int r, int c) { /* however it shakes, and its shadow */
-  int x = FX0 + c * CW, y = BY0 + r * CH;
-  mark(x - 4, y - 4, x + CW + 7, y + CH + 7);
-}
+static void mark_at(int x, int y, int w, int h) { mark(x - 2, y - 2, x + w + 2, y + h + 2); }
+static int brick_x(int c) { return BX0 + c * (BW + GAP); }
+static int brick_y(int r) { return BY0 + r * (BH + GAP); }
+static void mark_brick(int r, int c) { mark_at(brick_x(c) + sx, brick_y(r) + sy, BW, BH); } /* bricks shake */
 
 /* ------------------------------------------------------------------ drawing */
 #define BUFN (W * 16)
 static color buf[BUFN];
 static int rx0, ry0, rx1, ry1, rw; /* the area buf holds */
-static int cx0, cx1;                /* and the columns drawing may touch */
 
 static void rect(int x, int y, int w, int h, color c, int a) {
-  int x0 = imax(x, cx0), x1 = imin(x + w, cx1), y0 = imax(y, ry0), y1 = imin(y + h, ry1);
+  int x0 = imax(x, rx0), x1 = imin(x + w, rx1), y0 = imax(y, ry0), y1 = imin(y + h, ry1);
   for (int j = y0; j < y1; j++)
     for (color *p = buf + (j - ry0) * rw + x0 - rx0, *e = p + x1 - x0; p < e; p++) *p = a >= 32 ? c : mix(c, *p, a);
 }
 static __attribute__((noinline)) void fill(int x, int y, int w, int h, color c) { rect(x, y, w, h, c, 32); }
 static bool seen(int x, int y, int w, int h) { return x < rx1 && x + w > rx0 && y < ry1 && y + h > ry0; }
+/* a pixel-art circle, d pixels across */
+static void round_(int x, int y, int d, color c) {
+  for (int j = 0; j < d; j++) {
+    int t = 2 * j + 1 - d, e = 0;
+    while ((2 * e + 1 - d) * (2 * e + 1 - d) + t * t > d * d) e++;
+    fill(x + e, y + j, d - 2 * e, 1, c);
+  }
+}
+static void ring_(int x, int y, int d, color c) {
+  for (int j = 0; j < d; j++) {
+    int t = 2 * j + 1 - d, e = 0;
+    while ((2 * e + 1 - d) * (2 * e + 1 - d) + t * t > d * d) e++;
+    if (j == 0 || j == d - 1) fill(x + e, y + j, d - 2 * e, 1, c);
+    else fill(x + e, y + j, 1, 1, c), fill(x + d - 1 - e, y + j, 1, 1, c);
+  }
+}
 
 /* ASCII 32..90 (lowercase is drawn as capitals), columns of 7 bits, top bit first */
 static const uint8_t font[59][5] = {
@@ -266,11 +241,6 @@ static const uint8_t font[59][5] = {
   {0x01,0x01,0x7F,0x01,0x01},{0x3F,0x40,0x40,0x40,0x3F},{0x1F,0x20,0x40,0x20,0x1F},{0x3F,0x40,0x38,0x40,0x3F},
   {0x63,0x14,0x08,0x14,0x63},{0x07,0x08,0x70,0x08,0x07},{0x61,0x51,0x49,0x45,0x43},
 };
-/* 3x5 blocky figures, like the arcade's score, then the capsule letters
-   B C D E L P S: five rows of three bits (an octal digit each) */
-static const uint16_t mini[17] = {075557, 026227, 071747, 071717, 055711, 074717, 074757, 071111, 075757,
-                                  075717, 065656, 074447, 065556, 074647, 044447, 065644, 034216};
-
 static int glyph_of(char ch) {
   if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 32);
   return ch < 32 || ch > 'Z' ? '?' - 32 : ch - 32;
@@ -281,25 +251,16 @@ static int slen(const char *s) {
   return n;
 }
 static int tw(const char *s, int k) { return slen(s) * 6 * k - k; }
-/* text from x, with a dark shadow so it reads over anything */
 static void text(const char *s, int x, int y, int k, color c) {
   if (!seen(x, y, tw(s, k) + k, 8 * k)) return;
-  for (int pass = 0; pass < 2; pass++)
-    for (int n = 0; s[n]; n++) {
-      const uint8_t *g = font[glyph_of(s[n])];
-      int o = pass ? 0 : (k + 1) / 2;
-      for (int i = 0; i < 5; i++)
-        for (int j = 0, b = g[i]; b; j++, b >>= 1)
-          if (b & 1) rect(x + n * 6 * k + i * k + o, y + j * k + o, k, k, pass ? c : 0, pass ? 32 : 20);
-    }
+  for (int n = 0; s[n]; n++) {
+    const uint8_t *g = font[glyph_of(s[n])];
+    for (int i = 0; i < 5; i++)
+      for (int j = 0, b = g[i]; b; j++, b >>= 1)
+        if (b & 1) fill(x + n * 6 * k + i * k, y + j * k, k, k, c);
+  }
 }
 static void ctext(const char *s, int y, int k, color c) { text(s, 160 - tw(s, k) / 2, y, k, c); } /* centred */
-
-static void mini_glyph(int g, int x, int y, int kx, int ky, color c) {
-  for (int j = 0; j < 5; j++)
-    for (int i = 0; i < 3; i++)
-      if (mini[g] >> (14 - j * 3 - i) & 1) fill(x + i * kx, y + j * ky, kx, ky, c);
-}
 static char *cat(char *o, const char *t) {
   while ((*o = *t++)) o++;
   return o;
@@ -312,307 +273,244 @@ static char *itoa_(char *o, int32_t v) {
   *o = 0;
   return o;
 }
-/* a number in blocky figures along the top, at least `pad` of them, from x
-   (or ending at x when right-aligned) */
-static void figures(int32_t v, int pad, int x, color c, bool right) {
-  char s[12];
-  int n = (int)(itoa_(s, v) - s), z = imax(pad - n, 0), all = n + z;
-  if (right) x -= all * 16 - 4;
-  for (int i = 0; i < all; i++) mini_glyph(i < z ? 0 : s[i - z] - '0', x + i * 16, 4, 4, 4, c);
+
+/* Google's score: figures of seven segments, 9 x 15 */
+static const uint8_t SEG[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F};
+static void segments(int d, int x, int y, color c) {
+  int m = SEG[d];
+  if (m & 1) fill(x + 2, y, 5, 2, c);
+  if (m & 2) fill(x + 7, y + 2, 2, 4, c);
+  if (m & 4) fill(x + 7, y + 9, 2, 4, c);
+  if (m & 8) fill(x + 2, y + 13, 5, 2, c);
+  if (m & 16) fill(x, y + 9, 2, 4, c);
+  if (m & 32) fill(x, y + 2, 2, 4, c);
+  if (m & 64) fill(x + 2, y + 6, 5, 3, c);
+}
+static void score_at(int32_t v, int x, int y, color c) {
+  for (int i = 4; i >= 0; i--, v /= 10) segments((int)(v % 10), x + i * 12, y, c);
 }
 
 /* ------------------------------------------------------------------ the scene */
-static color bg_lo, bg_mid, bg_hi; /* Arcade+ backgrounds, a colour per round */
-static bool fancy(void) { return mode == ARCADE && !demo; }
-
-static void background(void) {
-  if (!fancy()) {
-    for (color *p = buf, *e = buf + rw * (ry1 - ry0); p < e; p++) *p = 0;
-    return;
-  }
-  /* bevelled tiles, turned into diamonds every other round: a row of one
-     tile, repeated */
-  for (int y = ry0; y < ry1; y++) {
-    color *p = buf + (y - ry0) * rw, t[16];
-    int v = (y - FY0) & 15;
-    for (int u = 0; u < 16; u++) {
-      int d = iabs(u - 8) + iabs(v - 8);
-      t[u] = round_no & 1 ? (d == 8 ? bg_hi : d == 7 || d < 2 ? bg_lo : bg_mid)
-                          : !u || !v ? bg_hi : u == 15 || v == 15 ? bg_lo : bg_mid;
-    }
-    for (int x = rx0; x < rx1; x++) *p++ = y >= FY0 && x >= FX0 && x < FX1 ? t[(x - FX0) & 15] : 0;
-  }
-}
-
-static color pipe_shade(int i, int n) { /* a metal pipe, lit from the top left */
-  int t = i * 2 - n / 2;
-  return mix(RGB(0xECF0FA), RGB(0x2A3244), imin(iabs(t) * 32 / n + 2, 32));
-}
-static void walls(void) {
-  int ox = sx, oy = sy;
-  if (!fancy()) {
-    fill(ox, oy + TOP, W, 8, GRAY);
-    for (int e = 0; e <= FX1; e += FX1) /* both sides, with the arcade's blue strip where the paddle plays */
-      fill(ox + e, oy + TOP, FX0, H - TOP, GRAY), fill(ox + e, oy + PY - 8, FX0, 22, BLUE);
-    return;
-  }
-  for (int i = 0; i < 8; i++) fill(ox, oy + TOP + i, W, 1, pipe_shade(i, 8));
-  for (int x = 40; x < W; x += 80) rect(ox + x, oy + TOP, 3, 8, 0, 14);
-  for (int e = 0; e <= FX1; e += FX1) {
-    for (int i = 0; i < FX0; i++) fill(ox + e + i, oy + FY0, 1, H - FY0, pipe_shade(i, FX0));
-    for (int y = FY0 + 36; y < H; y += 56) /* joints, with a lamp */
-      rect(ox + e, oy + y, FX0, 3, 0, 14), fill(ox + e + 3, oy + y + 7, 4, 10, RGB(0x2A60D0));
-  }
-  if (warp) { /* the way out, blinking */
-    fill(ox + FX1, oy + PY - 10, FX0, 22, 0);
-    for (int j = 0; j < 3; j++)
-      rect(ox + FX1 + 2, oy + PY - 7 + j * 6, 6, 3, RGB(0xF058D0), ((tk >> 3) + j) % 3 ? 10 : 32);
+/* a power-up's icon on a brick, in the brick's darkest shade */
+static void icon(int u, int x, int y, color c) {
+  int cx = x + BW / 2, cy = y + BH / 2;
+  switch (u) {
+    case U_TNT: /* TNT in tiny letters */
+      for (int i = 0; i < 3; i++) {
+        int lx = cx - 8 + i * 6;
+        if (i != 1) fill(lx, cy - 3, 5, 1, c), fill(lx + 2, cy - 2, 1, 5, c);
+        else fill(lx, cy - 3, 1, 6, c), fill(lx + 4, cy - 3, 1, 6, c), fill(lx + 1, cy - 2, 1, 1, c), fill(lx + 2, cy - 1, 1, 1, c), fill(lx + 3, cy, 1, 1, c);
+      }
+      break;
+    case U_LIFE: fill(cx - 1, cy - 4, 3, 9, c), fill(cx - 4, cy - 1, 9, 3, c); break;
+    case U_MULTI: ring_(cx - 4, cy - 4, 9, c), ring_(cx - 3, cy - 3, 7, c); break;
+    case U_WIDE: /* <-> with dots */
+      fill(cx - 7, cy, 15, 1, c);
+      for (int i = 1; i < 4; i++) fill(cx - 7 + i, cy - i, 1, 2 * i + 1, c), fill(cx + 7 - i, cy - i, 1, 2 * i + 1, c);
+      fill(cx - 12, cy - 1, 2, 2, c), fill(cx + 11, cy - 1, 2, 2, c);
+      break;
+    case U_FIRE: /* a flame */
+      for (int j = 0; j < 9; j++) {
+        int w = j < 4 ? j / 2 : j < 7 ? 2 + (j - 4) / 2 : 3 - (j - 7);
+        fill(cx - w, cy - 4 + j, 2 * w + 1, 1, c);
+      }
+      break;
+    case U_LASER: /* two beams */
+      fill(cx - 5, cy - 4, 2, 9, c), fill(cx + 4, cy - 4, 2, 9, c), fill(cx - 1, cy - 1, 3, 3, c);
+      break;
   }
 }
-
-static void draw_brick(int r, int c, int x, int y) {
-  uint8_t v = brick[r][c];
-  int k = v & 15, f = v >> 6;
-  color col = kcol[k];
-  if (!fancy()) {
-    fill(x, y + 1, CW - 2, CH - 2, col);
-    return;
-  }
-  fill(x, y, CW - 1, CH - 1, col);
-  rect(x, y, CW - 1, 1, WHITE, k >= K_SILVER ? 22 : 14);
-  rect(x, y + 1, 1, CH - 2, WHITE, 8);
-  rect(x + 1, y + CH - 2, CW - 2, 1, 0, 12);
-  rect(x + CW - 2, y + 1, 1, CH - 2, 0, 10);
-  if (k >= K_SILVER) rect(x + 3, y + 2, 3, 2, WHITE, 24); /* a shine */
-  if (f) rect(x + (3 - f) * 6, y, 6, CH - 1, WHITE, 24); /* a glint runs across when hit */
+static void draw_brick(int r, int c) {
+  int v = brick[r][c], x = brick_x(c) + sx, y = brick_y(r) + sy;
+  if (!v || !seen(x, y, BW, BH)) return;
+  const color *k = BRICK[(v & 7) - 1];
+  color face = flash[r][c] ? mix(WHITE, k[0], flash[r][c] * 4) : k[0];
+  fill(x + 1, y, BW - 2, BH, k[1]); /* the rim, corners cut */
+  fill(x, y + 1, BW, BH - 2, k[1]);
+  fill(x + 2, y + 2, BW - 4, BH - 4, face);
+  if (v >> 3) icon(v >> 3, x, y, k[2]);
 }
 static void bricks(void) {
-  int ox = bx + FX0, oy = by + BY0;
-  int r0 = imax((ry0 - oy - CH - 3) / CH, 0), r1 = imin((ry1 - oy) / CH + 1, rows_shown);
-  int c0 = imax((rx0 - ox - CW - 3) / CW, 0), c1 = imin((rx1 - ox) / CW + 1, COLS);
-  if (ry1 <= oy - 4) return;
-  cx0 = imax(rx0, FX0), cx1 = imin(rx1, FX1); /* shaken bricks slide under the walls */
-  if (fancy()) /* shadows first, so the bricks cover the ones that fall on bricks */
-    for (int r = r0; r < r1; r++)
-      for (int c = c0; c < c1; c++)
-        if (brick[r][c]) rect(ox + c * CW + 3, oy + r * CH + 3, CW - 1, CH - 1, 0, 15);
-  for (int r = r0; r < r1; r++)
-    for (int c = c0; c < c1; c++)
-      if (brick[r][c]) draw_brick(r, c, ox + c * CW, oy + r * CH);
-  cx0 = rx0, cx1 = rx1;
+  for (int r = 0; r < ROWS; r++)
+    if (seen(0, brick_y(r) + sy - 2, W, BH + 4))
+      for (int c = 0; c < COLS; c++) draw_brick(r, c);
 }
 
-static bool paddle_shown(void) { return state != S_LOST && (state != S_OVER || won); }
+static bool paddle_shown(void) { return state != S_LOST && state != S_OVER; }
 static void paddle(void) {
   if (!paddle_shown()) return;
-  int x = ((px + ONE / 2) >> 8) - pw / 2 + sx, y = PY + sy;
-  if (!seen(x, y - 3, pw, 10)) return;
-  if (!fancy()) {
-    fill(x, y, pw, 4, BLUE);
-    return;
-  }
-  /* the Vaus: a silver capsule with red ends, lit from above */
-  static const uint8_t inset[7] = {2, 1, 0, 0, 0, 1, 2}, lit[7] = {20, 31, 25, 18, 12, 7, 3};
-  for (int j = 0; j < 7; j++) {
-    int i = inset[j];
-    color red = mix(RGB(0xFF6060), RGB(0x400808), lit[j]);
-    fill(x + i, y + j, pw - 2 * i, 1, mix(WHITE, RGB(0x303848), lit[j]));
-    fill(x + i, y + j, 7 - i, 1, red);
-    fill(x + pw - 7, y + j, 7 - i, 1, red);
-  }
-  rect(x + 7, y + 1, 1, 5, 0, 12);
-  rect(x + pw - 8, y + 1, 1, 5, 0, 12);
-  rect(x + pw / 2 - 3, y + 2, 6, 3, RGB(0x40A0F8), power == P_CATCH ? 32 : 12);
-  if (power == P_LASER) { /* two cannons */
-    fill(x + 2, y - 3, 3, 3, RGB(0x505868));
-    fill(x + pw - 5, y - 3, 3, 3, RGB(0x505868));
+  int x = ((px + ONE / 2) >> 8) - pw / 2, y = PY;
+  if (!seen(x - 4, y - 4, pw + 8, PH + 4)) return;
+  fill(x + 1, y, pw - 2, PH, WHITE);
+  fill(x, y + 1, pw, PH - 2, WHITE);
+  if (laser_t) { /* two cannons, red */
+    fill(x + 3, y - 4, 4, 4, RGB(0xE8453C));
+    fill(x + pw - 7, y - 4, 4, 4, RGB(0xE8453C));
   }
 }
-
-/* in the arcade, colour came from strips of film on the screen: the ball
-   takes the colour of the rows it flies through */
-static color ball_col(int y) {
-  if (fancy()) return RGB(0xE8F0FF);
-  if (y + 2 >= PY - 8) return BLUE;
-  int r = (y + 2 - BY0) / CH;
-  if (!demo && y + 2 >= BY0 + CH && r <= 8) return kcol[(r + 1) / 2];
-  return WHITE;
-}
+static color ball_color(void) { return fire_t ? RGB(0xFF8A3D) : WHITE; }
 static void balls(void) {
   for (int i = 0; i < NBALL; i++) {
     ball_t *b = &ball[i];
     if (!b->on) continue;
-    if (sv.trail && !b->stuck)
-      for (int t = 2; t >= 0; t--) {
-        int s = BS - 1 - t / 2;
-        rect(b->tx[t] + sx + (BS - s) / 2, b->ty[t] + sy + (BS - s) / 2, s, s, ball_col(b->ty[t]), 16 - t * 5);
+    if (fire_t && !b->stuck)
+      for (int t = 3; t >= 0; t--) { /* the fireball's trail */
+        int s = BS - 2 - t * 2;
+        round_(b->tx[t] + (BS - s) / 2, b->ty[t] + (BS - s) / 2, s, mix(RGB(0xFFD54F), BG, 20 - t * 4));
       }
-    int x = (b->x >> 8) + sx, y = (b->y >> 8) + sy;
-    color c = ball_col(b->y >> 8);
-    if (!fancy()) {
-      fill(x, y, BS, BS, c);
-    } else {
-      fill(x + 1, y, BS - 2, BS, c);
-      fill(x, y + 1, BS, BS - 2, c);
-      fill(x + BS - 2, y + BS - 2, 1, 1, RGB(0x8090B0));
-      fill(x + 1, y + 1, 1, 1, WHITE);
-    }
+    round_(b->x >> 8, b->y >> 8, BS, ball_color());
   }
 }
 
 static void things(void) {
-  if (cap.on) { /* a capsule: a little lit pill with its letter, and a shine going round */
-    static const uint8_t inset[8] = {2, 1, 0, 0, 0, 0, 1, 2}, lit[8] = {14, 8, 0, 0, 4, 9, 14, 18};
-    int x = cap.x + sx, y = cap.y + sy, sh = (st_t >> 1) & 31;
-    color c = cap_col[cap.type];
-    for (int j = 0; j < 8; j++)
-      fill(x + inset[j], y + j, 16 - 2 * inset[j], 1, j < 2 ? mix(WHITE, c, lit[j]) : mix(0, c, lit[j]));
-    if (sh < 14) rect(x + 1 + sh, y + 1, 2, 6, WHITE, 12);
-    mini_glyph(cap_letter[cap.type], x + 7, y + 2, 1, 1, mix(0, c, 20));
-    mini_glyph(cap_letter[cap.type], x + 6, y + 1, 1, 1, WHITE);
-  }
   for (int i = 0; i < NSHOT; i++)
-    if (shot[i].on) {
-      fill(shot[i].x + sx, shot[i].y + sy, 2, 7, RGB(0xFF5030));
-      fill(shot[i].x + sx, shot[i].y + sy, 2, 3, RGB(0xFFF0A0));
-    }
+    if (shot[i].on) fill(shot[i].x, shot[i].y, 2, 8, RGB(0xFF6E5A)), fill(shot[i].x, shot[i].y, 2, 3, WHITE);
   for (int i = 0; i < NPART; i++) {
     part_t *p = &part[i];
-    if (p->life) rect((p->x >> 4) + sx, (p->y >> 4) + sy, 2, 2, p->c, 8 + 24 * p->life / p->max);
+    if (p->life) rect(p->x >> 4, p->y >> 4, p->size, p->size, p->c, 8 + 24 * p->life / p->max);
   }
 }
 
+/* the lives as circles, the score in segments, the wall's number */
 static void hud(void) {
   if (ry0 >= TOP) return;
-  int32_t best = (int32_t)sv.best[mode] > score ? (int32_t)sv.best[mode] : score;
-  if (mode == CLASSIC) { /* score, ball, best: like the arcade's two scores and ball; the
-                            title shows the last game's score, as arcades do */
-    figures(score, 3, 18, GRAY, false);
-    if (!demo) figures(4 - imax(lives, 1), 1, 154, GRAY, false);
-    figures(best, 3, 302, mix(GRAY, 0, 18), true);
-    return;
+  int n = demo ? 3 : imax(lives, 0);
+  for (int i = 0; i < imax(3, n); i++) {
+    if (i < n) round_(8 + i * 15, 6, 11, PALE);
+    else ring_(8 + i * 15, 6, 11, DIM);
   }
-  char s[12] = "HI ";
-  figures(score, 1, 18, WHITE, false);
-  int x = 160 - (round_no >= 9 ? 31 : 23);
-  text("ROUND", x, 17, 1, RGB(0xF05050));
-  figures(round_no + 1, 1, x + 34, RGB(0xF05050), false);
-  itoa_(s + 3, best);
-  text(s, 302 - tw(s, 1), 4, 1, RGB(0xA0A0A0));
-  for (int i = 0; i < imin(lives - 1, 6); i++) { /* spare lives, as little paddles */
-    int x = 294 - i * 13;
-    fill(x, 16, 10, 4, RGB(0xB8C0CC));
-    fill(x, 16, 2, 4, RGB(0xE03030));
-    fill(x + 8, 16, 2, 4, RGB(0xE03030));
+  score_at(demo ? (int32_t)sv.best : score, 130, 5, GREY);
+  char s[8];
+  itoa_(cat(s, "LV "), demo ? sv.reached : level + 1);
+  text(s, 312 - tw(s, 1), 9, 1, DIM);
+}
+
+/* the floor: a darker band at the bottom */
+static void background(void) {
+  for (int y = ry0; y < ry1; y++) {
+    color c = y < 228 ? BG : y < 232 ? RGB(0x18151B) : y < 235 ? RGB(0x151217) : y < 238 ? RGB(0x121014) : RGB(0x100E12);
+    for (color *p = buf + (y - ry0) * rw, *e = p + rw; p < e; p++) *p = c;
   }
 }
 
 /* ------------------------------------------------------------------ overlays */
-static const char *const diff_names[3] = {"EASY", "NORMAL", "HARD"};
+static const char *const speed_names[3] = {"SLOW", "NORMAL", "FAST"};
 
 /* where each screen's text is, so a change redraws only that */
 static void ui_area(int s) {
-  if (s <= S_SET) mark(20, 100, 300, 214);
-  else if (s < S_PAUSE) mark(40, 146, 280, 196); /* the banner */
-  else full = true;                               /* a menu over the dimmed game */
+  if (s <= S_SET) mark(0, 30, W, 232);
+  else if (s < S_PAUSE) mark(40, 120, 280, 200);
+  else full = true; /* a menu over the dimmed game */
 }
 
+/* a pixel-art panel: dark, with a white rim and corners cut */
 static void panel(int x, int y, int w, int h) {
-  fill(x, y, w, h, GRAY);
-  fill(x + 3, y + 3, w - 6, h - 6, 0);
+  fill(x + 2, y, w - 4, h, WHITE);
+  fill(x, y + 2, w, h - 4, WHITE);
+  fill(x + 1, y + 1, w - 2, h - 2, WHITE);
+  fill(x + 2, y + 2, w - 4, h - 4, RGB(0x26222B));
 }
 static void item(const char *s, int cy, bool on) {
-  if (on) {
-    fill(100, cy - 4, 120, 22, BLUE);
+  if (on) fill(92, cy - 5, 136, 24, WHITE), fill(90, cy - 3, 140, 20, WHITE);
+  ctext(s, cy, 2, on ? BG : PALE);
+}
+/* the keys, like Google's hint: left and right, and OK above */
+static void keys_hint(int y) {
+  panel(128, y, 64, 64);
+  for (int i = 0; i < 3; i++) {
+    int kx = 136 + i * 16, ky = y + (i == 1 ? 12 : 30);
+    if (i == 1) fill(kx, ky - 1, 16, 16, WHITE), fill(kx + 2, ky + 1, 12, 12, RGB(0x26222B));
+    else fill(kx, ky + 17, 16, 14, WHITE);
+    if (i != 1) /* an arrow */
+      for (int t = 0; t < 4; t++) fill(kx + (i ? 10 - t : 5 + t), ky + 24 - t, 1, 2 * t + 1, RGB(0x26222B));
   }
-  ctext(s, cy, 2, on ? WHITE : DIM);
+  fill(152, y + 47, 16, 14, WHITE), fill(154, y + 49, 12, 10, RGB(0x26222B));
 }
 
-static void logo(void) {
-  /* BREAKOUT in bold letters built of bricks, in the four colours of the wall */
-  static const char name[] = "BREAKOUT";
-  int x0 = 23, y0 = 46;
-  if (!seen(x0, y0, 275, 42)) return;
-  for (int n = 0; n < 8; n++) {
-    const uint8_t *g = font[name[n] - 32];
-    for (int i = 0; i < 6; i++) {
-      int b = (i < 5 ? g[i] : 0) | (i ? g[i - 1] : 0);
+static void logo(int y) {
+  /* BLOCK BREAKER in bricks of Google's four colors */
+  static const char name[] = "BLOCK BREAKER";
+  int x0 = 160 - 13 * 18 / 2 + 2;
+  if (!seen(x0 - 2, y - 2, 13 * 18 + 4, 28)) return;
+  for (int n = 0; n < 13; n++) {
+    const uint8_t *g = font[glyph_of(name[n])];
+    for (int i = 0; i < 5; i++)
       for (int j = 0; j < 7; j++)
-        if (b >> j & 1) fill(x0 + (n * 7 + i) * 5, y0 + j * 6, 5, 5, kcol[1 + j * 4 / 7]);
-    }
+        if (g[i] >> j & 1) fill(x0 + n * 18 + i * 3, y + j * 3, 3, 3, BRICK[(n + (n > 5)) & 3][0]);
   }
-  for (int j = 0; j < 7; j++) /* the mortar between bricks */
-    for (int x = x0 + (j & 1) * 5 + 9; x < x0 + 275; x += 10) fill(x, y0 + j * 6, 1, 5, 0);
 }
 
 static void overlay(void) {
   char s[24];
   if (state == S_TITLE || state == S_SET) {
-    logo();
+    logo(112);
     if (state == S_TITLE) {
-      static const char *const items[3] = {"CLASSIC", "ARCADE+", "SETTINGS"};
-      for (int i = 0; i < 3; i++) item(items[i], 108 + i * 28, tsel == i);
-      char *o = s;
-      if (tsel == 1) /* the round to start from, among those reached */
-        o = cat(itoa_(cat(s, sv.reached > 1 ? "< ROUND " : "ROUND "), start_round), sv.reached > 1 ? " >   " : "   ");
-      itoa_(cat(o, "BEST "), (int32_t)sv.best[tsel & 1]);
-      if (tsel < 2) ctext(s, 198, 1, DIM);
-    } else {
-      static const char *const names[3] = {"DIFFICULTY", "SCREEN SHAKE", "BALL TRAIL"};
-      for (int i = 0; i < 3; i++) {
-        color c = sel == i ? WHITE : DIM;
-        if (sel == i) fill(24, 104 + i * 28, 272, 22, BLUE);
-        text(names[i], 32, 108 + i * 28, 2, c);
-        const char *v = i == 0 ? diff_names[sv.diff] : (i == 1 ? sv.shake : sv.trail) ? "ON" : "OFF";
-        text(v, 288 - tw(v, 2), 108 + i * 28, 2, c);
+      static const char *const items[2] = {"PLAY", "SETTINGS"};
+      for (int i = 0; i < 2; i++) item(items[i], 150 + i * 28, tsel == i);
+      if (tsel == 0 && sv.reached > 1) {
+        cat(itoa_(cat(s, "< LEVEL "), (int32_t)start_lv), " >");
+        ctext(s, 202, 1, PALE);
       }
-      ctext("LEFT/RIGHT: CHANGE   BACK: DONE", 198, 1, DIM);
+      itoa_(cat(s, "BEST "), (int32_t)sv.best);
+      ctext(s, 214, 1, DIM);
+    } else {
+      static const char *const names[2] = {"SPEED", "SHAKE"};
+      for (int i = 0; i < 2; i++) {
+        bool on = sel == i;
+        if (on) fill(40, 145 + i * 28, 240, 24, WHITE);
+        text(names[i], 50, 150 + i * 28, 2, on ? BG : PALE);
+        const char *v = i == 0 ? speed_names[sv.speed] : sv.shake ? "ON" : "OFF";
+        text(v, 270 - tw(v, 2), 150 + i * 28, 2, on ? BG : PALE);
+      }
+      ctext("LEFT/RIGHT: CHANGE   BACK: DONE", 210, 1, DIM);
     }
     return;
   }
-  if (state == S_CLEAR) ctext(mode == CLASSIC ? "WALL CLEARED" : warp ? "WARP!" : "ROUND CLEAR", 152, 2, WHITE);
+  if (state == S_CLEAR) {
+    itoa_(cat(s, "LEVEL "), level + 1);
+    cat(s + slen(s), " CLEAR");
+    ctext(s, 146, 2, WHITE);
+  }
   if (state == S_READY && !demo) {
-    itoa_(cat(s, mode == CLASSIC ? (wall == 2 ? "WALL 2  BALL " : "BALL ") : "ROUND "),
-          mode == CLASSIC ? 4 - lives : round_no + 1);
-    ctext(s, 152, 2, WHITE);
-    if (st_t > 20) ctext("OK: LAUNCH", 176, 1, DIM);
+    if (!hinted) keys_hint(104);
+    else if (st_t > 20) ctext("OK: LAUNCH", 160, 1, PALE);
   }
   if (state == S_PAUSE) {
     static const char *const items[3] = {"RESUME", "RESTART", "QUIT GAME"};
-    panel(84, 62, 152, 116);
-    ctext("PAUSED", 74, 2, kcol[K_YELLOW]);
-    for (int i = 0; i < 3; i++) item(items[i], 104 + i * 24, sel == i);
+    panel(80, 58, 160, 124);
+    ctext("PAUSED", 70, 2, WHITE);
+    for (int i = 0; i < 3; i++) item(items[i], 104 + i * 26, sel == i);
   } else if (state == S_QUIT) {
-    panel(84, 74, 152, 92);
+    panel(80, 74, 160, 92);
     ctext("QUIT GAME?", 88, 2, WHITE);
     for (int i = 0; i < 2; i++) {
-      int x = 102 + i * 62;
-      if (sel == i) fill(x, 124, 54, 24, i ? RGB(0xC84848) : BLUE);
-      text(i ? "YES" : "NO", x + 16 - i * 6, 129, 2, sel == i ? WHITE : DIM);
+      int x = 98 + i * 66;
+      if (sel == i) fill(x, 123, 58, 24, WHITE);
+      text(i ? "YES" : "NO", x + 17 - i * 6, 128, 2, sel == i ? BG : PALE);
     }
   } else if (state == S_OVER) {
-    panel(50, 50, 220, 140);
-    ctext(won ? (mode == CLASSIC ? "YOU WIN!" : "ALL CLEAR!") : "GAME OVER", 64, 3, won ? RGB(0xA2E22A) : RGB(0xE05050));
+    panel(60, 50, 200, 140);
+    ctext("GAME OVER", 64, 3, WHITE);
     itoa_(cat(s, "SCORE "), score);
-    ctext(s, 104, 2, WHITE);
-    itoa_(cat(s, "BEST "), (int32_t)sv.best[mode]);
-    if (fresh_best) cat(s, st_t & 16 ? "NEW BEST!" : "");
-    ctext(s, 128, 2, fresh_best ? kcol[K_YELLOW2] : DIM);
-    ctext("OK: PLAY AGAIN   BACK: MENU", 166, 1, DIM);
+    ctext(s, 100, 2, PALE);
+    itoa_(cat(s, "BEST "), (int32_t)sv.best);
+    ctext(s, 124, 2, fresh_best && (st_t & 16) ? BRICK[2][0] : DIM);
+    if (fresh_best) ctext("NEW BEST!", 146, 1, BRICK[2][0]);
+    ctext("OK: PLAY AGAIN   BACK: MENU", 170, 1, DIM);
   }
 }
 
 /* one area of the screen, in layers */
 static void render(void) {
   background();
-  walls();
   bricks();
   things();
   paddle();
   balls();
   hud();
-  if (state >= S_PAUSE) /* dimmed under a menu */
-    for (color *p = buf, *e = buf + rw * (ry1 - ry0); p < e; p++) *p = (color)((*p >> 1 & 0x7BEF) + (*p >> 2 & 0x39E7));
+  bool dimmed = state >= S_PAUSE || state <= S_SET || (state == S_READY && !hinted && !demo);
+  if (dimmed) /* dimmed under a menu */
+    for (color *p = buf, *e = buf + rw * (ry1 - ry0); p < e; p++) *p = mix(0, *p, 16);
   overlay();
 }
 
@@ -622,7 +520,7 @@ static void flush(void) {
     rect_t r = dirty[i];
     int w = r.x1 - r.x0, band = BUFN / w;
     for (int y = r.y0; y < r.y1; y += band) {
-      cx0 = rx0 = r.x0, cx1 = rx1 = r.x1, ry0 = y, ry1 = imin(y + band, r.y1), rw = w;
+      rx0 = r.x0, rx1 = r.x1, ry0 = y, ry1 = imin(y + band, r.y1), rw = w;
       render();
       eadk_display_push_rect((eadk_rect_t){(uint16_t)rx0, (uint16_t)ry0, (uint16_t)w, (uint16_t)(ry1 - ry0)}, buf);
     }
@@ -637,43 +535,42 @@ static void mark_moving(void) {
     ball_t *b = &ball[i];
     if (!b->on) continue;
     int x0 = b->x >> 8, y0 = b->y >> 8, x1 = x0 + BS, y1 = y0 + BS;
-    if (sv.trail)
-      for (int t = 0; t < 3; t++)
+    if (fire_t)
+      for (int t = 0; t < 4; t++)
         x0 = imin(x0, b->tx[t]), y0 = imin(y0, b->ty[t]), x1 = imax(x1, b->tx[t] + BS), y1 = imax(y1, b->ty[t] + BS);
     mark_at(x0, y0, x1 - x0, y1 - y0);
   }
-  if (cap.on) mark_at(cap.x, cap.y, 16, 8);
   for (int i = 0; i < NSHOT; i++)
-    if (shot[i].on) mark_at(shot[i].x, shot[i].y, 2, 7);
+    if (shot[i].on) mark_at(shot[i].x, shot[i].y, 2, 8);
   for (int i = 0; i < NPART; i++)
-    if (part[i].life) mark_at(part[i].x >> 4, part[i].y >> 4, 2, 2);
+    if (part[i].life) mark_at(part[i].x >> 4, part[i].y >> 4, part[i].size, part[i].size);
   /* the paddle, only when it changed: where it was drawn, and where it is */
-  int x = (px + ONE / 2) >> 8, key = x | pw << 9 | power << 16 | paddle_shown() << 18 | (sx + 8) << 20 | (sy + 8) << 25;
+  int x = (px + ONE / 2) >> 8, key = x | pw << 9 | !!laser_t << 17 | paddle_shown() << 18;
   if (key != paddle_key) {
     x -= pw / 2;
-    mark(paddle_mx, PY - 3 - 4, paddle_mx + (paddle_key >> 9 & 127) + 8, PY + 7 + 4);
-    mark_at(x, PY - 3, pw, 10);
-    paddle_key = key, paddle_mx = x + sx - 4;
+    mark(paddle_mx, PY - 6, paddle_mx + (paddle_key >> 9 & 255) + 12, PY + PH + 6);
+    mark_at(x, PY - 4, pw, PH + 4);
+    paddle_key = key, paddle_mx = x - 6;
   }
 }
 
 /* ------------------------------------------------------------------ effects */
-/* n sparks flying out of an area; f: how hard, in 16ths of a pixel a tick */
+/* n bits flying out of an area; f: how hard, in 16ths of a pixel a tick */
 static void burst(int x, int y, int w, int h, color c, int n, int f) {
   static int next;
   while (n--) {
     part_t *p = &part[next];
     next = (next + 1) % NPART;
-    if (p->life) mark_at(p->x >> 4, p->y >> 4, 2, 2);
+    if (p->life) mark_at(p->x >> 4, p->y >> 4, p->size, p->size);
     p->x = (int16_t)((x + rndi(w)) * 16), p->y = (int16_t)((y + rndi(h)) * 16);
     p->vx = (int8_t)(rndi(2 * f + 1) - f), p->vy = (int8_t)(rndi(2 * f + 1) - f * 13 / 10);
-    p->c = c;
+    p->c = c, p->size = (uint8_t)(2 + rndi(3));
     p->max = p->life = (uint8_t)(16 + rndi(20));
   }
 }
 static void shake(int a, int t) {
   if (!sv.shake) return;
-  shake_a = imax(shake_a, a), shake_t = imax(shake_t, t), shake_all |= a > 2;
+  shake_a = imax(shake_a, a), shake_t = imax(shake_t, t);
 }
 
 /* ------------------------------------------------------------------ rules */
@@ -686,39 +583,29 @@ static void set_speed(int s) {
     if (l) b->vx = b->vx * s / l, b->vy = b->vy * s / l;
   }
 }
-static int diff_k(void) { return sv.diff == 0 ? 82 : sv.diff == 2 ? 118 : 100; } /* percent */
-static void classic_speed(void) { /* faster after 4 and 12 hits, and at the orange and red rows */
-  set_speed(spd0 * (100 + 17 * ((hits >= 4) + (hits >= 12) + got_orange + got_red)) / 100);
-}
-
-static int base_width(void) { return (mode == ARCADE ? 40 : 38) + (sv.diff == 0 ? 8 : sv.diff == 2 ? -6 : 0); }
 
 static void load_wall(void) {
   bricks_left = 0;
+  const char *const *w = WALLS[level % NWALLS];
   for (int r = 0; r < ROWS; r++)
     for (int c = 0; c < COLS; c++) {
-      int k = 0;
-      if (demo) {
-      } else if (mode == CLASSIC) {
-        if (r >= 1 && r <= 8) k = (r + 1) / 2;
-      } else {
-        const round_t *rd = &rounds[round_no];
-        int v = rd->row[r] >> 2 * (c < 8 ? c : 14 - c) & 3;
-        if (v) k = rd->pal >> 4 * (v - 1) & 15;
-        if (k == K_RAINBOW) k = rainbow[r];
-      }
-      int hp = k == K_SILVER ? 2 + (round_no >= 6) : 1;
-      brick[r][c] = (uint8_t)(k ? k | hp << 4 : 0);
-      bricks_left += k && k != K_GOLD;
+      char ch = w[r] ? w[r][c] : '.';
+      int k = r % 4 + 1, u = U_NONE;
+      static const char U[] = " T+owfl";
+      if (ch == '.') k = 0;
+      else if (ch == 'b') k = 1;
+      else if (ch == 'r') k = 2;
+      else if (ch == 'y') k = 3;
+      else if (ch == 'g') k = 4;
+      for (int i = 1; i < NU; i++)
+        if (ch == U[i]) u = i;
+      if (level >= NWALLS && u == U_NONE && k && !rndi(12)) u = 1 + rndi(NU - 1); /* again: new surprises */
+      brick[r][c] = (uint8_t)(k ? k | u << 3 : 0), flash[r][c] = 0;
+      bricks_left += !!k;
     }
-  rows_shown = 0;
-  if (mode == ARCADE) { /* this round's background colour */
-    static const uint32_t hue[4] = {0x14286C, 0x0C4A3A, 0x4A1848, 0x3A2A10};
-    color b = RGB(hue[round_no & 3]);
-    bg_mid = mix(b, 0, 16), bg_hi = mix(b, 0, 22), bg_lo = mix(b, 0, 8);
-  }
 }
 
+static int base_width(void) { return 60; }
 static void ball_tick(ball_t *b);
 static void serve(void) { /* a new ball, on the paddle */
   for (int i = 0; i < NBALL; i++) ball[i].on = 0;
@@ -727,18 +614,11 @@ static void serve(void) { /* a new ball, on the paddle */
   b->off = (int16_t)(demo ? 0 : rndi(9) - 4);
   b->vx = 154, b->vy = -ONE;
   pw = pw_to = base_width(), demo_aim = 0;
-  power = P_NONE;
-  if (warp) warp = 0, mark_at(FX1, PY - 10, FX0, 22); /* the gate closes */
-  cap.on = 0;
+  wide_t = fire_t = laser_t = 0;
   for (int i = 0; i < NSHOT; i++) shot[i].on = 0;
-  if (mode == CLASSIC) {
-    hits = 0, got_orange = got_red = shrunk = false;
-    spd0 = 589 * diff_k() / 100; /* 2.3 pixels a tick */
-    classic_speed();
-  } else {
-    spd0 = (538 + 20 * imin(round_no, 10)) * diff_k() / 100;
-    set_speed(spd0);
-  }
+  static const int SPEED[3] = {500, 610, 740}; /* 2 to 3 pixels a tick, a little faster each wall */
+  spd0 = SPEED[sv.speed] * (100 + imin(level, 16) * 5) / 100;
+  set_speed(spd0);
   ball_tick(b);
 }
 
@@ -748,25 +628,25 @@ static void set_state(int s) {
   ui_area(state);
 }
 
-static void start_round_(void) {
+static void start_wall(void) {
   load_wall();
   serve();
   set_state(S_READY);
-  if (mode == ARCADE && round_no + 1 > sv.reached) sv.reached = (uint8_t)(round_no + 1), save();
+  full = true;
+  if (!demo && level + 1 > sv.reached && level + 1 <= 99) sv.reached = (uint8_t)(level + 1), save();
 }
 
-static void new_game(int m) {
-  mode = m, demo = false;
-  score = 0, lives = 3, wall = 1, fresh_best = false, won = false;
-  round_no = m == ARCADE ? start_round - 1 : 0;
+static void new_game(void) {
+  demo = false;
+  score = 0, lives = 3, fresh_best = false, hinted = false;
+  level = start_lv - 1;
   for (int i = 0; i < NPART; i++) part[i].life = 0;
-  px = (FX0 + FX1) / 2 * ONE;
-  start_round_();
-  full = true;
+  px = W / 2 * ONE;
+  start_wall();
 }
 
 static void title(void) {
-  mode = CLASSIC, demo = true;
+  demo = true, level = 0;
   load_wall();
   serve();
   set_state(S_TITLE);
@@ -775,64 +655,56 @@ static void title(void) {
 
 /* keeps the best score, for a finished or abandoned game */
 static void keep_best(void) {
-  if (!demo && (uint32_t)score > sv.best[mode]) sv.best[mode] = (uint32_t)score, fresh_best = true;
+  if (!demo && (uint32_t)score > sv.best) sv.best = (uint32_t)score, fresh_best = true;
   save();
 }
 
 static void add_score(int n) {
   score += n;
-  if (score > 999999) score = 999999;
+  if (score > 99999) score = 99999;
   mark(0, 0, W, TOP);
 }
 
-#ifndef CAP_CHANCE
-#define CAP_CHANCE 22 /* percent of bricks that drop a capsule */
-#endif
-static void drop_capsule(int x, int y) {
-  if (cap.on || rndi(100) >= CAP_CHANCE) return;
-  int r = rndi(100), t = 0;
-  while (r >= cap_odds[t]) r -= cap_odds[t++];
-  if (t == 4 && (ball[1].on || ball[2].on)) t = 3;
-  cap = (thing_t){(int16_t)(x + 2), (int16_t)y, 1, (uint8_t)t};
-}
-
-static void hit_brick(int r, int c) {
-  uint8_t v = brick[r][c];
-  int k = v & 15, hp = v >> 4 & 3;
-  mark_cell(r, c);
-  if (k == K_GOLD || hp > 1) { /* it holds, and shines */
-    brick[r][c] = (uint8_t)(k | (k == K_GOLD ? hp : hp - 1) << 4 | 3 << 6);
-    shake(1, 3);
-    return;
-  }
-  brick[r][c] = 0;
+static void power_up(int u, int x, int y);
+/* a brick breaks: bits fly, its power-up goes off */
+static void break_brick(int r, int c) {
+  int v = brick[r][c];
+  if (!v) return;
+  brick[r][c] = 0, flash[r][c] = 0;
   bricks_left--;
-  int x = FX0 + c * CW, y = BY0 + r * CH;
-  burst(x, y, CW - 2, CH - 2, kcol[k], 9, 22);
-  shake(1 + (k >= K_SILVER), 5);
+  mark_brick(r, c);
+  int x = brick_x(c), y = brick_y(r);
+  const color *k = BRICK[(v & 7) - 1];
+  burst(x, y, BW, BH, k[0], 7, 20);
+  burst(x, y, BW, BH, k[1], 4, 14);
+  shake(1, 5);
   if (demo) return;
-  if (mode == CLASSIC) {
-    add_score(9 - 2 * k);
-    hits++;
-    if (k == K_ORANGE) got_orange = true;
-    if (k == K_RED) got_red = true;
-    classic_speed();
-  } else {
-    add_score(k == K_SILVER ? 50 * (round_no + 1) : 50 + 10 * (k - K_WHITE));
-    if (k != K_SILVER) drop_capsule(x, y);
+  add_score(v >> 3 ? 50 : 10);
+  if (v >> 3) power_up(v >> 3, x, y), (void)r;
+  if (v >> 3 == U_TNT) { /* it goes off: the bricks around break too */
+    shake(4, 12);
+    burst(x - 8, y - 6, BW + 16, BH + 12, RGB(0xFFB040), 14, 30);
+    for (int dr = -1; dr <= 1; dr++)
+      for (int dc = -1; dc <= 1; dc++) {
+        int rr = r + dr, cc = c + dc;
+        if ((dr || dc) && rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS && brick[rr][cc]) break_brick(rr, cc);
+      }
   }
 }
 
-/* the brick under the ball, if any: hit it */
-static bool hit_bricks(const ball_t *b) {
-  int x0 = (b->x >> 8) - FX0, y0 = (b->y >> 8) - BY0;
-  if (y0 + BS <= 0 || y0 >= ROWS * CH) return false;
-  for (int r = imax(y0, 0) / CH; r <= imin(y0 + BS - 1, ROWS * CH - 1) / CH; r++)
-    for (int c = imax(x0, 0) / CW; c <= imin(x0 + BS - 1, COLS * CW - 1) / CW; c++)
-      if (brick[r][c]) {
-        hit_brick(r, c);
+/* the brick the ball is over, if any (a gap between bricks is empty) */
+static bool touch_bricks(const ball_t *b, int *hr, int *hc) {
+  int x0 = (b->x >> 8) - BX0, y0 = (b->y >> 8) - BY0, x1 = x0 + BS - 1, y1 = y0 + BS - 1;
+  const int sw = BW + GAP, shh = BH + GAP;
+  if (y1 < 0 || y0 >= ROWS * shh || x1 < 0 || x0 >= COLS * sw) return false;
+  for (int r = imax(y0, 0) / shh; r <= imin(y1 / shh, ROWS - 1); r++)
+    for (int c = imax(x0, 0) / sw; c <= imin(x1 / sw, COLS - 1); c++) {
+      int bx = c * sw, by = r * shh;
+      if (brick[r][c] && x1 >= bx && x0 < bx + BW && y1 >= by && y0 < by + BH) {
+        *hr = r, *hc = c;
         return true;
       }
+    }
   return false;
 }
 
@@ -842,8 +714,8 @@ static void aim(ball_t *b, int a) {
   b->vx = spd * s / 256, b->vy = -spd * isqrt(65536 - s * s) / 256;
 }
 static int untouched; /* ticks since a ball last met the paddle */
-/* Long without the paddle, a bounce turns the ball about 6 degrees, so it
-   can't loop forever between the walls and gold bricks. */
+/* Long without the paddle, a bounce turns the ball a little, so it can't
+   loop forever. */
 static void nudge(ball_t *b) {
   if (untouched < 600) return;
   untouched = 420;
@@ -862,51 +734,69 @@ static void launch(ball_t *b) {
   aim(b, (o < 0 ? -90 : 90) + o / 2);
 }
 
+static void power_up(int u, int x, int y) {
+  color c = RGB(0xFFFFFF);
+  if (u == U_LIFE && lives < 5) lives++, mark(0, 0, W, TOP);
+  if (u == U_MULTI) { /* two more balls from the last one */
+    ball_t *b = 0;
+    for (int i = 0; i < NBALL; i++)
+      if (ball[i].on && !ball[i].stuck) b = &ball[i];
+    for (int i = 0, n = 0; b && i < NBALL && n < 2; i++)
+      if (!ball[i].on) {
+        ball[i] = *b;
+        int a = b->vx * 256 / (spd ? spd : 1) + (n++ ? 100 : -100);
+        a = imax(-282, imin(282, a));
+        if (a > -56 && a < 56) a = a < 0 ? -56 : 56;
+        aim(&ball[i], a);
+        if (b->vy > 0) ball[i].vy = -ball[i].vy;
+      }
+  }
+  if (u == U_WIDE) wide_t = 60 * 12, pw_to = 90;
+  if (u == U_FIRE) fire_t = 60 * 8;
+  if (u == U_LASER) laser_t = 60 * 8;
+  burst(x, y, BW, BH, c, 6, 24);
+}
+
 static void lose_life(void) {
   shake(4, 14);
-  burst((px >> 8) - pw / 2, PY, pw, 5, fancy() ? RGB(0xC0C8D8) : BLUE, 16, 35);
+  burst((px >> 8) - pw / 2, PY, pw, PH, WHITE, 16, 35);
   set_state(S_LOST);
 }
 
 static void ball_tick(ball_t *b) {
-  for (int t = 2; t > 0; t--) b->tx[t] = b->tx[t - 1], b->ty[t] = b->ty[t - 1];
+  for (int t = 3; t > 0; t--) b->tx[t] = b->tx[t - 1], b->ty[t] = b->ty[t - 1];
   b->tx[0] = (int16_t)(b->x >> 8), b->ty[0] = (int16_t)(b->y >> 8);
   if (b->stuck) {
     int x = (px >> 8) + b->off - BS / 2;
-    x = x < FX0 ? FX0 : x > FX1 - BS ? FX1 - BS : x;
+    x = x < 0 ? 0 : x > W - BS ? W - BS : x;
     b->x = x * ONE, b->y = (PY - BS) * ONE;
-    for (int t = 0; t < 3; t++) b->tx[t] = (int16_t)x, b->ty[t] = PY - BS;
+    for (int t = 0; t < 4; t++) b->tx[t] = (int16_t)x, b->ty[t] = PY - BS;
     return;
   }
-  int n = imax(iabs(b->vx), iabs(b->vy)) / ONE + 1; /* steps of a pixel at most */
+  int n = imax(iabs(b->vx), iabs(b->vy)) / ONE + 1, r, c; /* steps of a pixel at most */
   for (int i = 0; i < n; i++) {
     int dx = b->vx / n, dy = b->vy / n;
     b->x += dx;
-    if (b->x < FX0 * ONE) b->x = FX0 * ONE, b->vx = iabs(b->vx), nudge(b);
-    else if (b->x > (FX1 - BS) * ONE) b->x = (FX1 - BS) * ONE, b->vx = -iabs(b->vx), nudge(b);
-    else if (hit_bricks(b)) b->x -= dx, b->vx = -b->vx, nudge(b);
+    if (b->x < 0) b->x = 0, b->vx = iabs(b->vx), nudge(b);
+    else if (b->x > (W - BS) * ONE) b->x = (W - BS) * ONE, b->vx = -iabs(b->vx), nudge(b);
+    else if (touch_bricks(b, &r, &c)) {
+      break_brick(r, c);
+      if (!fire_t) b->x -= dx, b->vx = -b->vx, nudge(b);
+    }
     b->y += dy;
-    if (b->y < FY0 * ONE) {
-      b->y = FY0 * ONE, b->vy = iabs(b->vy), nudge(b);
-      if (mode == CLASSIC && !demo && !shrunk) { /* broke through: the paddle shrinks to half */
-        shrunk = true, pw_to = base_width() / 2;
-        shake(2, 8);
-      }
-    } else if (hit_bricks(b)) {
-      b->y -= dy, b->vy = -b->vy, nudge(b);
+    if (b->y < TOP * ONE) {
+      b->y = TOP * ONE, b->vy = iabs(b->vy), nudge(b);
+    } else if (touch_bricks(b, &r, &c)) {
+      break_brick(r, c);
+      if (!fire_t) b->y -= dy, b->vy = -b->vy, nudge(b);
     }
     int half = pw * ONE / 2, bot = b->y + BS * ONE, mid = b->x + BS * ONE / 2 - px;
     if (b->vy > 0 && bot >= PY * ONE && bot - dy <= (PY + 1) * ONE && mid > -half - BS * ONE / 2 &&
         mid < half + BS * ONE / 2) { /* the paddle: where it lands decides where it goes */
       b->y = (PY - BS) * ONE, untouched = 0;
-      if (mode == ARCADE && !demo && spd < spd0 * 17 / 10) spd = spd * 65 / 64;
-      if (power == P_CATCH) {
-        b->stuck = 1, b->off = (int16_t)(mid / ONE), catch_t = 0;
-      } else { /* up to 1.1 radians off vertical, and never too steep */
-        int a = mid * 282 / (half + BS * ONE / 2);
-        if (a > -56 && a < 56) a = b->vx < 0 ? -56 : 56;
-        aim(b, a);
-      }
+      int a = mid * 282 / (half + BS * ONE / 2); /* up to 1.1 radians off vertical, and never too steep */
+      if (a > -56 && a < 56) a = b->vx < 0 ? -56 : 56;
+      aim(b, a);
       demo_aim = rndi(pw * 4 / 5 + 1) - pw * 2 / 5;
       return;
     }
@@ -917,72 +807,32 @@ static void ball_tick(ball_t *b) {
   }
 }
 
-static void clear_round(void) {
+static void clear_wall(void) {
   for (int i = 0; i < NBALL; i++) ball[i].on = 0;
   for (int i = 0; i < NSHOT; i++) shot[i].on = 0;
-  cap.on = 0;
+  add_score(100 * (level + 1));
   set_state(S_CLEAR);
-}
-
-static void catch_capsule(int t) {
-  add_score(1000);
-  burst(cap.x, PY - 2, 16, 4, cap_col[t], 8, 19);
-  if (t == 0) set_speed(spd0); /* slow */
-  if (t == 4) { /* three balls */
-    ball_t *b = &ball[0];
-    for (int i = 0; i < NBALL; i++)
-      if (ball[i].on) b = &ball[i];
-    b->stuck = 0;
-    int a = b->vx * 256 / spd;
-    for (int i = 0; i < NBALL; i++)
-      if (!ball[i].on) {
-        ball[i] = *b;
-        a += 128;
-        int t = a > 282 ? a - 564 : a;
-        if (t > -56 && t < 56) t = t < 0 ? -56 : 56; /* never steeper than the paddle sends it */
-        aim(&ball[i], t);
-      }
-  }
-  if (t == 5 && lives < 9) lives++, mark(0, 0, W, TOP);
-  if (t == 6) warp = 1, mark_at(FX1, PY - 10, FX0, 22);
-  if (t == 1 || t == 2 || t == 3) {
-    power = t == 1 ? P_CATCH : t == 2 ? P_LASER : P_ENLARGE;
-    pw_to = t == 3 ? base_width() * 8 / 5 : base_width();
-  } else if (t != 5) {
-    power = P_NONE, pw_to = base_width();
-  }
-  if (power != P_CATCH)
-    for (int i = 0; i < NBALL; i++)
-      if (ball[i].stuck && ball[i].on && state == S_PLAY) launch(&ball[i]);
 }
 
 /* one 60th of a second of play; d is the paddle's direction, fire is OK */
 static void play_tick(int d, bool fire) {
   /* the paddle: a tap nudges it, holding speeds it up */
   if (!d) pv = 0;
-  else if (pv * d <= 0) pv = d * 282;
-  else if ((pv += d * 115) * d > 7 * ONE) pv = d * 7 * ONE;
+  else if (pv * d <= 0) pv = d * 300;
+  else if ((pv += d * 120) * d > 7 * ONE) pv = d * 7 * ONE;
   px += pv;
   if (pw != pw_to) pw += pw < pw_to ? 1 : -1;
-  int lo = (FX0 * 2 + pw) * ONE / 2, hi = (FX1 * 2 - pw) * ONE / 2;
-  if (warp && d > 0 && px >= hi - ONE / 2 && state == S_PLAY) { /* out through the gate */
-    add_score(10000);
-    clear_round();
-    return;
-  }
+  int lo = pw * ONE / 2, hi = (W * 2 - pw) * ONE / 2;
   if (px < lo) px = lo, pv = 0;
   if (px > hi) px = hi, pv = 0;
-
   if (demo ? ball[0].stuck : state == S_READY) {
     ball_tick(&ball[0]);
-    if (rows_shown < ROWS && !(st_t & 1)) { /* the wall builds up, row by row */
-      mark_at(FX0 - 3, BY0 + rows_shown * CH - 3, COLS * CW + 6, CH + 7);
-      rows_shown++;
-    }
     if (fire) {
       launch(&ball[0]);
-      if (rows_shown < ROWS) rows_shown = ROWS, full = true;
-      if (!demo) set_state(S_PLAY);
+      if (!demo) {
+        if (!hinted) hinted = true, full = true;
+        set_state(S_PLAY);
+      }
     }
     return;
   }
@@ -998,38 +848,33 @@ static void play_tick(int d, bool fire) {
     else lose_life();
     return;
   }
-  /* catch: OK lets go, or it goes by itself */
-  if (power == P_CATCH)
-    for (int i = 0; i < NBALL; i++)
-      if (ball[i].on && ball[i].stuck && (fire || ++catch_t > 150)) launch(&ball[i]);
-  if (power == P_LASER && fire && laser_cd <= 0) {
-    int x = (px >> 8) - pw / 2;
-    for (int k = 0, i = 0; k < 2 && i < NSHOT; i++)
-      if (!shot[i].on) shot[i] = (thing_t){(int16_t)(k++ ? x + pw - 5 : x + 3), PY - 9, 1, 0};
-    laser_cd = 12;
+  if (wide_t && !--wide_t) pw_to = base_width();
+  if (fire_t) fire_t--;
+  if (laser_t) { /* the laser fires by itself */
+    laser_t--;
+    if (--laser_cd <= 0) {
+      int x = (px >> 8) - pw / 2;
+      for (int k = 0, i = 0; k < 2 && i < NSHOT; i++)
+        if (!shot[i].on) shot[i] = (shot_t){(int16_t)(k++ ? x + pw - 6 : x + 4), PY - 12, 1};
+      laser_cd = 24;
+    }
   }
-  laser_cd--;
   for (int i = 0; i < NSHOT; i++) {
-    thing_t *s = &shot[i];
+    shot_t *s = &shot[i];
     if (!s->on) continue;
     s->y -= 6;
-    if (s->y < FY0) {
+    if (s->y < TOP) {
       s->on = 0;
       continue;
     }
-    int r = (s->y - BY0) / CH, c = (s->x - FX0) / CW;
-    if (s->y >= BY0 && r < ROWS && brick[r][c]) hit_brick(r, c), s->on = 0;
-  }
-  if (cap.on && (cap.y += (st_t & 1) + 1) > H) cap.on = 0;
-  int pl = (px >> 8) - pw / 2;
-  if (cap.on && cap.y + 8 >= PY && cap.y <= PY + 6 && cap.x + 16 > pl && cap.x < pl + pw) {
-    cap.on = 0;
-    catch_capsule(cap.type);
+    int r = (s->y - BY0) / (BH + GAP), c = (s->x - BX0) / (BW + GAP);
+    if (s->y >= BY0 && r < ROWS && s->x >= BX0 && c < COLS && brick[r][c] && (s->x - BX0) % (BW + GAP) < BW) break_brick(r, c), s->on = 0;
   }
   if (!bricks_left && !demo) {
     shake(3, 10);
-    clear_round();
+    clear_wall();
   }
+  if (demo && !bricks_left) load_wall();
 }
 
 /* the title screen's paddle plays by itself, after the lowest ball */
@@ -1046,13 +891,9 @@ static void tick(int d, bool fire) {
   if (shake_t) {
     shake_t--;
     int a = imin(shake_a, shake_t / 2 + 1);
-    bx = shake_t ? rndi(2 * a + 1) - a : 0, by = shake_t ? rndi(2 * a + 1) - a : 0;
-    sx = shake_all ? bx : 0, sy = shake_all ? by : 0;
-    if (!shake_t) shake_a = 0, shake_all = false;
+    sx = shake_t ? rndi(2 * a + 1) - a : 0, sy = shake_t ? rndi(2 * a + 1) - a : 0;
+    if (!shake_t) shake_a = 0;
   }
-  for (int r = 0; r < ROWS; r++) /* glints fade */
-    for (int c = 0; c < COLS; c++)
-      if (brick[r][c] >> 6 && !(st_t & 1)) brick[r][c] = (uint8_t)(brick[r][c] - 64), mark_cell(r, c);
   for (int i = 0; i < NPART; i++) {
     part_t *p = &part[i];
     if (!p->life) continue;
@@ -1064,40 +905,29 @@ static void tick(int d, bool fire) {
   if (state == S_READY || state == S_PLAY) d = demo_dir(), fire = fire || !(st_t & 31);
 #endif
   if (state == S_READY && st_t == 21) ui_area(S_READY); /* the hint shows up */
-  if (warp && !(tk & 7)) mark_at(FX1, PY - 10, FX0, 22); /* the gate's lights */
   if (demo || state == S_READY || state == S_PLAY) play_tick(d, fire);
-  bool over = false;
   if (state == S_LOST && st_t > 70) {
     if (--lives > 0) serve(), set_state(S_READY), mark(0, 0, W, TOP);
-    else over = true;
+    else keep_best(), set_state(S_OVER);
   }
-  if (state == S_CLEAR && st_t > 100) {
-    if (mode == CLASSIC ? wall == 2 : round_no + 1 == NROUNDS) won = over = true;
-    else wall++, round_no += mode == ARCADE, start_round_(), full = true;
-  }
-  if (over) keep_best(), set_state(S_OVER);
+  if (state == S_CLEAR && st_t > 100) level++, start_wall();
 }
 
 /* n ticks of play, and the areas they change */
 static void frame(int n, int d, bool fire) {
   mark_moving();
-  int psx = sx, psy = sy, pbx = bx, pby = by;
+  int psx = sx, psy = sy;
   while (n-- > 0) {
     tick(d, fire);
     fire = false;
   }
   mark_moving();
-  if (sx != psx || sy != psy) { /* the walls shake */
-    mark(0, TOP - 4, W, FY0 + 4);
-    mark(0, FY0, FX0 + 4, H);
-    mark(FX1 - 4, FY0, W, H);
-  }
-  if (bx != pbx || by != pby) { /* the bricks shake */
-    int r0 = ROWS, r1 = 0;
+  if (sx != psx || sy != psy) { /* the bricks shake: where there are some */
+    int r1 = 0;
     for (int r = 0; r < ROWS; r++)
       for (int c = 0; c < COLS; c++)
-        if (brick[r][c]) r0 = imin(r0, r), r1 = r + 1;
-    if (r1) mark(FX0, BY0 + r0 * CH - 4, FX1, BY0 + r1 * CH + 8);
+        if (brick[r][c]) r1 = r + 1;
+    if (r1) mark(BX0 - 8, BY0 - 8, BX0 + COLS * (BW + GAP) + 8, brick_y(r1) + 8);
   }
 }
 
@@ -1107,25 +937,24 @@ static void menu_input(uint64_t hit) {
   bool ok = hit & (KEY(eadk_key_ok) | KEY(eadk_key_exe)), back = hit & KEY(eadk_key_back);
   int ud = (hit & KEY(eadk_key_down) ? 1 : 0) - (hit & KEY(eadk_key_up) ? 1 : 0);
   int lr = (hit & KEY(eadk_key_right) ? 1 : 0) - (hit & KEY(eadk_key_left) ? 1 : 0);
-  int before = sel + tsel * 4 + start_round * 16;
+  int before = sel + tsel * 4 + start_lv * 16;
   switch (state) {
     case S_TITLE:
-      tsel = (tsel + ud + 3) % 3;
-      if (tsel == 1 && lr) start_round = (start_round + lr + sv.reached - 1) % sv.reached + 1;
+      tsel = (tsel + ud + 2) % 2;
+      if (tsel == 0 && lr) start_lv = (start_lv + lr + sv.reached - 1) % sv.reached + 1;
       if (back) {
         ask_title = true, sel = 0;
         set_state(S_QUIT);
       } else if (ok) {
-        if (tsel == 2) set_state(S_SET);
-        else new_game(tsel);
+        if (tsel == 1) set_state(S_SET);
+        else new_game();
       }
       break;
     case S_SET:
-      sel = (sel + ud + 3) % 3;
+      sel = (sel + ud + 2) % 2;
       if (lr || ok) {
-        if (sel == 0) sv.diff = (uint8_t)((sv.diff + (lr ? lr : 1) + 3) % 3);
-        else if (sel == 1) sv.shake ^= 1;
-        else sv.trail ^= 1;
+        if (sel == 0) sv.speed = (uint8_t)((sv.speed + (lr ? lr : 1) + 3) % 3);
+        else sv.shake ^= 1;
         ui_area(S_SET);
       }
       if (back) {
@@ -1143,7 +972,7 @@ static void menu_input(uint64_t hit) {
         state = resume_state, st_t = 30, full = true;
       } else if (ok && sel == 1) {
         keep_best();
-        new_game(mode);
+        new_game();
       } else if (ok) {
         set_state(S_QUIT);
       }
@@ -1158,16 +987,17 @@ static void menu_input(uint64_t hit) {
       }
       break;
     case S_OVER:
-      if (ok) new_game(mode);
+      if (ok) new_game();
       else if (back) title();
       break;
   }
-  if (before != sel + tsel * 4 + start_round * 16) ui_area(state);
+  if (before != sel + tsel * 4 + start_lv * 16) ui_area(state);
 }
 
 int main(void) {
   np_app_begin();
   load();
+  start_lv = sv.reached;
   seed ^= (uint32_t)eadk_timing_millis() * 2654435761u;
   title();
   uint64_t ignore = eadk_keyboard_scan(), held = 0;
@@ -1203,7 +1033,7 @@ int main(void) {
     } else {
       ticks = due, fire_due = false;
       st_t++;
-      if (state == S_OVER && !(st_t & 15) && fresh_best) mark(60, 124, 260, 148);
+      if (state == S_OVER && !(st_t & 15) && fresh_best) mark(60, 120, 260, 156);
     }
     eadk_display_wait_for_vblank();
     flush();

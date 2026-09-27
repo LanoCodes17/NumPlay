@@ -433,9 +433,10 @@ static bool solvable(int first) {
   }
   return !todo;
 }
-/* mines go in anywhere but around the first square opened */
-static void deal(int first, bool sure) {
-  int n = bw * bh, fx = first % bw, fy = first / bw;
+/* mines go in anywhere but the first square opened, and (area) around it;
+   no guessing needs the area */
+static void deal(int first, bool sure, bool area) {
+  int n = bw * bh, fx = first % bw, fy = first / bw, around = sure || area;
   uint32_t t0 = eadk_timing_millis();
   seed ^= t0 * 2654435761u;
   for (bool again = true;;) {
@@ -443,7 +444,7 @@ static void deal(int first, bool sure) {
       for (int i = 0; i < n; i++) cell[i] &= 0xE0;
       for (int k = 0; k < nm;) {
         int i = (int)(rnd() % (uint32_t)n), dx = i % bw - fx, dy = i / bw - fy;
-        if (cell[i] & MINE || (dx * dx <= 1 && dy * dy <= 1)) continue;
+        if (cell[i] & MINE || (around ? dx * dx <= 1 && dy * dy <= 1 : i == first)) continue;
         cell[i] |= MINE, k++;
       }
     }
@@ -468,7 +469,7 @@ static void deal(int first, bool sure) {
 
 /* ------------------------------------------------------------------ the game */
 static struct {
-  uint8_t magic, version, diff, opts;  /* diff: 0-2, 3 custom; opts: 1 marks (?), 2 no guessing */
+  uint8_t magic, version, diff, opts;  /* diff: 0-2, 3 custom; opts: O_ bits */
   uint32_t elapsed;                    /* the game in progress (ms) */
   uint16_t best[3], played[3], won[3]; /* best: tenths of a second, 0 for none */
   uint16_t cmines, gmines;             /* custom mines; the game's mines */
@@ -476,8 +477,10 @@ static struct {
   uint8_t board[MW * MH / 2];          /* the game, a nibble a cell: mine | state << 1 */
 } V;
 #define SAVE_NAME "mines.sav"
-#define O_MARKS 1
-#define O_SURE 2
+#define O_MARKS 1 /* right-clicks go flag, ?, hidden */
+#define O_SURE 2  /* no guessing */
+#define O_BARE 4  /* the first square is only safe, like Windows: no area around it */
+#define O_EDGE 8  /* the cursor stops at the edges */
 
 static void save(void) {
   V.magic = 'M', V.version = 1;
@@ -521,7 +524,7 @@ static void load(void) {
   bool ok = d && n == sizeof V && d[0] == 'M' && d[1] == 1;
   for (uint32_t i = 0; i < sizeof V; i++) ((uint8_t *)&V)[i] = ok ? d[i] : 0;
   if (V.diff > 3) V.diff = 0;
-  V.opts &= 3;
+  V.opts &= 15;
   if (V.cw < 8 || V.cw > MW || V.ch < 8 || V.ch > MH) V.cw = 16, V.ch = 12;
   if (!V.cmines || V.cmines > (V.cw - 1) * (V.ch - 1)) V.cmines = (uint16_t)(V.cw * V.ch / 6);
   for (int k = 0; k < 3; k++) {
@@ -708,7 +711,7 @@ static void play(int i) {
   if (st == FLAG) return;
   if (gs == G_NEW) {
     update(shown[0], shown[1], F_OH); /* dealing a no-guessing field can take a moment */
-    deal(i, V.opts & O_SURE);
+    deal(i, V.opts & O_SURE, !(V.opts & O_BARE));
     gs = G_PLAY, last = (uint32_t)eadk_timing_millis(), V.gw = 0; /* this game replaces the saved one */
     int lv = level();
     if (lv < 3) V.played[lv]++;
@@ -884,15 +887,23 @@ static void draw_help(void) {
   text("Original by Robert Donner & Curt Johnson", wx0 + 8, wy0 + 142, BLACK, GRAY);
   button(wx0 + 114, wy0 + 170, 68, 22, "OK", true);
 }
+static const char *const OPTS[4] = {"Marks (?)", "No guessing", "Open an area first", "Cursor wraps around"};
+static const char *const HINTS[4][2] = {
+  {"Flag, then ?, then nothing:", "for squares you are unsure of."},
+  {"Every field can be cleared", "by logic alone."},
+  {"The first square opens an area.", "Off: only safe, like Windows."},
+  {"Off: the cursor stops at", "the edges of the field."},
+};
+/* the options on, as the rows show them (the last two are kept inverted) */
+static bool opt_on(int k) { return (V.opts >> k & 1) ^ (k >= 2); }
 static void draw_options(void) {
-  static const char *const o[2] = {"Marks (?)", "No guessing"};
-  if (whole) {
-    dialog(236, 132, "Options");
-    text("No guessing: every field can", wx0 + 10, wy0 + 50, BLACK, GRAY);
-    text("be cleared by logic alone.", wx0 + 10, wy0 + 66, BLACK, GRAY);
-    text("OK: on/off     Back: done", wx0 + 10, wy0 + 88, BLACK, GRAY);
-  }
-  for (int k = 0; k < 2; k++) row(wx0 + 8, wy0 + 8 + k * 18, 212, o[k], 0, 0, k == sel, V.opts >> k & 1);
+  if (whole) dialog(252, 172, "Options");
+  for (int k = 0; k < 4; k++) row(wx0 + 8, wy0 + 8 + k * 18, 228, OPTS[k], 0, 0, k == sel, opt_on(k));
+  bool forced = sel == 2 && (V.opts & O_SURE);
+  fill(wx0 + 8, wy0 + 88, 228, 32, GRAY);
+  text(HINTS[sel][0], wx0 + 12, wy0 + 88, BLACK, GRAY);
+  text(forced ? "Always on with no guessing." : HINTS[sel][1], wx0 + 12, wy0 + 104, forced ? NAVY : BLACK, GRAY);
+  if (whole) text("OK: on/off     Back: done", wx0 + 12, wy0 + 126, BLACK, GRAY);
 }
 static int cf[3]; /* the custom field: height, width, mines */
 static void draw_custom(void) {
@@ -1023,7 +1034,7 @@ int main(void) {
         int x = cur % bw + lr, y = cur / bw + ud;
         /* a new press wraps around the edge, a held key stops there */
         if ((unsigned)x < (unsigned)bw && (unsigned)y < (unsigned)bh) move_to(y * bw + x);
-        else if (fresh & arrows) move_to((y + bh) % bh * bw + (x + bw) % bw);
+        else if ((fresh & arrows) && !(V.opts & O_EDGE)) move_to((y + bh) % bh * bw + (x + bw) % bw);
       }
       if (ok) {
         if (gs < G_WON) grip = state(cur) == OPEN ? cur : -1, play(cur);
@@ -1049,7 +1060,7 @@ int main(void) {
       if (back || (ok && sel)) close_dialog();
       else if (ok) leave = true;
     } else if (dlg == D_OPTIONS) {
-      if (ud) sel = !sel;
+      if (ud) sel = (sel + ud + 4) % 4;
       if (ok) V.opts ^= (uint8_t)(1 << sel);
       if (ud || ok) draw_dialog(false);
       if (back) save(), close_dialog();

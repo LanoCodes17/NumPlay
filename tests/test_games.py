@@ -69,7 +69,7 @@ GAMES = {
     "pacman": ("PacMan.nwa", "pacman.sav", presses((1500, "ok")), 8000,
                presses((1500, "down"), (1800, "ok"), (2100, "right"), (2400, "back")), 3500),
     # Play, straight through the first apple into the wall: a best of 1; next
-    # time, Settings, Speed to Fast and back: saved, the best kept
+    # time, Settings, the fruit to a banana and back: saved, the best kept
     "snake": ("Snake.nwa", "snake.sav", presses((1500, "ok"), (2000, "right")), 7000,
               presses((1500, "down"), (1800, "ok"), (2100, "right"), (2400, "back")), 3500),
     # vs the computer: the settings are saved; next time, the dark theme
@@ -89,10 +89,9 @@ GAMES = {
     # new game from the pause menu and its first square
     "minesweeper": ("Minesweeper.nwa", "mines.sav", presses((1500, "ok"), (2000, "ok"), (2400, "right")), 3000,
                     presses((1500, "ok"), (2000, "back"), (2300, "down"), (2600, "ok"), (3000, "ok")), 3600),
-    # Classic, serve, a brick or more: the best is kept; next time, Settings, screen shake off, back
-    "breakout": ("Breakout.nwa", "breakout.sav", presses((1500, "ok"), (2500, "ok")), 6000,
-                 presses((1500, "down"), (1800, "down"), (2100, "ok"), (2500, "down"), (2800, "ok"), (3200, "back")),
-                 4500),
+    # Play, serve, a brick or more: the best is kept; next time, Settings, screen shake off, back
+    "breakout": ("BlockBreaker.nwa", "breakout.sav", presses((1500, "ok"), (2500, "ok")), 6000,
+                 presses((1500, "down"), (1800, "ok"), (2100, "down"), (2400, "ok"), (2800, "back")), 4000),
 }
 
 
@@ -123,9 +122,9 @@ CHECKS = {
     "pacman": (lambda v: v[:2] == b"P\1" and v[12:14] == bytes([1, 2]) and struct.unpack_from("<I", v, 16)[0] > 5000
                and struct.unpack_from("<I", v, 8)[0] == 9000 and sum(bin(b).count("1") for b in v[20:52]) < 244,
                lambda v: v[2] == 2 and v[12:14] == bytes([1, 2]) and struct.unpack_from("<I", v, 16)[0] > 5000),
-    # the default options, then the best for Medium at Normal speed
-    "snake": (lambda v: len(v) == 26 and v[:8] == b"S\1\1\1\0\0\0\0" and struct.unpack_from("<H", v, 16)[0] == 1,
-              lambda v: len(v) == 26 and v[2] == 2 and struct.unpack_from("<H", v, 16)[0] == 1),
+    # the default options and a best of 1 (Classic, 1 fruit, normal speed and size); then a banana
+    "snake": (lambda v: len(v) == 658 and v[:9] == b"S\2" + bytes(7) and struct.unpack_from("<H", v, 10)[0] == 1,
+              lambda v: len(v) == 658 and v[2] == 1 and struct.unpack_from("<H", v, 10)[0] == 1),
     "connectfour": (lambda v: v == b"C\1\1\2\1\0\5\1" + bytes(8),  # vs computer, 2 players, Normal, light
                     lambda v: v[5] == 1 and v[6] == 5),  # dark now; the tally's settings read back
     # the seeded options made a Vegas draw-1 game (-$52), counted as played; two moves, then three
@@ -144,7 +143,7 @@ CHECKS = {
     "minesweeper": (lambda v: len(v) == 276 and v[:2] == b"M\1" and v[32:34] == bytes([9, 9]) and v[28] == 10
                     and v[34] == 5 and struct.unpack_from("<H", v, 14)[0] == 1,
                     lambda v: v[32] == 9 and struct.unpack_from("<H", v, 14)[0] == 2),
-    "breakout": (lambda v: len(v) == 16 and v[:2] == b"B\1" and v[4] == 1 and struct.unpack_from("<I", v, 8)[0] >= 1,
+    "breakout": (lambda v: len(v) == 12 and v[:2] == b"B\2" and v[4] == 1 and struct.unpack_from("<I", v, 8)[0] >= 10,
                  lambda v: v[4] == 0 and struct.unpack_from("<I", v, 8)[0] >= 1),  # best kept, shake off
 }
 

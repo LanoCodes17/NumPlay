@@ -128,7 +128,7 @@ static int8_t gcol[320], gdx[320], grow[240], gdy[240];
 
 static void layout(void) {
   np = V.players, NC = np + 5, C = np == 3 ? 28 : 30, R = C * 2 / 5, rr = 2 * R;
-  BX = (320 - NC * C) / 2, BY = 240 - 14 - F - 6 * C, HY = BY - F - R - 3;
+  BX = (320 - NC * C) / 2, BY = 240 - 10 - F - 6 * C, HY = BY - F - R - 3;
   for (int i = 0; i < 320; i++) {
     int g = i - BX, h = i - BY;
     gcol[i] = (int8_t)(g >= 0 && g < NC * C ? g / C : -1), gdx[i] = (int8_t)(g % C);
@@ -240,10 +240,6 @@ static void row_game(color *p, int y, int x0, int x1) {
     int ex = x < fx0 + 8 ? fx0 + 8 - x : x > fx1 - 9 ? x - (fx1 - 9) : 0;
     if (x < fx0 || x >= fx1 || ex * ex + ey2 > 70) {
       if ((x >= fx1 || y >= fy1) && x >= fx0 + 6 && x < fx1 + 6 && y >= fy0 + 6 && y < fy1 + 4) c = mix(0, c, 3); /* the board's shadow */
-      /* the stand: a post on each side, on a foot */
-      int o = x < 160 ? fx0 - 1 - x : x - fx1, f = x < 160 ? x - (fx0 - 4) : x - (fx1 + 3);
-      if (o >= 0 && o < 6 && y > fy0 + 12 && y < 232) c = pl[o < 2 ? 26 : o > 3 ? 10 : 20];
-      if (y >= 229 && y < 239 && f * f + (y - 229) * (y - 229) * 3 < 300) c = pl[y < 231 ? 36 : 14];
       if (mrow) c = over_disc(c, 2 * x + 1 - mx2, md, rr, cur, 0);
     } else {
       int s = sy + (x < fx0 + 2 ? 10 : x >= fx1 - 2 ? -12 : 0), col = gcol[x];

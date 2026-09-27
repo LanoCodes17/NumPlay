@@ -1,10 +1,13 @@
-/* Solitaire: Klondike, the way Windows Solitaire plays it, for the NumWorks
- * calculator. Rewritten in C for NumPlay from Tatone26's Solitaire in All the
- * Apps, which is in the public domain.
+/* Solitaire: Klondike the way Google Solitaire (the game in Search) plays
+ * and looks, for the NumWorks calculator: the deck and the waste on the
+ * left, the foundations on the right, the dark bar with the time, score and
+ * moves, flat cards with two-tone suits and blue sunburst backs, and "Choose
+ * your difficulty" to start. Rewritten in C for NumPlay from Tatone26's
+ * Solitaire in All the Apps, which is in the public domain.
  *
  * The table is drawn only where something changed: each changed rectangle is
  * composed in a small buffer, strip by strip, and pushed once, so nothing
- * flickers. Cards, pips and court figures come from a few tiny bitmaps. */
+ * flickers. Suits are tiny bitmaps; the court figures are drawn from shapes. */
 #include <eadk.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -21,18 +24,24 @@ typedef uint16_t color;
 #define RGB(c) (color)((((c) >> 8) & 0xF800) | (((c) >> 5) & 0x07E0) | (((c) >> 3) & 0x1F))
 #define WHITE 0xFFFF
 #define BLACK 0
-#define FELT RGB(0x008000)
-#define SLOT RGB(0x003800)
-#define RED RGB(0xD00000)
-#define FACE RGB(0xC0C0C0)
-#define LIGHT RGB(0xDFDFDF)
-#define SHADOW RGB(0x808080)
-#define NAVY RGB(0x000080)
-#define GOLD RGB(0xFFD800)
+/* Google Solitaire's colors */
+#define FELT RGB(0x34A249)
+#define SIDE RGB(0x2B7B3B)  /* the columns of the deck and the foundations */
+#define BAR RGB(0x313131)   /* the bar on top */
+#define SLOT RGB(0x3C8D4B)  /* an empty place in a side column */
+#define SLOT2 RGB(0x57A566) /* the suit on it */
+#define EDGE RGB(0xC9CDD1)  /* a card's outline */
+#define INK RGB(0x202124)   /* text on white */
+#define GREY RGB(0x5F6368)
+#define PALE RGB(0xE8EAED)
+#define BLUE RGB(0x1A73E8)
+#define GOLD RGB(0xFDD835) /* the cursor */
 #define KEY(k) (1ull << (k))
 
+/* suits: spades, hearts, clubs, diamonds; each a light and a dark shade */
+static const color SUIT_C[2][2] = {{RGB(0x2F3A58), RGB(0x141624)}, {RGB(0xEF5050), RGB(0xBB2026)}};
+
 /* ------------------------------------------------------------------ art */
-/* art begin */
 /* suits: spades, hearts, clubs, diamonds (left half and middle column of each row) */
 static const uint8_t pip7[4][7] = {{0x01,0x03,0x07,0x0F,0x06,0x01,0x03}, {0x06,0x0F,0x0F,0x0F,0x07,0x03,0x01}, {0x03,0x03,0x06,0x0F,0x06,0x01,0x03}, {0x01,0x03,0x07,0x0F,0x07,0x03,0x01}};
 static const uint8_t pip13[4][15] = {
@@ -40,12 +49,6 @@ static const uint8_t pip13[4][15] = {
   {0x00,0x38,0x7C,0x7E,0x7F,0x7F,0x7F,0x7F,0x3F,0x1F,0x0F,0x07,0x03,0x01,0x00},
   {0x00,0x03,0x07,0x07,0x07,0x33,0x79,0x7F,0x7F,0x79,0x31,0x01,0x03,0x0F,0x00},
   {0x01,0x03,0x07,0x07,0x0F,0x1F,0x3F,0x7F,0x3F,0x1F,0x0F,0x07,0x07,0x03,0x01}};
-/* court figures, top half, 22x16 at 3 bits a pixel (see court()) */
-static const uint8_t figs[3][133] = {
-  {0x00,0x00,0x20,0x49,0x92,0x04,0x00,0x00,0x00,0x00,0x10,0x49,0x92,0xA4,0x00,0x40,0x00,0x00,0x88,0x24,0x49,0x92,0x94,0x84,0x01,0x00,0x20,0x24,0x49,0x92,0x64,0x48,0x06,0x00,0x00,0xE4,0x6D,0xDB,0x3E,0x48,0x02,0x00,0x00,0xF0,0x37,0x6D,0x7A,0x00,0x00,0x00,0x00,0xC0,0xDF,0xB6,0xED,0x01,0x00,0x00,0x00,0x00,0x7F,0xDB,0xB6,0x05,0x00,0x00,0x00,0x00,0xFC,0xAD,0xA4,0x16,0x00,0x00,0x00,0x00,0x80,0xBF,0x6D,0x0B,0x00,0x01,0x00,0x00,0x00,0x90,0xB6,0x0D,0x80,0x30,0x00,0x00,0x00,0xD9,0x48,0x72,0x0B,0xC2,0x00,0x00,0x80,0x6C,0x1B,0xB9,0x6D,0x09,0x03,0x00,0x40,0x36,0x69,0xDB,0xA4,0x2D,0x0C,0x00,0x20,0x9B,0x24,0xCD,0x9E,0xA4,0x85,0x01,0x80,0x6C,0x93,0x36,0x7B,0x93,0x16,0x06},
-  {0x00,0x00,0x00,0x41,0x12,0x04,0x00,0x00,0x00,0x00,0x00,0x84,0x49,0x18,0x00,0x00,0x00,0x00,0x00,0x1E,0x92,0x64,0x0E,0x00,0x00,0x00,0x00,0x7F,0x92,0x24,0xF9,0x01,0x00,0x00,0x00,0xFC,0x6D,0xDB,0xB6,0x3F,0x00,0x00,0x00,0xFE,0x37,0x6D,0xD3,0xFF,0x00,0x00,0x00,0xF8,0xDF,0xB6,0x6D,0xFB,0x1F,0x00,0x00,0xE0,0x7F,0x5B,0xB5,0xED,0x7F,0x00,0x00,0x80,0xFF,0x6F,0xDB,0xF6,0xFF,0x41,0x00,0x00,0xF0,0x3F,0x6D,0x1B,0xFC,0xA0,0x08,0x00,0x40,0x42,0xB6,0x2D,0x99,0x00,0x04,0x00,0x20,0x92,0x48,0x92,0x94,0x14,0x04,0x00,0x10,0x49,0x93,0x48,0x69,0x92,0x12,0x00,0x88,0xA4,0x6D,0x92,0xB4,0x4D,0x52,0x00,0x44,0xD2,0x66,0x7B,0xB3,0xBD,0x49,0x0A,0x10,0x69,0x9B,0xED,0xCD,0xF6,0x36,0x29},
-  {0x00,0x00,0x00,0x41,0x10,0x04,0x00,0x00,0x00,0x00,0x00,0x84,0x61,0x18,0x00,0x00,0x00,0x00,0x00,0x10,0x92,0x64,0x00,0x00,0x00,0x00,0x00,0x40,0x28,0x8E,0x01,0x00,0x00,0x00,0x00,0x20,0x49,0x92,0x24,0x00,0x00,0x00,0x00,0x80,0xBC,0x6D,0xDB,0x07,0x00,0x00,0x00,0x00,0xDE,0xB4,0xE9,0x11,0x00,0x00,0x00,0x00,0x78,0xDB,0xB6,0x3D,0x02,0x00,0x00,0x00,0xFC,0x6D,0xD3,0xF6,0x47,0x00,0x00,0x00,0xF0,0xBF,0x92,0xFA,0x1F,0x01,0x00,0x00,0xC0,0xFF,0xFF,0xFF,0xFF,0x24,0x00,0x00,0x20,0xDB,0xFF,0xFF,0xDF,0xC2,0x00,0x00,0x90,0x6D,0xFC,0xFF,0x73,0x5B,0x02,0x00,0xC8,0xA6,0x8D,0x24,0xB9,0x69,0x0B,0x00,0x64,0x93,0xB4,0xD9,0xDE,0x24,0x6D,0x01,0x90,0x6D,0xDA,0x66,0x7B,0x9B,0xB6,0x05}};
-/* art end */
 
 /* ASCII 32..122 (space to z), columns of 7 bits, top bit first */
 static const uint8_t font[91][5] = {
@@ -84,28 +87,37 @@ static int rx, ry, rw, rh;
 static int min(int a, int b) { return a < b ? a : b; }
 static int max(int a, int b) { return a > b ? a : b; }
 
+/* f over b; a from 0 (all b) to 32 (all f) */
+static color mix(color f, color b, int a) {
+  uint32_t x = (f | (uint32_t)f << 16) & 0x07E0F81F, y = (b | (uint32_t)b << 16) & 0x07E0F81F;
+  y = (y + ((x - y) * (uint32_t)a >> 5)) & 0x07E0F81F;
+  return (color)(y | y >> 16);
+}
 static void fill(int x, int y, int w, int h, color c) {
   int x0 = max(x, rx), x1 = min(x + w, rx + rw), y0 = max(y, ry), y1 = min(y + h, ry + rh);
   if (x0 >= x1) return;
   for (int j = y0; j < y1; j++)
     for (color *p = buf + (j - ry) * rw + (x0 - rx), *e = p + (x1 - x0); p < e; p++) *p = c;
 }
+/* darkens a rectangle, a from 0 (not at all) to 32 (black) */
+static void shadow(int x, int y, int w, int h, int a) {
+  int x0 = max(x, rx), x1 = min(x + w, rx + rw), y0 = max(y, ry), y1 = min(y + h, ry + rh);
+  for (int j = y0; j < y1; j++)
+    for (color *p = buf + (j - ry) * rw + (x0 - rx), *e = p + max(x1 - x0, 0); p < e; p++) *p = mix(0, *p, a);
+}
 static void px(int x, int y, color c) {
   if ((unsigned)(x - rx) < (unsigned)rw && (unsigned)(y - ry) < (unsigned)rh) buf[(y - ry) * rw + x - rx] = c;
 }
-static void frame(int x, int y, int w, int h, int t, color c) {
-  fill(x, y, w, t, c), fill(x, y + h - t, w, t, c), fill(x, y, t, h, c), fill(x + w - t, y, t, h, c);
+/* a rounded rectangle, corners of radius r (up to 8), filled with c */
+static void rbox(int x, int y, int w, int h, int r, color c) {
+  static const uint8_t cut[8][8] = {{0}, {1}, {1, 0}, {2, 1, 0}, {2, 1, 0, 0}, {3, 2, 1, 1, 0}, {3, 2, 1, 1, 0, 0}, {4, 3, 2, 1, 1, 0, 0}};
+  r = min(r, 7);
+  for (int j = 0; j < h; j++) {
+    int e = j < r ? cut[r][j] : j >= h - r ? cut[r][h - 1 - j] : 0;
+    fill(x + e, y + j, w - 2 * e, 1, c);
+  }
 }
-/* the top and left edges in one colour, the bottom and right in another */
-static void bevel(int x, int y, int w, int h, color tl, color br) {
-  fill(x, y, w, 1, tl), fill(x, y, 1, h, tl), fill(x, y + h - 1, w, 1, br), fill(x + w - 1, y, 1, h, br);
-}
-/* a card's shape: rounded corners, an outline o, filled with f */
-static void rrect(int x, int y, int w, int h, color o, color f) {
-  fill(x + 2, y, w - 4, h, o), fill(x + 1, y + 1, w - 2, h - 2, o), fill(x, y + 2, w, h - 4, o);
-  fill(x + 2, y + 1, w - 4, h - 2, f), fill(x + 1, y + 2, w - 2, h - 4, f);
-}
-/* a ring between radii r0 and r1 (a disc when r0 is 0) */
+/* a disc of radius r (a ring from r0) */
 static void ring(int cx, int cy, int r0, int r1, color c) {
   for (int dy = -r1; dy <= r1; dy++)
     for (int dx = -r1; dx <= r1; dx++) {
@@ -113,29 +125,25 @@ static void ring(int cx, int cy, int r0, int r1, color c) {
       if (d >= r0 * r0 && d <= r1 * r1 + r1) px(cx + dx, cy + dy, c);
     }
 }
-/* a left-right symmetric bitmap: each row holds the left half and the middle
-   column, first column in the top bit; upside down when flip */
-static void sym(const uint8_t *rows, int n, int half, int x, int y, color c, int flip) {
-  for (int j = 0; j < n; j++) {
-    int r = rows[flip ? n - 1 - j : j];
+/* A left-right symmetric bitmap: each row holds the left half and the middle
+   column, first column in the top bit. Two-tone like Google's suits: the left
+   half in a, the rest in b. */
+static void sym(const uint8_t *rows, int n, int half, int x, int y, color a, color b) {
+  for (int j = 0; j < n; j++)
     for (int i = 0; i < half; i++)
-      if (r >> (half - 1 - i) & 1) px(x + i, y + j, c), px(x + 2 * half - 2 - i, y + j, c);
-  }
+      if (rows[j] >> (half - 1 - i) & 1) px(x + i, y + j, i < half - 1 ? a : b), px(x + 2 * half - 2 - i, y + j, b);
 }
-/* a character of the 5x7 font, k times bigger, turned upside down when flip */
-static void glyph(int ch, int x, int y, int k, color c, int flip) {
+/* a character of the 5x7 font, k times bigger, bold (one more column) when b */
+static void glyph(int ch, int x, int y, int k, color c, int b) {
   const uint8_t *g = font[(unsigned)(ch - 32) < 91 ? ch - 32 : '?' - 32];
   for (int i = 0; i < 5; i++)
     for (int j = 0; j < 7; j++)
-      if (g[i] >> j & 1) fill(x + (flip ? 4 - i : i) * k, y + (flip ? 6 - j : j) * k, k, k, c);
+      if (g[i] >> j & 1) fill(x + i * k, y + j * k, k + b, k, c);
 }
 static int slen(const char *s) {
   int n = 0;
   while (s[n]) n++;
   return n;
-}
-static void text(const char *s, int x, int y, int k, color c) {
-  for (; *s; s++, x += 6 * k) glyph(*s, x, y, k, c, 0);
 }
 /* the firmware's fonts, straight to the screen: 7x14 or 10x18 cells */
 static void str(const char *s, int x, int y, int large, color fg, color bg) {
@@ -157,7 +165,11 @@ static char *num(char *o, int32_t v) {
   *o = 0;
   return o;
 }
-/* Vegas dollars, written like Windows: -$52 */
+static char *two(char *o, int v) { /* 00 to 59 */
+  *o++ = (char)('0' + v / 10), *o++ = (char)('0' + v % 10), *o = 0;
+  return o;
+}
+/* Vegas dollars: -$52 */
 static char *money(char *o, int32_t v) {
   char *s = o;
   o = num(cat(o, "$"), v);
@@ -167,11 +179,12 @@ static char *money(char *o, int32_t v) {
 
 /* ------------------------------------------------------------------ cards */
 enum { STOCK, WASTE, F0, T0 = 6, NP = 13 }; /* the piles */
+enum { B_UNDO = -2, B_NEW = -3 };           /* the buttons under the deck, for the cursor */
 
 /* everything kept between visits (solitaire.sav): options, statistics and
    the game in progress */
 static struct {
-  uint8_t magic, version, draw, scoring; /* scoring: 0 Standard, 1 Vegas, 2 none */
+  uint8_t magic, version, draw, scoring; /* draw: 1 Easy, 3 Hard; scoring: 0 Standard, 1 Vegas, 2 none */
   uint8_t timed, keep, live, started;    /* live: a game to continue */
   uint8_t gdraw, gscoring, gtimed, passes; /* the game's own options; recycled decks */
   uint8_t wfan, back, pad[2];            /* cards spread on the waste; the card back */
@@ -187,100 +200,121 @@ static struct {
 #define UP 0x80
 #define RANK(c) (((c) & 63) >> 2)
 #define SUIT(c) ((c) & 3)
-#define CW 40
-#define CH 54
-#define COLX(i) (5 + (i) * 45)
-#define TOPY 2
-#define TABY 60
-#define STY 230 /* the status bar */
-#define FAN 15  /* the waste's spread, drawing 2 or 3 */
+#define CW 31
+#define CH 43
+#define BARH 18                 /* the bar on top */
+#define SIDEW 38                /* the side columns */
+#define COLX(i) (42 + (i) * 34) /* the columns of the table */
+#define TABY 24
+#define LX 4      /* the deck, the waste and the buttons */
+#define RX 285    /* the foundations */
+#define WASTEY 72
+#define FAN 12    /* the waste's spread, drawing 2 or 3, downwards */
+#define FY(i) (24 + (i) * 48)
+#define UNDOY 172 /* the buttons */
+#define NEWY 204
 
-/* where the pips of 2..10 go: groups of pips on a 3x13 grid, and which groups
-   each rank uses. A group: column (bits 6-7), row (0-3), mirrored across the
-   middle column (bit 4) and the middle row (bit 5). */
-static const uint8_t pip_group[8] = {0x60, 0x46, 0x30, 0x16, 0x43, 0x49, 0x34, 0x62};
-static const uint8_t pip_ranks[9] = {0x01, 0x03, 0x04, 0x06, 0x0C, 0x1C, 0x3C, 0x46, 0xC4};
+/* the backs: Google's blue sunburst, and red, green and purple ones */
+static const uint32_t BACKS[4][2] = {{0x3F9CFB, 0x40B7FE}, {0xE0463C, 0xF77B6E}, {0x2E9D57, 0x55C27D}, {0x7D52D9, 0xA07CF0}};
 
-static void pip(int s, int col, int row, int x, int y, color c) {
-  sym(pip7[s], 7, 4, x + 9 + col * 8, y + 10 + row * 9 / 4, c, row > 6);
+/* a card's shape: round corners, an outline o, filled with f */
+static void cardshape(int x, int y, color o, color f) {
+  fill(x + 3, y, CW - 6, CH, o), fill(x + 1, y + 1, CW - 2, CH - 2, o), fill(x, y + 3, CW, CH - 6, o);
+  fill(x + 3, y + 1, CW - 6, CH - 2, f), fill(x + 2, y + 2, CW - 4, CH - 4, f), fill(x + 1, y + 3, CW - 2, CH - 6, f);
 }
 
-/* the index in a corner: the rank in bold and a small suit; flip draws the
-   one in the bottom right corner, upside down */
-static void corner(int c, int x, int y, color ink, int flip) {
-  int r = RANK(c), u = 3;
-  const char *s = r == 9 ? "10" : &"A23456789?JQK"[r];
-  for (int n = r == 9 ? 2 : 1, i = 0; i < n; i++) {
-    int w = s[i] == '1' ? 4 : 6, gx = s[i] == '1' ? u - 1 : u; /* the 1 of 10 is narrow */
-    for (int b = 0; b < 2; b++) glyph(s[i], x + (flip ? CW - gx - 6 : gx) + b, y + (flip ? CH - 9 : 2), 1, ink, flip);
-    u += w + (n == 2 && !i);
-  }
-  u++;
-  sym(pip7[SUIT(c)], 7, 4, x + (flip ? CW - u - 7 : u), y + (flip ? CH - 9 : 2), ink, flip);
-}
 
-/* a court card: a framed figure, the bottom half the top one turned round */
-static void court(int c, int x, int y, color ink, color inv) {
-  const uint8_t *f = figs[RANK(c) - 10];
-  color pal[8] = {WHITE, BLACK, RED, RGB(0x2040C0), RGB(0xF0C020), RGB(0xF8D8B0), ink ^ inv, RGB(0x8C5014)};
-  frame(x + 8, y + 10, 24, 34, 1, ink);
-  for (int b = 0; b < 22 * 16; b++) {
-    int v = (f[b * 3 >> 3] | f[(b * 3 >> 3) + 1] << 8) >> (b * 3 & 7) & 7, i = b % 22, j = b / 22;
-    if (v) px(x + 9 + i, y + 11 + j, pal[v] ^ inv), px(x + 30 - i, y + 42 - j, pal[v] ^ inv);
-  }
-}
-
-/* the backs of the Deck dialog, inside a white border: the classic blue
-   lattice, a red one, a basket weave and diamonds */
-static const color backs[4][2] = {{RGB(0x1830A8), RGB(0x7890F0)}, {RGB(0xA01010), RGB(0xF07070)},
-                                  {RGB(0x005850), RGB(0x50C8B0)}, {RGB(0x704000), RGB(0xF0C040)}};
-/* How much of a covered back shows. Squeezed under 6 px, the border shrinks
-   so the pattern still shows; under 3 px even the edge takes its colour. */
-static int sq = 6;
-static void back(int x, int y) {
-  int s = V.back & 3, t = sq < 6;
-  rrect(x, y, CW, CH, sq < 3 ? backs[s][0] : BLACK, WHITE);
-  int x0 = max(x + 3 - t, rx), x1 = min(x + CW - 3 + t, rx + rw), y0 = max(y + 3 - 2 * t, ry), y1 = min(y + CH - 3, ry + rh);
+/* the back: a white border, rays of two blues from the middle, a white disc
+   with a four-color ring (shows only the rows in view: covered, a strip) */
+static void back(int x, int y, int style) {
+  cardshape(x, y, EDGE, WHITE);
+  color c0 = RGB(BACKS[style][0]), c1 = RGB(BACKS[style][1]);
+  int cx = x + CW / 2, cy = y + CH / 2, x0 = max(x + 3, rx), x1 = min(x + CW - 3, rx + rw), y0 = max(y + 3, ry), y1 = min(y + CH - 3, ry + rh);
   for (int j = y0; j < y1; j++)
     for (int i = x0; i < x1; i++) {
-      int a = i - x, b = j - y;
-      buf[(j - ry) * rw + i - rx] = backs[s][s < 2   ? ((a + b) & 3) == 1 || ((a - b) & 3) == 1
-                                             : s == 2 ? (((a >> 2) + (b >> 2)) & 1 ? a : b) & 1
-                                                      : ((a + b) & 7) < 2 || ((a - b) & 7) < 2];
+      int dx = i - cx, dy = j - cy, a = dx < 0 ? -dx : dx, b = dy < 0 ? -dy : dy, m = min(a, b), M = max(a, b), d = dx * dx + dy * dy;
+      int w = a >= b ? m * 1000 >= M * 414 : 2 + (m * 1000 < M * 414); /* which of 4 rays in a quarter */
+      color c = w & 1 ? c0 : c1;
+      if (d <= 30) {
+        static const uint32_t Q[4] = {0xEA4335, 0x4285F4, 0xFBBC05, 0x34A853};
+        c = d >= 12 && d <= 20 ? RGB(Q[(dx < 0) + 2 * (dy >= 0)]) : WHITE;
+      }
+      buf[(j - ry) * rw + i - rx] = c;
     }
 }
 
-/* a card at (x, y); inv shows it selected (colours inverted, as in Windows) */
-static void card(int c, int x, int y, color inv) {
+/* A court figure, flat and two-tone like Google's: a bust in a robe of the
+   suit's colors (a, b), 24 x 28 units of s pixels. r: 10 jack, 11 queen, 12 king. */
+#define SKIN RGB(0xF6C4A0)
+#define SKIN2 RGB(0xE0A47E)
+#define CROWN RGB(0xF9C22E)
+static void portrait(int r, int x, int y, int s, color a, color b) {
+#define P(u, v, w, h, c) fill(x + (u) * s, y + (v) * s, (w) * s, (h) * s, c)
+  color hair = r == 11 ? RGB(0x2B2B3A) : r == 10 ? RGB(0x8A5230) : RGB(0xB0B0B0);
+  if (r == 11) P(6, 7, 12, 15, hair), P(7, 5, 10, 2, hair); /* the queen's long hair */
+  for (int t = 0; t < 9; t++) { /* the robe, wider at the bottom */
+    int hw = 6 + t / 2;
+    P(12 - hw, 19 + t, hw, 1, a), P(12, 19 + t, hw, 1, b);
+  }
+  P(10, 15, 4, 4, SKIN2); /* the neck */
+  P(9, 19, 6, 2, r == 10 ? WHITE : CROWN), P(11, 21, 2, 3, r == 10 ? WHITE : CROWN); /* the collar */
+  ring(x + 12 * s, y + 11 * s, 0, 5 * s, SKIN);
+  P(12, 7, 5, 9, SKIN), P(7, 7, 5, 9, SKIN), fill(x + 17 * s - 1, y + 9 * s, 1, 4 * s, SKIN2);
+  P(9, 11, 1, 1, INK), P(14, 11, 1, 1, INK); /* the eyes */
+  P(11, 14, 2, 1, RGB(0xC0504D));            /* the mouth */
+  if (r == 12) { /* the king's beard and moustache */
+    P(8, 14, 8, 2, RGB(0xE9E9E9)), P(9, 16, 6, 1, RGB(0xE9E9E9)), P(10, 17, 4, 1, RGB(0xD5D5D5));
+    P(9, 13, 6, 1, RGB(0xBDBDBD));
+  }
+  if (r != 11) P(7, 6, 10, 2, hair), P(7, 8, 1, 3, hair), P(16, 8, 1, 3, hair);
+  if (r >= 11) { /* a crown with three points */
+    int w = r == 12 ? 10 : 8, u = 12 - w / 2;
+    P(u, 3, w, 3, CROWN), P(u, 1, 2, 2, CROWN), P(11, 0, 2, 3, CROWN), P(u + w - 2, 1, 2, 2, CROWN);
+    P(11, 4, 2, 1, b);
+  } else { /* the jack's cap, and a feather */
+    P(6, 4, 12, 3, a), P(12, 4, 6, 3, b), P(8, 2, 8, 2, a), P(16, 0, 2, 4, CROWN);
+  }
+#undef P
+}
+
+/* a card at (x, y): the rank in bold and a small suit at the top, a big suit
+   (or a figure) below */
+static void card(int c, int x, int y) {
   if (x >= rx + rw || x + CW <= rx || y >= ry + rh || y + CH <= ry) return;
   if (!(c & UP)) {
-    back(x, y);
+    back(x, y, V.back & 3);
     return;
   }
-  int s = SUIT(c), r = RANK(c);
-  color ink = (s & 1 ? RED : BLACK) ^ inv;
-  rrect(x, y, CW, CH, BLACK ^ inv, WHITE ^ inv);
-  corner(c, x, y, ink, 0);
-  corner(c, x, y, ink, 1);
-  if (!r) {
-    sym(pip13[s], 15, 7, x + 14, y + 20, ink, 0);
-  } else if (r < 10) {
-    for (int g = 0, m = pip_ranks[r - 1]; g < 8; g++) {
-      if (!(m >> g & 1)) continue;
-      int b = pip_group[g], col = b >> 6, row = b & 15;
-      pip(s, col, row, x, y, ink);
-      if (b & 0x10) pip(s, 2 - col, row, x, y, ink);
-      if (b & 0x20) pip(s, col, 12 - row, x, y, ink);
-      if ((b & 0x30) == 0x30) pip(s, 2 - col, 12 - row, x, y, ink);
-    }
+  int s = SUIT(c), r = RANK(c), red = s & 1;
+  color a = SUIT_C[red][0], b = SUIT_C[red][1], ink = red ? b : a;
+  cardshape(x, y, EDGE, WHITE);
+  if (r == 9) glyph('1', x + 1, y + 3, 1, ink, 1), glyph('0', x + 7, y + 3, 1, ink, 1);
+  else glyph("A23456789?JQK"[r], x + 3, y + 3, 1, ink, 1);
+  sym(pip7[s], 7, 4, x + CW - 11, y + 3, a, b);
+  if (r < 10) sym(pip13[s], 15, 7, x + 9, y + 19, a, b);
+  else portrait(r, x + 4, y + 13, 1, a, b);
+}
+
+/* the suit each foundation takes, top to bottom, as Google marks them */
+static const uint8_t FSUIT[4] = {1, 3, 2, 0};
+/* an empty place: in a side column, a darker card with a suit (-1: none);
+   on the felt, an outline */
+static void slot(int x, int y, int s) {
+  if (x < SIDEW || x > 320 - SIDEW) {
+    rbox(x, y, CW, CH, 3, SLOT);
+    if (s >= 0) sym(pip13[s], 15, 7, x + 9, y + 14, SLOT2, SLOT2);
   } else {
-    court(c, x, y, ink, inv);
+    rbox(x, y, CW, CH, 3, RGB(0x4DB361));
+    rbox(x + 1, y + 1, CW - 2, CH - 2, 3, FELT);
   }
 }
-/* an empty place, etched in the felt */
-static void slot(int x, int y) {
-  rrect(x, y, CW, CH, RGB(0x00A800), FELT);
-  rrect(x, y, CW - 1, CH - 1, SLOT, FELT);
+/* a 2-pixel frame with round corners */
+static void rframe(int x, int y, int w, int h, color c) {
+  fill(x + 2, y, w - 4, 2, c), fill(x + 2, y + h - 2, w - 4, 2, c), fill(x, y + 2, 2, h - 4, c), fill(x + w - 2, y + 2, 2, h - 4, c);
+  px(x + 1, y + 1, c), px(x + w - 2, y + 1, c), px(x + 1, y + h - 2, c), px(x + w - 2, y + h - 2, c);
+}
+static void text(const char *s, int x, int y, color c) {
+  for (; *s; s++, x += 6) glyph(*s, x, y, 1, c, 0);
 }
 
 /* ------------------------------------------------------------------ state */
@@ -299,16 +333,16 @@ static uint32_t rnd(void) {
    top card alone) */
 static int fan(void) { return min(min(max(V.wfan, 1), V.gdraw), pn[WASTE]); }
 
-/* each column's spread, squeezed until it fits above the status bar */
+/* each column's spread, squeezed until it fits the screen */
 static void relayout(void) {
   for (int i = 0; i < 7; i++) {
-    int n = pn[T0 + i], d = 0, a = 6, b = 13;
+    int n = pn[T0 + i], d = 0, a = 5, b = 13;
     while (d < n && !(pl[T0 + i][d] & UP)) d++;
-    /* face up to 9 px (the index still shows whole), face down to 3, face
-       up to 8, then whatever it takes */
-    while (d * a + max(n - d - 1, 0) * b > STY - 2 - TABY - CH) {
-      if (b > 9 || (a < 4 && b > 8)) b--;
-      else if (a > 1) a--;
+    /* face up to 11 px, face down to 2, face up to 10 (the rank still shows
+       whole), then whatever it takes */
+    while (d * a + max(n - d - 1, 0) * b > 240 - 2 - TABY - CH) {
+      if (b > 11 || (a < 3 && b > 10)) b--;
+      else if (a > 2) a--;
       else if (b > 1) b--;
       else break;
     }
@@ -318,13 +352,12 @@ static void relayout(void) {
 
 /* where card k of pile p lies (k may be the free place above the top) */
 static void pos(int p, int k, int *x, int *y) {
-  *y = TOPY;
   if (p == STOCK) {
-    *x = COLX(0);
+    *x = LX, *y = TABY;
   } else if (p == WASTE) {
-    *x = COLX(1) + max(k - (pn[WASTE] - fan()), 0) * FAN;
+    *x = LX, *y = WASTEY + max(k - (pn[WASTE] - fan()), 0) * FAN;
   } else if (p < T0) {
-    *x = COLX(p + 1);
+    *x = RX, *y = FY(p - F0);
   } else {
     int i = p - T0, d = fd[i];
     *x = COLX(i);
@@ -334,6 +367,7 @@ static void pos(int p, int k, int *x, int *y) {
 
 /* how many cards from the top can be picked up together */
 static int run(int p) {
+  if (p < 0) return 0;
   int n = pn[p], k = 1;
   if (!n || !(pl[p][n - 1] & UP)) return 0;
   if (p < T0) return 1;
@@ -348,7 +382,7 @@ static int run(int p) {
 static int legal(int f, int n, int t) {
   if (f == t || t < F0 || (f >= F0 && f < T0 && t < T0) || n < 1 || n > run(f)) return 0;
   int c = pl[f][pn[f] - n], top = pn[t] ? pl[t][pn[t] - 1] : -1;
-  if (t < T0) return n == 1 && (top < 0 ? RANK(c) == 0 : SUIT(top) == SUIT(c) && RANK(top) + 1 == RANK(c));
+  if (t < T0) return n == 1 && SUIT(c) == FSUIT[t - F0] && (top < 0 ? RANK(c) == 0 : RANK(top) + 1 == RANK(c));
   return top < 0 ? RANK(c) == 12 : RANK(top) == RANK(c) + 1 && ((top ^ c) & 1);
 }
 
@@ -356,9 +390,11 @@ static int legal(int f, int n, int t) {
 static np_jump_t leave; /* Home and On/Off leave from anywhere through it */
 static uint64_t held, pend, rep; /* keys down, presses not handled yet, arrows that repeat */
 static uint32_t repeat_at, last_frame;
-static int layer;   /* what the screen shows: 0 the table, 1 the title, 2 one widget */
+static int layer;   /* what the screen shows: 0 the table, 1 the table under the start, 2 one widget */
 static int ticking; /* the game's clock runs (not in dialogs) */
+static const char *msg;
 static void scene(void);
+static void over_text(int x, int y, int w, int h);
 
 /* draws the scene over a rectangle of the screen and pushes it */
 static void paint(int x, int y, int w, int h) {
@@ -371,6 +407,7 @@ static void paint(int x, int y, int w, int h) {
     scene();
     eadk_display_push_rect((eadk_rect_t){(uint16_t)rx, (uint16_t)ry, (uint16_t)rw, (uint16_t)rh}, buf);
   }
+  if (!layer) over_text(x, y, w, h);
 }
 
 /* rectangles to repaint at the next frame, merged when they overlap */
@@ -394,10 +431,14 @@ static void dirty(int x, int y, int w, int h) {
   ndr++;
 }
 static void dirty_pile(int p) {
-  if (p < T0) dirty(COLX(p == STOCK ? 0 : p == WASTE ? 1 : p + 1) - 2, 0, CW + 4 + (p == WASTE) * 2 * FAN, TABY - 2);
-  else dirty(COLX(p - T0) - 2, TABY - 2, CW + 4, STY - TABY + 2);
+  if (p == STOCK) dirty(LX - 2, TABY - 2, CW + 6, CH + 6);
+  else if (p == WASTE) dirty(LX - 2, WASTEY - 2, CW + 4, CH + 4 + 2 * FAN);
+  else if (p < T0) dirty(RX - 2, FY(p - F0) - 2, CW + 4, CH + 4);
+  else dirty(COLX(p - T0) - 2, TABY - 2, CW + 4, 240 - TABY + 2);
 }
-static void dirty_status(void) { dirty(0, STY, 320, 10); }
+static void dirty_bar(void) { dirty(0, 0, 320, BARH); }
+#define TOAST_Y 216 /* a message at the bottom of the table */
+static void dirty_toast(void) { dirty(SIDEW, TOAST_Y, 320 - 2 * SIDEW, 20); }
 
 /* keys: presses since the last look, arrows repeating while held */
 static void poll(void) {
@@ -434,66 +475,47 @@ static uint64_t take(void) {
 #define OK_KEYS (KEY(eadk_key_ok) | KEY(eadk_key_exe))
 
 /* ------------------------------------------------------------------ widgets */
-/* Windows 95 style: grey faces, bevelled edges, a navy title bar, and navy
-   for the focus too. Widgets are painted one at a time (layer 2); their text
-   is the firmware's font, drawn over them afterwards. */
-enum { W_WIN, W_BTN, W_RADIO, W_CHECK, W_GROUP, W_ITEM, W_BACK };
+/* Google's dialogs: white cards with round corners, pill buttons (blue when
+   in focus), round radio buttons and check boxes. Widgets are painted one at
+   a time (layer 2); their text is the firmware's font, drawn over them
+   afterwards. */
+enum { W_WIN, W_BTN, W_RADIO, W_CHECK, W_GROUP, W_BACK };
 #define F_ON 1 /* a radio button or a box that is on */
 #define F_FOCUS 2
 #define F_OFF 4 /* greyed out */
 static int wt, wx, wy, ww, wh, wf;
 static const char *wl;
 
-static void button(int x, int y, int w, int h, int focus) {
-  if (focus) frame(x, y, w, h, 1, BLACK), x++, y++, w -= 2, h -= 2;
-  fill(x, y, w, h, focus ? NAVY : FACE);
-  bevel(x, y, w, h, WHITE, BLACK);
-  bevel(x + 1, y + 1, w - 2, h - 2, LIGHT, SHADOW);
-}
-/* a navy title bar and n of its buttons: close, maximize, minimize */
-static void caption(int x, int y, int w, int n) {
-  fill(x, y, w, 20, NAVY);
-  for (int i = 0; i < n; i++) {
-    int bx = x + w - 18 - i * 16 - (i > 0) * 2;
-    button(bx, y + 3, 16, 14, 0);
-    if (!i) glyph('x', bx + 5, y + 6, 1, BLACK, 0);
-    else if (i == 1) frame(bx + 3, y + 5, 9, 9, 1, BLACK), fill(bx + 3, y + 6, 9, 1, BLACK);
-    else fill(bx + 4, y + 12, 6, 2, BLACK);
-  }
-}
 static void widget_draw(void) {
   int x = wx, y = wy, f = wf & F_FOCUS;
-  fill(x, y, ww, wh, wt == W_ITEM && f ? NAVY : FACE);
   if (wt == W_WIN) {
-    bevel(x, y, ww, wh, LIGHT, BLACK);
-    bevel(x + 1, y + 1, ww - 2, wh - 2, WHITE, SHADOW);
-    caption(x + 3, y + 3, ww - 6, 1);
+    rbox(x, y, ww, wh, 7, WHITE);
     if (wf) { /* the question mark */
-      ring(x + 30, y + 46, 0, 14, RGB(0x1040D0));
-      ring(x + 30, y + 46, 13, 14, BLACK);
-      glyph('?', x + 25, y + 39, 2, WHITE, 0);
+      ring(x + 30, y + 50, 0, 14, BLUE);
+      glyph('?', x + 25, y + 43, 2, WHITE, 0);
     }
-  } else if (wt == W_BTN) {
-    button(x, y, ww, wh, f);
-  } else if (wt == W_GROUP) {
-    bevel(x, y + 7, ww - 1, wh - 8, SHADOW, WHITE);
-    bevel(x + 1, y + 8, ww - 1, wh - 8, WHITE, SHADOW);
+    return;
+  }
+  fill(x, y, ww, wh, WHITE);
+  if (wt == W_BTN) {
+    rbox(x, y, ww, wh, 7, f ? BLUE : PALE);
   } else if (wt == W_BACK) { /* a card back to pick, style in the high bits */
-    int s = V.back;
-    if (f) frame(x, y, ww, wh, 2, NAVY);
-    V.back = (uint8_t)(wf >> 4), back(x + 4, y + 4), V.back = (uint8_t)s;
-  } else if (wt != W_ITEM) {
+    if (f) rbox(x, y, ww, wh, 5, PALE);
+    if (wf & F_ON) rframe(x + 1, y + 1, ww - 2, wh - 2, BLUE);
+    back(x + 4, y + 4, wf >> 4);
+  } else if (wt != W_GROUP) {
+    if (f) rbox(x + 14, y - 1, slen(wl) * 7 + 10, 18, 5, PALE);
+    color c = wf & F_OFF ? PALE : wf & F_ON ? BLUE : GREY;
     if (wt == W_RADIO) {
-      ring(x + 6, y + 8, 0, 6, SHADOW);
-      ring(x + 6, y + 8, 0, 5, WHITE);
-      if (wf & F_ON) ring(x + 6, y + 8, 0, 2, BLACK);
+      ring(x + 6, y + 8, 0, 6, c);
+      ring(x + 6, y + 8, 0, 4, WHITE);
+      if (wf & F_ON) ring(x + 6, y + 8, 0, 2, c);
     } else {
-      bevel(x, y + 2, 13, 13, SHADOW, WHITE);
-      bevel(x + 1, y + 3, 11, 11, BLACK, LIGHT);
-      fill(x + 2, y + 4, 9, 9, wf & F_OFF ? FACE : WHITE);
-      for (int i = 0; (wf & F_ON) && i < 7; i++) fill(x + 3 + i, y + 5 + (i <= 2 ? i + 2 : 6 - i), 1, 3, wf & F_OFF ? SHADOW : BLACK);
+      rbox(x, y + 2, 13, 13, 2, c);
+      if (wf & F_ON)
+        for (int i = 0; i < 7; i++) fill(x + 3 + i, y + 6 + (i <= 2 ? i + 2 : 6 - i), 1, 2, WHITE);
+      else rbox(x + 2, y + 4, 9, 9, 1, WHITE);
     }
-    if (f) fill(x + 16, y, slen(wl) * 7 + 4, 16, NAVY);
   }
 }
 /* paints a widget, then its label */
@@ -503,14 +525,15 @@ static void widget(int t, int x, int y, int w, int h, const char *label, int f) 
   paint(x, y, w, h);
   layer = l;
   if (!label) return;
+  color bg = t == W_BTN ? (f & F_FOCUS ? BLUE : PALE) : f & F_FOCUS ? PALE : WHITE;
+  color fg = t == W_BTN && (f & F_FOCUS) ? WHITE : t == W_GROUP ? BLUE : f & F_OFF ? GREY : INK;
   if (t == W_BTN) x += (w - slen(label) * 7) / 2 - 18, y += (h - 14) / 2 - 1;
-  else if (t == W_GROUP) x -= 11, y--;
-  else if (t == W_ITEM) y++;
-  str(label, x + 18, y + 1, 0, f & F_OFF ? SHADOW : f & F_FOCUS ? WHITE : BLACK, f & F_FOCUS ? NAVY : FACE);
+  else if (t == W_GROUP) x -= 18, bg = WHITE;
+  str(label, x + 18, y + 1, 0, fg, bg);
 }
 static void win(int x, int y, int w, int h, const char *title, int icon) {
   widget(W_WIN, x, y, w, h, 0, icon);
-  str(title, x + 7, y + 6, 0, WHITE, NAVY);
+  str(title, x + 16, y + 9, 1, INK, WHITE);
 }
 
 /* A dialog box: text lines, then buttons (in a column when vert). Returns the
@@ -525,9 +548,9 @@ static int dialog(const char *title, const char *body, const char *const *btn, i
     s += n + (s[n] == '\n');
   }
   for (int i = 0; i < nb; i++) bw = max(bw, slen(btn[i]) * 7 + 28);
-  int bb = vert ? bw : nb * bw + (nb - 1) * 10, w = max(max(tw + ix, bb) + 36, slen(title) * 7 + 44);
-  int th = max(lines * 16, icon ? 36 : 0), h = 34 + th + (th ? 12 : 0) + (vert ? nb * 30 - 6 : 24) + 12;
-  int x = (320 - w) / 2, y = (240 - h) / 2, by = y + 34 + th + (th ? 12 : 0), f = 0;
+  int bb = vert ? bw : nb * bw + (nb - 1) * 10, w = max(max(tw + ix, bb) + 36, slen(title) * 10 + 36);
+  int th = max(lines * 16, icon ? 36 : 0), h = 38 + th + (th ? 12 : 0) + (vert ? nb * 30 - 6 : 24) + 14;
+  int x = (320 - w) / 2, y = (240 - h) / 2, by = y + 38 + th + (th ? 12 : 0), f = 0;
   box[0] = (int16_t)x, box[1] = (int16_t)y, box[2] = (int16_t)w, box[3] = (int16_t)h;
   ndr = 0, ticking = 0; /* nothing of the table shows through, and the clock stops */
   win(x, y, w, h, title, icon);
@@ -535,7 +558,7 @@ static int dialog(const char *title, const char *body, const char *const *btn, i
   for (int i = 0, n; body && *body; i++, body += n + (body[n] == '\n')) {
     for (n = 0; body[n] && body[n] != '\n' && n < 47; n++) ln[n] = body[n];
     ln[n] = 0;
-    str(ln, x + 18 + ix, y + 34 + (th - lines * 16) / 2 + i * 16, 0, BLACK, FACE);
+    str(ln, x + 18 + ix, y + 38 + (th - lines * 16) / 2 + i * 16, 0, GREY, WHITE);
   }
   for (uint64_t e = 0;; e = take()) {
     int d = (e & KEY(vert ? eadk_key_down : eadk_key_right) ? 1 : 0) - (e & KEY(vert ? eadk_key_up : eadk_key_left) ? 1 : 0);
@@ -551,12 +574,12 @@ static int dialog(const char *title, const char *body, const char *const *btn, i
 }
 
 /* ------------------------------------------------------------------ the table */
-static int cp = T0 + 3, cd = 1; /* the cursor: pile, and cards picked with Up in a column */
-static int sp = -1, sn;         /* the cards picked up: pile and count */
-static int hint_p = -1;         /* the pile a hint points to */
-static int nocur;               /* hides the cursor: dealing, winning */
+static int cp = T0 + 3, cd = 1;  /* the cursor: pile (or button), and cards picked with Up in a column */
+static int lastl = WASTE, lastr = F0; /* where the cursor was in the side columns */
+static int sp = -1, sn;          /* the cards picked up: pile and count */
+static int hint_p = -1;          /* the pile a hint points to */
+static int nocur;                /* hides the cursor: dealing, winning */
 static uint32_t hint_until, msg_until;
-static const char *msg;
 
 /* cards in flight: they are hidden in their pile until they land */
 typedef struct {
@@ -575,8 +598,12 @@ static void fly_pos(const fly_t *f, int *x, int *y) {
 }
 static int shown(int c) { return !(hid >> (c & 63) & 1); }
 
-/* the cursor's rectangle: the cards it points at */
+/* the cursor's rectangle: the cards (or the button) it points at */
 static void cur_rect(int *x, int *y, int *h) {
+  if (cp < 0) {
+    *x = LX, *y = cp == B_UNDO ? UNDOY - 3 : NEWY - 3, *h = 30;
+    return;
+  }
   int n = pn[cp], y1;
   pos(cp, max(n - (cp >= T0 ? cd : 1), 0), x, y);
   pos(cp, max(n - 1, 0), x, &y1);
@@ -585,80 +612,114 @@ static void cur_rect(int *x, int *y, int *h) {
 static void dirty_cursor(void) {
   int x, y, h;
   cur_rect(&x, &y, &h);
-  dirty(x - 2, y - 2, CW + 4, h + 4);
+  dirty(x - 3, y - 3, CW + 6, h + 6);
 }
 static void set_cursor(int p, int d) {
   dirty_cursor();
   cp = p, cd = p >= T0 ? max(min(d, run(p)), 1) : 1;
+  if (p < 0 || p <= WASTE) lastl = p;
+  else if (p < T0) lastr = p;
   dirty_cursor();
 }
 static void say(const char *s) {
   msg = s, msg_until = now + 1800;
-  dirty_status();
+  dirty_toast();
 }
 
 /* with Keep score, Vegas shows the bank, which already holds a finished game */
 static int32_t shown_score(void) { return V.gscoring == 1 && V.keep ? V.bank + (V.live ? V.score : 0) : V.score; }
-
-static void status_bar(void) {
-  char s[64], *o = s;
-  fill(0, STY, 320, 10, FACE);
-  fill(0, STY, 320, 1, WHITE);
-  o = num(cat(o, "Moves: "), V.moves);
-  if (V.gscoring < 2) o = (V.gscoring ? money : num)(cat(o, "   Score: "), shown_score());
-  if (V.gtimed) o = num(cat(o, "   Time: "), (int32_t)(V.ms / 1000));
-  text(s, 316 - (int)(o - s) * 6, STY + 2, 1, BLACK);
-  if (msg) fill(0, STY + 1, slen(msg) * 6 + 8, 9, FACE), text(msg, 4, STY + 2, 1, BLACK);
-}
-
 static int can_recycle(void) { return V.gscoring != 1 || V.passes < V.gdraw - 1; }
+
+/* the text over the table: the bar's figures, and a message */
+static void over_text(int x, int y, int w, int h) {
+  char s[16], *o;
+  if (y < BARH) {
+    uint32_t t = V.live || V.ms ? V.ms / 1000 : 0;
+    o = num(s, (int32_t)(t / 3600));
+    o = two(cat(o, ":"), (int)(t / 60 % 60));
+    two(cat(o, ":"), (int)(t % 60));
+    str(s, 96, 2, 0, WHITE, BAR);
+    if (V.gscoring < 2) {
+      str("Score", 162, 2, 0, RGB(0x9AA0A6), BAR);
+      (V.gscoring ? money : num)(s, shown_score());
+      str(s, 204, 2, 0, WHITE, BAR);
+    }
+    str("Moves", 250, 2, 0, RGB(0x9AA0A6), BAR);
+    num(s, V.moves);
+    str(s, 292, 2, 0, WHITE, BAR);
+  }
+  if (msg && y + h > TOAST_Y && x < 320 - SIDEW && x + w > SIDEW) str(msg, 160 - slen(msg) * 7 / 2, TOAST_Y + 3, 0, WHITE, RGB(0x323232));
+}
 
 static void game_scene(void) {
   fill(rx, ry, rw, rh, FELT);
-  if (ry < TABY) {
-    int k = pn[STOCK] - 1, x, y;
-    while (k >= 0 && !shown(pl[STOCK][k])) k--;
-    if (k >= 0) { /* the deck, a little thicker when it holds more */
-      for (int i = min(k / 8, 2); i; i--) fill(COLX(0) + CW - 1 + i, TOPY + 1 + i, 1, CH - 2, BLACK), fill(COLX(0) + 1 + i, TOPY + CH - 1 + i, CW - 2, 1, BLACK);
-      card(pl[STOCK][k], COLX(0), TOPY, 0);
-    } else { /* the empty stock: O to deal again, X when that is over */
-      slot(COLX(0), TOPY);
-      if (can_recycle()) {
-        ring(COLX(0) + 19, TOPY + 26, 8, 11, RGB(0x30E030));
-      } else {
-        for (int i = -8; i <= 8; i++) fill(COLX(0) + 18 + i, TOPY + 25 + i, 3, 3, RED), fill(COLX(0) + 18 + i, TOPY + 25 - i, 3, 3, RED);
+  if (ry < BARH) { /* the bar, and a king for the difficulty: red Easy, blue Hard */
+    fill(0, 0, 320, BARH, BAR);
+    int h = V.gdraw == 1 || !V.live ? 0 : 1;
+    portrait(12, 6, 1, 1, h ? RGB(0x5B7FD6) : RGB(0xEF5050), h ? RGB(0x2F4F9A) : RGB(0xBB2026));
+  }
+  fill(0, BARH, SIDEW, 240, SIDE);
+  fill(320 - SIDEW, BARH, SIDEW, 240, SIDE);
+  int k = pn[STOCK] - 1, x, y;
+  while (k >= 0 && !shown(pl[STOCK][k])) k--;
+  if (k >= 0) { /* the deck, a little thicker when it holds more */
+    for (int i = min(k / 8, 2); i; i--) fill(LX + 2, TABY + CH - 2 + i, CW - 4, 1, RGB(0x1E5A2A)), fill(LX + 1, TABY + CH - 3 + i, 1, 1, RGB(0x1E5A2A));
+    card(pl[STOCK][k], LX, TABY);
+  } else { /* the empty deck: a circle arrow to deal again */
+    slot(LX, TABY, -1);
+    if (V.live && can_recycle()) {
+      ring(LX + 15, TABY + 21, 6, 8, WHITE);
+      fill(LX + 15, TABY + 12, 9, 7, SLOT);
+      for (int i = 0; i < 5; i++) fill(LX + 15 + i, TABY + 11 + i, 1, 10 - 2 * i, WHITE);
+    }
+  }
+  for (k = max(pn[WASTE] - fan() - 1, 0); k < pn[WASTE]; k++)
+    if (shown(pl[WASTE][k])) pos(WASTE, k, &x, &y), card(pl[WASTE][k], x, y);
+  for (int p = F0; p < T0; p++) {
+    k = pn[p] - 1;
+    while (k >= 0 && !shown(pl[p][k])) k--;
+    if (k >= 0) card(pl[p][k], RX, FY(p - F0));
+    else slot(RX, FY(p - F0), FSUIT[p - F0]);
+  }
+  /* Undo and New, under the deck */
+  for (int i = 0; i < 2; i++) {
+    int by = i ? NEWY : UNDOY, cx = LX + CW / 2;
+    if (!i) { /* a round arrow */
+      ring(cx + 1, by + 6, 3, 5, WHITE);
+      fill(cx - 5, by + 1, 7, 6, SIDE);
+      for (int j = 0; j < 4; j++) fill(cx - 5 + j, by + 2 - j + 3, 1, 1 + 2 * j, WHITE);
+    } else { /* a star */
+      for (int j = 0; j < 9; j++) {
+        int w = j < 3 ? j / 2 : j < 5 ? 5 - (j - 3) : 2 + (j - 5) / 2;
+        fill(cx - w, by + j, 2 * w + 1, 1, WHITE);
       }
+      fill(cx - 4, by + 8, 3, 2, WHITE), fill(cx + 2, by + 8, 3, 2, WHITE), fill(cx - 1, by + 8, 3, 1, SIDE);
     }
-    for (k = max(pn[WASTE] - fan() - 1, 0); k < pn[WASTE]; k++)
-      if (shown(pl[WASTE][k])) pos(WASTE, k, &x, &y), card(pl[WASTE][k], x, y, sp == WASTE && k == pn[WASTE] - 1 ? 0xFFFF : 0);
-    for (int p = F0; p < T0; p++) {
-      k = pn[p] - 1;
-      while (k >= 0 && !shown(pl[p][k])) k--;
-      if (k >= 0) card(pl[p][k], COLX(p + 1), TOPY, sp == p && k == pn[p] - 1 ? 0xFFFF : 0);
-      else slot(COLX(p + 1), TOPY);
-    }
+    text(i ? "NEW" : "UNDO", cx - (i ? 9 : 12), by + 13, WHITE);
   }
   for (int p = T0; p < NP; p++) {
-    int x, y;
-    if (!pn[p] || !shown(pl[p][0])) slot(COLX(p - T0), TABY);
-    for (int k = 0; k < pn[p]; k++, sq = 6)
-      if (shown(pl[p][k])) sq = k + 1 < pn[p] ? od[p - T0] : 6, pos(p, k, &x, &y), card(pl[p][k], x, y, p == sp && k >= pn[p] - sn ? 0xFFFF : 0);
+    if (!pn[p] || !shown(pl[p][0])) slot(COLX(p - T0), TABY, -1);
+    for (k = 0; k < pn[p]; k++)
+      if (shown(pl[p][k])) pos(p, k, &x, &y), card(pl[p][k], x, y);
+  }
+  if (sp >= 0) { /* the cards picked up, in Google blue */
+    int y1;
+    pos(sp, pn[sp] - sn, &x, &y);
+    pos(sp, pn[sp] - 1, &x, &y1);
+    rframe(x - 2, y - 2, CW + 4, y1 - y + CH + 4, BLUE);
   }
   if (hint_p >= 0 && (now / 200 & 1)) {
-    int x, y;
     pos(hint_p, max(pn[hint_p] - 1, 0), &x, &y);
-    frame(x - 2, y - 2, CW + 4, CH + 4, 2, RGB(0x40E8FF));
+    rframe(x - 2, y - 2, CW + 4, CH + 4, RGB(0x40E8FF));
   }
   if (!nocur) {
-    int x, y, h;
+    int h;
     cur_rect(&x, &y, &h);
-    frame(x - 2, y - 2, CW + 4, h + 4, 2, GOLD);
+    rframe(x - 3, y - 3, CW + 6, h + 6, GOLD);
   }
-  for (int i = 0; i < nfl; i++) {
-    int x, y;
-    if (fl[i].t >= 0) fly_pos(&fl[i], &x, &y), card(fl[i].c, x, y, 0);
-  }
-  if (ry + rh > STY) status_bar();
+  for (int i = 0; i < nfl; i++)
+    if (fl[i].t >= 0) fly_pos(&fl[i], &x, &y), card(fl[i].c, x, y);
+  if (msg) rbox(160 - slen(msg) * 7 / 2 - 8, TOAST_Y, slen(msg) * 7 + 16, 20, 6, RGB(0x323232));
 }
 
 /* ------------------------------------------------------------------ moves */
@@ -737,7 +798,7 @@ static int add_score(int d) { /* what actually changed: Standard stops at 0 */
   if (!V.gscoring && s < 0) s = 0;
   d = (int)(s - V.score);
   V.score = s;
-  dirty_status();
+  dirty_bar();
   return d;
 }
 /* the clock, while a game is on; Standard loses 2 points every 10 seconds */
@@ -746,13 +807,13 @@ static void tick(uint32_t dt) {
   uint32_t t0 = V.ms;
   V.ms += dt;
   if (V.ms / 10000 != t0 / 10000 && !V.gscoring && V.gtimed) add_score(-2);
-  if (V.ms / 1000 != t0 / 1000 && V.gtimed) dirty_status();
+  if (V.ms / 1000 != t0 / 1000) dirty(90, 0, 60, BARH);
 }
 static void counted(void) {
   if (!V.started) V.started = 1, V.played++;
   V.moves++;
   hint_p = -1;
-  dirty_status();
+  dirty_bar();
 }
 static void deselect(void) {
   if (sp >= 0) dirty_pile(sp);
@@ -860,8 +921,20 @@ found:
   say("Hint");
 }
 
-/* OK: pick up, put down, or draw */
+static int difficulty(int full);
+static void new_deal(uint32_t s);
+/* OK: pick up, put down, draw, or a button */
 static void act(void) {
+  if (cp == B_UNDO) {
+    undo();
+    return;
+  }
+  if (cp == B_NEW) {
+    int d = difficulty(0);
+    dirty(0, 0, 320, 240);
+    if (d >= 0) V.draw = (uint8_t)(d ? 3 : 1), new_deal(rnd());
+    return;
+  }
   if (cp == STOCK) {
     draw_cards();
     return;
@@ -920,7 +993,7 @@ static void deal_fly(void) {
     for (int c = r; c < 7; c++, k++) {
       int x, y;
       pos(T0 + c, r, &x, &y);
-      launch(pl[T0 + c][r], COLX(0), TOPY, x, y, -k * 2);
+      launch(pl[T0 + c][r], LX, TABY, x, y, -k * 2);
     }
   dirty(0, 0, 320, 240);
   dur = 10;
@@ -940,11 +1013,11 @@ static void save(void) {
 static void load(void) {
   uint32_t n = 0;
   const uint8_t *d = ef_read(SAVE_NAME, &n);
-  V.draw = 3, V.timed = 1;
+  V.draw = 1, V.timed = 1;
   if (!d || n != sizeof V || d[0] != 'S' || d[1] != 1) return;
   for (uint32_t i = 0; i < n; i++) ((uint8_t *)&V)[i] = d[i];
-  if (V.draw < 1 || V.draw > 3) V.draw = 3;
-  V.scoring %= 3, V.timed &= 1, V.keep &= 1;
+  if (V.draw != 1 && V.draw != 3) V.draw = V.draw == 2 ? 3 : 1;
+  V.scoring %= 3, V.timed &= 1, V.keep &= 1, V.back &= 3;
   uint64_t seen = 0;
   int k = 0, ok = V.live == 1 && V.gdraw >= 1 && V.gdraw <= 3 && V.gscoring < 3 && V.gtimed < 2;
   for (int p = 0; p < NP && ok; p++) {
@@ -952,7 +1025,7 @@ static void load(void) {
     for (int i = 0; ok && i < V.n[p]; i++, k++) {
       int c = V.cards[k] & 63, up = p == WASTE || (p >= F0 && p < T0) || (p >= T0 && (V.cards[k] & UP || i == V.n[p] - 1 || (i && pl[p][i - 1] & UP)));
       if (c >= 52 || seen >> c & 1) ok = 0;
-      if (p >= F0 && p < T0 && (RANK(c) != i || (i && SUIT(c) != SUIT(pl[p][0])))) ok = 0;
+      if (p >= F0 && p < T0 && (RANK(c) != i || SUIT(c) != FSUIT[p - F0])) ok = 0;
       seen |= 1ull << c;
       pl[p][i] = (uint8_t)(c | (up ? UP : 0));
     }
@@ -974,14 +1047,15 @@ static void abandon(void) {
 }
 
 /* ------------------------------------------------------------------ the win */
-/* one card straight onto the screen, over whatever is there */
+/* one card straight onto the screen, over whatever is there (c < 0: the
+   empty foundation of suit -1 - c) */
 static void stamp(int c, int x, int y) {
   rx = max(x, 0), ry = max(y, 0), rw = min(x + CW, 320) - rx, rh = min(y + CH, 240) - ry;
   if (rw <= 0 || rh <= 0) return;
   eadk_rect_t r = {(uint16_t)rx, (uint16_t)ry, (uint16_t)rw, (uint16_t)rh};
   eadk_display_pull_rect(r, buf);
-  if (c < 0) fill(x, y, CW, CH, FELT), slot(x, y);
-  else card(c, x, y, 0);
+  if (c < 0) fill(x, y, CW, CH, SIDE), slot(x, y, -1 - c);
+  else card(c, x, y);
   eadk_display_push_rect(r, buf);
 }
 
@@ -993,9 +1067,9 @@ static void bounce(void) {
   for (int r = 12; r >= 0; r--)
     for (int p = F0; p < T0; p++) {
       if (!pn[p]) continue;
-      int c = pl[p][--pn[p]], x = COLX(p + 1) * 16, y = TOPY * 16;
-      int vx = (int)(rnd() % 40 + 20) * (rnd() & 1 ? 1 : -1), vy = -(int)(rnd() % 90);
-      stamp(pn[p] ? pl[p][pn[p] - 1] : -1, COLX(p + 1), TOPY);
+      int c = pl[p][--pn[p]], x = RX * 16, y = FY(p - F0) * 16;
+      int vx = -(int)(rnd() % 40 + 20), vy = -(int)(rnd() % 90);
+      stamp(pn[p] ? pl[p][pn[p] - 1] : -1 - FSUIT[p - F0], RX, FY(p - F0));
       while (x > -CW * 16 && x < 320 * 16) {
         for (int s = 0; s < 5; s++) {
           x += vx, vy += 9, y += vy;
@@ -1024,7 +1098,7 @@ static void finish(void) {
   uint32_t secs = V.ms / 1000;
   V.live = 0, V.won++, V.streak++;
   if (V.streak > V.best_streak) V.best_streak = V.streak;
-  if (!V.gscoring && V.gtimed && secs >= 30) V.score += (int32_t)(700000 / secs); /* Windows' bonus */
+  if (!V.gscoring && V.gtimed && secs >= 30) V.score += (int32_t)(700000 / secs); /* the bonus for speed */
   if (V.gscoring == 1) V.bank += V.score;
   if (!V.best_time || secs < V.best_time) V.best_time = (uint16_t)min((int)secs, 65535);
   if (!V.gscoring && V.score > V.best_score) V.best_score = V.score;
@@ -1042,42 +1116,42 @@ static void new_deal(uint32_t s) {
   deal_fly();
 }
 
+/* the side column a pile is in: -1 the deck's, 7 the foundations', else a column */
+static int col(int p) { return p < 0 || p <= WASTE ? -1 : p < T0 ? 7 : p - T0; }
+
 /* the game, until the player leaves it */
 static void play(void) {
-  static const char *const pause_items[] = {"Resume", "Restart", "New deal", "Quit game"};
-  layer = 0, sp = -1, hint_p = -1, msg = 0;
+  static const char *const pause_items[] = {"Resume", "Restart", "New game", "Quit game"};
+  static const int8_t LEFT[4] = {STOCK, WASTE, B_UNDO, B_NEW};
+  layer = 0, sp = -1, hint_p = -1, msg = 0, ticking = 1;
   relayout();
   set_cursor(cp, cd);
   dirty(0, 0, 320, 240);
-  uint32_t last = now;
   for (;;) {
     next_frame();
+    ticking = 1;
     uint64_t e = take();
-    uint32_t dt = min((int)(now - last), 100);
-    last = now;
-    if (V.started) { /* the clock; Standard loses 2 points every 10 seconds */
-      uint32_t t0 = V.ms;
-      V.ms += dt;
-      if (V.ms / 10000 != t0 / 10000 && !V.gscoring && V.gtimed) add_score(-2);
-      if (V.ms / 1000 != t0 / 1000 && V.gtimed) dirty_status();
-    }
-    if (msg && (int32_t)(now - msg_until) > 0) msg = 0, dirty_status();
+    if (msg && (int32_t)(now - msg_until) > 0) msg = 0, dirty_toast();
     if (hint_p >= 0) {
       if ((int32_t)(now - hint_until) > 0) dirty_pile(hint_p), hint_p = -1;
-      else if (now / 200 != (now - dt) / 200) dirty_pile(hint_p);
+      else if (now / 200 != (now - 16) / 200) dirty_pile(hint_p);
     }
     int lr = (e & KEY(eadk_key_right) ? 1 : 0) - (e & KEY(eadk_key_left) ? 1 : 0);
-    if (lr) {
-      if (cp >= T0) set_cursor(T0 + (cp - T0 + lr + 7) % 7, 1);
-      else set_cursor((cp + lr + 6) % 6, 1); /* stock, waste, foundations */
-    }
-    if (e & KEY(eadk_key_up)) {
-      if (cp >= T0 && sp < 0 && cd < run(cp)) set_cursor(cp, cd + 1);
-      else if (cp >= T0) set_cursor(cp == T0 ? STOCK : cp < T0 + 3 ? WASTE : cp - 7, 1);
-    }
-    if (e & KEY(eadk_key_down)) {
-      if (cp >= T0) set_cursor(cp, cd - 1);
-      else set_cursor(cp == STOCK ? T0 : cp == WASTE ? T0 + 1 : cp + 7, 1);
+    int ud = (e & KEY(eadk_key_down) ? 1 : 0) - (e & KEY(eadk_key_up) ? 1 : 0);
+    if (lr) { /* across: the deck's column, the seven columns, the foundations' */
+      int c = col(cp) + lr;
+      c = c < -1 ? 7 : c > 7 ? -1 : c;
+      set_cursor(c == -1 ? lastl : c == 7 ? lastr : T0 + c, 1);
+    } else if (ud && col(cp) == -1) { /* up and down a side column */
+      int i = 0;
+      while (LEFT[i] != cp) i++;
+      set_cursor(LEFT[max(0, min(3, i + ud))], 1);
+    } else if (ud && col(cp) == 7) {
+      set_cursor(F0 + max(0, min(3, cp - F0 + ud)), 1);
+    } else if (ud < 0 && sp < 0 && cd < run(cp)) { /* in a column: pick more cards, or fewer */
+      set_cursor(cp, cd + 1);
+    } else if (ud > 0) {
+      set_cursor(cp, cd - 1);
     }
     if (e & KEY(eadk_key_ok)) act();
     if (e & KEY(eadk_key_exe)) draw_cards();
@@ -1093,17 +1167,21 @@ static void play(void) {
         deselect();
       } else {
         for (;;) {
+          layer = 1, paint(0, 0, 320, 240), layer = 0; /* the table, dimmed under the dialog */
           int r = dialog("Paused", 0, pause_items, 4, 1, 0);
           if (r == 3) {
             if (!dialog("Solitaire", "Quit game?", yes_no, 2, 0, 1)) np_jump(leave); /* saves, then leaves */
-            paint(0, 0, 320, 240);
             continue;
+          }
+          if (r == 2) {
+            int d = difficulty(0);
+            if (d < 0) continue;
+            V.draw = (uint8_t)(d ? 3 : 1);
           }
           dirty(0, 0, 320, 240);
           if (r == 1 || r == 2) new_deal(r == 1 ? V.seed : rnd());
           break;
         }
-        last = now;
       }
     }
     if (cp >= T0 && cd > max(run(cp), 1)) set_cursor(cp, cd); /* the column changed */
@@ -1111,76 +1189,122 @@ static void play(void) {
     if (won() && V.live) {
       char s[96], *o = s;
       finish();
-      o = num(cat(o, "You win!\nTime: "), (int32_t)(V.ms / 1000));
+      o = num(cat(o, "Time: "), (int32_t)(V.ms / 1000));
       o = num(cat(o, " seconds\nMoves: "), V.moves);
       if (V.gscoring < 2) o = (V.gscoring ? money : num)(cat(o, "\nScore: "), shown_score());
-      cat(o, "\n\nDeal again?");
+      cat(o, "\n\nPlay again?");
       next_frame();
-      bounce();
-      if (dialog("Solitaire", s, yes_no, 2, 0, 0)) return;
+      nocur = 1, bounce(), nocur = 0;
+      layer = 1, paint(0, 0, 320, 240), layer = 0;
+      if (dialog("You win!", s, yes_no, 2, 0, 0)) return;
       new_deal(rnd());
-      last = now;
     }
   }
 }
 
-/* ------------------------------------------------------------------ menus */
-static const char *const menu_items[] = {"Continue", "New game", "Options", "Statistics", "How to play"};
-static int menu_first, menu_at;
-static int menu_y(int i) { return 131 - (5 - menu_first) * 15 + (i - menu_first) * 30; }
+/* ------------------------------------------------------------------ the start */
+/* Google's "Choose your difficulty", over the dimmed table: a red king for
+   Easy (draw 1), a blue one for Hard (draw 3). full adds Continue (with a
+   game to continue) and Options, Statistics and How to play. Returns 0 Easy,
+   1 Hard, 2 Continue, 3 Options, 4 Statistics, 5 How to play, or -1 (Back). */
+static int drow, dsel;
+static void difficulty_draw(int full, int all) {
+  static const char *const LINKS[3] = {"Options", "Stats", "Help"};
+  int live = full && V.live, h = full ? (live ? 176 : 148) : 120, x = 48, y = (240 - h) / 2;
+  if (all) {
+    layer = 1, paint(0, 0, 320, 240), layer = 0;
+    widget(W_WIN, x, y, 224, h, 0, 0);
+    str("Choose your difficulty", 160 - 22 * 7 / 2, y + 8, 0, GREY, WHITE);
+  }
+  for (int i = 0; i < 2; i++) { /* the kings */
+    bool on = drow == 0 && dsel == i;
+    int kx = i ? 184 : 88, l = layer;
+    wt = W_WIN, wf = 0, layer = 3;
+    rx = kx - 4, ry = y + 26, rw = 56, rh = 86;
+    fill(rx, ry, rw, rh, WHITE);
+    if (on) rbox(rx, ry, rw, rh, 7, PALE);
+    portrait(12, kx, y + 30, 2, i ? RGB(0x5B7FD6) : RGB(0xEF5050), i ? RGB(0x2F4F9A) : RGB(0xBB2026));
+    eadk_display_push_rect((eadk_rect_t){(uint16_t)rx, (uint16_t)ry, (uint16_t)rw, (uint16_t)rh}, buf);
+    layer = l;
+    str(i ? "HARD" : "EASY", kx + 4, y + 90, 1, INK, on ? PALE : WHITE);
+  }
+  if (live) widget(W_BTN, 100, y + 118, 120, 22, "Continue", drow == 1 ? F_FOCUS : 0);
+  if (full)
+    for (int i = 0, lx = 160 - (7 * 16 + 3 * 16 + 2 * 8) / 2; i < 3; lx += slen(LINKS[i]) * 7 + 24, i++) {
+      bool on = drow == 2 && dsel == i;
+      int w = slen(LINKS[i]) * 7 + 16, ly = y + h - 30, l = layer;
+      layer = 3, rx = lx, ry = ly, rw = w, rh = 22;
+      fill(rx, ry, rw, rh, WHITE);
+      if (on) rbox(rx, ry, rw, rh, 7, BLUE);
+      eadk_display_push_rect((eadk_rect_t){(uint16_t)rx, (uint16_t)ry, (uint16_t)rw, (uint16_t)rh}, buf);
+      layer = l;
+      str(LINKS[i], lx + 8, ly + 4, 0, on ? WHITE : BLUE, on ? BLUE : WHITE);
+    }
+}
+static int difficulty(int full) {
+  int live = full && V.live;
+  drow = live ? 1 : 0, dsel = V.draw == 3;
+  ndr = 0, ticking = 0;
+  difficulty_draw(full, 1);
+  for (uint64_t e = 0;; e = take()) {
+    int lr = (e & KEY(eadk_key_right) ? 1 : 0) - (e & KEY(eadk_key_left) ? 1 : 0);
+    int ud = (e & KEY(eadk_key_down) ? 1 : 0) - (e & KEY(eadk_key_up) ? 1 : 0);
+    if (ud && full) {
+      drow = max(0, min(2, drow + ud));
+      if (drow == 1 && !live) drow += ud;
+      drow = max(0, min(2, drow)), dsel = drow == 0 ? V.draw == 3 : 0;
+    }
+    if (lr) dsel = drow == 0 ? !dsel : drow == 2 ? (dsel + lr + 3) % 3 : 0;
+    if (lr || ud) difficulty_draw(full, 0);
+    if (e & OK_KEYS) return drow == 0 ? dsel : drow == 1 ? 2 : 3 + dsel;
+    if (e & KEY(eadk_key_back)) return -1;
+    next_frame();
+  }
+}
 
-static void title_scene(void) {
-  static const uint8_t hand[5] = {0, (12 * 4 + 1) | UP, (11 * 4 + 2) | UP, (10 * 4 + 3) | UP, UP};
-  fill(rx, ry, rw, rh, FELT);
-  text("Solitaire", 57, 14, 4, RGB(0x004000));
-  text("Solitaire", 54, 11, 4, WHITE);
-  for (int i = 0; i < 5; i++) card(hand[i], 14 + i * 26, 96 + (i - 2) * (i - 2) * 3, 0);
-  for (int i = menu_first; i < 5; i++) button(184, menu_y(i), 124, 24, i == menu_at);
-  char m[24], *o = num(cat(m, "Draw "), V.draw);
-  cat(o, V.scoring ? V.scoring == 1 ? ", Vegas" : "" : ", Standard");
-  text("Based on Tatone26's version", 4, 229, 1, RGB(0x9CD89C));
-  text(m, 316 - slen(m) * 6, 229, 1, RGB(0x9CD89C));
-}
 static void scene(void) {
-  if (layer == 2) widget_draw();
-  else if (layer == 1) title_scene();
-  else game_scene();
-}
-static void title_labels(void) {
-  for (int i = menu_first; i < 5; i++)
-    str(menu_items[i], 184 + (124 - slen(menu_items[i]) * 7) / 2, menu_y(i) + 5, 0, i == menu_at ? WHITE : BLACK,
-        i == menu_at ? NAVY : FACE);
+  if (layer == 2) {
+    widget_draw();
+  } else {
+    game_scene();
+    if (layer == 1) shadow(rx, ry, rw, rh, 20); /* dimmed under a dialog */
+  }
 }
 
 static void options(void) {
-  static const char *const lbl[8] = {"One (Easy)", "Two (Normal)", "Three (Hard)", "Timed game", "Standard", "Vegas", "None", "Keep score"};
-  int x = 22, y = 28, f = 0;
+  static const char *const lbl[5] = {"Standard", "Vegas", "None", "Timed game", "Keep score"};
+  int x = 22, y = 9, f = 0;
   ndr = 0;
-  win(x, y, 276, 184, "Options", 0);
-  widget(W_GROUP, x + 10, y + 32, 124, 80, "Draw", 0);
-  widget(W_GROUP, x + 142, y + 32, 124, 80, "Scoring", 0);
+  layer = 1, paint(0, 0, 320, 240), layer = 0;
+  win(x, y, 276, 222, "Options", 0);
+  widget(W_GROUP, x + 16, y + 36, 110, 16, "Scoring", 0);
+  widget(W_GROUP, x + 146, y + 36, 110, 16, "Game", 0);
+  widget(W_GROUP, x + 16, y + 120, 110, 16, "Card back", 0);
   for (uint64_t e = 0;; e = take()) {
     int o = f;
-    if (e & KEY(eadk_key_up)) f = f == 8 ? 3 : f % 4 ? f - 1 : f;
-    if (e & KEY(eadk_key_down)) f = f == 8 ? 8 : f % 4 == 3 ? 8 : f + 1;
-    if ((e & (KEY(eadk_key_left) | KEY(eadk_key_right))) && f < 8) f ^= 4;
+    if (e & (KEY(eadk_key_up) | KEY(eadk_key_left))) f = (f + 10) % 11;
+    if (e & (KEY(eadk_key_down) | KEY(eadk_key_right))) f = (f + 1) % 11;
     if (e & OK_KEYS) {
-      if (f == 8) break;
-      if (f == 3) V.timed ^= 1;
-      else if (f == 7) V.keep ^= 1;
-      else if (f < 3) V.draw = (uint8_t)(f + 1);
-      else V.scoring = (uint8_t)(f - 4);
+      if (f == 10) break;
+      if (f < 3) V.scoring = (uint8_t)f;
+      else if (f == 3) V.timed ^= 1;
+      else if (f == 4) V.keep ^= 1;
+      else if (f < 9) V.back = (uint8_t)(f - 5);
+      else f = 10;
     }
     if (e & KEY(eadk_key_back)) break;
-    for (int i = 0; i < 9; i++) {
+    for (int i = 0; i < 11; i++) {
       if (e && i != f && i != o && !(e & OK_KEYS)) continue;
-      if (i == 8) {
-        widget(W_BTN, x + 103, y + 150, 70, 24, "OK", f == 8);
-        continue;
+      if (i == 10) {
+        widget(W_BTN, x + 196, y + 188, 64, 24, "OK", f == 10 ? F_FOCUS : 0);
+      } else if (i >= 5 && i < 9) {
+        for (int j = 5; j < 9 && (e & OK_KEYS); j++) /* the one on changed */
+          if (j != i) widget(W_BACK, x + 12 + (j - 5) * 42, y + 138, CW + 8, CH + 8, 0, (j == f) * F_FOCUS | (V.back == j - 5) * F_ON | (j - 5) << 4);
+        widget(W_BACK, x + 12 + (i - 5) * 42, y + 138, CW + 8, CH + 8, 0, (i == f) * F_FOCUS | (V.back == i - 5) * F_ON | (i - 5) << 4);
+      } else if (i < 9) {
+        int on = i == 3 ? V.timed : i == 4 ? V.keep : V.scoring == i;
+        widget(i < 3 ? W_RADIO : W_CHECK, x + (i < 3 ? 16 : 146), y + 56 + (i < 3 ? i : i - 3) * 20, 124, 16, lbl[i], on | (i == f) << 1);
       }
-      int on = i == 3 ? V.timed : i == 7 ? V.keep : i < 3 ? V.draw == i + 1 : V.scoring == i - 4;
-      widget(i % 4 == 3 ? W_CHECK : W_RADIO, x + 20 + (i / 4) * 132, y + 50 + (i % 4) * 20 + (i % 4 == 3) * 10, 110, 16,
-             lbl[i], on | (i == f) << 1);
     }
     next_frame();
   }
@@ -1195,24 +1319,22 @@ static void stats(void) {
   o = num(cat(o, "\nStreak: "), V.streak);
   o = num(cat(o, "   Best: "), V.best_streak);
   o = cat(o, "\nBest time: ");
-  if (V.best_time) {
-    o = num(o, V.best_time / 60);
-    *o++ = ':', *o++ = (char)('0' + V.best_time % 60 / 10), *o++ = (char)('0' + V.best_time % 10), *o = 0;
-  } else {
-    o = cat(o, "-");
-  }
+  if (V.best_time) o = two(cat(num(o, V.best_time / 60), ":"), V.best_time % 60);
+  else o = cat(o, "-");
   o = num(cat(o, "\nBest score: "), V.best_score);
   money(cat(o, "\nVegas bank: "), V.bank);
+  layer = 1, paint(0, 0, 320, 240), layer = 0;
   dialog("Statistics", s, ok_btn, 1, 0, 0);
 }
 
 static void help(void) {
+  layer = 1, paint(0, 0, 320, 240), layer = 0;
   dialog("How to play",
-         "Build four piles, ace to king, one\n"
-         "suit each. In the columns, go down\n"
-         "and alternate red and black.\n"
+         "Build the four suits up, ace to\n"
+         "king, on the right. In the columns,\n"
+         "go down, alternating red and black.\n"
          "OK         Pick up, put down\n"
-         "OK twice   Send to a foundation\n"
+         "OK twice   Send to its foundation\n"
          "Up, Down   Pick more or fewer\n"
          "EXE        Draw from the deck\n"
          "Toolbox    Play all you can up\n"
@@ -1230,32 +1352,26 @@ int main(void) {
   seed ^= eadk_random() ^ now;
   load();
   held = eadk_keyboard_scan();
+  nocur = 1;
   for (;;) {
-    menu_first = V.live ? 0 : 1;
-    menu_at = max(menu_at, menu_first);
-    if (menu_at > 4) menu_at = menu_first;
-    layer = 1;
-    paint(0, 0, 320, 240);
-    title_labels();
-    for (uint64_t e = 0;; e = take()) {
-      int d = (e & KEY(eadk_key_down) ? 1 : 0) - (e & KEY(eadk_key_up) ? 1 : 0);
-      if (d) {
-        int o = menu_at;
-        menu_at = menu_first + (menu_at - menu_first + d + 5 - menu_first) % (5 - menu_first);
-        for (int i = 0; i < 2; i++) {
-          int k = i ? menu_at : o;
-          widget(W_BTN, 184, menu_y(k), 124, 24, menu_items[k], k == menu_at ? F_FOCUS : 0);
-        }
-      }
-      if (e & OK_KEYS) break;
-      if ((e & KEY(eadk_key_back)) && !dialog("Solitaire", "Quit game?", yes_no, 2, 0, 1)) np_jump(leave);
-      if (e & KEY(eadk_key_back)) layer = 1, paint(0, 0, 320, 240), title_labels();
-      next_frame();
+    relayout();
+    int a = difficulty(1);
+    if (a == 2) {
+      nocur = 0, play();
+    } else if (a == 0 || a == 1) {
+      V.draw = (uint8_t)(a ? 3 : 1), nocur = 0;
+      new_deal(rnd());
+      play();
+    } else if (a == 3) {
+      options();
+    } else if (a == 4) {
+      stats();
+    } else if (a == 5) {
+      help();
+    } else {
+      layer = 1, paint(0, 0, 320, 240), layer = 0;
+      if (!dialog("Solitaire", "Quit game?", yes_no, 2, 0, 1)) np_jump(leave);
     }
-    if (menu_at == 0) play();
-    else if (menu_at == 1) new_deal(rnd()), play();
-    else if (menu_at == 2) options();
-    else if (menu_at == 3) stats();
-    else help();
+    nocur = 1;
   }
 }

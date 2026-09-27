@@ -127,9 +127,10 @@ The arcade maze and its four ghosts, each with its own way of hunting you. Leave
 | Key | What it does |
 | --- | --- |
 | **Arrows** | Turn (two turns can wait in line) |
+| **Left / Right** (Settings) | Change a setting |
 | **Back** | Pause menu (with Quit game) |
 
-Settings: speed, board size, 1, 3 or 5 apples, walls, wrapping through the edges, and portals (eat one apple of a pair to come out of the other).
+Google's Snake, with its settings: 6 fruits, 12 modes (Classic, Wall, Portal, Cheese, Borderless, Twin, Winged, Yin Yang, Statue, Light, Magnet, Peaceful), 1, 3 or 5 fruits at a time, 3 speeds, 3 board sizes, 8 snake colors and 4 themes. **Shuffle** picks them all at random.
 
 <br clear="right">
 
@@ -154,7 +155,7 @@ Against a friend, or the computer at three strengths, or three players at once. 
 
 | Key | What it does |
 | --- | --- |
-| **Arrows** | Move (Up / Down on a column picks how many cards) |
+| **Arrows** | Move (Up / Down on a column picks how many cards; the side columns hold the deck, Undo, New and the foundations) |
 | **OK** | Pick up, put down; twice sends a card home |
 | **EXE** | Draw |
 | **Toolbox** | Send every card you can home |
@@ -162,7 +163,7 @@ Against a friend, or the computer at three strengths, or three players at once. 
 | **Shift** | Hint |
 | **Back** | Put cards back, or the pause menu |
 
-Klondike like Windows: draw 1 or 3, Standard or Vegas scoring, and the bouncing cards when you win. Your game is kept for next time.
+Klondike the way Google Solitaire looks and plays: **Easy** draws 1 card, **Hard** draws 3. Options add Standard or Vegas scoring, a timed game and four card backs, and the cards bounce when you win. Your game is kept for next time.
 
 <br clear="right">
 
@@ -172,10 +173,10 @@ Klondike like Windows: draw 1 or 3, Standard or Vegas scoring, and the bouncing 
 
 | Key | What it does |
 | --- | --- |
-| **Arrows**, or **4 5 8 6**, or **1 2 3 +** | Hit the arrows as they land on the gray targets; hold along trails |
+| **Arrows**, or **4 5 8 6**, or **1 2 3 +** | Hit the arrows as they land on their rings |
 | **Back** | Pause (with Quit game) |
 
-Arrows fall down four lanes: press the matching key as each one reaches its target. 6 songs, each in Easy, Normal, Hard and Expert, and an Endless mode. The calculator has no speaker, so the beat is in the lights and the stage. Options: scroll speed, timing offset (with a calibration), direction, no-fail.
+Arrows fall down four lanes: press the matching key as each one reaches its ring, while a robot, a fox, a penguin and a frog dance on a rooftop. **Perfect!** is 100 points, **Good!** 50, a miss takes 5 and turns the sky red. 7 songs, each in Easy, Normal, Hard and Expert, and an Endless mode. The calculator has no speaker, so the beat is in the dancers and the stars. Options: scroll speed, timing offset (with a calibration), direction, no-fail.
 
 <br clear="right">
 
@@ -205,21 +206,21 @@ Merge equal tiles to reach 2048, then keep going. Each board size keeps its game
 | **Shift**, **⌫** or **0** | Flag |
 | **Back** | Pause menu (with Help and Quit game) |
 
-Beginner, Intermediate, Expert or your own size. The first square is always safe. Options: **No guessing** (only boards you can solve by logic) and ? marks.
+Beginner, Intermediate, Expert or your own size and number of mines. The first square is always safe. Options: **No guessing** (only boards you can solve by logic), ? marks, whether the first square opens an area, and whether the cursor wraps around the edges.
 
 <br clear="right">
 
-## Breakout
+## Block Breaker
 
-<img src="../games/breakout/docs/shot.png" width="320" align="right" alt="Breakout">
+<img src="../games/breakout/docs/shot.png" width="320" align="right" alt="Block Breaker">
 
 | Key | What it does |
 | --- | --- |
 | **Left / Right** | Move the paddle (hold to speed up) |
-| **OK** or **Up** | Launch, fire the laser |
+| **OK** or **Up** | Launch the ball |
 | **Back** | Pause menu (with Quit game) |
 
-**Classic** is the 1976 arcade game. **Arcade+** has hand-made rounds, tough bricks and power-ups: wide paddle, three balls, slow ball, catch, laser and an extra life.
+Google's brick breaker: seven bricks across in blue, red, yellow and green, wall after wall, each a little faster. Bricks with a sign hold a power-up: **TNT** blows up its neighbors, **+** gives a ball, **O** splits the ball in three, **<->** widens the paddle, a **flame** makes a fireball and **beams** fire lasers. Settings: speed and screen shake.
 
 <br clear="right">
 

@@ -1,12 +1,15 @@
-/* NumDance: a rhythm game in the style of Friday Night Funkin' and Dance
- * Dance Revolution. Arrows scroll to a row of gray targets; press the
- * matching key just as each one lands.
+/* NumDance: a rhythm game on the idea of Doodle Champion Island's Artistic
+ * Swimming (Google, 2021): arrows fall down four lanes onto their targets;
+ * press the matching key just as each one lands, while a crew of four
+ * dances in step beside the lanes. Perfect! gives 100 points, Good! 50, and
+ * a miss takes 5 and turns the sky a little redder. The setting is its own:
+ * a city rooftop at night, with a robot, a fox, a penguin and a frog.
  *
  * The calculator has no speaker, so the music is something you see: the
- * stage pulses on every beat and every chart sits on the beat grid. A song is
- * a list of sections (verse, chorus, break...) that becomes notes bar by bar
- * from a seed, so a whole song takes a few bytes and its choruses come back
- * like in a real song.
+ * crew changes moves on every beat, the stars twinkle with it, and every
+ * chart sits on the beat grid. A song is a list of sections (verse, chorus,
+ * break...) that becomes notes bar by bar from a seed, so a whole song takes
+ * a few bytes and its choruses come back like in a real song.
  *
  * Only what changes is redrawn. The screen is cut into sixteen columns of 20
  * pixels with a bit per row that says "repaint me"; marked parts are composed
@@ -93,79 +96,93 @@ static void disc(int cx, int cy, int r, int t, color c, int a) {
 }
 
 /* ------------------------------------------------------------------ arrows */
-/* One arrow shape (pointing up) drawn at four sizes when the app starts:
-   0 empty, 1-15 the soft outer edge, 16 outline, 17 inner rim, 18-49 body
-   from the tip to the tail. Palettes give it colours; the other directions
-   read the same pixels turned. */
-static const uint8_t SZ[4] = {32, 36, 38, 40};
-static uint16_t soff[4];
-static uint8_t spr[32 * 32 + 36 * 36 + 38 * 38 + 40 * 40];
-enum { P_NOTE, P_PRESS = 4, P_CONF = 8, P_STRUM = 12, P_BEAT, P_MISS, NPAL };
+/* One pixel-art arrow pointing up, 15 x 15, drawn twice as big: 0 empty, 16
+   outline, 17 inner rim, 18-49 body from the tip to the tail. Palettes give
+   it colors; the other directions read the same pixels turned. */
+#define AN 15
+static uint8_t spr[AN * AN];
+enum { P_NOTE, P_MISS = 4, NPAL };
 static color pal[NPAL][50];
-static const color lanec[4] = {RGB(0xC24B99), RGB(0x00FFFF), RGB(0x12FA05), RGB(0xF9393F)};
+/* left, down, up, right: coral, gold, teal and blue */
+static const color lanec[4] = {RGB(0xFF6F59), RGB(0xFFC23F), RGB(0x3DD6C6), RGB(0x5A8CFF)};
 
 static void make_arrows(void) {
   static const int8_t vx[7] = {0, 88, 37, 37, -37, -37, -88}, vy[7] = {-88, 2, 2, 86, 86, 2, 2};
-  int o = 0;
-  for (int s = 0; s < 4; s++) {
-    int n = SZ[s];
-    float h = n * .5f, ol = n * .075f;
-    soff[s] = (uint16_t)o;
-    for (int j = 0; j < n; j++)
-      for (int i = 0; i < n; i++) {
-        float x = (i + .5f) / h - 1, y = (j + .5f) / h - 1, dd = 9;
-        bool in = false;
-        for (int k = 0, l = 6; k < 7; l = k++) { /* distance to the outline, and inside or not */
-          float ax = vx[k] * .01f, ay = vy[k] * .01f, ex = vx[l] * .01f - ax, ey = vy[l] * .01f - ay;
-          float wx = x - ax, wy = y - ay, u = (wx * ex + wy * ey) / (ex * ex + ey * ey);
-          u = u < 0 ? 0 : u > 1 ? 1 : u;
-          float qx = wx - ex * u, qy = wy - ey * u;
-          if (qx * qx + qy * qy < dd) dd = qx * qx + qy * qy;
-          if ((ay > y) != (ay + ey > y) && x < ax + ex * (y - ay) / ey) in = !in;
-        }
-        float d = __builtin_sqrtf(dd) * h * (in ? -1 : 1) - n * .07f; /* in pixels, corners rounded */
-        int q = d > .5f ? 0 : d > -.5f ? 1 + (int)((.5f - d) * 14.9f) : d > -ol ? 16 : d > -ol - 1.4f ? 17 : 18 + clamp((int)((y + 1) * 16), 0, 31);
-        spr[o++] = (uint8_t)q;
+  float h = AN * .5f;
+  for (int j = 0; j < AN; j++)
+    for (int i = 0; i < AN; i++) {
+      float x = (i + .5f) / h - 1, y = (j + .5f) / h - 1, dd = 9;
+      bool in = false;
+      for (int k = 0, l = 6; k < 7; l = k++) { /* distance to the outline, and inside or not */
+        float ax = vx[k] * .01f, ay = vy[k] * .01f, ex = vx[l] * .01f - ax, ey = vy[l] * .01f - ay;
+        float wx = x - ax, wy = y - ay, u = (wx * ex + wy * ey) / (ex * ex + ey * ey);
+        u = u < 0 ? 0 : u > 1 ? 1 : u;
+        float qx = wx - ex * u, qy = wy - ey * u;
+        if (qx * qx + qy * qy < dd) dd = qx * qx + qy * qy;
+        if ((ay > y) != (ay + ey > y) && x < ax + ex * (y - ay) / ey) in = !in;
       }
-  }
+      float d = __builtin_sqrtf(dd) * h * (in ? -1 : 1) - .35f; /* in source pixels */
+      spr[j * AN + i] = (uint8_t)(d > 0 ? 0 : d > -1 ? 16 : d > -2 ? 17 : 18 + clamp((int)((y + 1) * 16), 0, 31));
+    }
 }
 
 static void mkpal(int i, color out, color rim, color hi, color lo) {
   pal[i][16] = out, pal[i][17] = rim;
   for (int k = 0; k < 32; k++) pal[i][18 + k] = mix(lo, hi, k);
 }
-
 static void make_palettes(void) {
-  color gray = RGB(0x87A3AD);
-  for (int l = 0; l < 4; l++) {
-    color c = lanec[l], pc = mix(c, gray, 12);
-    mkpal(P_NOTE + l, mix(0, c, 26), mix(WHITE, c, 15), mix(WHITE, c, 6), mix(0, c, 10));
-    mkpal(P_PRESS + l, RGB(0x1B2127), mix(WHITE, pc, 8), pc, mix(0, pc, 12));
-    mkpal(P_CONF + l, mix(0, c, 14), WHITE, mix(WHITE, c, 22), mix(WHITE, c, 6));
-  }
-  mkpal(P_STRUM, RGB(0x1C242B), RGB(0xC6D6DC), RGB(0xA0B6BF), RGB(0x6B838D));
-  mkpal(P_BEAT, RGB(0x26313A), RGB(0xEEF5F8), RGB(0xC2D4DB), RGB(0x8AA2AC));
-  mkpal(P_MISS, INK, RGB(0x5A5A70), RGB(0x46465A), RGB(0x2A2A38));
+  for (int l = 0; l < 4; l++) mkpal(P_NOTE + l, RGB(0x0E1428), WHITE, mix(WHITE, lanec[l], 14), mix(0, lanec[l], 6));
+  mkpal(P_MISS, RGB(0x0E1428), RGB(0x6E7890), RGB(0x58627A), RGB(0x363E52));
 }
 
-static void arrow(int dir, int cx, int cy, int s, const color *pl, int a) {
-  int n = SZ[s], x0 = cx - n / 2, y0 = cy - n / 2, sx, sy, base;
-  switch (dir) {
-    case 0: sx = n, sy = -1, base = n - 1; break;
-    case 1: sx = 1, sy = -n, base = n * (n - 1); break;
-    case 2: sx = 1, sy = n, base = 0; break;
-    default: sx = -n, sy = 1, base = n * (n - 1);
-  }
-  int xa = maxi(x0, bx), xb = mini(x0 + n, bx + bw), ya = maxi(y0, by), yb = mini(y0 + n, by + bh);
-  for (int y = ya; y < yb; y++) {
-    color *p = buf + (y - by) * bw + xa - bx;
-    const uint8_t *q = spr + soff[s] + base + (y - y0) * sy + (xa - x0) * sx;
-    for (int x = xa; x < xb; x++, p++, q += sx) {
-      int v = *q;
-      if (v) *p = v < 16 ? mix(pl[16], *p, v * a >> 4) : a >= 32 ? pl[v] : mix(pl[v], *p, a);
+/* the arrow for a lane (left, down, up, right), 30 pixels, centred on (cx, cy) */
+static void arrow(int dir, int cx, int cy, const color *pl, int a) {
+  int x0 = cx - AN, y0 = cy - AN;
+  if (x0 >= bx + bw || x0 + 2 * AN <= bx || y0 >= by + bh || y0 + 2 * AN <= by) return;
+  for (int j = 0; j < AN; j++)
+    for (int i = 0; i < AN; i++) {
+      int v = spr[dir == 2 ? j * AN + i : dir == 1 ? (AN - 1 - j) * AN + i : dir == 0 ? i * AN + j : (AN - 1 - i) * AN + j];
+      if (v) rect(x0 + 2 * i, y0 + 2 * j, 2, 2, pl[v], a);
     }
-  }
 }
+
+/* dancers: art begin (made by tools/dancers.py from its pixel maps, 4 bits a pixel) */
+#define DPN 7 /* colors in a palette */
+static const uint32_t DPAL[4][DPN] = {
+  {0xC3CEDA, 0x7C8C9F, 0x2E3A4C, 0x15202E, 0x5FF3FF, 0xFF5A5A, 0xFFD23F},
+  {0xF28C38, 0xB85A1C, 0xFFF4E6, 0x2B1D1A, 0x2EC4B6, 0x000000, 0x000000},
+  {0x1E2433, 0xF4F8FF, 0xFFA62B, 0xE84A5F, 0x46547A, 0x000000, 0x000000},
+  {0x5CC25A, 0x2E8B3E, 0xD4F5A3, 0xFFFFFF, 0x1E2433, 0xFF5A7A, 0x000000},
+};
+static const struct { uint8_t w, h; uint16_t off; } DSPR[4] = {{16, 23, 0}, {14, 21, 184}, {14, 19, 331}, {14, 19, 464}};
+static const uint8_t DPIX[597] = {
+  0x00,0x00,0x00,0x60,0x06,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x02,0x00,0x00,0x00,0x00,0x10,0x11,0x11,0x11,0x11,0x01,0x00,
+  0x00,0x11,0x44,0x44,0x44,0x44,0x11,0x00,0x00,0x11,0x54,0x45,0x54,0x45,0x11,0x00,0x00,0x11,0x44,0x44,0x44,0x44,0x11,0x00,
+  0x00,0x10,0x11,0x11,0x11,0x11,0x01,0x00,0x00,0x10,0x12,0x12,0x12,0x12,0x01,0x00,0x00,0x00,0x20,0x22,0x22,0x02,0x00,0x00,
+  0x00,0x00,0x11,0x11,0x11,0x11,0x00,0x00,0x00,0x10,0x11,0x11,0x11,0x11,0x01,0x00,0x00,0x10,0x31,0x33,0x33,0x13,0x01,0x00,
+  0x00,0x10,0x31,0x37,0x36,0x15,0x01,0x00,0x00,0x10,0x31,0x33,0x33,0x13,0x01,0x00,0x00,0x10,0x11,0x11,0x11,0x11,0x01,0x00,
+  0x00,0x00,0x11,0x11,0x11,0x11,0x00,0x00,0x00,0x00,0x22,0x22,0x22,0x22,0x00,0x00,0x00,0x00,0x20,0x02,0x20,0x02,0x00,0x00,
+  0x00,0x00,0x10,0x01,0x10,0x01,0x00,0x00,0x00,0x00,0x10,0x01,0x10,0x01,0x00,0x00,0x00,0x00,0x20,0x02,0x20,0x02,0x00,0x00,
+  0x00,0x00,0x11,0x01,0x10,0x11,0x00,0x00,0x00,0x00,0x33,0x03,0x30,0x33,0x00,0x00,0x00,0x04,0x00,0x00,0x00,0x40,0x00,0x00,
+  0x41,0x00,0x00,0x00,0x14,0x00,0x00,0x11,0x04,0x00,0x40,0x11,0x00,0x00,0x11,0x11,0x11,0x11,0x11,0x00,0x10,0x11,0x11,0x11,
+  0x11,0x11,0x01,0x10,0x41,0x11,0x11,0x11,0x14,0x01,0x10,0x11,0x31,0x33,0x13,0x11,0x01,0x00,0x31,0x33,0x44,0x33,0x13,0x00,
+  0x00,0x30,0x33,0x33,0x33,0x03,0x00,0x00,0x00,0x33,0x33,0x33,0x00,0x00,0x00,0x00,0x50,0x55,0x05,0x00,0x00,0x00,0x00,0x55,
+  0x55,0x55,0x00,0x00,0x00,0x00,0x11,0x33,0x11,0x00,0x00,0x00,0x10,0x11,0x33,0x11,0x01,0x30,0x00,0x10,0x11,0x33,0x11,0x01,
+  0x31,0x00,0x10,0x11,0x33,0x11,0x11,0x01,0x00,0x00,0x11,0x11,0x11,0x11,0x00,0x00,0x00,0x22,0x00,0x22,0x00,0x00,0x00,0x00,
+  0x11,0x00,0x11,0x00,0x00,0x00,0x00,0x11,0x00,0x11,0x00,0x00,0x00,0x40,0x44,0x00,0x44,0x04,0x00,0x00,0x00,0x10,0x11,0x01,
+  0x00,0x00,0x00,0x10,0x11,0x11,0x11,0x01,0x00,0x00,0x11,0x11,0x11,0x11,0x11,0x00,0x00,0x21,0x12,0x11,0x21,0x12,0x00,0x00,
+  0x21,0x21,0x11,0x12,0x12,0x00,0x00,0x21,0x22,0x33,0x22,0x12,0x00,0x00,0x11,0x32,0x33,0x23,0x11,0x00,0x00,0x11,0x11,0x33,
+  0x11,0x11,0x00,0x00,0x10,0x11,0x11,0x11,0x01,0x00,0x00,0x11,0x42,0x44,0x24,0x11,0x00,0x00,0x11,0x22,0x44,0x22,0x11,0x00,
+  0x10,0x21,0x22,0x22,0x22,0x12,0x01,0x10,0x21,0x22,0x22,0x22,0x12,0x01,0x10,0x21,0x22,0x22,0x22,0x12,0x01,0x10,0x21,0x22,
+  0x22,0x22,0x12,0x01,0x00,0x11,0x22,0x22,0x22,0x11,0x00,0x00,0x10,0x21,0x22,0x12,0x01,0x00,0x00,0x00,0x11,0x11,0x11,0x00,
+  0x00,0x00,0x30,0x33,0x00,0x33,0x03,0x00,0x00,0x11,0x01,0x00,0x10,0x11,0x00,0x10,0x44,0x14,0x00,0x41,0x44,0x01,0x10,0x54,
+  0x14,0x00,0x41,0x45,0x01,0x10,0x11,0x11,0x11,0x11,0x11,0x01,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,
+  0x11,0x11,0x21,0x11,0x11,0x11,0x11,0x11,0x12,0x10,0x22,0x22,0x22,0x22,0x22,0x01,0x00,0x11,0x11,0x11,0x11,0x11,0x00,0x00,
+  0x60,0x66,0x66,0x66,0x06,0x00,0x00,0x11,0x33,0x33,0x33,0x11,0x00,0x00,0x11,0x33,0x33,0x33,0x11,0x00,0x00,0x11,0x33,0x33,
+  0x33,0x11,0x00,0x00,0x11,0x33,0x33,0x33,0x11,0x00,0x00,0x10,0x31,0x33,0x13,0x01,0x00,0x00,0x00,0x11,0x11,0x11,0x00,0x00,
+  0x00,0x10,0x11,0x00,0x11,0x01,0x00,0x00,0x11,0x11,0x00,0x11,0x11,0x00,0x20,0x22,0x02,0x00,0x20,0x22,0x02,
+};
+/* art end */
 
 /* ------------------------------------------------------------------ text */
 /* ASCII 32..95, columns of 7 bits, top bit first; lower case is drawn upper */
@@ -226,8 +243,8 @@ static void item(const char *t, int cx, int y, bool on) {
   ctext(t, cx, y, 2, on ? 2 : 1, on ? WHITE : RGB(0x8A82A8), on ? RGB(0xFFE070) : RGB(0x6A6288));
   if (on) {
     int d = tw(t, 2) / 2 + 20;
-    arrow(3, cx - d, y + 6, 0, pal[P_NOTE + 3], 32);
-    arrow(0, cx + d, y + 6, 0, pal[P_NOTE], 32);
+    arrow(3, cx - d, y + 6, pal[P_NOTE + 3], 32);
+    arrow(0, cx + d, y + 6, pal[P_NOTE], 32);
   }
 }
 
@@ -312,7 +329,7 @@ typedef struct {
   int32_t key;
   uint8_t wait; /* frames the stage has been kept waiting */
 } watch_t;
-#define NW 26 /* 0-11 the play screen or menus, 12-19 and 24-25 the stage, 20-23 the rest */
+#define NW 29 /* 0-11 the play screen or menus, 12-19 and 24-28 the stage, 20-23 the rest */
 static watch_t wt[NW];
 static void watch(int i, int x, int y, int w, int h, int32_t key) {
   watch_t *o = &wt[i];
@@ -352,7 +369,7 @@ static void load(void) {
       }
   } else {
     zero(&S, sizeof S);
-    S.speed = 2, S.diff = 1;
+    S.speed = 2, S.diff = 1, S.nofail = 1; /* like Champion Island: misses only cost points */
   }
 }
 static void save(void) {
@@ -533,7 +550,7 @@ static void gen_bar(void) {
   if (brk) m = d >= 2 ? 0x0101 : 1;
   G.fam = type == BUILD ? STAIRS : crand() % 3 ? (style & 7) : (int)(crand() % 5);
   G.ta = (int)(crand() & 3), G.tb = (G.ta + 1 + (int)(crand() % 3)) & 3, G.shape = (int)(crand() & 3), G.idx = 0;
-  int holdp = (style >> 3 & 3) + (brk ? 8 : 0);
+  int holdp = 0; /* all taps, like Champion Island's */
   int jumpp = type == CHORUS || type == DROP ? (style >> 5 & 3) + 1 + (d == 3) : type == VERSE ? (style >> 5 & 3) / 2 : 0;
   int steps[17], ns = 0, prev = -8;
   for (int k = 0; k < 16; k++)
@@ -633,110 +650,188 @@ static int ud(void) { return pressed(eadk_key_down) - pressed(eadk_key_up); }
 static int lr(void) { return pressed(eadk_key_right) - pressed(eadk_key_left); }
 
 /* ------------------------------------------------------------------ the stage */
-static color bgrow[H], lanerow[H];
-
+/* A city rooftop at night, in pixel art: the sky from deep blue to teal, the
+   moon, stars that twinkle on the beat, clouds going by, the city behind with
+   its lit windows and red lights on two masts, and the crew on the roof.
+   Misses turn the sky red (tint 0 to 4). */
+#define FEET 198 /* where the crew stands */
+#define ROOF 186 /* where the roof starts */
+static color bgrow[H];
+static int tint;
 static void make_stage(void) {
   for (int y = 0; y < H; y++) {
-    color c = y < 212 ? mix(RGB(0x331552), RGB(0x0A0514), y * 32 / 212) : y == 212 ? RGB(0x6E48A8) : mix(RGB(0x0C0714), RGB(0x2A1A40), (y - 213) * 32 / 27);
+    color c = y < ROOF ? mix(RGB(0x1E5A6E), RGB(0x0A1030), y * 32 / ROOF) : y == ROOF ? RGB(0x5A667E)
+            : mix(RGB(0x1A2130), RGB(0x2C3446), (y - ROOF) * 32 / (H - ROOF));
+    if (tint && y < ROOF) c = mix(RGB(0xC8203A), c, tint * 5);
     bgrow[y] = c;
-    lanerow[y] = mix(RGB(0x05030A), c, 21);
   }
 }
 
-/* a speaker cone in one pass: rim, surround, cone, dust cap and its shine */
-static void cone(int cx, int cy, int r, int glow) {
-  int R = r + 3, x0 = maxi(cx - R, bx), x1 = mini(cx + R + 1, bx + bw), y0 = maxi(cy - R, by), y1 = mini(cy + R + 1, by + bh);
-  int cap = (r / 3 + 1) * (r / 3 + 1), in = (r - 1) * (r - 1), out = (r + 1) * (r + 1), fold = r * r * 4 / 9;
-  int grad = (26 << 16) / (in - cap), hl = r / 7 + 1;
-  color sur = mix(RGB(0x6E62A0), RGB(0x2B2440), glow), body = mix(RGB(0x544A80), RGB(0x2A2340), glow);
-  color capc = mix(RGB(0xA89EDA), RGB(0x585080), glow);
-  for (int y = y0; y < y1; y++)
-    for (int x = x0; x < x1; x++) {
-      int dx = x - cx, dy = y - cy, d = dx * dx + dy * dy;
-      if (d > R * R) continue;
-      color c = d > out ? RGB(0x07050B) : d > in ? sur : d > cap ? mix(RGB(0x100C18), body, (d - cap) * grad >> 16) : capc;
-      if (iabs(d - fold) < 2 * r) c = mix(0, c, 12);
-      if ((dx + r / 9) * (dx + r / 9) + (dy + r / 9) * (dy + r / 9) <= hl * hl) c = mix(WHITE, c, 18);
-      buf[(y - by) * bw + x - bx] = c;
+static int beat_n, beat_ph, beat_type, rbeat;
+static void pulses(void) { rbeat = beat_ph < 120 && beat_n >= 0; }
+
+/* the crew: the robot, the fox, the penguin and the frog */
+static const int16_t DX[4] = {10, 56, 236, 280};
+static int dancer_y(int k) { return FEET - DSPR[k].h * 2 - rbeat * 2; }
+/* a move for each beat, arm by arm: 0 up, 1 out, 2 down; all in step */
+static int move_of(int k, int side) {
+  static const uint8_t M[4][2] = {{0, 0}, {1, 1}, {0, 2}, {2, 0}};
+  return beat_n < 0 ? 2 : M[(beat_n + (k & 1)) & 3][side];
+}
+static void dancer(int k) {
+  /* the left shoulder (x, y), the arm's length, its color and the hand's (palette indices) */
+  static const int8_t ARM[4][5] = {{3, 10, 6, 1, 2}, {4, 12, 5, 1, 4}, {2, 10, 5, 5, 5}, {2, 10, 5, 1, 3}};
+  static const int8_t PATH[3][6][2] = {
+    {{-1, -1}, {-1, -2}, {-2, -3}, {-2, -4}, {-2, -5}, {-3, -6}},
+    {{-1, 0}, {-2, 0}, {-3, -1}, {-4, -1}, {-5, -2}, {-6, -2}},
+    {{-1, 1}, {-1, 2}, {-2, 3}, {-2, 4}, {-2, 5}, {-2, 6}},
+  };
+  int w = DSPR[k].w, h = DSPR[k].h, x0 = DX[k], y0 = dancer_y(k);
+  if (x0 - 16 >= bx + bw || x0 + 2 * w + 16 <= bx || y0 - 16 >= by + bh || y0 + 2 * h <= by) return;
+  const uint8_t *px = DPIX + DSPR[k].off;
+  color c[DPN + 1];
+  for (int i = 0; i < DPN; i++) c[i + 1] = RGB(DPAL[k][i]);
+  for (int j = 0, n = 0; j < h; j++)
+    for (int i = 0; i < w; i++, n++) {
+      int v = px[n >> 1] >> (n & 1) * 4 & 15;
+      if (v) rect(x0 + 2 * i, y0 + 2 * j, 2, 2, c[v], 32);
     }
-}
-
-/* what the beat does to the stage, a frame apart so it doesn't all repaint at once */
-static int beat_n, beat_ph, beat_type, spk, bop, rbeat;
-static uint8_t lamp[4];
-static void pulses(void) {
-  spk = beat_ph >= 16 && beat_ph < 116 ? 2 : 0;
-  bop = beat_ph >= 33 && beat_ph < 133 ? 2 : 0;
-  rbeat = beat_ph < 90;
-  for (int l = 0; l < 4; l++) /* the beat's lamp flashes; in a chorus the others stay on */
-    lamp[l] = (uint8_t)((beat_n & 3) == l ? (beat_ph < 150 ? 2 : beat_ph < 300) : beat_type == CHORUS || beat_type == DROP);
-}
-
-/* LED bars on the floor: they jump on the beat and fall */
-static int vu(int i) {
-  int top = 3 + (int)(((uint32_t)(beat_n * 12 + i) * 2654435761u >> 28) % 5);
-  return clamp(top - beat_ph / 60, 1, 7);
-}
-
-/* lamps sit in the middle of 40-pixel columns: a flash repaints just those */
-static int lamp_x(int l) { return 20 + 40 * l + (l >> 1) * 160; }
-
-/* the stage: a back wall, a floor with LED bars, a speaker each side, four lamps */
-static void stage(bool lanes_on) {
-  int a = lanes_on ? clamp(80 - bx, 0, bw) : bw, b = lanes_on ? clamp(240 - bx, 0, bw) : bw;
-  for (int j = 0; j < bh; j++) {
-    color *p = buf + j * bw, c = bgrow[by + j];
-    fill(p, a, c);
-    fill(p + a, b - a, lanerow[by + j]);
-    fill(p + b, bw - b, c);
-  }
+  const int8_t *a = ARM[k];
   for (int s = 0; s < 2; s++) {
-    int cx = s ? 280 : 40;
-    if (bx >= cx + 32 || bx + bw <= cx - 32) continue;
-    rect(cx - 30, 102, 60, 111, RGB(0x2E2742), 32);
-    rect(cx - 28, 104, 56, 107, RGB(0x17131F), 32);
-    rect(cx - 30, 102, 60, 1, RGB(0x4A3F66), 32);
-    cone(cx, 132, 12 + spk / 2, spk * 12);
-    cone(cx, 180, 20 + spk, spk * 12);
-    for (int i = 0; i < 6; i++)
-      for (int k = 0, n = vu(s * 6 + i); k < n; k++)
-        rect(cx - 27 + i * 9, 234 - k * 3, 7, 2, k > 5 ? RGB(0xFF3B4A) : k > 3 ? RGB(0xFFD23A) : RGB(0x3BE37A), 32);
+    int sx = s ? w - 1 - a[0] : a[0], m = move_of(k, s);
+    for (int i = 0; i < a[2]; i++) {
+      int ax = sx + (s ? -PATH[m][i][0] : PATH[m][i][0]), ay = a[1] + PATH[m][i][1];
+      rect(x0 + 2 * ax - s, y0 + 2 * ay, 3, 3, c[i == a[2] - 1 ? a[4] : a[3]], 32); /* 3 pixels thick */
+    }
   }
-  /* lamps on a bar: the one of this beat is lit, all of them in a chorus */
-  rect(0, 0, 80, 5, RGB(0x2A2A36), 32);
-  rect(240, 0, 80, 5, RGB(0x2A2A36), 32);
-  for (int l = 0; l < 4; l++) {
-    int lx = lamp_x(l), lv = lamp[l];
-    if (bx >= lx + 22 || bx + bw <= lx - 22) continue;
-    if (lv) /* the beam */
-      for (int y = maxi(by, 12); y < mini(by + bh, 100); y++) {
-        int hw = 2 + (y - 12) / 5;
-        rect(lx - hw, y, 2 * hw + 1, 1, lanec[l], (100 - y) * lv / 22);
-      }
-    disc(lx, 9, 7, 0, RGB(0x15141C), 32);
-    disc(lx, 10, 4, 0, lv ? mix(WHITE, lanec[l], lv == 2 ? 16 : 4) : mix(0, lanec[l], 22), 32);
+}
+
+/* the city: tall buildings far away, lower ones near, with windows */
+typedef struct {
+  int16_t x;
+  uint8_t w, top;
+} bld_t;
+static const bld_t FAR[14] = {{0, 26, 124}, {22, 20, 100}, {40, 30, 132}, {66, 18, 108}, {80, 36, 120}, {112, 24, 96}, {132, 30, 128},
+                              {158, 22, 104}, {176, 34, 122}, {206, 20, 100}, {222, 28, 130}, {246, 24, 110}, {266, 32, 126}, {294, 26, 102}};
+static const bld_t NEAR[13] = {{-4, 30, 150}, {24, 22, 160}, {44, 26, 142}, {68, 30, 154}, {96, 20, 146}, {114, 34, 162}, {146, 24, 140},
+                               {168, 28, 156}, {194, 22, 148}, {214, 32, 164}, {244, 26, 144}, {268, 24, 158}, {290, 34, 150}};
+static const uint8_t MAST[2] = {1, 13}; /* the far buildings with a mast and a red light */
+static int mast_on(int i) { return beat_n >= 0 && (beat_n & 1) == i && beat_ph < 250; }
+static void city(void) {
+  if (by + bh <= 84 || by >= ROOF) return;
+  for (int i = 0; i < 14; i++) {
+    const bld_t *b = &FAR[i];
+    rect(b->x, b->top, b->w, ROOF - b->top, RGB(0x17263F), 32);
+    for (int y = b->top + 5; y < ROOF - 30; y += 7) /* a few dim windows */
+      for (int x = b->x + 3; x + 1 < b->x + b->w - 2; x += 6)
+        if (((x * 7 + y * 3) & 15) < 3) rect(x, y, 2, 2, RGB(0x6C7FA8), 32);
   }
+  for (int i = 0; i < 2; i++) {
+    const bld_t *b = &FAR[MAST[i]];
+    int mx = b->x + b->w / 2;
+    rect(mx, b->top - 14, 1, 14, RGB(0x17263F), 32);
+    rect(mx - 1, b->top - 17, 3, 3, mast_on(i) ? RGB(0xFF4050) : RGB(0x5A2030), 32);
+  }
+  for (int i = 0; i < 13; i++) {
+    const bld_t *b = &NEAR[i];
+    rect(b->x, b->top, b->w, ROOF - b->top, RGB(0x0B1424), 32);
+    rect(b->x, b->top, b->w, 1, RGB(0x223452), 32); /* the edge of its roof */
+    for (int y = b->top + 5; y + 3 < ROOF; y += 7)
+      if (y + 3 > by && y < by + bh)
+        for (int x = b->x + 3; x + 2 < b->x + b->w - 1; x += 5) {
+          unsigned hsh = (unsigned)(x * 73 + y * 151) * 2654435761u >> 28;
+          rect(x, y, 2, 3, hsh < 5 ? RGB(0xFFC857) : hsh < 7 ? RGB(0xF28C5A) : RGB(0x16223A), 32);
+        }
+  }
+}
+
+/* the moon, and clouds going by */
+static void moon(void) {
+  if (by > 76 || bx > 84) return;
+  disc(54, 48, 24, 0, RGB(0xF4EFD6), 4); /* its glow */
+  disc(54, 48, 15, 0, RGB(0xF4EFD6), 32);
+  disc(49, 44, 4, 0, RGB(0xDCD4B4), 32);
+  disc(59, 53, 3, 0, RGB(0xDCD4B4), 32);
+  disc(58, 40, 2, 0, RGB(0xDCD4B4), 32);
+}
+static int cloud_x(int k) { int t = (int)(now / 45 + (uint32_t)k * 211) % 440 - 60; return k ? 380 - t : t; }
+static int cloud_y(int k) { return 26 + 44 * k; }
+static void cloud(int k) {
+  int x = cloud_x(k), y = cloud_y(k);
+  if (x - 36 >= bx + bw || x + 36 <= bx || y - 12 >= by + bh || y + 10 <= by) return;
+  color c = RGB(0x3A5A7E);
+  rect(x - 30, y + 2, 60, 6, c, 12);
+  rect(x - 22, y - 4, 30, 6, c, 12);
+  rect(x - 4, y - 8, 22, 10, c, 12);
+}
+
+/* stars: some twinkle on the beat */
+static const int16_t STAR[12][2] = {{96, 14}, {130, 40}, {150, 8}, {182, 30}, {214, 12}, {252, 44}, {300, 20},
+                                    {18, 90}, {104, 64}, {204, 72}, {272, 80}, {10, 22}};
+static int star_s(int i) { return i >= 5 ? 0 : 1 + ((beat_n + i * 3) & 3) - (beat_ph > 250); }
+static void stars(void) {
+  for (int i = 0; i < 12; i++) {
+    int x = STAR[i][0], y = STAR[i][1], z = star_s(i);
+    if (x + 5 < bx || x - 5 >= bx + bw || y + 5 < by || y - 5 >= by + bh) continue;
+    if (z <= 0) {
+      rect(x, y, 1, 1, RGB(0xC8D6F0), 32);
+      continue;
+    }
+    rect(x - z, y, 2 * z + 1, 1, RGB(0xFFF4C8), 32);
+    rect(x, y - z, 1, 2 * z + 1, RGB(0xFFF4C8), 32);
+    rect(x - 1, y - 1, 3, 3, WHITE, 20);
+  }
+}
+
+/* the roof: seams in the concrete, and a vent or two */
+static void roof(void) {
+  if (by + bh <= ROOF) return;
+  for (int y = ROOF + 14; y < H; y += 18) rect(0, y, W, 1, RGB(0x3A4458), 32);
+  for (int i = 0; i < 2; i++) {
+    int x = i ? 290 : 4;
+    rect(x, ROOF + 18, 24, 14, RGB(0x6A7488), 32);
+    rect(x, ROOF + 18, 24, 2, RGB(0x8A94A8), 32);
+    for (int k = 0; k < 4; k++) rect(x + 3 + k * 5, ROOF + 22, 3, 8, RGB(0x3A4458), 32);
+  }
+}
+
+/* the lanes, dark glass over the city, and their targets */
+static int lane_x(int l) { return 111 + 33 * l; }
+static void stage(bool lanes_on) {
+  for (int j = 0; j < bh; j++) fill(buf + j * bw, bw, bgrow[by + j]);
+  moon();
+  stars();
+  for (int k = 0; k < 2; k++) cloud(k);
+  city();
+  roof();
+  for (int k = 0; k < 4; k++) dancer(k);
   if (lanes_on)
-    for (int k = 0; k < 5; k++) rect(80 + 40 * k - (k == 4), 0, 1, H, WHITE, k % 4 ? 2 : 4);
+    for (int l = 0; l < 4; l++) {
+      int x0 = lane_x(l) - 15;
+      if (x0 >= bx + bw || x0 + 30 <= bx) continue;
+      rect(x0, by, 30, bh, RGB(0x05070F), 17);
+      rect(x0, by, 1, bh, lanec[l], 12), rect(x0 + 29, by, 1, bh, lanec[l], 12);
+    }
 }
 
 static void stage_watches(void) {
   pulses();
-  for (int s = 0; s < 2; s++) {
-    int cx = s ? 280 : 40;
-    watch(16 + s * 2, cx - 26, 154, 52, 52, spk);
-    watch(17 + s * 2, cx - 17, 115, 34, 34, spk);
-    int key = 0;
-    for (int i = 0; i < 6; i++) key = key << 3 | vu(s * 6 + i);
-    watch(24 + s, cx - 27, 214, 54, 22, key);
+  for (int k = 0; k < 4; k++) {
+    int w = DSPR[k].w * 2, h = DSPR[k].h * 2;
+    watch(12 + k, DX[k] - 16, FEET - h - 16, w + 32, h + 16, move_of(k, 0) | move_of(k, 1) << 2 | rbeat << 4);
   }
-  for (int l = 0; l < 4; l++) watch(12 + l, lamp_x(l) - 20, 0, 40, 100, lamp[l]);
+  for (int k = 0; k < 2; k++) watch(16 + k, cloud_x(k) - 36, cloud_y(k) - 12, 72, 22, cloud_x(k));
+  for (int i = 0; i < 2; i++) {
+    const bld_t *b = &FAR[MAST[i]];
+    watch(18 + i, b->x + b->w / 2 - 1, b->top - 17, 3, 3, mast_on(i));
+  }
+  for (int i = 0; i < 5; i++) watch(24 + i, STAR[i][0] - 5, STAR[i][1] - 5, 11, 11, star_s(i));
 }
 
 /* ------------------------------------------------------------------ playing */
 #define WIN 140 /* later than this, a note is missed */
-static const char *const judge_name[4] = {"Perfect", "Great", "Good", "Miss"};
-static const color judge_c[4][2] = {{RGB(0xFFF4A8), RGB(0xFFA800)}, {RGB(0xC6FFB0), RGB(0x2BD35A)}, {RGB(0x9FE8FF), RGB(0x2E7BFF)}, {RGB(0xFFB0B8), RGB(0xE0203A)}};
+static const char *const judge_name[3] = {"Perfect!", "Good!", "Miss"};
+static const color judge_c[3][2] = {{RGB(0xFFF0A0), RGB(0xFFA92E)}, {RGB(0xC4FFF6), RGB(0x2EC4B6)}, {RGB(0xFFC4C4), RGB(0xE84A5F)}};
 
 static struct {
   int32_t t0; /* millis at song time 0 */
@@ -753,7 +848,6 @@ static int info_notes, info_len;
 
 static int pxms(void) { return (2 + S.speed) * 31 / 2; } /* 1/256 pixel per ms */
 static int note_y(int32_t dt) { return P.ry - P.sgn * (int)(dt * P.pxms >> 8); }
-static int lane_x(int l) { return 100 + 40 * l; }
 static bool gone(int y) { return P.sgn > 0 ? y > H + 24 : y < -24; }
 static bool not_yet(int y) { return P.sgn > 0 ? y < -24 : y > H + 24; }
 
@@ -772,12 +866,13 @@ static void note_mark_all(const note_t *n) {
 static void start_song(void) {
   int song = S.song, d = S.diff;
   zero(&P, sizeof P);
-  P.song = song, P.d = d, P.health = 500;
+  P.song = song, P.d = d, P.health = 1000;
+  if (tint) tint = 0, make_stage();
   gen_start(song, d);
   gen_bar(); /* the first bar gives the beat of the count-in */
   P.pxms = pxms();
   P.sgn = S.up ? -1 : 1;
-  P.ry = S.up ? 40 : 200;
+  P.ry = S.up ? 44 : 204;
   P.ahead = 250 * 256 / P.pxms;
   int beat = 60000 / G.bpm, lead = maxi(4, (P.ahead + 300) / beat + 1) * beat;
   P.t = P.pt = -lead;
@@ -792,16 +887,16 @@ static void start_song(void) {
 
 static void judge_show(int k, int late) {
   P.jk = k, P.late = late, P.jt = now;
-  if (k < 3) P.combo++, P.ct = now;
+  if (k < 2) P.combo++, P.ct = now;
   else P.combo = 0;
   P.maxc = maxi(P.maxc, P.combo);
 }
 
+/* Champion Island's points: Perfect! 100, Good! 50, a miss -5 (never below 0) */
 static void hit_note(note_t *n, int d) {
-  static const int16_t pts[3] = {350, 200, 100}, hp[3] = {20, 14, 5}, acc[3] = {100, 75, 40};
-  int ad = iabs(d), k = ad <= 45 ? 0 : ad <= 90 ? 1 : 2;
-  P.cnt[k]++, P.judged++, P.acc += acc[k], P.score += pts[k];
-  P.health = mini(P.health + hp[k], 1000);
+  int ad = iabs(d), k = ad > 60;
+  P.cnt[k]++, P.judged++, P.acc += k ? 50 : 100, P.score += k ? 50 : 100;
+  P.health = mini(P.health + (k ? 10 : 20), 1000);
   judge_show(k, k ? (d > 0 ? 2 : 1) : 0);
   P.ht[n->lane] = now, P.hk[n->lane] = k;
   note_mark_all(n);
@@ -809,9 +904,9 @@ static void hit_note(note_t *n, int d) {
 }
 
 static void miss(void) {
-  P.cnt[3]++, P.judged++;
-  P.health -= P.d ? 40 : 25; /* a dozen misses in a row from the start fail a song */
-  judge_show(3, 0);
+  P.cnt[2]++, P.judged++, P.score = maxi(P.score - 5, 0);
+  P.health -= 60; /* the sky reddens; with No-fail off, some 17 misses in a row fail a song */
+  judge_show(2, 0);
 }
 
 static void press_lane(int l, int32_t tp) {
@@ -835,8 +930,8 @@ static void end_hold(note_t *n, int32_t tr) {
     P.ht[n->lane] = now;
   } else { /* let go: the rest of the trail goes gray */
     n->len = (uint16_t)(n->t + n->len - tr), n->t = tr, n->st = N_DROP;
-    P.cnt[3]++, P.judged++, P.health -= 25;
-    judge_show(3, 0);
+    P.cnt[2]++, P.judged++, P.health -= 25;
+    judge_show(2, 0);
     note_mark_all(n);
   }
 }
@@ -864,6 +959,10 @@ static void play_update(void) {
   nev = 0;
   bool left = false;
   P.held_mask = 0;
+#ifdef AUTOPLAY /* a test build that plays by itself, not always perfectly */
+  for (int i = nt; i != nh; i = (i + 1) & (NR - 1))
+    if (notes[i].st == N_WAIT && tj - notes[i].t >= (int)(notes[i].t % 7) * 12 - 20) hit_note(&notes[i], (int)(tj - notes[i].t));
+#endif
   for (int i = nt; i != nh; i = (i + 1) & (NR - 1)) {
     note_t *n = &notes[i];
     if (n->st == N_WAIT && tj - n->t > WIN) {
@@ -884,13 +983,8 @@ static void play_update(void) {
     if (n->st == N_DONE || (n->st >= N_MISS && gone(note_y(n->t + n->len - P.t)))) nt = (nt + 1) & (NR - 1);
     else break;
   }
-  /* beat lines */
-  for (int i = maxi(0, nbars - 8); i < nbars; i++)
-    for (int k = i ? 0 : -8; k < 4; k++) {
-      int32_t tb = (bars[i & 7].t16 + k * bars[i & 7].beat16) >> 4;
-      mark(80, note_y(tb - P.t), 160, 1);
-      mark(80, note_y(tb - P.pt), 160, 1);
-    }
+  int t = P.health >= 800 ? 0 : P.health >= 600 ? 1 : P.health >= 400 ? 2 : P.health >= 200 ? 3 : 4;
+  if (t != tint) tint = t, make_stage(), mark_all(); /* the sky reddens, or clears */
   if (P.health <= 0) {
     P.health = 0;
     if (!S.nofail || !G.s) P.failed = true;
@@ -902,121 +996,68 @@ static void play_update(void) {
 static void play_watches(void) {
   for (int l = 0; l < 4; l++) {
     int age = (int)(now - P.ht[l]), x = lane_x(l);
-    int key = age < 160 || (P.held_mask >> l & 1) ? (age < 50 ? 3 : 2) | 8 : lanes >> l & 1 ? 16 : 1 + rbeat;
-    watch(l, x - 20, P.ry - 20, 40, 40, key);
-    watch(4 + l, x - 30, P.ry - 30, 60, 60, age < 170 && !P.hk[l] ? age / 34 : -1);
+    watch(l, x - 15, P.ry - 15, 30, 30, age < 160 ? 8 | P.hk[l] : lanes >> l & 1 ? 16 : 1);
+    watch(4 + l, x - 24, P.ry - 24, 48, 48, age < 200 && !P.hk[l] ? age / 40 : -1);
   }
-  int ja = (int)(now - P.jt), jy = S.up ? 118 : 96;
-  char s[12];
-  int w = tw(judge_name[P.jk], 3) + 8;
-  watch(8, 160 - w / 2, jy - 14, w, 42, ja < 500 ? P.jk | P.late << 2 | (ja < 50) << 4 : -1);
-  num(s, (uint32_t)P.combo);
-  w = maxi(tw(s, 4), 30) + 8;
-  watch(9, 160 - w / 2, jy + 24, w, 46, P.combo >= 4 ? P.combo << 4 | (now - P.ct < 80) : -1);
-  int hy = S.up ? 222 : 4, split = 62 + 196 * (1000 - P.health) / 1000;
-  watch(23, split - 25, hy - 8, 50, 27, split | bop << 10 | (P.health < 200) << 12 | (P.health > 800) << 13); /* and the bar */
-  watch(11, 60, S.up ? 206 : 26, 200, 11, P.score * 7 + P.cnt[3] * 131 + P.acc * 3 + P.judged);
+  int ja = (int)(now - P.jt), jy = S.up ? 120 : 40, w = tw(judge_name[P.jk], 2) + 8;
+  watch(8, 160 - w / 2, jy - 4, w, 24, ja < 500 ? P.jk | (ja < 60) << 4 : -1);
+  watch(9, 236, 26, 84, 34, P.combo >= 2 ? P.combo << 1 | (now - P.ct < 80) : -1);
+  watch(11, 200, 2, 120, 22, P.score);
   int n, ty, ph = beat_at(P.t, &n, &ty);
   watch(20, 60, 90, 200, 40, P.t < 0 && n >= -3 && ph < 300 ? n * 4 + (ph < 50) : -1);
 }
 
 static void draw_notes(void) {
-  for (int pass = 0; pass < 2; pass++)
-    for (int i = nt; i != nh; i = (i + 1) & (NR - 1)) {
-      const note_t *n = &notes[i];
-      int x = lane_x(n->lane), y = note_y(n->t - P.t);
-      if (not_yet(y)) break;
-      if (n->st == N_DONE || x + 20 <= bx || x - 20 >= bx + bw) continue;
-      if (!pass && n->len) { /* the trail */
-        int ya = n->st == N_HOLD ? P.ry : y, yb = note_y(n->t + n->len - P.t), y0 = mini(ya, yb), y1 = maxi(ya, yb);
-        color c = n->st >= N_MISS ? RGB(0x34344A) : lanec[n->lane]; /* gray once missed */
-        rect(x - 6, y0, 12, y1 - y0, INK, 32);
-        rect(x - 4, y0, 8, y1 - y0, c, 32);
-        rect(x - 2, y0, 2, y1 - y0, mix(WHITE, c, 8), 32);
-        disc(x, yb, 6, 0, INK, 32);
-        disc(x, yb, 4, 0, c, 32);
-      }
-      if (pass && (n->st == N_WAIT || n->st == N_MISS))
-        arrow(n->lane, x, y, 1, pal[n->st == N_MISS ? P_MISS : P_NOTE + n->lane], n->st == N_MISS ? 18 : 32);
-    }
-}
-
-
-static void icon(int cx, int cy, int r, color c, bool sad) {
-  disc(cx, cy, r + 2, 0, INK, 32);
-  disc(cx, cy, r, 0, c, 32);
-  rect(cx - r / 2 - 1, cy - r / 3, 3, 4, INK, 32);
-  rect(cx + r / 2 - 1, cy - r / 3, 3, 4, INK, 32);
-  int m = cy + r / 3 + 1, e = sad ? 2 : -2; /* the mouth's corners go up or down */
-  rect(cx - 3, m, 7, 2, INK, 32);
-  rect(cx - 5, m + e, 2, 2, INK, 32);
-  rect(cx + 4, m + e, 2, 2, INK, 32);
-}
-
-static void hud(void) {
-  char s[48], *o;
-  /* the health bar, with the two singers' faces where the colours meet */
-  int hy = S.up ? 222 : 4, split = 62 + 196 * (1000 - P.health) / 1000;
-  if (by < hy + 20 && by + bh > hy - 6) {
-    rect(60, hy, 200, 10, INK, 32);
-    rect(62, hy + 2, split - 62, 6, RGB(0xFF2A3D), 32);
-    rect(split, hy + 2, 258 - split, 6, RGB(0x57F23B), 32);
-    rect(62, hy + 2, 196, 2, WHITE, 6);
-    icon(split - 11, hy + 5, 9 + bop, RGB(0xB164E8), P.health > 800);
-    icon(split + 11, hy + 5, 9 + bop, RGB(0x39B8E6), P.health < 200);
+  for (int i = nt; i != nh; i = (i + 1) & (NR - 1)) {
+    const note_t *n = &notes[i];
+    int x = lane_x(n->lane), y = note_y(n->t - P.t);
+    if (not_yet(y)) break;
+    if (n->st == N_WAIT || n->st == N_MISS) arrow(n->lane, x, y, pal[n->st == N_MISS ? P_MISS : P_NOTE + n->lane], n->st == N_MISS ? 18 : 32);
   }
-  int sy = S.up ? 207 : 27;
-  if (by < sy + 10 && by + bh > sy - 2) {
-    o = cat(s, "Score ");
-    o = num(o, (uint32_t)P.score);
-    o = cat(o, "  Misses ");
-    o = num(o, (uint32_t)P.cnt[3]);
-    o = cat(o, "  ");
-    if (P.judged) pct(o, P.acc * 100 / P.judged);
-    else cat(o, "--%");
-    small(s, 160, sy, WHITE);
+}
+
+/* the score and the combo in the corner, and a pause sign (Back pauses) */
+static void hud(void) {
+  char s[16];
+  num(s, (uint32_t)P.score);
+  if (by < 22) text(s, 312 - tw(s, 2), 5, 2, 1, WHITE, RGB(0xC8D6F0));
+  if (P.combo >= 2 && by < 60 && by + bh > 26) {
+    int pop = now - P.ct < 80;
+    ctext("Combo", 278, 27, 1, 1, RGB(0xFFC857), 0);
+    num(s, (uint32_t)P.combo);
+    ctext(s, 278, 40 - pop, 2, 1, WHITE, RGB(0xC8D6F0));
+  }
+  if (by < 30 && bx < 30) {
+    rect(4, 4, 20, 20, INK, 20);
+    rect(9, 9, 3, 10, WHITE, 32), rect(16, 9, 3, 10, WHITE, 32);
   }
 }
 
 static void scene_play(void) {
   stage(true);
-  /* beat lines, brighter at the start of a bar */
-  for (int i = maxi(0, nbars - 8); i < nbars; i++)
-    for (int k = i ? 0 : -8; k < 4; k++) {
-      int y = note_y(((bars[i & 7].t16 + k * bars[i & 7].beat16) >> 4) - P.t);
-      rect(81, y, 158, 1, WHITE, k ? 3 : 6);
-    }
-  /* the targets */
+  /* the targets: a ring in the lane's color, filled while its key is held,
+     lit up by a hit (brighter for a perfect one) */
   for (int l = 0; l < 4; l++) {
     int age = (int)(now - P.ht[l]), x = lane_x(l);
-    if (age < 160 || (P.held_mask >> l & 1)) arrow(l, x, P.ry, age < 50 ? 3 : 2, pal[P_CONF + l], 32);
-    else if (lanes >> l & 1) arrow(l, x, P.ry, 0, pal[P_PRESS + l], 32);
-    else arrow(l, x, P.ry, 1 + rbeat, pal[rbeat ? P_BEAT : P_STRUM], 32);
-  }
-  /* the judgment and the combo */
-  int ja = (int)(now - P.jt), jy = S.up ? 118 : 96;
-  if (ja < 500) {
-    int y = jy + (ja < 50) * 3;
-    ctext(judge_name[P.jk], 160, y, 3, 2, judge_c[P.jk][0], judge_c[P.jk][1]);
-    if (P.late) small(P.late == 2 ? "Late" : "Early", 160, y - 11, P.late == 2 ? RGB(0xFFB070) : RGB(0x80C8FF));
-  }
-  if (P.combo >= 4) {
-    char s[12];
-    num(s, (uint32_t)P.combo);
-    int pop = now - P.ct < 80;
-    ctext(s, 160, jy + 30 - pop * 2, 4, 2, WHITE, RGB(0xC8C8DC));
-    small("Combo", 160, jy + 60, RGB(0xD8D8E8));
+    disc(x, P.ry, 14, 3, lanec[l], 32);
+    if (age < 160) disc(x, P.ry, 11, 0, mix(WHITE, lanec[l], P.hk[l] ? 8 : 20), 32);
+    else if (lanes >> l & 1) disc(x, P.ry, 11, 0, lanec[l], 14);
   }
   draw_notes();
-  /* a splash on a perfect hit */
+  /* sparks off a perfect hit */
   for (int l = 0; l < 4; l++) {
     int age = (int)(now - P.ht[l]);
-    if (age >= 170 || P.hk[l]) continue;
-    age = age / 34 * 34; /* in five steps */
-    int r = 16 + age / 14, a = 30 - age * 30 / 170, x = lane_x(l);
-    disc(x, P.ry, r, 3 - age / 60, mix(WHITE, lanec[l], 12), a);
-    for (int k = 0; k < 4; k++) disc(x + (k & 1 ? r : -r) * 3 / 4, P.ry + (k & 2 ? r : -r) * 3 / 4, 2, 0, WHITE, a);
+    if (age >= 200 || P.hk[l]) continue;
+    age = age / 40 * 40;
+    for (int k = 0; k < 8; k++) {
+      static const int8_t D[8][2] = {{-18, 0}, {18, 0}, {0, -18}, {0, 18}, {-13, -13}, {13, -13}, {-13, 13}, {13, 13}};
+      int r = 100 + age;
+      rect(lane_x(l) + D[k][0] * r / 200 - 1, P.ry + D[k][1] * r / 200 - 1, 3, 3, k & 4 ? WHITE : lanec[l], 32 - age * 32 / 200);
+    }
   }
+  /* the judgment, above the lanes */
+  int ja = (int)(now - P.jt), jy = S.up ? 120 : 40;
+  if (ja < 500) ctext(judge_name[P.jk], 160, jy + (ja < 60) * 2, 2, 2, judge_c[P.jk][0], judge_c[P.jk][1]);
   hud();
   /* ready, set, go! on the beats before the song */
   int n, ty, ph = beat_at(P.t, &n, &ty);
@@ -1090,7 +1131,7 @@ static void results(void) {
   int acc = P.judged ? P.acc * 100 / P.judged : 0, ty;
   beat_at(P.t, &grade_bars, &ty);
   grade_bars /= 4;
-  bool fc = !P.cnt[3] && !P.failed;
+  bool fc = !P.cnt[2] && !P.failed;
   static const int16_t need[5] = {7000, 8000, 9000, 9500, 9900}; /* accuracy for C, B, A, S, S+ */
   grade = 1;
   while (grade < 6 && acc >= need[grade - 1] && (grade < 5 || fc)) grade++;
@@ -1120,19 +1161,19 @@ static void scene_results(void) {
   disc(80, 94, 52, 4, gc, 32);
   if (P.failed && G.s) ctext("Failed", 80, 87, 2, 2, RGB(0xFFB0B8), RGB(0xE0203A));
   else ctext(grade_name[grade], 80, 66, 8, 3, gc, mix(0, gc, 9));
-  if (!P.cnt[3] && !P.failed) small("Full combo!", 80, 156, RGB(0x9FE8FF));
+  if (!P.cnt[2] && !P.failed) small("Full combo!", 80, 156, RGB(0x9FE8FF));
   if (!G.s) {
     o = cat(s, "Bars: ");
     num(o, (uint32_t)grade_bars);
     small(s, 80, 172, WHITE);
   }
-  static const char *const lbl[6] = {"Perfect", "Great", "Good", "Miss", "Max combo", "Accuracy"};
-  rect(160, 34, 150, 100, INK, 18);
-  for (int i = 0; i < 6; i++) {
-    int y = 40 + i * 16;
-    text(lbl[i], 168, y, 1, 1, i < 4 ? judge_c[i][0] : WHITE, i < 4 ? judge_c[i][1] : 0);
-    if (i == 5) pct(s, P.judged ? P.acc * 100 / P.judged : 0);
-    else num(s, (uint32_t)(i < 4 ? P.cnt[i] : P.maxc));
+  static const char *const lbl[5] = {"Perfect!", "Good!", "Miss", "Max combo", "Accuracy"};
+  rect(160, 34, 150, 92, INK, 18);
+  for (int i = 0; i < 5; i++) {
+    int y = 42 + i * 17;
+    text(lbl[i], 168, y, 1, 1, i < 3 ? judge_c[i][0] : WHITE, i < 3 ? judge_c[i][1] : 0);
+    if (i == 4) pct(s, P.judged ? P.acc * 100 / P.judged : 0);
+    else num(s, (uint32_t)(i < 3 ? P.cnt[i] : P.maxc));
     text(s, 302 - tw(s, 1), y, 1, 1, WHITE, 0);
   }
   small("Score", 235, 142, RGB(0xC8C8DC));
@@ -1160,7 +1201,7 @@ static void scene_title(void) {
   static const char *const words[2] = {"Num", "Dance"};
   for (int w = 0, i = 0; w < 2; w++) {
     const char *s = words[w];
-    int x = 160 - tw(s, 6) / 2, y = 14 + w * 50;
+    int x = 160 - tw(s, 6) / 2, y = 30 + w * 48;
     for (int k = 0; s[k]; k++, i++) {
       int p = beat_ph - i * 30, hop = p >= 0 && p < 160 ? (p < 60 ? p / 8 : (160 - p) * 7 / 100) : 0;
       char c[2] = {s[k], 0};
@@ -1170,7 +1211,7 @@ static void scene_title(void) {
   }
   for (int l = 0; l < 4; l++) {
     bool on = (menu_beat & 3) == l && beat_ph < 250;
-    arrow(l, 100 + 40 * l, 134, on ? 3 : 1, pal[on ? P_CONF + l : P_STRUM], 32);
+    arrow(l, lane_x(l), 132 - on * 3, pal[on ? P_NOTE + l : P_MISS], 32);
   }
   static const char *const items[3] = {"Play", "Options", "How to play"};
   for (int i = 0; i < 3; i++) item(items[i], 160, 166 + i * 24, sel == i);
@@ -1186,14 +1227,8 @@ static void scene_title(void) {
 static void scene_songs(void) {
   int song = S.song;
   color c = songs[song].c;
-  for (int j = 0; j < bh; j++) {
-    int y = by + j;
-    color *p = buf + j * bw;
-    for (int i = 0; i < bw; i++) {
-      int x = bx + i;
-      p[i] = mix(c, RGB(0x0C0614), (((x + y * 2) >> 4) & 1 ? 11 : 9) - y * 7 / H);
-    }
-  }
+  stage(false);
+  rect(0, 0, W, H, RGB(0x1A0C33), 20);
   for (int i = 0; i < NSONG; i++) {
     int off = i * 16 - lpos, y = 128 + off * 34 / 16, x = 20 + iabs(off) / 2;
     if (y < 56 || y > H) continue;
@@ -1260,15 +1295,16 @@ static void scene_help(void) {
   heading("How to play", 10);
   static const char *const keys[4] = {"Left 4 1", "Down 5 2", "Up 8 3", "Right 6 +"};
   for (int l = 0; l < 4; l++) {
-    arrow(l, 70 + 60 * l, 62, 1, pal[P_NOTE + l], 32);
+    arrow(l, 70 + 60 * l, 62, pal[P_NOTE + l], 32);
     small(keys[l], 70 + 60 * l, 86, WHITE);
   }
-  static const char *const lines[6] = {"Press an arrow's key just as it", "reaches the gray target. Keep holding",
-                                       "the key along a trail. Misses drain", "the health bar; empty, the song fails.",
-                                       "Back: pause   Home: quit", "The beat shows on the stage lights."};
-  for (int i = 0; i < 6; i++) small(lines[i], 160, 110 + i * 14 + (i > 3) * 6, i > 3 ? RGB(0xB8B0D0) : WHITE);
-  static const uint16_t jx[4] = {49, 143, 219, 289};
-  for (int k = 0; k < 4; k++) ctext(judge_name[k], jx[k], 212, 2, 1, judge_c[k][0], judge_c[k][1]);
+  static const char *const lines[6] = {"Press an arrow's key just as it", "lands on its ring.",
+                                       "Misses cost 5 points and turn", "the sky red, little by little.",
+                                       "Back: pause   Home: quit", "The crew shows the beat: dance along!"};
+  for (int i = 0; i < 6; i++) small(lines[i], 160, 110 + i * 14 + (i > 3) * 6, i > 3 ? RGB(0xE8D8F8) : WHITE);
+  static const uint16_t jx[3] = {70, 160, 250};
+  static const char *const pts[3] = {"+100", "+50", "-5"};
+  for (int k = 0; k < 3; k++) ctext(judge_name[k], jx[k], 200, 2, 1, judge_c[k][0], judge_c[k][1]), small(pts[k], jx[k], 220, WHITE);
 }
 
 /* calibration: an arrow every half second, press as it lands */
@@ -1279,11 +1315,12 @@ static void scene_calib(void) {
   stage(false);
   rect(0, 0, W, H, 0, 20);
   rect(120, 0, 80, H, 0, 14);
-  int t = (int)(now - cal_t0), ry = S.up ? 40 : 200, sgn = S.up ? -1 : 1, px = pxms(), beat = t % 500 < 90;
-  arrow(2, 160, ry, 1 + beat, pal[beat ? P_BEAT : P_STRUM], 32);
+  int t = (int)(now - cal_t0), ry = S.up ? 44 : 204, sgn = S.up ? -1 : 1, px = pxms(), beat = t % 500 < 90;
+  disc(160, ry, 14, 0, WHITE, 32);
+  disc(160, ry, 11, 0, beat ? RGB(0x7CE85A) : RGB(0xEEE8F8), 32);
   for (int k = t / 500 - 1; k <= t / 500 + 8; k++) {
     int y = ry - sgn * ((k * 500 - t) * px >> 8);
-    if (k >= 2) arrow(2, 160, y, 1, pal[P_NOTE + 2], 32);
+    if (k >= 2) arrow(2, 160, y, pal[P_NOTE + 2], 32);
   }
   ctext("Calibrate", 60, 10, 2, 1, WHITE, RGB(0xFFE070));
   if (cal_n) {

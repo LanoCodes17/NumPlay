@@ -12,11 +12,11 @@
 | NumChess.nwa | Only Chess: bots, puzzles, 2 players |
 | FlappyBird.nwa | Only Flappy Bird: flap through the pipes |
 | PacMan.nwa | Only Pac-Man: eat dots, dodge ghosts |
-| Snake.nwa | Only Snake: eat apples, grow long |
+| Snake.nwa | Only Snake: Google's snake, with its 12 modes |
 | ConnectFour.nwa | Only Connect Four: four in a row wins |
-| Solitaire.nwa | Only Solitaire: the classic card game |
+| Solitaire.nwa | Only Solitaire: the classic card game, the way Google plays it |
 | NumDance.nwa | Only NumDance: hit the arrows on the beat |
 | 2048.nwa | Only 2048: slide, merge, reach 2048 |
 | Minesweeper.nwa | Only Minesweeper: clear the field, flag the mines |
-| Breakout.nwa | Only Breakout: break every brick |
+| BlockBreaker.nwa | Only Block Breaker: break every brick, set off the power-ups |
 | NumVisuals.nwa | Only NumVisuals: backgrounds, clocks, timers |

@@ -1,4 +1,4 @@
-# Breakout — the Atari classic, and an Arcade+ mode with rounds and power-ups.
+# Block Breaker — Google's brick breaker, with power-up bricks and wall after wall.
 #   make          build output/breakout.nwa
 #   make check    link the app like the calculator does (output/breakout.bin)
 Q ?= @

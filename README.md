@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>14 free games for your NumWorks calculator, in one app.</b><br>
-  NumDash, Crossy Road, NumDrive, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, NumDance, 2048, Minesweeper and Breakout, plus NumVisuals: moving backgrounds with a clock, a timer and more.
+  NumDash, Crossy Road, NumDrive, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, NumDance, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.
 </p>
 
 <p align="center">
@@ -76,7 +76,7 @@ Click a file to download it. Not sure which one? Take the first.
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_snake.png" width="112" alt="Snake"></td>
-    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Snake.nwa">Snake.nwa</a><br>Only Snake: eat apples, grow long</td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Snake.nwa">Snake.nwa</a><br>Only Snake: Google's snake, with its 12 modes</td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_connectfour.png" width="112" alt="Connect Four"></td>
@@ -84,7 +84,7 @@ Click a file to download it. Not sure which one? Take the first.
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_solitaire.png" width="112" alt="Solitaire"></td>
-    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Solitaire.nwa">Solitaire.nwa</a><br>Only Solitaire: the classic card game</td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Solitaire.nwa">Solitaire.nwa</a><br>Only Solitaire: the classic card game, the way Google plays it</td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_numdance.png" width="112" alt="NumDance"></td>
@@ -99,8 +99,8 @@ Click a file to download it. Not sure which one? Take the first.
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Minesweeper.nwa">Minesweeper.nwa</a><br>Only Minesweeper: clear the field, flag the mines</td>
   </tr>
   <tr>
-    <td width="120" align="center"><img src="docs/media/thumb_breakout.png" width="112" alt="Breakout"></td>
-    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Breakout.nwa">Breakout.nwa</a><br>Only Breakout: break every brick</td>
+    <td width="120" align="center"><img src="docs/media/thumb_breakout.png" width="112" alt="Block Breaker"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/BlockBreaker.nwa">BlockBreaker.nwa</a><br>Only Block Breaker: break every brick, set off the power-ups</td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_numvisuals.png" width="112" alt="NumVisuals"></td>
@@ -161,7 +161,7 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
   </tr>
   <tr>
     <td><img src="games/minesweeper/docs/shot.png" width="100%" alt="Minesweeper"></td>
-    <td><img src="games/breakout/docs/shot.png" width="100%" alt="Breakout"></td>
+    <td><img src="games/breakout/docs/shot.png" width="100%" alt="Block Breaker"></td>
   </tr>
 </table>
 
@@ -169,7 +169,8 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
 
 - **[Tatone26](https://github.com/Tatone26/Numworks-games)** made Tetris and **All the Apps**, and released them into the public domain. NumPlay's Flappy Bird, Pac-Man, Snake, Connect Four and Solitaire are rewritten in C from All the Apps and keep its options, and our 2048 started from Tatone26's Python version.
 - **[Gabriele Cirulli](https://github.com/gabrielecirulli/2048)** made 2048.
+- Snake, Solitaire and Block Breaker look and play like **Google's games** in Search, and NumDance takes its idea and scoring from the Artistic Swimming event of Google's **Doodle Champion Island Games**. They are drawn from scratch; nothing is taken from Google.
 - **[gd3ds](https://github.com/AleFunky/gd3ds)** by AleFunky and friends, whose research into Geometry Dash made NumDash possible.
 - The **Nunito** and **Rammetto One** fonts, under the SIL Open Font License ([LICENSES](LICENSES)).
 
-<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Atari (Breakout) or Microsoft (Solitaire, Minesweeper). Tetris is a trademark of The Tetris Company, Pac-Man of Bandai Namco, Connect Four of Hasbro and Breakout of Atari.</sub>
+<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Google (Snake, Solitaire, Block Breaker, Doodle Champion Island Games) or Microsoft (Minesweeper). Tetris is a trademark of The Tetris Company, Pac-Man of Bandai Namco and Connect Four of Hasbro.</sub>

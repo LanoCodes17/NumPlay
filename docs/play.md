@@ -11,9 +11,11 @@
 
 The last card, **Settings**, can:
 
-- **Reset** a game's progress, or every game's at once (it asks first; levels you made are kept)
+- **Reset** a game's progress, or every game's at once: hold **OK** on the red button to confirm (levels you made are kept)
 - **Uninstall** the games you don't play, to free up space
 - **Start as Matrices**: NumPlay opens as a plain matrix calculator. Your secret way in opens the games: pick the x,n,t key, var, Toolbox, π, √, or *Examples* in the Toolbox menu. A small gray hint in the corner names it (turn it off with **Show a hint**)
+
+Your progress is also copied into a Python script, `numplay_saves.py`, so updating NumPlay doesn't erase it. Leave it there; if it gets deleted, NumPlay writes it again.
 
 In every game, **Back** pauses, and the pause menu has a small **Quit game** button. It always asks first, since Back sits right next to OK.
 

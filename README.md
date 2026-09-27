@@ -86,6 +86,8 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
 6. **Play!** On your calculator, press the **Home** key (the little house), go to the end of the apps and open **NumPlay**.
 
 > [!TIP]
+> **Updating?** Install the new file the same way. Your progress comes back by itself: NumPlay keeps a copy of it in a Python script called `numplay_saves.py`, the one kind of file the website keeps. (This works for updates from version 1.2.1 on.)
+>
 > Already have other apps from that website? It swaps them for the new ones, so add them again in step 5 to keep them. The calculator's own apps are never touched.
 >
 > Nothing happens when you plug it in? Try another cable: some only charge.

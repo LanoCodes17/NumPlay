@@ -166,7 +166,7 @@ enum { ACT_UNINSTALL, ACT_RESET, ACT_RESET_ALL };
 typedef struct {
   int game;
   int choice;         /* 0 cancel, 1 uninstall or reset */
-  float hold;         /* 0..1 while OK is held on "Uninstall" */
+  float hold;         /* 0..1 while OK is held on "Uninstall" or "Reset" */
   bool hinted;
   int stage;          /* 0 confirm, 1 working, 2 done, 3 error */
   int error;
@@ -187,7 +187,23 @@ static const char *error_text(int e) {
   }
 }
 
-/* Reset and Reset all: a plain question (Cancel first), then done */
+/* The red button fills up while OK is held: a stray press of OK, right next
+   to Back, can't erase anything. */
+static void hold_button(const dialog_t *d, const char *label) {
+  int bx = 172, by = 198, bw = 110, bh = 28;
+  if (d->choice == 1) {
+    gfx_rrect(bx, by + 2, bw, bh, bh / 2, 0, 64);
+    gfx_rrect(bx, by, bw, bh, bh / 2, gfx_rgb(DANGER), 256);
+    int fill = (int)(bw * d->hold);
+    if (fill > 0) gfx_rrect(bx, by, NP_MAX(fill, bh), bh, bh / 2, 0xFFFF, 110);
+    gfx_text_center(&np_font_body, bx + bw / 2, by + 18, d->hinted ? "Hold OK" : label, 0xFFFF, 256);
+  } else {
+    gfx_rrect(bx, by, bw, bh, bh / 2, 0xFFFF, 40);
+    gfx_text_center(&np_font_body, bx + bw / 2, by + 18, label, 0xFFFF, 200);
+  }
+}
+
+/* Reset and Reset all: a question (Cancel first, hold OK to reset), then done */
 static void reset_scene(dialog_t *d) {
   const char *title = d->action == ACT_RESET_ALL ? "every game" : np_games[d->game].title;
   char line[64], body[128];
@@ -215,7 +231,7 @@ static void reset_scene(dialog_t *d) {
   gfx_paragraph(&np_font_small, 160, y + 4, 290, 13, "Games stay installed, and levels you made in an editor are kept.",
                 0xFFFF, 170);
   ui_button(38, 198, 110, 28, "Cancel", d->choice == 0, 0x555D70, 256);
-  ui_button(172, 198, 110, 28, "Reset", d->choice == 1, DANGER, 256);
+  hold_button(d, "Reset");
 }
 
 static void dialog_scene(void *ctx) {
@@ -269,24 +285,11 @@ static void dialog_scene(void *ctx) {
   strcat(body, " and all of its saved progress. You can't undo this.");
   int y = gfx_paragraph(&np_font_body, 160, 102, 280, 16, body, 0xFFFF, 240);
   gfx_paragraph(&np_font_small, 160, y + 4, 290, 13,
-                "To play it again, you'll have to reinstall all of NumPlay from my.numworks.com/apps, and "
-                "reinstalling may reset your progress in every game.",
+                "To play it again, reinstall NumPlay from my.numworks.com/apps. Your other games keep their "
+                "progress.",
                 0xFFFF, 170);
   ui_button(38, 198, 110, 28, "Cancel", d->choice == 0, 0x555D70, 256);
-  /* the uninstall button fills up while OK is held */
-  int bx = 172, by = 198, bw = 110, bh = 28;
-  if (d->choice == 1) {
-    gfx_rrect(bx, by + 2, bw, bh, bh / 2, 0, 64);
-    gfx_rrect(bx, by, bw, bh, bh / 2, gfx_rgb(DANGER), 256);
-    int fill = (int)(bw * d->hold);
-    if (fill > 0) {
-      gfx_rrect(bx, by, NP_MAX(fill, bh), bh, bh / 2, 0xFFFF, 110);
-    }
-    gfx_text_center(&np_font_body, bx + bw / 2, by + 18, d->hinted ? "Hold OK" : "Uninstall", 0xFFFF, 256);
-  } else {
-    gfx_rrect(bx, by, bw, bh, bh / 2, 0xFFFF, 40);
-    gfx_text_center(&np_font_body, bx + bw / 2, by + 18, "Uninstall", 0xFFFF, 200);
-  }
+  hold_button(d, "Uninstall");
 }
 
 static dialog_t *active_dialog;
@@ -305,24 +308,44 @@ static void wait_ok(dialog_t *d) {
   }
 }
 
+/* Cancel, or OK held on the red button: true once it has been held long enough */
+static bool hold_to_confirm(dialog_t *d) {
+  ui_keys_t k = {np_keys(), 0, 0};
+  uint32_t last = np_millis();
+  bool dirty = true;
+  for (;;) {
+    uint32_t now = np_millis(), dt = now - last;
+    last = now;
+    uint32_t p = ui_poll(&k);
+    if (p & (K_BACK | K_HOME)) return false;
+    if (p & K_LEFT) d->choice = 0, d->hold = 0, dirty = true;
+    if (p & K_RIGHT) d->choice = 1, dirty = true;
+    if (p & K_OK) {
+      if (d->choice == 0) return false;
+      d->hinted = true; /* a short press only shows how */
+      dirty = true;
+    }
+    if (d->choice == 1 && (k.held & K_OK)) {
+      d->hold += dt / (float)HOLD_MS;
+      dirty = true;
+      if (d->hold >= 1) return true;
+    } else if (d->hold > 0) {
+      d->hold = NP_MAX(d->hold - dt / 300.f, 0.f);
+      dirty = true;
+    }
+    if (dirty) {
+      ui_frame(dialog_scene, d);
+      dirty = false;
+    } else {
+      np_sleep(16);
+    }
+  }
+}
+
 /* Reset (game >= 0) or Reset all (game < 0), after asking. */
 static void reset_flow(int game) {
   dialog_t d = {game < 0 ? 0 : game, 0, 0, false, 0, 0, 0, 0, game < 0 ? ACT_RESET_ALL : ACT_RESET};
-  ui_keys_t k = {np_keys(), 0, 0};
-  ui_frame(dialog_scene, &d);
-  for (;;) {
-    uint32_t p = ui_poll(&k);
-    if (p & (K_BACK | K_HOME)) return;
-    if (p & (K_LEFT | K_RIGHT)) {
-      d.choice = (p & K_RIGHT) != 0;
-      ui_frame(dialog_scene, &d);
-    }
-    if (p & K_OK) {
-      if (d.choice == 0) return;
-      break;
-    }
-    np_sleep(16);
-  }
+  if (!hold_to_confirm(&d)) return;
   if (game >= 0) np_reset_game(game);
   else
     for (int i = 0; i < np_game_count; i++) np_reset_game(i);
@@ -341,36 +364,7 @@ static bool uninstall_flow(int game) {
     wait_ok(&d);
     return false;
   }
-  ui_keys_t k = {np_keys(), 0, 0};
-  uint32_t last = np_millis();
-  bool dirty = true;
-  for (;;) {
-    uint32_t now = np_millis(), dt = now - last;
-    last = now;
-    uint32_t p = ui_poll(&k);
-    if (p & (K_BACK | K_HOME)) return false;
-    if (p & K_LEFT) d.choice = 0, d.hold = 0, dirty = true;
-    if (p & K_RIGHT) d.choice = 1, dirty = true;
-    if (p & K_OK) {
-      if (d.choice == 0) return false;
-      d.hinted = true;
-      dirty = true;
-    }
-    if (d.choice == 1 && (k.held & K_OK)) {
-      d.hold += dt / (float)HOLD_MS;
-      dirty = true;
-      if (d.hold >= 1) break;
-    } else if (d.hold > 0) {
-      d.hold = NP_MAX(d.hold - dt / 300.f, 0.f);
-      dirty = true;
-    }
-    if (dirty) {
-      ui_frame(dialog_scene, &d);
-      dirty = false;
-    } else {
-      np_sleep(16);
-    }
-  }
+  if (!hold_to_confirm(&d)) return false;
   d.stage = 1;
   d.freed = np_game_size(game);
   ui_frame(dialog_scene, &d);

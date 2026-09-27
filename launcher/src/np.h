@@ -84,6 +84,10 @@ typedef struct {
 } np_config_t;
 void np_config_load(np_config_t *c);
 bool np_config_save(const np_config_t *c);
+/* A copy of every save in numplay_saves.py, a Python script: the only kind of
+   file the NumWorks installer keeps when NumPlay is updated. */
+void np_progress_backup(void);
+void np_progress_restore(void); /* only when none of the saves are left */
 /* Matrices, the disguise: true when the secret was used (open NumPlay), false to quit */
 bool np_matrices(const np_config_t *c);
 

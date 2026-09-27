@@ -83,6 +83,9 @@ $(B)/modules/%.o: FORCE | $(B)
 	$(PY) tools/npmodule.py $(B)/modules/$*.2.o $@ --game $* --index $(INDEX_$*) \
 	  --entry $(or $(ENTRY_$*),$(ENTRY)) --json $(B)/modules/$*.json
 
+# games in the standard layout (see tools/games_mk.py)
+$(foreach g,$(STD_GAMES),$(eval MOD_$(g) = games/$(g)/output/module.o)$(eval SIM_$(g) = games/$(g)/output/sim-module.o))
+
 MODULES = $(foreach g,$(GAMES),$(B)/modules/$(g).o)
 
 # ------------------------------------------------------------------ generated glue
@@ -145,6 +148,12 @@ apps: | $(B)
 	cp $(word 1,$(subst :, ,$(APP_numvisuals))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numvisuals)))
 	arm-none-eabi-strip --strip-unneeded $(B)/apps/Tetris.nwa
 
+STD_APPS = $(foreach g,$(STD_GAMES),$(B)/apps/$(NWA_$(g)))
+apps: $(STD_APPS)
+$(STD_APPS): $(B)/apps/%.nwa: FORCE | $(B)
+	$(MAKE) --no-print-directory -C games/$(APPID_$*) build NWLINK="$(NWLINK)"
+	cp games/$(APPID_$*)/output/$(APPID_$*).nwa $@
+
 # ------------------------------------------------------------------ simulator
 SIM_numdash = games/numdash/build/sim-module.o
 SIM_crossyroad = games/crossyroad/output/sim-module.o
@@ -184,3 +193,4 @@ clean:
 	-$(MAKE) -C games/chess clean
 	-$(MAKE) -C games/numvisuals clean
 	-cd games/tetris/tetris && $(CARGO) clean
+	-$(foreach g,$(STD_GAMES),$(MAKE) -C games/$(g) clean;)

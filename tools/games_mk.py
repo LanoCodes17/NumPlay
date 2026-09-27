@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Turns games/games.json into make variables (order, screenshots)."""
+"""Turns games/games.json into make variables (order, screenshots).
+
+A game with an "app" entry (its release file, e.g. "Snake.nwa") is in the
+standard layout of games/numvisuals: its Makefile's `build`, `module` and
+`sim-module` targets make output/<id>.nwa, module.o and sim-module.o, so the
+top-level Makefile needs nothing else for it (STD_GAMES)."""
 import json
 import sys
 
@@ -13,3 +18,7 @@ for n, g in enumerate(games, 1):
     print(f"SHOTS_REL_{i} := " + " ".join(g["shots"]))
     if g.get("colors"):
         print(f"COLORS_{i} := --colors {g['colors']}")
+    if g.get("app"):
+        print(f"NWA_{i} := {g['app']}")
+        print(f"APPID_{g['app'][:-4]} := {i}")
+print("STD_GAMES := " + " ".join(g["id"] for g in games if g.get("app")))

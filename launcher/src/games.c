@@ -9,7 +9,7 @@
 #define TAIL_MAGIC 0x444E4550u /* "PEND" */
 
 #if NP_SIMULATOR
-bool np_sim_removed[16];
+bool np_sim_removed[NP_MAX_GAMES];
 #endif
 
 bool np_game_installed(int i) {

@@ -18,7 +18,7 @@
 
 typedef struct {
   int n;
-  int8_t item[16];      /* game index, or -1 for the settings card */
+  int8_t item[NP_MAX_GAMES + 1]; /* game index, or -1 for the settings card */
   int sel;
   float pos;            /* scroll position, in cards */
   int shot;             /* screenshot shown on the selected card */
@@ -132,13 +132,13 @@ static void scene(void *ctx) {
   if (gfx_y0 < 26 && ui_alpha > 0) {
     gfx_icon(&np_icon_logo, 12, 6, 0xFFFF, ui_alpha);
     gfx_text(&np_font_body, 40, 18, "NumPlay", 0xFFFF, ui_alpha);
-    /* where we are in the carousel */
-    int dots_w = h->n * 10 + 8;
-    int dx = SCREEN_W - 12 - dots_w;
+    /* where we are in the carousel; with many cards the dots get closer */
+    int pitch = NP_MIN(10, 190 / (h->n + 1));
+    int dx = SCREEN_W - 10 - (h->n + 1) * pitch;
     for (int i = 0; i < h->n; i++) {
       float near = 1 - NP_MIN(absf(i - h->pos), 1.f);
-      int w = 6 + (int)(10 * near);
-      gfx_rrect(dx, 11, w, 6, 3, 0xFFFF, (int)((90 + 166 * near) * ui_alpha / 256));
+      int w = pitch - 4 + (int)(pitch * near);
+      gfx_rrect(dx, 11, w, 6, NP_MIN(3, w / 2), 0xFFFF, (int)((90 + 166 * near) * ui_alpha / 256));
       dx += w + 4;
     }
   }
@@ -169,6 +169,9 @@ static void scene(void *ctx) {
         if (fill >= 4) gfx_rrect(x, 185, fill, 4, 2, 0xFFFF, text_alpha * 230 / 256);
       }
     }
+    /* who made the game, when it isn't ours: under the card */
+    if (game >= 0 && np_games[game].credit && np_games[game].nshots <= 1)
+      gfx_text_center(&np_font_small, CARD_CX, 193, np_games[game].credit, 0xFFFF, text_alpha * 150 / 256);
     gfx_text_center(&np_font_title, CARD_CX, 213, item_title(game), 0xFFFF, text_alpha);
     gfx_text_center(&np_font_body, CARD_CX, 231, item_tagline(game), 0xFFFF, text_alpha * 190 / 256);
   }
@@ -177,7 +180,7 @@ static void scene(void *ctx) {
 /* ---- behaviour */
 static int build_items(home_t *h) {
   h->n = 0;
-  for (int i = 0; i < np_game_count && h->n < 15; i++)
+  for (int i = 0; i < np_game_count && h->n < NP_MAX_GAMES; i++)
     if (np_game_installed(i)) h->item[h->n++] = (int8_t)i;
   h->item[h->n++] = -1;
   return h->n;

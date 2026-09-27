@@ -94,6 +94,135 @@ Don't floor it the whole way: too much gas flips the car.
 
 <br clear="right">
 
+## Flappy Bird
+
+<img src="../games/flappybird/docs/shot.png" width="320" align="right" alt="Flappy Bird">
+
+| Key | What it does |
+| --- | --- |
+| **OK**, **Up** or **EXE** | Flap |
+| **Back** | Pause menu (with Quit game) |
+
+**Classic** plays like the original. **Custom** brings All the Apps' extras from Settings: speed, pipe density, gap size, moving pipes, jump strength, and events like wind gusts, gravity changes and narrow gaps. Medals at 10, 20, 30 and 40.
+
+<br clear="right">
+
+## Pac-Man
+
+<img src="../games/pacman/docs/shot.png" width="320" align="right" alt="Pac-Man">
+
+| Key | What it does |
+| --- | --- |
+| **Arrows** | Steer (a turn pressed early is taken at the next gap) |
+| **Back** | Pause menu (with Quit game) |
+
+The arcade maze and its four ghosts, each with its own way of hunting you. Leave in the middle of a game and **Continue** it later. Options: game speed, lives, input buffer, starting level.
+
+<br clear="right">
+
+## Snake
+
+<img src="../games/snake/docs/shot.png" width="320" align="right" alt="Snake">
+
+| Key | What it does |
+| --- | --- |
+| **Arrows** | Turn (two turns can wait in line) |
+| **Back** | Pause menu (with Quit game) |
+
+Settings: speed, board size, 1, 3 or 5 apples, walls, wrapping through the edges, and portals (eat one apple of a pair to come out of the other).
+
+<br clear="right">
+
+## Connect Four
+
+<img src="../games/connectfour/docs/shot.png" width="320" align="right" alt="Connect Four">
+
+| Key | What it does |
+| --- | --- |
+| **Left / Right** | Choose a column |
+| **OK**, **Down** or **1-8** | Drop a disc |
+| **⌫** | Undo (against the computer) |
+| **Back** | Pause menu (with Quit game) |
+
+Against a friend, or the computer at three strengths, or three players at once. Wins are counted across rounds.
+
+<br clear="right">
+
+## Solitaire
+
+<img src="../games/solitaire/docs/shot.png" width="320" align="right" alt="Solitaire">
+
+| Key | What it does |
+| --- | --- |
+| **Arrows** | Move (Up / Down on a column picks how many cards) |
+| **OK** | Pick up, put down; twice sends a card home |
+| **EXE** | Draw |
+| **Toolbox** | Send every card you can home |
+| **⌫** | Undo |
+| **Shift** | Hint |
+| **Back** | Put cards back, or the pause menu |
+
+Klondike like Windows: draw 1 or 3, Standard or Vegas scoring, and the bouncing cards when you win. Your game is kept for next time.
+
+<br clear="right">
+
+## NumDance
+
+<img src="../games/numdance/docs/shot.png" width="320" align="right" alt="NumDance">
+
+| Key | What it does |
+| --- | --- |
+| **Arrows**, or **4 5 8 6**, or **1 2 3 +** | Hit the arrows as they land on the gray targets; hold along trails |
+| **Back** | Pause (with Quit game) |
+
+Arrows fall down four lanes: press the matching key as each one reaches its target. 6 songs, each in Easy, Normal, Hard and Expert, and an Endless mode. The calculator has no speaker, so the beat is in the lights and the stage. Options: scroll speed, timing offset (with a calibration), direction, no-fail.
+
+<br clear="right">
+
+## 2048
+
+<img src="../games/g2048/docs/shot.png" width="320" align="right" alt="2048">
+
+| Key | What it does |
+| --- | --- |
+| **Arrows** | Slide the tiles |
+| **⌫** | Undo one move |
+| **Left / Right** (title) | Board size, 3x3 to 6x6 |
+| **Back** | Pause menu (with Quit game) |
+
+Merge equal tiles to reach 2048, then keep going. Each board size keeps its game and best score.
+
+<br clear="right">
+
+## Minesweeper
+
+<img src="../games/minesweeper/docs/shot.png" width="320" align="right" alt="Minesweeper">
+
+| Key | What it does |
+| --- | --- |
+| **Arrows** | Move |
+| **OK** | Open a square; on a number with all its flags, open around it |
+| **Shift**, **⌫** or **0** | Flag |
+| **Back** | Pause menu (with Help and Quit game) |
+
+Beginner, Intermediate, Expert or your own size. The first square is always safe. Options: **No guessing** (only boards you can solve by logic) and ? marks.
+
+<br clear="right">
+
+## Breakout
+
+<img src="../games/breakout/docs/shot.png" width="320" align="right" alt="Breakout">
+
+| Key | What it does |
+| --- | --- |
+| **Left / Right** | Move the paddle (hold to speed up) |
+| **OK** or **Up** | Launch, fire the laser |
+| **Back** | Pause menu (with Quit game) |
+
+**Classic** is the 1976 arcade game. **Arcade+** has hand-made rounds, tough bricks and power-ups: wide paddle, three balls, slow ball, catch, laser and an extra life.
+
+<br clear="right">
+
 ## NumVisuals
 
 <img src="media/numvisuals.gif" width="320" align="right" alt="NumVisuals: picking a background, then a clock">

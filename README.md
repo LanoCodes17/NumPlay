@@ -5,8 +5,8 @@
 <h1 align="center">NumPlay</h1>
 
 <p align="center">
-  <b>5 free games for your NumWorks calculator, in one app.</b><br>
-  NumDash, Crossy Road, NumDrive, Tetris and Chess, plus NumVisuals: moving backgrounds with a clock, a timer and more.
+  <b>14 free games for your NumWorks calculator, in one app.</b><br>
+  NumDash, Crossy Road, NumDrive, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, NumDance, 2048, Minesweeper and Breakout, plus NumVisuals: moving backgrounds with a clock, a timer and more.
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@ Click a file to download it. Not sure which one? Take the first.
 <table>
   <tr>
     <td width="120" align="center"><img src="docs/media/icon.png" width="64" alt="NumPlay icon"></td>
-    <td><b><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay.nwa">NumPlay.nwa</a></b><br><b>All 5 games and NumVisuals in one app. Start here!</b></td>
+    <td><b><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay.nwa">NumPlay.nwa</a></b><br><b>All 14 games and NumVisuals in one app. Start here!</b></td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/icon-invisible.png" width="64" alt="A blank white icon"></td>
@@ -65,6 +65,42 @@ Click a file to download it. Not sure which one? Take the first.
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_chess.png" width="112" alt="Chess"></td>
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumChess.nwa">NumChess.nwa</a><br>Only Chess: bots, puzzles, 2 players</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_flappybird.png" width="112" alt="Flappy Bird"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/FlappyBird.nwa">FlappyBird.nwa</a><br>Only Flappy Bird: flap through the pipes</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_pacman.png" width="112" alt="Pac-Man"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/PacMan.nwa">PacMan.nwa</a><br>Only Pac-Man: eat dots, dodge ghosts</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_snake.png" width="112" alt="Snake"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Snake.nwa">Snake.nwa</a><br>Only Snake: eat apples, grow long</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_connectfour.png" width="112" alt="Connect Four"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/ConnectFour.nwa">ConnectFour.nwa</a><br>Only Connect Four: four in a row wins, against a friend or the computer</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_solitaire.png" width="112" alt="Solitaire"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Solitaire.nwa">Solitaire.nwa</a><br>Only Solitaire: the classic card game</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_numdance.png" width="112" alt="NumDance"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumDance.nwa">NumDance.nwa</a><br>Only NumDance: hit the arrows on the beat</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_g2048.png" width="112" alt="2048"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/2048.nwa">2048.nwa</a><br>Only 2048: slide, merge, reach 2048</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_minesweeper.png" width="112" alt="Minesweeper"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Minesweeper.nwa">Minesweeper.nwa</a><br>Only Minesweeper: clear the field, flag the mines</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_breakout.png" width="112" alt="Breakout"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Breakout.nwa">Breakout.nwa</a><br>Only Breakout: break every brick</td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_numvisuals.png" width="112" alt="NumVisuals"></td>
@@ -109,14 +145,31 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
   </tr>
   <tr>
     <td><img src="docs/media/numvisuals.gif" alt="NumVisuals: picking a background, then a clock"></td>
-    <td></td>
+    <td><img src="games/flappybird/docs/shot.png" width="100%" alt="Flappy Bird"></td>
+  </tr>
+  <tr>
+    <td><img src="games/pacman/docs/shot.png" width="100%" alt="Pac-Man"></td>
+    <td><img src="games/snake/docs/shot.png" width="100%" alt="Snake"></td>
+  </tr>
+  <tr>
+    <td><img src="games/connectfour/docs/shot.png" width="100%" alt="Connect Four"></td>
+    <td><img src="games/solitaire/docs/shot.png" width="100%" alt="Solitaire"></td>
+  </tr>
+  <tr>
+    <td><img src="games/numdance/docs/shot.png" width="100%" alt="NumDance"></td>
+    <td><img src="games/g2048/docs/shot.png" width="100%" alt="2048"></td>
+  </tr>
+  <tr>
+    <td><img src="games/minesweeper/docs/shot.png" width="100%" alt="Minesweeper"></td>
+    <td><img src="games/breakout/docs/shot.png" width="100%" alt="Breakout"></td>
   </tr>
 </table>
 
 ## Acknowledgements
 
-- **[Tatone26](https://github.com/Tatone26/Numworks-games/tree/main/apps/tetris)** made Tetris and released it into the public domain.
+- **[Tatone26](https://github.com/Tatone26/Numworks-games)** made Tetris and **All the Apps**, and released them into the public domain. NumPlay's Flappy Bird, Pac-Man, Snake, Connect Four and Solitaire are rewritten in C from All the Apps and keep its options, and our 2048 started from Tatone26's Python version.
+- **[Gabriele Cirulli](https://github.com/gabrielecirulli/2048)** made 2048.
 - **[gd3ds](https://github.com/AleFunky/gd3ds)** by AleFunky and friends, whose research into Geometry Dash made NumDash possible.
 - The **Nunito** and **Rammetto One** fonts, under the SIL Open Font License ([LICENSES](LICENSES)).
 
-<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road) or the makers of Drive Mad. Tetris is a trademark of The Tetris Company.</sub>
+<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Atari (Breakout) or Microsoft (Solitaire, Minesweeper). Tetris is a trademark of The Tetris Company, Pac-Man of Bandai Namco, Connect Four of Hasbro and Breakout of Atari.</sub>

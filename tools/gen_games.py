@@ -14,6 +14,7 @@ Usage: gen_games.py games.json MODULE_DIR OUT_DIR [--simulator]
 import argparse
 import json
 import os
+import re
 
 LAUNCHER_RAM = 96 * 1024  # the launcher adapts its screenshot cache to the arena
 HEAD, TAIL = 0x3147504E, 0x444E4550
@@ -31,6 +32,10 @@ def main():
     ap.add_argument("--simulator", action="store_true")
     a = ap.parse_args()
     games = json.load(open(a.manifest))
+    np_h = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "launcher", "src", "np.h")).read()
+    limit = int(re.search(r"#define NP_MAX_GAMES (\d+)", np_h).group(1))
+    if len(games) > limit:
+        raise SystemExit(f"{len(games)} games, but the launcher holds {limit} (NP_MAX_GAMES in launcher/src/np.h)")
     os.makedirs(a.out, exist_ok=True)
     sizes = {}
     for g in games:

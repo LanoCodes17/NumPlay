@@ -60,6 +60,39 @@ GAMES = {
                    presses((1500, "ok"), (2000, "right"), (2300, "right"), (2600, "right"), (2900, "right"),
                            (3300, "ok"), (3700, "up"), (4000, "up")), 5000,
                    presses((1500, "up")), 2500),
+    # settings: Speed to Fast, back, then a Custom game; next time Speed goes on to Insane
+    "flappybird": ("FlappyBird.nwa", "flappy.sav",
+                   presses((1500, "down"), (1800, "ok"), (2100, "right"), (2400, "back"), (2700, "up"),
+                           (2900, "right"), (3100, "ok"), (3900, "ok")) + every(4300, 7500, 450, "ok"), 9000,
+                   presses((1500, "down"), (1800, "ok"), (2100, "right"), (2400, "back")), 3500),
+    # continue the saved game (level 2) and play a bit; then set Fast in the options
+    "pacman": ("PacMan.nwa", "pacman.sav", presses((1500, "ok")), 8000,
+               presses((1500, "down"), (1800, "ok"), (2100, "right"), (2400, "back")), 3500),
+    # Play, straight through the first apple into the wall: a best of 1; next
+    # time, Settings, Speed to Fast and back: saved, the best kept
+    "snake": ("Snake.nwa", "snake.sav", presses((1500, "ok"), (2000, "right")), 7000,
+              presses((1500, "down"), (1800, "ok"), (2100, "right"), (2400, "back")), 3500),
+    # vs the computer: the settings are saved; next time, the dark theme
+    "connectfour": ("ConnectFour.nwa", "connect4.sav", presses((1500, "ok"), (2500, "4")), 5000,
+                    presses((1500, "down"), (1700, "down"), (1900, "down"), (2100, "down"), (2300, "right")), 3500),
+    # a new game (Vegas, draw 1 from the seeded options), two draws; then Continue and one more
+    "solitaire": ("Solitaire.nwa", "solitaire.sav", presses((1500, "ok"), (3500, "exe"), (4000, "exe")), 5000,
+                  presses((1500, "ok"), (2500, "exe")), 3500),
+    # Play, one difficulty up (Hard), start the song and tap along; next time one more (Expert)
+    "numdance": ("NumDance.nwa", "numdance.sav",
+                 presses((1500, "ok"), (2000, "right"), (2500, "ok")) + every(4000, 9000, 250, "up"), 10000,
+                 presses((1500, "ok"), (2000, "right"), (2500, "ok")), 5000),
+    # the 4x4 game in the save (40 moves): Continue, two moves; next time three more
+    "g2048": ("2048.nwa", "g2048.sav", presses((1500, "ok"), (2500, "left"), (3000, "right")), 4000,
+              presses((1500, "ok"), (2500, "left"), (3000, "right"), (3500, "left")), 4500),
+    # Beginner, the first square, leave mid-game; next time Continue, then a
+    # new game from the pause menu and its first square
+    "minesweeper": ("Minesweeper.nwa", "mines.sav", presses((1500, "ok"), (2000, "ok"), (2400, "right")), 3000,
+                    presses((1500, "ok"), (2000, "back"), (2300, "down"), (2600, "ok"), (3000, "ok")), 3600),
+    # Classic, serve, a brick or more: the best is kept; next time, Settings, screen shake off, back
+    "breakout": ("Breakout.nwa", "breakout.sav", presses((1500, "ok"), (2500, "ok")), 6000,
+                 presses((1500, "down"), (1800, "down"), (2100, "ok"), (2500, "down"), (2800, "ok"), (3200, "back")),
+                 4500),
 }
 
 
@@ -69,12 +102,50 @@ SEEDS = {
     "numdrive": b"MD" + bytes([1] + [0] * 24) + b"\0\0\0",
     # puzzle rating 1234, a streak of 3, the bot Hugo, side 1, a 10-minute clock
     "chess": bytes([ord("C"), 1, 1234 & 255, 1234 >> 8, 3, 0, 7, 1 | 4 << 2]),
+    # options (normal speed, 3 lives), best 9000, a game at level 2 with 5000 points, 3 lives, every dot
+    "pacman": bytes([ord("P"), 1, 1, 2, 2, 1, 0, 0]) + struct.pack("<I", 9000) + bytes([1, 2, 3, 0])
+              + struct.pack("<I", 5000) + bytes([255] * 30 + [15, 0]),
+    # draw 1, Vegas, timed; 5 played, 2 won, a Vegas bank of -$100; no game in progress
+    "solitaire": b"S\1\1\1\1\0\0\0" + bytes(8) + struct.pack("<6H3i2I", 5, 2, 1, 2, 200, 0, 1234, -100, 0, 0, 0)
+                 + bytes(68),
+    # 4x4 last played, with a game to continue: best 1000, score 500, 40 moves, a 2, a 4 and a 2
+    "g2048": b"2\1\1" + bytes([0, 1, 0, 0, 0]) + struct.pack("<12I", 0, 1000, 0, 0, 0, 500, 0, 0, 0, 40, 0, 0)
+             + bytes(9) + bytes([1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]) + bytes(61 + 2),
 }
 CHECKS = {
     "numdrive": (lambda v: v[27] == 1, lambda v: v[27] == 0),  # last played level
     "chess": (lambda v: v == SEEDS["chess"],) * 2,  # read back and kept
     "numvisuals": (lambda v: v[:2] == b"V\1" and v[3] == 4 and struct.unpack_from("<i", v, 8)[0] == 2,
                    lambda v: struct.unpack_from("<i", v, 8)[0] == 3),  # the add-on and its count
+    "flappybird": (lambda v: len(v) == 26 and v[:3] == b"F\1\1" and v[8] == 3,  # Custom, Speed Fast
+                   lambda v: v[2] == 1 and v[8] == 4),  # read back, Speed Insane
+    # the game went on (more points, fewer dots), then Fast was chosen and the game kept
+    "pacman": (lambda v: v[:2] == b"P\1" and v[12:14] == bytes([1, 2]) and struct.unpack_from("<I", v, 16)[0] > 5000
+               and struct.unpack_from("<I", v, 8)[0] == 9000 and sum(bin(b).count("1") for b in v[20:52]) < 244,
+               lambda v: v[2] == 2 and v[12:14] == bytes([1, 2]) and struct.unpack_from("<I", v, 16)[0] > 5000),
+    # the default options, then the best for Medium at Normal speed
+    "snake": (lambda v: len(v) == 26 and v[:8] == b"S\1\1\1\0\0\0\0" and struct.unpack_from("<H", v, 16)[0] == 1,
+              lambda v: len(v) == 26 and v[2] == 2 and struct.unpack_from("<H", v, 16)[0] == 1),
+    "connectfour": (lambda v: v == b"C\1\1\2\1\0\5\1" + bytes(8),  # vs computer, 2 players, Normal, light
+                    lambda v: v[5] == 1 and v[6] == 5),  # dark now; the tally's settings read back
+    # the seeded options made a Vegas draw-1 game (-$52), counted as played; two moves, then three
+    "solitaire": (lambda v: len(v) == 116 and v[:4] == b"S\1\1\1" and v[6] == 1 and v[8:10] == b"\1\1"
+                  and struct.unpack_from("<2H", v, 16) == (6, 2) and struct.unpack_from("<H", v, 26)[0] == 2
+                  and struct.unpack_from("<2i", v, 32) == (-100, -52),
+                  lambda v: v[6] == 1 and struct.unpack_from("<H", v, 16)[0] == 6
+                  and struct.unpack_from("<H", v, 26)[0] == 3),
+    # scroll speed 2x by default, the difficulty chosen
+    "numdance": (lambda v: len(v) == 168 and v[:3] == b"D\1\2" and v[6] == 2, lambda v: v[6] == 3),
+    # continued (moves 40 + 2, then + 3), still in progress, score and best kept or higher
+    "g2048": (lambda v: v[:3] == b"2\1\1" and v[4] & 1 and struct.unpack_from("<I", v, 44)[0] == 42
+              and struct.unpack_from("<I", v, 28)[0] >= 500 and struct.unpack_from("<I", v, 12)[0] >= 1000,
+              lambda v: v[4] & 1 and struct.unpack_from("<I", v, 44)[0] == 45),
+    # a Beginner game kept (9x9, 10 mines, cursor moved right), one game played; then two
+    "minesweeper": (lambda v: len(v) == 276 and v[:2] == b"M\1" and v[32:34] == bytes([9, 9]) and v[28] == 10
+                    and v[34] == 5 and struct.unpack_from("<H", v, 14)[0] == 1,
+                    lambda v: v[32] == 9 and struct.unpack_from("<H", v, 14)[0] == 2),
+    "breakout": (lambda v: len(v) == 16 and v[:2] == b"B\1" and v[4] == 1 and struct.unpack_from("<I", v, 8)[0] >= 1,
+                 lambda v: v[4] == 0 and struct.unpack_from("<I", v, 8)[0] >= 1),  # best kept, shake off
 }
 
 

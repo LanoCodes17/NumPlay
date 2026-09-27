@@ -32,7 +32,7 @@ static char *fmt_kb(char *out, uint32_t bytes) {
 enum { ROW_GAME, ROW_RESET_ALL, ROW_DISGUISE, ROW_SECRET, ROW_HINT };
 typedef struct {
   int n, sel, top, action; /* action: on a game, 0 Reset, 1 Uninstall */
-  int8_t kind[20], game[20];
+  int8_t kind[NP_MAX_GAMES + 4], game[NP_MAX_GAMES + 4];
   int ngames;
   np_config_t cfg;
   float cursor;       /* animated selection */

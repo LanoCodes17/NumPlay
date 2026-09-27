@@ -58,7 +58,7 @@
     "id": "tetris",
     "title": "Tetris",
     "tagline": "Stack and clear lines",
-    "credit": "Tatone26",
+    "credit": "By Tatone26, from All the Apps",
     "top": "0x8A4DFF",
     "bottom": "0x1E0B45",
     "accent": "0xFF4FA3",
@@ -86,6 +86,159 @@
       "docs/italian.png"
     ],
     "repo": "https://github.com/Mason363/NumChess"
+  },
+  {
+    "id": "flappybird",
+    "title": "Flappy Bird",
+    "tagline": "Flap through the pipes",
+    "credit": "From All the Apps by Tatone26",
+    "top": "0x4EC0CA",
+    "bottom": "0x10474C",
+    "accent": "0xF8B733",
+    "records": [
+      "flappy.sav"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "app": "FlappyBird.nwa",
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/flappybird"
+  },
+  {
+    "id": "pacman",
+    "title": "Pac-Man",
+    "tagline": "Eat dots, dodge ghosts",
+    "credit": "From All the Apps by Tatone26",
+    "top": "0x2A2AE0",
+    "bottom": "0x05052A",
+    "accent": "0xFFD800",
+    "records": [
+      "pacman.sav"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "app": "PacMan.nwa",
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/pacman"
+  },
+  {
+    "id": "snake",
+    "title": "Snake",
+    "tagline": "Eat apples, grow long",
+    "credit": "From All the Apps by Tatone26",
+    "top": "0x5B9A36",
+    "bottom": "0x16330B",
+    "accent": "0x4E7CF6",
+    "records": [
+      "snake.sav"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "app": "Snake.nwa",
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/snake"
+  },
+  {
+    "id": "connectfour",
+    "title": "Connect Four",
+    "tagline": "Four in a row wins",
+    "credit": "From All the Apps by Tatone26",
+    "top": "0x2A66D0",
+    "bottom": "0x0A1F4A",
+    "accent": "0xF4C20D",
+    "records": [
+      "connect4.sav"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "app": "ConnectFour.nwa",
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/connectfour"
+  },
+  {
+    "id": "solitaire",
+    "title": "Solitaire",
+    "tagline": "The classic card game",
+    "credit": "From All the Apps by Tatone26",
+    "top": "0x17964A",
+    "bottom": "0x053A1B",
+    "accent": "0xD62828",
+    "records": [
+      "solitaire.sav"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "app": "Solitaire.nwa",
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/solitaire"
+  },
+  {
+    "id": "numdance",
+    "title": "NumDance",
+    "tagline": "Hit the arrows on the beat",
+    "credit": null,
+    "top": "0xC24B99",
+    "bottom": "0x1E0A33",
+    "accent": "0x2FE3FF",
+    "records": [
+      "numdance.sav"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "app": "NumDance.nwa",
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/numdance"
+  },
+  {
+    "id": "g2048",
+    "title": "2048",
+    "tagline": "Slide, merge, reach 2048",
+    "credit": "Based on 2048 by Gabriele Cirulli",
+    "top": "0xC9A26B",
+    "bottom": "0x3C2E22",
+    "accent": "0xEDC22E",
+    "records": [
+      "g2048.sav"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "app": "2048.nwa",
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/g2048"
+  },
+  {
+    "id": "minesweeper",
+    "title": "Minesweeper",
+    "tagline": "Clear the field, flag the mines",
+    "credit": null,
+    "top": "0x6F7C8C",
+    "bottom": "0x1C222B",
+    "accent": "0xE0301E",
+    "records": [
+      "mines.sav"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "app": "Minesweeper.nwa",
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/minesweeper"
+  },
+  {
+    "id": "breakout",
+    "title": "Breakout",
+    "tagline": "Break every brick",
+    "credit": null,
+    "top": "0xD24B3A",
+    "bottom": "0x1C0A08",
+    "accent": "0xE8C43A",
+    "records": [
+      "breakout.sav"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "app": "Breakout.nwa",
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/breakout"
   },
   {
     "id": "numvisuals",

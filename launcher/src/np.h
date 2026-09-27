@@ -62,6 +62,7 @@ typedef struct {
   uint32_t est_size;                     /* code and data, for the simulator */
 } np_game_t;
 
+#define NP_MAX_GAMES 32                  /* tools/gen_games.py checks games.json against it */
 extern const np_game_t np_games[];
 extern const int np_game_count;
 

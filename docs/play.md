@@ -13,7 +13,7 @@ The last card, **Settings**, can:
 
 - **Reset** a game's progress, or every game's at once (it asks first; levels you made are kept)
 - **Uninstall** the games you don't play, to free up space
-- **Start as Matrices**: NumPlay opens as a plain matrix calculator. Your secret way in opens the games: pick the x,n,t key, var, Toolbox, π, √, or *Examples* in the Toolbox menu
+- **Start as Matrices**: NumPlay opens as a plain matrix calculator. Your secret way in opens the games: pick the x,n,t key, var, Toolbox, π, √, or *Examples* in the Toolbox menu. A small gray hint in the corner names it (turn it off with **Show a hint**)
 
 In every game, **Back** pauses, and the pause menu has a small **Quit game** button. It always asks first, since Back sits right next to OK.
 
@@ -89,5 +89,22 @@ Don't floor it the whole way: too much gas flips the car.
 | **⌫** | Undo |
 
 12 bots from 150 to 2100 Elo, endless puzzles, and a two-player clock.
+
+<br clear="right">
+
+## NumVisuals
+
+<img src="media/numvisuals.gif" width="320" align="right" alt="NumVisuals: picking a background, then a clock">
+
+| Key | What it does |
+| --- | --- |
+| **Left / Right** | Pick a background, then an add-on |
+| **OK** | Next step: backgrounds, add-ons, then full screen |
+| **Back** | One step back |
+| **OK** (clock, text) | Change the time or the words |
+| **OK / ⌫** (stopwatch, timer) | Start or stop / reset |
+| **OK, Up, +** / **Down, -** (counter) | Count up / down. **⌫** goes back to 0 |
+
+11 backgrounds and 5 add-ons: a clock, a stopwatch, a timer, a counter and your own text (press **Alpha** for letters). Everything is kept for next time.
 
 <br clear="right">

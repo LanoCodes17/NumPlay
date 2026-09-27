@@ -86,5 +86,22 @@
       "docs/italian.png"
     ],
     "repo": "https://github.com/Mason363/NumChess"
+  },
+  {
+    "id": "numvisuals",
+    "title": "NumVisuals",
+    "tagline": "Backgrounds, clocks, timers",
+    "credit": null,
+    "top": "0x7A2BFF",
+    "bottom": "0x1B0B3A",
+    "accent": "0xFF3E8A",
+    "records": [
+      "numvisuals.sav"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "colors": 64,
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/numvisuals"
   }
 ]

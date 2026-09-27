@@ -2,7 +2,7 @@
 
 | File | |
 | --- | --- |
-| **NumPlay.nwa** | All 5 games in one app. Start here! |
+| **NumPlay.nwa** | All 5 games and NumVisuals in one app. Start here! |
 | NumPlay-Invisible.nwa | The same app, hidden: a blank icon with no name |
 | NumPlay-Matrices.nwa | The same app, disguised as a math app called Matrices |
 | NumDash.nwa | Only NumDash: jump to the beat |
@@ -10,3 +10,4 @@
 | NumDrive.nwa | Only NumDrive: drive, flip, finish |
 | Tetris.nwa | Only Tetris: stack and clear lines |
 | NumChess.nwa | Only Chess: bots, puzzles, 2 players |
+| NumVisuals.nwa | Only NumVisuals: backgrounds, clocks, timers |

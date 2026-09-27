@@ -23,14 +23,16 @@ bool np_reset_game(int game) {
 void np_config_load(np_config_t *c) {
   c->disguise = false;
   c->secret = NP_SECRET_XNT;
+  c->hint = true;
   uint32_t len = 0;
   const uint8_t *d = ef_read(CONFIG_NAME, &len);
   if (!d || len != 4 || d[0] != CONFIG_MAGIC || d[1] != 1) return;
-  c->disguise = d[2] != 0;
+  c->disguise = d[2] & 1;
+  c->hint = !(d[2] & 2); /* a flag for "no hint": older files keep the hint on */
   if (d[3] < NP_SECRET_COUNT) c->secret = d[3];
 }
 
 bool np_config_save(const np_config_t *c) {
-  uint8_t d[4] = {CONFIG_MAGIC, 1, c->disguise, c->secret};
+  uint8_t d[4] = {CONFIG_MAGIC, 1, (uint8_t)(c->disguise | (c->hint ? 0 : 2)), c->secret};
   return ef_write(CONFIG_NAME, d, sizeof d);
 }

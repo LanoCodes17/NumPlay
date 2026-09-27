@@ -62,6 +62,7 @@ MOD_numdash = games/numdash/build/module.o
 MOD_crossyroad = games/crossyroad/output/module.o
 MOD_numdrive = games/numdrive/output/device/module.o
 MOD_chess = games/chess/output/module.o
+MOD_numvisuals = games/numvisuals/output/module.o
 MOD_tetris = $(B)/tetris/raw.o
 ENTRY = main
 ENTRY_tetris = np_tetris_main
@@ -127,18 +128,21 @@ APP_crossyroad = games/crossyroad/output/crossyroad.nwa:CrossyRoad.nwa
 APP_numdrive = games/numdrive/output/device/numdrive.nwa:NumDrive.nwa
 APP_chess = games/chess/output/chess.nwa:NumChess.nwa
 APP_tetris = games/tetris/tetris/target/thumbv7em-none-eabihf/release/tetris:Tetris.nwa
+APP_numvisuals = games/numvisuals/output/numvisuals.nwa:NumVisuals.nwa
 
 apps: | $(B)
 	$(MAKE) -C games/numdash build NWLINK="node node_modules/nwlink/bin/nwlink"
 	$(MAKE) -C games/crossyroad NWLINK="$(NWLINK)"
 	$(MAKE) -C games/numdrive NWLINK="$(NWLINK)"
 	$(MAKE) -C games/chess build NWLINK="$(NWLINK)"
+	$(MAKE) -C games/numvisuals build NWLINK="$(NWLINK)"
 	cd games/tetris/tetris && NWLINK="$(NWLINK)" $(CARGO) build --release --quiet
 	cp $(word 1,$(subst :, ,$(APP_numdash))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numdash)))
 	cp $(word 1,$(subst :, ,$(APP_crossyroad))) $(B)/apps/$(word 2,$(subst :, ,$(APP_crossyroad)))
 	cp $(word 1,$(subst :, ,$(APP_numdrive))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numdrive)))
 	cp $(word 1,$(subst :, ,$(APP_chess))) $(B)/apps/$(word 2,$(subst :, ,$(APP_chess)))
 	cp $(word 1,$(subst :, ,$(APP_tetris))) $(B)/apps/$(word 2,$(subst :, ,$(APP_tetris)))
+	cp $(word 1,$(subst :, ,$(APP_numvisuals))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numvisuals)))
 	arm-none-eabi-strip --strip-unneeded $(B)/apps/Tetris.nwa
 
 # ------------------------------------------------------------------ simulator
@@ -146,6 +150,7 @@ SIM_numdash = games/numdash/build/sim-module.o
 SIM_crossyroad = games/crossyroad/output/sim-module.o
 SIM_numdrive = games/numdrive/output/sim-module.o
 SIM_chess = games/chess/output/sim-module.o
+SIM_numvisuals = games/numvisuals/output/sim-module.o
 SIM_tetris = $(B)/sim/tetris.o
 SIM_CFLAGS = -std=gnu11 -O2 -fPIC -DNP_SIMULATOR=1 -DNP_VERSION='"$(VERSION)"' $(EADK_SIM_CFLAGS) -Ilauncher/src -Wall -Wno-unused-parameter
 
@@ -177,4 +182,5 @@ clean:
 	-$(MAKE) -C games/crossyroad clean
 	-$(MAKE) -C games/numdrive clean
 	-$(MAKE) -C games/chess clean
+	-$(MAKE) -C games/numvisuals clean
 	-cd games/tetris/tetris && $(CARGO) clean

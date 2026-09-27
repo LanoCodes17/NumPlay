@@ -80,6 +80,7 @@ enum { NP_SECRET_XNT, NP_SECRET_VAR, NP_SECRET_TOOLBOX, NP_SECRET_PI, NP_SECRET_
 typedef struct {
   bool disguise;  /* start as Matrices, a calculator app; NumPlay opens through the secret */
   uint8_t secret; /* NP_SECRET_* */
+  bool hint;      /* Matrices names the secret in light gray, bottom left */
 } np_config_t;
 void np_config_load(np_config_t *c);
 bool np_config_save(const np_config_t *c);

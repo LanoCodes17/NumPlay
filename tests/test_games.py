@@ -55,6 +55,11 @@ GAMES = {
                          (3500, "ok", 250)), 5500),
     "tetris": ("Tetris.nwa", "tetris.sav", presses((1200, "ok")) + every(2500, 7000, 500, "up"), 8000,
                presses((1200, "ok"), (2500, "ok")), 5000),
+    # add-ons, the Counter (5th), count to 2; next time it opens there: one more
+    "numvisuals": ("NumVisuals.nwa", "numvisuals.sav",
+                   presses((1500, "ok"), (2000, "right"), (2300, "right"), (2600, "right"), (2900, "right"),
+                           (3300, "ok"), (3700, "up"), (4000, "up")), 5000,
+                   presses((1500, "up")), 2500),
 }
 
 
@@ -68,6 +73,8 @@ SEEDS = {
 CHECKS = {
     "numdrive": (lambda v: v[27] == 1, lambda v: v[27] == 0),  # last played level
     "chess": (lambda v: v == SEEDS["chess"],) * 2,  # read back and kept
+    "numvisuals": (lambda v: v[:2] == b"V\1" and v[3] == 4 and struct.unpack_from("<i", v, 8)[0] == 2,
+                   lambda v: struct.unpack_from("<i", v, 8)[0] == 3),  # the add-on and its count
 }
 
 

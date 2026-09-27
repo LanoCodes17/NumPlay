@@ -29,7 +29,7 @@ static char *fmt_kb(char *out, uint32_t bytes) {
 }
 
 /* ---------------------------------------------------------------- list */
-enum { ROW_GAME, ROW_RESET_ALL, ROW_DISGUISE, ROW_SECRET };
+enum { ROW_GAME, ROW_RESET_ALL, ROW_DISGUISE, ROW_SECRET, ROW_HINT };
 typedef struct {
   int n, sel, top, action; /* action: on a game, 0 Reset, 1 Uninstall */
   int8_t kind[20], game[20];
@@ -48,6 +48,7 @@ static void build_rows(list_t *l) {
   l->kind[l->n++] = ROW_RESET_ALL;
   l->kind[l->n++] = ROW_DISGUISE;
   l->kind[l->n++] = ROW_SECRET;
+  l->kind[l->n++] = ROW_HINT;
   l->sel = NP_MIN(l->sel, l->n - 1);
 }
 
@@ -74,6 +75,12 @@ static void pill(int x, int y, int w, const char *label, bool on, uint32_t color
 static void row_text(int y, const char *title, const char *sub, int a) {
   gfx_text(&np_font_body, 18, y + 15, title, 0xFFFF, a);
   gfx_text(&np_font_small, 18, y + 28, sub, 0xFFFF, a * 150 / 256);
+}
+
+static void toggle(int y, bool on, int a) {
+  int tx = SCREEN_W - 58, ty = y + 8;
+  gfx_rrect(tx, ty, 38, 18, 9, on ? gfx_rgb(OK_GREEN) : 0xFFFF, (on ? 256 : 70) * a / 256);
+  gfx_circle(on ? tx + 29 : tx + 9, ty + 9, 7, 0xFFFF, a);
 }
 
 static void list_scene(void *ctx) {
@@ -128,11 +135,14 @@ static void list_scene(void *ctx) {
         row_text(y, "Reset all games", "Deletes the progress of every game", 256);
         if (on) pill(SCREEN_W - 76, y + 7, 58, "Reset", true, ACCENT);
         break;
-      case ROW_DISGUISE: {
+      case ROW_DISGUISE:
         row_text(y, "Start as Matrices", "A math app first; NumPlay opens in secret", 256);
-        int tx = SCREEN_W - 58, ty = y + 8;
-        gfx_rrect(tx, ty, 38, 18, 9, l->cfg.disguise ? gfx_rgb(OK_GREEN) : 0xFFFF, l->cfg.disguise ? 256 : 70);
-        gfx_circle(l->cfg.disguise ? tx + 29 : tx + 9, ty + 9, 7, 0xFFFF, 256);
+        toggle(y, l->cfg.disguise, 256);
+        break;
+      case ROW_HINT: {
+        int a = l->cfg.disguise ? 256 : 130;
+        row_text(y, "Show a hint", "Matrices names the secret, small and gray", a);
+        toggle(y, l->cfg.hint, a);
         break;
       }
       case ROW_SECRET: {
@@ -398,8 +408,9 @@ void np_settings(void) {
       l.cfg.secret = (uint8_t)((l.cfg.secret + ((p & K_LEFT) ? NP_SECRET_COUNT - 1 : 1)) % NP_SECRET_COUNT);
       np_config_save(&l.cfg);
     }
-    if (kind == ROW_DISGUISE && (p & (K_OK | K_LEFT | K_RIGHT))) {
-      l.cfg.disguise = !l.cfg.disguise;
+    if ((kind == ROW_DISGUISE || kind == ROW_HINT) && (p & (K_OK | K_LEFT | K_RIGHT))) {
+      if (kind == ROW_DISGUISE) l.cfg.disguise = !l.cfg.disguise;
+      else l.cfg.hint = !l.cfg.hint;
       np_config_save(&l.cfg);
     }
     bool go = (p & K_OK) || (kind == ROW_GAME && (p & K_BACKSPACE));

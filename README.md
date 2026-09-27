@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>5 free games for your NumWorks calculator, in one app.</b><br>
-  NumDash, Crossy Road, NumDrive, Tetris and Chess.
+  NumDash, Crossy Road, NumDrive, Tetris and Chess, plus NumVisuals: moving backgrounds with a clock, a timer and more.
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@ Click a file to download it. Not sure which one? Take the first.
 <table>
   <tr>
     <td width="120" align="center"><img src="docs/media/icon.png" width="64" alt="NumPlay icon"></td>
-    <td><b><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay.nwa">NumPlay.nwa</a></b><br><b>All 5 games in one app. Start here!</b></td>
+    <td><b><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay.nwa">NumPlay.nwa</a></b><br><b>All 5 games and NumVisuals in one app. Start here!</b></td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/icon-invisible.png" width="64" alt="A blank white icon"></td>
@@ -65,6 +65,10 @@ Click a file to download it. Not sure which one? Take the first.
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_chess.png" width="112" alt="Chess"></td>
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumChess.nwa">NumChess.nwa</a><br>Only Chess: bots, puzzles, 2 players</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_numvisuals.png" width="112" alt="NumVisuals"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumVisuals.nwa">NumVisuals.nwa</a><br>Only NumVisuals: backgrounds, clocks, timers</td>
   </tr>
 </table>
 
@@ -100,6 +104,10 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
   <tr>
     <td><img src="docs/media/chess.gif" alt="Chess against a bot"></td>
     <td><img src="docs/media/uninstall.gif" alt="Uninstalling a game from NumPlay's settings to free up space"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/numvisuals.gif" alt="NumVisuals: picking a background, then a clock"></td>
+    <td></td>
   </tr>
 </table>
 

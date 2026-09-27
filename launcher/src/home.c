@@ -38,7 +38,7 @@ static uint32_t item_color(int game, int which) {
 }
 
 static const char *item_title(int game) { return game < 0 ? "Settings" : np_games[game].title; }
-static const char *item_tagline(int game) { return game < 0 ? "Uninstall games" : np_games[game].tagline; }
+static const char *item_tagline(int game) { return game < 0 ? "Reset, uninstall, more" : np_games[game].tagline; }
 
 static float absf(float v) { return v < 0 ? -v : v; }
 

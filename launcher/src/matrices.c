@@ -27,6 +27,9 @@ enum {
 };
 static const int8_t digit_keys[10] = {48, 42, 43, 44, 36, 37, 38, 30, 31, 32};
 static const uint8_t secret_keys[NP_SECRET_COUNT] = {KEY_XNT, KEY_VAR, KEY_TOOLBOX, KEY_PI, KEY_SQRT, 255};
+/* the hint, if Settings keeps it: the secret's name, bottom left in light gray */
+static const char *const secret_hints[NP_SECRET_COUNT] = {"x,n,t", "var", "Toolbox", "\xCF\x80", "\xE2\x88\x9A", "Examples"};
+static const char *hint;
 
 static struct {
   int n, tab, row, col; /* row -1: the dimension line */
@@ -295,6 +298,7 @@ static void redraw(void) {
   tabs();
   if (M.tab == 0) matrix_tab();
   else results_tab();
+  if (hint) text(hint, 4, SCREEN_H - 16, false, M.tab ? C_LINE : RGB(0xC6, 0xC7, 0xD2), M.tab ? C_WHITE : C_BG);
   if (M.menu >= 0) menu_draw();
 }
 
@@ -315,6 +319,7 @@ bool np_matrices(const np_config_t *cfg) {
   M.n = 3;
   M.menu = -1;
   for (int i = 0; i < MAXN; i++) M.a[i][i] = 1;
+  hint = cfg->hint ? secret_hints[cfg->secret] : NULL;
   status_bar();
   redraw();
   uint64_t prev = eadk_keyboard_scan();

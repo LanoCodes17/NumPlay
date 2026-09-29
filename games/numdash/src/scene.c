@@ -89,7 +89,11 @@ typedef struct {
   int16_t angle;         /* extra clockwise rotation, 1/16 degree */
   uint8_t xf;
   uint8_t ct, detail;    /* palette entries: the colour (a program's base colour) and a program's detail colour */
-  uint8_t alpha, layer, kind;
+  uint8_t alpha, kind;
+  union {
+    uint8_t layer;       /* the drawing order, until sorted */
+    uint8_t strips;      /* then the strips it can touch: first | last << 4 */
+  };
 } Item;
 /* sprite at a whole pixel; rotated / scaled sprite; four mirrored quarters
    of a round object; a block drawn from rectangles; the player. K_ADD:
@@ -130,8 +134,9 @@ static int fade_at(const Level *L, float x) {
 
 static void push(float sx, float sy, int spr, int xf, int ct, int detail, int alpha, int layer, int kind, int scale, int angle16) {
   if (nitems >= MAX_ITEMS || spr < 0 || sx < -2000 || sx > 2000 || sy < -2000 || sy > 2000) return;
-  items[nitems++] = (Item){(int16_t)floorf(sx * 4 + .5f), (int16_t)floorf(sy * 4 + .5f), (uint16_t)spr, (uint16_t)scale, (int16_t)angle16,
-                           (uint8_t)xf, (uint8_t)ct, (uint8_t)detail, (uint8_t)(alpha > 255 ? 255 : alpha), (uint8_t)layer, (uint8_t)kind};
+  items[nitems++] = (Item){.x = (int16_t)floorf(sx * 4 + .5f), .y = (int16_t)floorf(sy * 4 + .5f), .spr = (uint16_t)spr, .scale = (uint16_t)scale,
+                           .angle = (int16_t)angle16, .xf = (uint8_t)xf, .ct = (uint8_t)ct, .detail = (uint8_t)detail,
+                           .alpha = (uint8_t)(alpha > 255 ? 255 : alpha), .kind = (uint8_t)kind, .layer = (uint8_t)layer};
 }
 
 /* ------------------------------------------------------------ palette */
@@ -296,6 +301,142 @@ static void part_offset(int xf, float dx, float dy, float *ox, float *oy) {
   }
 }
 
+/* ------------------------------------------------------------ programs */
+
+/* Tile programs: rectangles, alpha ramps and convex polygons in half units
+   around the item's anchor (2 units with TOP_BIG), y up, turned, flipped and
+   scaled like the object. */
+typedef struct { float cx, cy, m00, m01, m10, m11; bool aligned; } ProgXf;
+typedef struct { int op, n, ct; unsigned a0, a1; float q[16]; } ProgOp;
+
+/* A program is left out of strips beyond 60 units from its anchor. */
+static bool prog_culled(const Item *it, int y0, int y1) {
+  float cy = it->y * 0.25f, s = PX * 0.5f * it->scale / 256;
+  return cy + 60 * s * 2 < y0 || cy - 60 * s * 2 > y1;
+}
+
+/* screen = centre + M * local (clockwise turn, y up locally, y down on screen) */
+static void prog_xform(const Item *it, ProgXf *m) {
+  float s = PX * 0.5f * it->scale / 256;
+  m->cx = it->x * 0.25f;
+  m->cy = it->y * 0.25f;
+  float a = ((it->xf & 3) * 90 + it->angle / 16.f) * (3.14159265f / 180), ca = cosf(a), sa = sinf(a);
+  if (fabsf(ca) < 1e-4f) ca = 0;
+  if (fabsf(sa) < 1e-4f) sa = 0;
+  float fx = (it->xf & XF_FLIPX) ? -s : s, fy = (it->xf & XF_FLIPY) ? -s : s;
+  m->m00 = ca * fx;
+  m->m01 = sa * fy;
+  m->m10 = sa * fx;
+  m->m11 = -ca * fy;
+  m->aligned = ca == 0 || sa == 0;
+}
+
+/* Decodes the op at p (not the end mark), returns the next one. */
+static const uint8_t *prog_op(const uint8_t *p, ProgOp *o) {
+  o->op = p[0] & 0x7f;
+  float k4 = (p[0] & TOP_BIG) ? 4 : 1;
+  o->n = 4;
+  if (o->op == TOP_POLY) {
+    o->n = p[1];
+    for (int k = 0; k < o->n * 2; k++) o->q[k] = (int8_t)p[2 + k] * k4;
+    p += 2 + o->n * 2;
+    o->ct = p[0];
+    o->a0 = o->a1 = p[1];
+    return p + 2;
+  }
+  for (int k = 0; k < 4; k++) o->q[k] = (int8_t)p[1 + k] * k4;
+  o->ct = p[5];
+  o->a0 = p[6];
+  o->a1 = o->op == TOP_VGRAD ? p[7] : o->a0;
+  return p + (o->op == TOP_VGRAD ? 8 : 7);
+}
+
+/* Screen rows around an op's shapes: its corners, with three rows to spare
+   (the drawing adds at most one, and the ramp's bands round). */
+static void prog_op_rows(const ProgXf *m, const ProgOp *o, float *lo, float *hi) {
+  float mn = 1e9f, mx = -1e9f;
+  int n = o->op == TOP_POLY ? o->n : 4;
+  for (int k = 0; k < n; k++) {
+    float lx = o->op == TOP_POLY ? o->q[2 * k] : o->q[(k & 1) ? 2 : 0];
+    float ly = o->op == TOP_POLY ? o->q[2 * k + 1] : o->q[(k & 2) ? 3 : 1];
+    float y = m->cy + m->m10 * lx + m->m11 * ly;
+    if (y < mn) mn = y;
+    if (y > mx) mx = y;
+  }
+  *lo = mn - 3;
+  *hi = mx + 3;
+}
+
+/* The palette entry of an op's colour; takes a shade slot the first time. */
+static int prog_pal(const Item *it, int ct) {
+  int e = part_pal(ct, it->ct, it->detail, true);
+  if (ct == CT_OBJ || ct == CT_P1ADD || ct == CT_P2ADD || ct == CT_LBG) e = it->ct;
+  return e;
+}
+
+/* ------------------------------------------------------------ per frame */
+
+/* First | last << 4 for the strips holding rows [r0, r1). */
+static uint8_t strip_range(int r0, int r1) {
+  if (r0 < 0) r0 = 0;
+  if (r1 > GFX_H) r1 = GFX_H;
+  if (r0 >= r1) return 0x0f;   /* none */
+  return (uint8_t)(r0 / STRIP_H | (r1 - 1) / STRIP_H << 4);
+}
+_Static_assert(STRIPS <= 15, "strip numbers are kept in 4 bits");
+
+/* Once per frame, after sorting: the strips each item can touch (drawing
+   clips to the strip anyway, so this only skips calls that would draw
+   nothing), and the shades the tile programs take. Drawing takes a shade
+   (pal_dyn) the first time a strip reaches its program and the slots can
+   run out, so they are taken here in that order: strip by strip, in
+   drawing order. */
+static void prepare_items(void) {
+  uint8_t first[MAX_ITEMS];   /* the first strip that reaches a program */
+  uint16_t count[STRIPS + 1] = {0};
+  for (int k = 0; k < nitems; k++) {
+    Item *it = &items[order[k]];
+    int kind = it->kind & 0x7f, r0 = 0, r1 = GFX_H;
+    first[k] = STRIPS;
+    if (kind == K_PROG) {
+      for (int s = 0; s < STRIPS; s++)
+        if (!prog_culled(it, s * STRIP_H, s * STRIP_H + STRIP_H)) { first[k] = (uint8_t)s; break; }
+      ProgXf m;
+      prog_xform(it, &m);
+      float lo = 1e9f, hi = -1e9f;
+      for (const uint8_t *p = tile_prog_data + tile_prog_off[it->spr]; *p;) {
+        ProgOp o;
+        float a, b;
+        p = prog_op(p, &o);
+        prog_op_rows(&m, &o, &a, &b);
+        if (a < lo) lo = a;
+        if (b > hi) hi = b;
+      }
+      if (!(lo >= -1000)) lo = -1000;   /* (NaN too) */
+      if (!(hi <= 1000)) hi = 1000;
+      r0 = (int)floorf(lo);
+      r1 = (int)ceilf(hi) + 1;
+    } else if (kind == K_SPRITE) {
+      gfx_sprite_rows(it->spr, (it->y + 2) >> 2, it->xf, &r0, &r1);
+    } else if (kind != K_PLAYER) {
+      gfx_sprite_ex_rows(it->spr, it->x * 4, it->y * 4, (it->xf & 3) * 90 * 16 + it->angle, it->scale, &r0, &r1);
+    }
+    count[first[k]]++;
+    it->strips = strip_range(r0, r1);
+  }
+  for (int s = 0; s < STRIPS; s++)
+    for (int k = 0, left = count[s]; k < nitems && left; k++) {
+      if (first[k] != s) continue;
+      left--;
+      const Item *it = &items[order[k]];
+      for (const uint8_t *p = tile_prog_data + tile_prog_off[it->spr]; *p;) {
+        ProgOp o;
+        p = prog_op(p, &o);
+        prog_pal(it, o.ct);
+      }
+    }
+}
+
 void scene_prepare(const Game *g, const SceneOpts *o) {
   G = g;
   O = *o;
@@ -457,6 +598,7 @@ void scene_prepare(const Game *g, const SceneOpts *o) {
   if (frame) { ground_top = GFX_H + 1; draw_gfx_grounds = false; }   /* no ground in a turned frame */
   floor_bottom = (int)floorf(240 - g->ground_gfx * PX + .5f);
   ceil_bottom = (int)floorf(g->ground_gfx * PX + .5f);
+  prepare_items();
 }
 
 /* Colour of a palette entry. */
@@ -543,50 +685,31 @@ void scene_draw_player_icon(int mode, float cx, float cy, float rot, float scale
   gfx_sprite_ex(ball ? SPR_BALL1_P : SPR_CUBE1_P, x16, y16, a16, (int)(256 * scale), 0, p1, alpha, BLEND_NORMAL);
 }
 
-/* Tile program: rectangles, alpha ramps and convex polygons in half units
-   around the item's anchor (2 units with TOP_BIG), y up, turned, flipped and
-   scaled like the object. Colour types BASE and DETAIL are the object's. */
+/* Draws the ops of a tile program that reach the current strip. Colour
+   types BASE and DETAIL are the object's. */
 static void draw_prog(const Item *it) {
-  const uint8_t *p = tile_prog_data + tile_prog_off[it->spr];
-  float cx = it->x * 0.25f, cy = it->y * 0.25f, s = PX * 0.5f * it->scale / 256;
-  if (cy + 60 * s * 2 < gfx_y0 || cy - 60 * s * 2 > gfx_y1) return;
-  float a = ((it->xf & 3) * 90 + it->angle / 16.f) * (3.14159265f / 180), ca = cosf(a), sa = sinf(a);
-  if (fabsf(ca) < 1e-4f) ca = 0;
-  if (fabsf(sa) < 1e-4f) sa = 0;
-  float fx = (it->xf & XF_FLIPX) ? -s : s, fy = (it->xf & XF_FLIPY) ? -s : s;
-  /* screen = centre + M * local (clockwise turn, y up locally, y down on screen) */
-  float m00 = ca * fx, m01 = sa * fy, m10 = sa * fx, m11 = -ca * fy;
-  bool aligned = ca == 0 || sa == 0;
+  if (prog_culled(it, gfx_y0, gfx_y1)) return;
+  ProgXf m;
+  prog_xform(it, &m);
+  const float cx = m.cx, cy = m.cy, m00 = m.m00, m01 = m.m01, m10 = m.m10, m11 = m.m11;
   bool add = (it->kind & K_ADD) != 0;
-  while (*p) {
-    int op = p[0] & 0x7f;
-    float k4 = (p[0] & TOP_BIG) ? 4 : 1;
-    int ct, n = 4;
-    unsigned a0, a1;
-    float q[16];
-    if (op == TOP_POLY) {
-      n = p[1];
-      for (int k = 0; k < n * 2; k++) q[k] = (int8_t)p[2 + k] * k4;
-      p += 2 + n * 2;
-      ct = p[0];
-      a0 = a1 = p[1];
-      p += 2;
-    } else {
-      for (int k = 0; k < 4; k++) q[k] = (int8_t)p[1 + k] * k4;
-      ct = p[5];
-      a0 = p[6];
-      a1 = op == TOP_VGRAD ? p[7] : a0;
-      p += op == TOP_VGRAD ? 8 : 7;
-    }
-    int e = part_pal(ct, it->ct, it->detail, true);
-    if (ct == CT_OBJ || ct == CT_P1ADD || ct == CT_P2ADD || ct == CT_LBG) e = it->ct;
+  for (const uint8_t *p = tile_prog_data + tile_prog_off[it->spr]; *p;) {
+    ProgOp o;
+    p = prog_op(p, &o);
+    float lo, hi;
+    prog_op_rows(&m, &o, &lo, &hi);
+    if (hi < gfx_y0 || lo > gfx_y1) continue;   /* its shade was taken in prepare_items */
+    const float *q = o.q;
+    int ct = o.ct, n = o.n;
+    unsigned a0 = o.a0, a1 = o.a1;
+    int e = prog_pal(it, ct);
     color_t c;
     int mode;
     unsigned pa;
     pal_for(e, add || ct == CT_GLOW, &c, &mode, &pa);
     unsigned al = (it->alpha + 1) * pa / 255;
     if (!al) continue;
-    if (op == TOP_POLY) {
+    if (o.op == TOP_POLY) {
       float xy[16];
       for (int k = 0; k < n; k++) {
         xy[2 * k] = cx + m00 * q[2 * k] + m01 * q[2 * k + 1];
@@ -605,7 +728,7 @@ static void draw_prog(const Item *it) {
         xy[2 * k] = cx + m00 * lx[k] + m01 * ly[k];
         xy[2 * k + 1] = cy + m10 * lx[k] + m11 * ly[k];
       }
-      if (aligned) {
+      if (m.aligned) {
         float x0 = fminf(fminf(xy[0], xy[2]), xy[4]), x1 = fmaxf(fmaxf(xy[0], xy[2]), xy[4]);
         float y0 = fminf(fminf(xy[1], xy[3]), xy[5]), y1 = fmaxf(fmaxf(xy[1], xy[3]), xy[5]);
         gfx_rectf(x0, y0, x1, y1, c, ab * al >> 8, mode);
@@ -708,8 +831,11 @@ void scene_draw(void) {
   if (!G) return;
   scene_background(bg_col, G->bg_x, G->cam_y);
   if (O.editor) draw_grid();
+  /* the strip's number, when it is one of the frame's strips */
+  int strip = gfx_y1 - gfx_y0 == STRIP_H && gfx_y0 % STRIP_H == 0 ? gfx_y0 / STRIP_H : -1;
   for (int k = 0; k < nitems; k++) {
     const Item *it = &items[order[k]];
+    if (strip >= 0 && (strip < (it->strips & 15) || strip > it->strips >> 4)) continue;
     int kind = it->kind & 0x7f;
     if (kind == K_PLAYER) { draw_player(); continue; }
     if (kind == K_PROG) { draw_prog(it); continue; }

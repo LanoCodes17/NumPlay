@@ -13,7 +13,7 @@ void gfx_clip(int x0, int y0, int x1, int y1) {
 }
 void gfx_unclip(void) { clip_x0 = 0; clip_y0 = 0; clip_x1 = GFX_W; clip_y1 = GFX_H; }
 
-static bool clip_rect(int *x, int *y, int *w, int *h) {
+static inline bool clip_rect(int *x, int *y, int *w, int *h) {
   int x0 = *x, y0 = *y, x1 = *x + *w, y1 = *y + *h;
   int cy0 = clip_y0 > gfx_y0 ? clip_y0 : gfx_y0, cy1 = clip_y1 < gfx_y1 ? clip_y1 : gfx_y1;
   if (x0 < clip_x0) x0 = clip_x0;
@@ -26,6 +26,24 @@ static bool clip_rect(int *x, int *y, int *w, int *h) {
 }
 static inline uint16_t *pix(int x, int y) { return gfx_strip + (y - gfx_y0) * GFX_W + x; }
 static inline unsigned a32_of(unsigned a256) { return a256 >= 256 ? 32 : (a256 + 4) >> 3; }
+/* Sets n pixels from p to c, two per store once aligned. */
+typedef uint32_t __attribute__((may_alias)) u32_alias;
+static inline void fill_span(uint16_t *p, int n, color_t c) {
+  if (n <= 0) return;
+  if ((uintptr_t)p & 2) { *p++ = c; n--; }
+  uint32_t cc = c | (uint32_t)c << 16;
+  u32_alias *q = (u32_alias *)p;
+  int m = n >> 1;
+  for (; m >= 4; m -= 4, q += 4) { q[0] = cc; q[1] = cc; q[2] = cc; q[3] = cc; }
+  for (; m > 0; m--) *q++ = cc;
+  if (n & 1) *(uint16_t *)q = c;
+}
+/* n pixels blended normally with c at a32 (0..32), as put() does. */
+static inline void mix_span(uint16_t *p, int n, color_t c, unsigned a32) {
+  if (!a32) return;
+  if (a32 >= 32) { fill_span(p, n, c); return; }
+  for (int i = 0; i < n; i++) p[i] = px_mix(p[i], c, a32);
+}
 
 color_t c_mix(color_t a, color_t b, unsigned t) {
   if (t >= 256) return b;
@@ -61,10 +79,7 @@ color_t c_hsv_lighten(color_t c, int sat_delta, int val_delta) {
 
 void gfx_fill(int x, int y, int w, int h, color_t c) {
   if (!clip_rect(&x, &y, &w, &h)) return;
-  for (int j = y; j < y + h; j++) {
-    uint16_t *p = pix(x, j);
-    for (int i = 0; i < w; i++) p[i] = c;
-  }
+  for (int j = y; j < y + h; j++) fill_span(pix(x, j), w, c);
 }
 void gfx_blend(int x, int y, int w, int h, color_t c, unsigned alpha) {
   unsigned a = a32_of(alpha);
@@ -89,8 +104,7 @@ void gfx_vgrad(int x, int y, int w, int h, color_t top, color_t bottom) {
   if (h0 <= 0 || !clip_rect(&x, &y, &w, &h)) return;
   for (int j = y; j < y + h; j++) {
     color_t c = c_mix(top, bottom, h0 > 1 ? (unsigned)((j - y0) * 256 / (h0 - 1)) : 0);
-    uint16_t *p = pix(x, j);
-    for (int i = 0; i < w; i++) p[i] = c;
+    fill_span(pix(x, j), w, c);
   }
   (void)x0; (void)w0;
 }
@@ -108,13 +122,18 @@ void gfx_vgrad_alpha(int x, int y, int w, int h, color_t c, unsigned at, unsigne
 void gfx_hgrad_alpha(int x, int y, int w, int h, color_t c, unsigned al, unsigned ar, int mode) {
   int x0 = x, w0 = w;
   if (w0 <= 0 || !clip_rect(&x, &y, &w, &h)) return;
+  /* the alpha of a column is the same on every row */
+  uint8_t acol[GFX_W];
+  for (int i = 0; i < w; i++) {
+    int k = x + i - x0;
+    acol[i] = (uint8_t)a32_of(w0 > 1 ? (al * (unsigned)(w0 - 1 - k) + ar * (unsigned)k) / (unsigned)(w0 - 1) : al);
+  }
   for (int j = y; j < y + h; j++) {
     uint16_t *p = pix(x, j);
-    for (int i = 0; i < w; i++) {
-      int k = x + i - x0;
-      unsigned a = a32_of(w0 > 1 ? (al * (unsigned)(w0 - 1 - k) + ar * (unsigned)k) / (unsigned)(w0 - 1) : al);
-      if (!a) continue;
-      p[i] = mode == BLEND_ADD ? px_add(p[i], c, a) : px_mix(p[i], c, a);
+    if (mode == BLEND_ADD) {
+      for (int i = 0; i < w; i++) if (acol[i]) p[i] = px_add(p[i], c, acol[i]);
+    } else {
+      for (int i = 0; i < w; i++) if (acol[i]) p[i] = px_mix(p[i], c, acol[i]);
     }
   }
 }
@@ -202,9 +221,11 @@ void gfx_ring(int cx16, int cy16, int r16, int t16, color_t c, unsigned alpha, i
 void gfx_round_rect(int x, int y, int w, int h, int r, color_t c, unsigned alpha) {
   int x0 = x, y0 = y, w0 = w, h0 = h;
   if (!clip_rect(&x, &y, &w, &h)) return;
+  const unsigned full = a32_of(alpha);
   for (int j = y; j < y + h; j++) {
     uint16_t *p = pix(x, j);
     int ry = j - y0 < r ? r - (j - y0) : (j - y0 >= h0 - r ? (j - y0) - (h0 - r - 1) : 0);
+    if (!ry) { mix_span(p, w, c, full); continue; }   /* no corner on this row */
     for (int i = 0; i < w; i++) {
       int k = x + i - x0;
       int rx = k < r ? r - k : (k >= w0 - r ? k - (w0 - r - 1) : 0);
@@ -237,7 +258,7 @@ void gfx_rectf(float x0, float y0, float x1, float y1, color_t c, unsigned alpha
     if (ix0 >= x && ix0 < x + w && lcov > 0 && ix0 < (int)ceilf(x0)) put(p + ix0, c, a32_of((unsigned)(lcov * ra)), mode);
     if (fx1 >= x && fx1 < x + w && rcov > 0 && fx1 >= fx0) put(p + fx1, c, a32_of((unsigned)(rcov * ra)), mode);
     if (!a) continue;
-    if (mode == BLEND_NORMAL && a >= 32) for (int i = fx0; i < fx1; i++) p[i] = c;
+    if (mode == BLEND_NORMAL && a >= 32) fill_span(p + fx0, fx1 - fx0, c);
     else if (mode == BLEND_ADD) for (int i = fx0; i < fx1; i++) p[i] = px_add(p[i], c, a);
     else for (int i = fx0; i < fx1; i++) p[i] = px_mix(p[i], c, a);
   }
@@ -317,18 +338,33 @@ static inline unsigned sample(const Sampler *sm, int u, int v, uint16_t *c) {
 int gfx_sprite_w(int spr, int xf) { return (xf & 1) ? sprite_def(spr)->h : sprite_def(spr)->w; }
 int gfx_sprite_h(int spr, int xf) { return (xf & 1) ? sprite_def(spr)->w : sprite_def(spr)->h; }
 
+/* Where gfx_sprite puts a sprite: the anchor's offset in the turned image,
+   and the turned image's size. */
+static void sprite_place(const Sprite *s, int xf, int *tax, int *tay, int *dw, int *dh) {
+  int w = s->w, h = s->h, rot = xf & XF_ROT;
+  int ax = (xf & XF_FLIPX) ? w - s->ax : s->ax, ay = (xf & XF_FLIPY) ? h - s->ay : s->ay;
+  *dw = w;
+  *dh = h;
+  switch (rot) {
+    case 1: *tax = h - ay; *tay = ax; *dw = h; *dh = w; break;
+    case 2: *tax = w - ax; *tay = h - ay; break;
+    case 3: *tax = ay; *tay = w - ax; *dw = h; *dh = w; break;
+    default: *tax = ax; *tay = ay; break;
+  }
+}
+void gfx_sprite_rows(int spr, int y, int xf, int *y0, int *y1) {
+  int tax, tay, dw, dh;
+  sprite_place(sprite_def(spr), xf, &tax, &tay, &dw, &dh);
+  *y0 = y - tay;
+  *y1 = y - tay + dh;
+}
+
 void gfx_sprite(int spr, int x, int y, int xf, color_t tint, unsigned alpha, int mode) {
   if (spr < 0 || !alpha) return;
   const Sprite *s = sprite_def(spr);
   int w = s->w, h = s->h, rot = xf & XF_ROT;
-  int ax = (xf & XF_FLIPX) ? w - s->ax : s->ax, ay = (xf & XF_FLIPY) ? h - s->ay : s->ay;
-  int tax, tay, dw = w, dh = h;
-  switch (rot) {
-    case 1: tax = h - ay; tay = ax; dw = h; dh = w; break;
-    case 2: tax = w - ax; tay = h - ay; break;
-    case 3: tax = ay; tay = w - ax; dw = h; dh = w; break;
-    default: tax = ax; tay = ay; break;
-  }
+  int tax, tay, dw, dh;
+  sprite_place(s, xf, &tax, &tay, &dw, &dh);
   int dx0 = x - tax, dy0 = y - tay, cx = dx0, cy = dy0, cw = dw, ch = dh;
   if (!clip_rect(&cx, &cy, &cw, &ch)) return;
   Sampler sm;
@@ -353,12 +389,85 @@ void gfx_sprite(int spr, int x, int y, int xf, color_t tint, unsigned alpha, int
   }
 }
 
+/* One row of gfx_sprite_ex: n pixels from p, source position (u, v) in 16.16
+   stepped by (sdu, sdv). Inlined for each format and blending mode. */
+static inline __attribute__((always_inline)) void ex_span(uint16_t *p, int n, int32_t u, int32_t v, const int32_t sdu, const int32_t sdv,
+                                                          const Sampler *sm, const int W, const int H, const unsigned al,
+                                                          const int fmt, const int mode) {
+  const uint8_t *data = sm->data;
+  const int stride = sm->stride;
+  for (; n > 0; n--, p++, u += sdu, v += sdv) {
+    int32_t uu = u + 65536, vv = v + 65536;          /* offset so that -1 < u maps to >= 0 */
+    if (uu < 0 || vv < 0) continue;
+    int ui = (uu >> 16) - 1, vi = (vv >> 16) - 1;
+    unsigned fu = (unsigned)(uu >> 8) & 255, fv = (unsigned)(vv >> 8) & 255;
+    unsigned i0, i1, i2, i3;   /* texels (u, v), (u+1, v), (u, v+1), (u+1, v+1) */
+    if (ui >= 0 && vi >= 0 && ui + 1 < W && vi + 1 < H) {
+      if (fmt == 1) {
+        const uint8_t *r0 = data + vi * stride + ui, *r1 = r0 + stride;
+        i0 = r0[0]; i1 = r0[1]; i2 = r1[0]; i3 = r1[1];
+      } else {
+        const uint8_t *r0 = data + vi * stride + (ui >> 1), *r1 = r0 + stride;
+        if (ui & 1) {
+          i0 = r0[0] >> 4; i1 = r0[1] & 15u; i2 = r1[0] >> 4; i3 = r1[1] & 15u;
+        } else {
+          unsigned b0 = r0[0], b1 = r1[0];
+          i0 = b0 & 15; i1 = b0 >> 4; i2 = b1 & 15; i3 = b1 >> 4;
+        }
+      }
+    } else {
+      unsigned idx[4];
+      for (int k = 0; k < 4; k++) {
+        int x = ui + (k & 1), y = vi + (k >> 1);
+        if (x < 0 || y < 0 || x >= W || y >= H) { idx[k] = 0; continue; }
+        const uint8_t *row = data + y * stride;
+        idx[k] = fmt == 1 ? row[x] : (unsigned)((row[x >> 1] >> ((x & 1) * 4)) & 15);
+      }
+      i0 = idx[0]; i1 = idx[1]; i2 = idx[2]; i3 = idx[3];
+    }
+    if (i0 == i1 && i0 == i2 && i0 == i3) {
+      /* uniform neighbourhood: no filtering needed */
+      unsigned a = fmt == 1 ? sm->a32[i0 & 15] : sm->a32[i0];
+      if (!a) continue;
+      color_t c = fmt == 1 ? sm->col[i0 >> 4] : sm->col[i0];
+      put(p, c, (a * al + 128) >> 8, mode);
+      continue;
+    }
+    unsigned w00 = (256 - fu) * (256 - fv) >> 8, w10 = fu * (256 - fv) >> 8, w01 = (256 - fu) * fv >> 8, w11 = fu * fv >> 8;
+    if (fmt == 0) {
+      /* A4: one colour, only coverage is filtered */
+      unsigned ta = sm->a32[i0] * w00 + sm->a32[i1] * w10 + sm->a32[i2] * w01 + sm->a32[i3] * w11;
+      if (ta < 128) continue;
+      unsigned a32 = (ta * al + 32768) >> 16;
+      put(p, sm->col[0], a32 > 32 ? 32 : a32, mode);
+      continue;
+    }
+    const unsigned ix[4] = {i0, i1, i2, i3}, wt[4] = {w00, w10, w01, w11};
+    unsigned ta = 0, tr = 0, tg = 0, tb = 0;
+    for (int k = 0; k < 4; k++) {
+      unsigned a, cc;
+      if (fmt == 1) { a = sm->a32[ix[k] & 15]; cc = sm->col[ix[k] >> 4]; } else { a = sm->a32[ix[k]]; cc = sm->col[ix[k]]; }
+      a *= wt[k];
+      if (!a) continue;
+      ta += a;
+      tr += ((cc >> 11) & 31) * a;
+      tg += ((cc >> 5) & 63) * a;
+      tb += (cc & 31) * a;
+    }
+    if (ta < 128) continue;
+    color_t c = (color_t)(((tr / ta) << 11) | ((tg / ta) << 5) | (tb / ta));
+    unsigned a32 = (ta * al + 32768) >> 16;
+    put(p, c, a32 > 32 ? 32 : a32, mode);
+  }
+}
+
 /* Rotated / scaled sprite with bilinear filtering. The inverse transform is
  * stepped in 16.16 fixed point; each row is clipped to the span where the
  * sample falls inside the texture. */
-void gfx_sprite_ex(int spr, int x16, int y16, int ang16, int scale256, int flips, color_t tint, unsigned alpha, int mode) {
-  if (spr < 0 || !alpha || scale256 <= 0) return;
-  const Sprite *s = sprite_def(spr);
+typedef struct { float sc, cs, sn, cx, cy; int bx, by, bw, bh; } ExGeom;
+/* gfx_sprite_ex's transform and the box of the turned sprite (its flips do
+   not change the box). */
+static void ex_geom(const Sprite *s, int x16, int y16, int ang16, int scale256, ExGeom *g) {
   float sc = scale256 / 256.f, ang = ang16 / 16.f * 3.14159265f / 180.f;
   float cs = cosf(ang), sn = sinf(ang), cx = x16 / 16.f, cy = y16 / 16.f;
   float w = s->w, h = s->h, ax = s->ax, ay = s->ay;
@@ -369,7 +478,25 @@ void gfx_sprite_ex(int spr, int x16, int y16, int ang16, int scale256, int flips
     float rx = px_ * cs - py_ * sn + cx, ry = px_ * sn + py_ * cs + cy;
     if (rx < mnx) mnx = rx; if (rx > mxx) mxx = rx; if (ry < mny) mny = ry; if (ry > mxy) mxy = ry;
   }
-  int bx = (int)floorf(mnx) - 1, by = (int)floorf(mny) - 1, bw = (int)ceilf(mxx) - bx + 2, bh = (int)ceilf(mxy) - by + 2;
+  g->sc = sc; g->cs = cs; g->sn = sn; g->cx = cx; g->cy = cy;
+  g->bx = (int)floorf(mnx) - 1; g->by = (int)floorf(mny) - 1;
+  g->bw = (int)ceilf(mxx) - g->bx + 2; g->bh = (int)ceilf(mxy) - g->by + 2;
+}
+void gfx_sprite_ex_rows(int spr, int x16, int y16, int ang16, int scale256, int *y0, int *y1) {
+  ExGeom g;
+  ex_geom(sprite_def(spr), x16, y16, ang16, scale256, &g);
+  *y0 = g.by;
+  *y1 = g.by + g.bh;
+}
+
+void gfx_sprite_ex(int spr, int x16, int y16, int ang16, int scale256, int flips, color_t tint, unsigned alpha, int mode) {
+  if (spr < 0 || !alpha || scale256 <= 0) return;
+  const Sprite *s = sprite_def(spr);
+  ExGeom g;
+  ex_geom(s, x16, y16, ang16, scale256, &g);
+  const float sc = g.sc, cs = g.cs, sn = g.sn, cx = g.cx, cy = g.cy;
+  const float w = s->w, h = s->h, ax = s->ax, ay = s->ay;
+  int bx = g.bx, by = g.by, bw = g.bw, bh = g.bh;
   if (!clip_rect(&bx, &by, &bw, &bh)) return;
   Sampler sm;
   sampler_init(&sm, spr, tint, 256);
@@ -399,65 +526,17 @@ void gfx_sprite_ex(int spr, int x16, int y16, int ang16, int scale256, int flips
     if (i0 >= i1) continue;
     int32_t u = (int32_t)((uf + i0 * dudx) * 65536), v = (int32_t)((vf + i0 * dvdx) * 65536);
     uint16_t *p = pix(bx + i0, j);
-    const uint8_t *data = sm.data;
-    const int stride = sm.stride, fmt = s->fmt;
-    for (int i = i0; i < i1; i++, p++, u += sdu, v += sdv) {
-      int32_t uu = u + 65536, vv = v + 65536;          /* offset so that -1 < u maps to >= 0 */
-      if (uu < 0 || vv < 0) continue;
-      int ui = (uu >> 16) - 1, vi = (vv >> 16) - 1;
-      unsigned fu = (unsigned)(uu >> 8) & 255, fv = (unsigned)(vv >> 8) & 255;
-      unsigned idx[4];
-      if (ui >= 0 && vi >= 0 && ui + 1 < W && vi + 1 < H) {
-        if (fmt == 1) {
-          const uint8_t *r0 = data + vi * stride + ui, *r1 = r0 + stride;
-          idx[0] = r0[0]; idx[1] = r0[1]; idx[2] = r1[0]; idx[3] = r1[1];
-        } else {
-          const uint8_t *r0 = data + vi * stride, *r1 = r0 + stride;
-          int b0 = ui >> 1, b1 = (ui + 1) >> 1, s0 = (ui & 1) * 4, s1 = ((ui + 1) & 1) * 4;
-          idx[0] = (r0[b0] >> s0) & 15; idx[1] = (r0[b1] >> s1) & 15;
-          idx[2] = (r1[b0] >> s0) & 15; idx[3] = (r1[b1] >> s1) & 15;
-        }
-      } else {
-        for (int k = 0; k < 4; k++) {
-          int x = ui + (k & 1), y = vi + (k >> 1);
-          if (x < 0 || y < 0 || x >= W || y >= H) { idx[k] = 0; continue; }
-          const uint8_t *row = data + y * stride;
-          idx[k] = fmt == 1 ? row[x] : (unsigned)((row[x >> 1] >> ((x & 1) * 4)) & 15);
-        }
-      }
-      if (idx[0] == idx[1] && idx[0] == idx[2] && idx[0] == idx[3]) {
-        /* uniform neighbourhood: no filtering needed */
-        unsigned ix = idx[0], a = fmt == 1 ? sm.a32[ix & 15] : sm.a32[ix];
-        if (!a) continue;
-        color_t c = fmt == 1 ? sm.col[ix >> 4] : sm.col[ix];
-        put(p, c, (a * al + 128) >> 8, mode);
-        continue;
-      }
-      unsigned w00 = (256 - fu) * (256 - fv) >> 8, w10 = fu * (256 - fv) >> 8, w01 = (256 - fu) * fv >> 8, w11 = fu * fv >> 8;
-      unsigned wt[4] = {w00, w10, w01, w11};
-      unsigned ta = 0, tr = 0, tg = 0, tb = 0;
-      if (fmt == 0) {
-        /* A4: one colour, only coverage is filtered */
-        for (int k = 0; k < 4; k++) ta += sm.a32[idx[k]] * wt[k];
-        if (ta < 128) continue;
-        unsigned a32 = (ta * al + 32768) >> 16;
-        put(p, sm.col[0], a32 > 32 ? 32 : a32, mode);
-        continue;
-      }
-      for (int k = 0; k < 4; k++) {
-        unsigned ix = idx[k], a, cc;
-        if (fmt == 1) { a = sm.a32[ix & 15]; cc = sm.col[ix >> 4]; } else { a = sm.a32[ix]; cc = sm.col[ix]; }
-        a *= wt[k];
-        if (!a) continue;
-        ta += a;
-        tr += ((cc >> 11) & 31) * a;
-        tg += ((cc >> 5) & 63) * a;
-        tb += (cc & 31) * a;
-      }
-      if (ta < 128) continue;
-      color_t c = (color_t)(((tr / ta) << 11) | ((tg / ta) << 5) | (tb / ta));
-      unsigned a32 = (ta * al + 32768) >> 16;
-      put(p, c, a32 > 32 ? 32 : a32, mode);
+    int n = i1 - i0;
+    bool add = mode == BLEND_ADD;
+    if (s->fmt == 0) {
+      if (add) ex_span(p, n, u, v, sdu, sdv, &sm, W, H, al, 0, BLEND_ADD);
+      else ex_span(p, n, u, v, sdu, sdv, &sm, W, H, al, 0, BLEND_NORMAL);
+    } else if (s->fmt == 1) {
+      if (add) ex_span(p, n, u, v, sdu, sdv, &sm, W, H, al, 1, BLEND_ADD);
+      else ex_span(p, n, u, v, sdu, sdv, &sm, W, H, al, 1, BLEND_NORMAL);
+    } else {
+      if (add) ex_span(p, n, u, v, sdu, sdv, &sm, W, H, al, 2, BLEND_ADD);
+      else ex_span(p, n, u, v, sdu, sdv, &sm, W, H, al, 2, BLEND_NORMAL);
     }
   }
 }
@@ -514,28 +593,37 @@ static void glyph_rows(const Sprite *s, int r, int ew, int eh, int k0, int k1) {
       h1[i] = m;
     }
   }
+  /* Row k's own h1 stands in for rows outside the box: it is part of the
+     maximum anyway. */
   for (int k = k0; k < k1; k++) {
     uint8_t *d = g_dil[k];
-    for (int i = 0; i < ew; i++) {
-      uint8_t m = 0;
-      if (r == 1) {
-        for (int dy = -1; dy <= 1; dy++) {
-          int kk = k + dy;
-          if (kk >= 0 && kk < eh && g_h1[kk][i] > m) m = g_h1[kk][i];
-        }
-      } else {
-        for (int dy = -2; dy <= 2; dy++) {
-          int kk = k + dy;
-          if (kk < 0 || kk >= eh) continue;
-          const uint8_t *h = g_h1[kk];
-          uint8_t v = h[i];
-          if (dy > -2 && dy < 2) {   /* |dx| <= 2 */
-            if (i > 0 && h[i - 1] > v) v = h[i - 1];
-            if (i + 1 < ew && h[i + 1] > v) v = h[i + 1];
-          }
-          if (v > m) m = v;
-        }
+    const uint8_t *hm = g_h1[k], *hu = k >= 1 ? g_h1[k - 1] : hm, *hd = k + 1 < eh ? g_h1[k + 1] : hm;
+    if (r == 1) {
+      for (int i = 0; i < ew; i++) {
+        uint8_t m = hm[i];
+        if (hu[i] > m) m = hu[i];
+        if (hd[i] > m) m = hd[i];
+        d[i] = m;
       }
+      continue;
+    }
+    /* 5x5 without corners: |dy| <= 1 with |dx| <= 2, or |dy| = 2 with |dx| <= 1 */
+    const uint8_t *hu2 = k >= 2 ? g_h1[k - 2] : hm, *hd2 = k + 2 < eh ? g_h1[k + 2] : hm;
+    uint8_t vb[GB_W + 2], *v = vb + 1;   /* h1 over rows k-1..k+1, with zeros around */
+    vb[0] = 0;
+    for (int i = 0; i < ew; i++) {
+      uint8_t m = hm[i];
+      if (hu[i] > m) m = hu[i];
+      if (hd[i] > m) m = hd[i];
+      v[i] = m;
+    }
+    v[ew] = 0;
+    for (int i = 0; i < ew; i++) {
+      uint8_t m = v[i];
+      if (v[i - 1] > m) m = v[i - 1];
+      if (v[i + 1] > m) m = v[i + 1];
+      if (hu2[i] > m) m = hu2[i];
+      if (hd2[i] > m) m = hd2[i];
       d[i] = m;
     }
   }
@@ -555,6 +643,12 @@ static void draw_glyph(const Font *f, int spr, int x, int baseline, color_t top,
   int k0 = cy - ey0 - sdy, k1 = cy + ch - ey0;
   glyph_rows(s, r, bw, bh, k0, k1);
   unsigned al = alpha > 256 ? 256 : alpha;
+  /* blend amounts of each coverage level: shadow, and outline or fill */
+  uint8_t ash[16], acv[16];
+  for (unsigned v = 0; v < 16; v++) {
+    ash[v] = (uint8_t)a32_of(v * f->shadow / 15 * al / 15);
+    acv[v] = (uint8_t)a32_of(v * al / 15);
+  }
   int cap_top = baseline - f->cap;
   for (int j = cy; j < cy + ch; j++) {
     uint16_t *p = pix(cx, j);
@@ -563,12 +657,12 @@ static void draw_glyph(const Font *f, int spr, int x, int baseline, color_t top,
     int lj = j - ey0, sj = lj - sdy;
     for (int i = 0; i < cw; i++) {
       int li = cx + i - ex0, si = li - sdx;
-      unsigned sh = (si >= 0 && sj >= 0 && si < bw && sj < bh) ? g_dil[sj][si] * f->shadow / 15 : 0;
+      unsigned sh = (si >= 0 && sj >= 0 && si < bw && sj < bh) ? g_dil[sj][si] : 0;
       unsigned o = 0, fv = 0;
       if (li < bw && lj < bh) { o = g_dil[lj][li]; fv = g_cov[lj][li]; }
-      if (sh && o < 15) put(p + i, 0, a32_of(sh * al / 15), BLEND_NORMAL);
-      if (o) put(p + i, 0, a32_of(o * al / 15), BLEND_NORMAL);
-      if (fv) put(p + i, fill, a32_of(fv * al / 15), BLEND_NORMAL);
+      if (o < 15) put(p + i, 0, ash[sh], BLEND_NORMAL);
+      put(p + i, 0, acv[o], BLEND_NORMAL);
+      put(p + i, fill, acv[fv], BLEND_NORMAL);
     }
   }
 }
@@ -721,6 +815,17 @@ void gfx_layer_draw(int cx, int cy, int scale256, color_t top, color_t bottom, u
 /* Anti-aliased convex polygon (vertices in pixels, either winding). */
 void gfx_poly(const float *xy, int n, color_t c, unsigned alpha, int mode) {
   if (n < 3 || n > 8 || !alpha) return;
+  {
+    /* Quick reject: the rows below cover every vertex, so they hold the
+       ones drawn (floor(min) - 1 to ceil(max) + 1). */
+    float lo = 1e9f, hi = -1e9f;
+    for (int k = 0; k < n; k++) {
+      if (xy[2 * k + 1] < lo) lo = xy[2 * k + 1];
+      if (xy[2 * k + 1] > hi) hi = xy[2 * k + 1];
+    }
+    int cy0 = clip_y0 > gfx_y0 ? clip_y0 : gfx_y0, cy1 = clip_y1 < gfx_y1 ? clip_y1 : gfx_y1;
+    if (hi <= (float)(cy0 - 2) || lo >= (float)(cy1 + 1)) return;
+  }
   float area = 0, nx[8], ny[8], nc[8];
   for (int k = 0; k < n; k++) {
     int b = (k + 1) % n;

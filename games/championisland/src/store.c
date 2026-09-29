@@ -109,6 +109,70 @@ void store_clear(void) {
 
 bool store_dirty(void) { return dirty; }
 
+/* The copy: installing apps from the NumWorks website keeps only Python
+ * scripts, so the save is also kept in one, as a comment line
+ * "#>champion.sav:base64" (the way NumPlay keeps its games' saves), and
+ * comes back from it when the save itself is gone. */
+#define COPY_NAME "champion_saves.py"
+static const char copy_head[] =
+    "# Champion Island keeps a copy of your progress here, so that\n"
+    "# reinstalling it doesn't erase it. If you delete this file,\n"
+    "# Champion Island writes it again: your progress stays either way.\n";
+static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static void save_copy(const uint8_t *d, uint32_t n, uint8_t *o, uint32_t cap) {
+  uint32_t total = 1 + (sizeof copy_head - 1) + 2 + (sizeof SAVE_NAME - 1) + 1 + (n + 2) / 3 * 4 + 2;
+  if (total > cap) return;
+  uint8_t *p = o;
+  *p++ = 0;                                   /* the script's status byte: not imported */
+  memcpy(p, copy_head, sizeof copy_head - 1);
+  p += sizeof copy_head - 1;
+  *p++ = '#', *p++ = '>';
+  memcpy(p, SAVE_NAME, sizeof SAVE_NAME - 1);
+  p += sizeof SAVE_NAME - 1;
+  *p++ = ':';
+  for (uint32_t i = 0; i < n; i += 3, p += 4) {
+    uint32_t v = (uint32_t)d[i] << 16 | (i + 1 < n ? d[i + 1] << 8 : 0) | (i + 2 < n ? d[i + 2] : 0);
+    for (int k = 0; k < 4; k++) p[k] = k <= (int)(n - i) ? (uint8_t)b64[v >> (18 - 6 * k) & 63] : '=';
+  }
+  *p++ = '\n';
+  *p++ = 0;
+  plat_save(COPY_NAME, o, (uint32_t)(p - o));
+}
+
+static int b64_value(uint8_t c) {
+  for (int i = 0; i < 64; i++)
+    if ((uint8_t)b64[i] == c) return i;
+  return -1;
+}
+
+/* the save from the copy, when it is gone (after the app was installed again) */
+static void restore_copy(void) {
+  uint32_t n, cap;
+  const uint8_t *c = plat_load(COPY_NAME, &n);
+  static const char tag[] = "#>" SAVE_NAME ":";
+  if (!c) return;
+  const uint8_t *l = NULL;
+  for (uint32_t i = 0; i + sizeof tag - 1 <= n; i++)
+    if (!memcmp(c + i, tag, sizeof tag - 1)) { l = c + i + sizeof tag - 1; break; }
+  if (!l) return;
+  uint32_t len = 0;
+  while (l + len < c + n && l[len] != '\n' && l[len]) len++;
+  if (!len || len % 4) return;
+  extern uint8_t *z_scratch(uint32_t *size);
+  uint8_t *out = z_scratch(&cap);
+  uint32_t size = len / 4 * 3 - (l[len - 1] == '=') - (l[len - 2] == '='), o = 0;
+  if (size > cap) return;
+  for (uint32_t i = 0; i < len; i += 4) {
+    int v[4];
+    for (int k = 0; k < 4; k++) v[k] = l[i + k] == '=' ? 0 : b64_value(l[i + k]);
+    if (v[0] < 0 || v[1] < 0 || v[2] < 0 || v[3] < 0) return;
+    uint32_t w = (uint32_t)(v[0] << 18 | v[1] << 12 | v[2] << 6 | v[3]);
+    for (int k = 0; k < 3 && o < size; k++) out[o++] = (uint8_t)(w >> (16 - 8 * k));
+  }
+  if (o == size && size >= 3 && !memcmp(out, "CI1", 3)) plat_save(SAVE_NAME, out, size);
+}
+
 /* The file: "CI1", then per value: key length, key, type, then a byte (bool),
  * a float (number) or a length and text (string). */
 bool store_save(void) {
@@ -137,6 +201,7 @@ bool store_save(void) {
     else if (s->type == SV_STR) { buf[n++] = (uint8_t)tl; memcpy(buf + n, t, tl); n += (uint32_t)tl; }
   }
   if (!plat_save(SAVE_NAME, buf, n)) return false;
+  save_copy(buf, n, buf + n, cap - n);
   dirty = false;
   return true;
 }
@@ -144,6 +209,10 @@ bool store_save(void) {
 void store_load(void) {
   uint32_t len;
   const uint8_t *d = plat_load(SAVE_NAME, &len);
+  if (!d) {
+    restore_copy();
+    d = plat_load(SAVE_NAME, &len);
+  }
   nslots = 0;
   memset(spare, 0, sizeof spare);
   if (!d || len < 3 || memcmp(d, "CI1", 3)) return;

@@ -1,0 +1,683 @@
+/* The island (overworld) and the insides of buildings (interior).
+ *
+ * The island is the doodle's map "jqa": 24 regions of scenery and the people,
+ * doors and signs in them, some 9000 display objects in all. pack.py split it
+ * in two. Its static scenery (the "statics": ground, trees, houses, fences...,
+ * in the doodle's draw order) is painted into the background layer as the
+ * camera uncovers it. The rest, what moves, talks or reacts, became the map's
+ * own children, instantiated only near the camera (node_stream). A static
+ * standing in front of someone (lower on screen) is drawn again over them.
+ *
+ * The systems are the doodle's overworld scene ($s) and interior scene (Ir). */
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include "ent.h"
+#include "phys.h"
+#include "spr.h"
+
+/* ---------------------------------------------------------------- the world table (pack.py) */
+typedef struct {
+  const uint8_t *cells, *list, *stoffs, *regions, *lut;
+  uint16_t map_sym, nstatic, nregions, sheet, gw, gh, cell;
+  int16_t gx0, gy0;
+} WorldData;
+static WorldData wd;
+
+static bool world_load(uint16_t map_sym) {
+  memset(&wd, 0, sizeof wd);
+  uint32_t off = HDR(H_WORLDS);
+  if (!off) return false;
+  const uint8_t *t = ci_data + off;
+  for (uint32_t i = 0; i < rd32(t); i++) {
+    const uint8_t *w = ci_data + rd32(t + 4 + 4 * i);
+    if (rd16(w) != map_sym) continue;
+    wd.map_sym = map_sym;
+    wd.nstatic = rd16(w + 2);
+    wd.nregions = rd16(w + 4);
+    wd.sheet = rd16(w + 6);
+    wd.gx0 = rds16(w + 8);
+    wd.gy0 = rds16(w + 10);
+    wd.gw = rd16(w + 12);
+    wd.gh = rd16(w + 14);
+    wd.cell = rd16(w + 16);
+    wd.cells = ci_data + rd32(w + 20);
+    wd.list = ci_data + rd32(w + 24);
+    wd.stoffs = ci_data + rd32(w + 28);
+    wd.regions = ci_data + rd32(w + 32);
+    wd.lut = ci_data + rd32(w + 36);
+    return true;
+  }
+  return false;
+}
+
+/* a static: f32 key, i16 box x0 y0 x1 y1, u8 draws, u8 flags (1: solid), [i16 solid box], draws */
+typedef struct { float key; int16_t x0, y0, x1, y1; uint8_t ndraws, flags; int16_t c[4]; const uint8_t *draws; } Static;
+static void static_get(unsigned i, Static *s) {
+  const uint8_t *p = ci_data + rd32(wd.stoffs + 4 * i);
+  s->key = rdf(p);
+  s->x0 = rds16(p + 4); s->y0 = rds16(p + 6); s->x1 = rds16(p + 8); s->y1 = rds16(p + 10);
+  s->ndraws = p[12];
+  s->flags = p[13];
+  p += 14;
+  if (s->flags & 1) {
+    for (int k = 0; k < 4; k++) s->c[k] = rds16(p + 2 * k);
+    p += 8;
+  }
+  s->draws = p;
+}
+
+#define STATIC_BITS 2048
+/* marks the statics whose cells meet the world rect (ids are in draw order) */
+static int statics_in(float x0, float y0, float x1, float y1, uint8_t *bits, int *lo, int *hi) {
+  int cx0 = (int)floorf((x0 - wd.gx0) / wd.cell), cy0 = (int)floorf((y0 - wd.gy0) / wd.cell);
+  int cx1 = (int)floorf((x1 - wd.gx0) / wd.cell), cy1 = (int)floorf((y1 - wd.gy0) / wd.cell);
+  if (cx0 < 0) cx0 = 0;
+  if (cy0 < 0) cy0 = 0;
+  if (cx1 >= wd.gw) cx1 = wd.gw - 1;
+  if (cy1 >= wd.gh) cy1 = wd.gh - 1;
+  int n = 0;
+  *lo = STATIC_BITS;
+  *hi = -1;
+  for (int cy = cy0; cy <= cy1; cy++)
+    for (int cx = cx0; cx <= cx1; cx++) {
+      unsigned c = (unsigned)(cy * wd.gw + cx);
+      for (uint32_t k = rd32(wd.cells + 4 * c); k < rd32(wd.cells + 4 * c + 4); k++) {
+        int id = rd16(wd.list + 2 * k);
+        if (id >= STATIC_BITS || (bits[id >> 3] & (1 << (id & 7)))) continue;
+        bits[id >> 3] |= (uint8_t)(1 << (id & 7));
+        if (id < *lo) *lo = id;
+        if (id > *hi) *hi = id;
+        n++;
+      }
+    }
+  return n;
+}
+
+/* ---------------------------------------------------------------- scene state */
+#define WATER 48
+#define FRONT_MAX 40
+#define SOLID_MAX 36
+typedef struct {
+  uint8_t water[WATER * WATER];        /* the sea's tile now (w9a: frames 0-15, 16-31) */
+  int water_look;                      /* which, -1 before the first */
+  NodeId map, player, rain, water_clip;
+  uint32_t tick;
+  int roll;                            /* Bi.Jaa: ticks left in a roll */
+  float stream_x, stream_y;            /* camera when the live children were last streamed */
+  bool streamed;
+  /* solid statics near the player, as physics bodies */
+  uint16_t solid_id[SOLID_MAX];
+  int16_t solid_body[SOLID_MAX];
+  int nsolid;
+  float solid_x, solid_y;
+  bool solid_valid;
+  /* per NPC: the doodle's R_ (talked since the button went up) */
+  NodeId talked;
+  int region_rain;                     /* index of region bT (the rainy mountain), -1 */
+  uint8_t npc_beeps;
+} World;
+static World *W;
+
+/* ---------------------------------------------------------------- the layer */
+static void paint(int x0, int y0, int w, int h) {
+  uint8_t bits[STATIC_BITS / 8];
+  memset(bits, 0, sizeof bits);
+  int lo, hi;
+  if (!statics_in((float)x0, (float)y0, (float)(x0 + w), (float)(y0 + h), bits, &lo, &hi)) return;
+  for (int id = lo; id <= hi; id++) {
+    if (!(bits[id >> 3] & (1 << (id & 7)))) continue;
+    Static s;
+    static_get((unsigned)id, &s);
+    if (s.x1 <= x0 || s.y1 <= y0 || s.x0 >= x0 + w || s.y0 >= y0 + h) continue;
+    for (int d = 0; d < s.ndraws; d++) {
+      const uint8_t *p = s.draws + 8 * d;
+      bg_draw(rd16(p), rds16(p + 2), rds16(p + 4), p[6], p[7]);
+    }
+  }
+}
+
+/* the camera's view in map space (the map is the camera, drawn at 3x on the 960x540 stage) */
+static void view_origin(float *x, float *y) {
+  Mat m = node_global(W->map);
+  /* stage (0, 0) in map space */
+  float det = m.a * m.d - m.b * m.c;
+  *x = (-m.d * m.tx + m.c * m.ty) / det;
+  *y = (m.b * m.tx - m.a * m.ty) / det;
+}
+
+/* ---------------------------------------------------------------- drawing the map */
+static float draw_key(NodeId c) {
+  if (nodes[c].ent && comp_has(nodes[c].T, C_drawOrderOverride)) return comp_float(nodes[c].T, C_drawOrderOverride, F_drawOrder, 0);
+  float x, y;
+  ent_pos(c, &x, &y);
+  return y;
+}
+
+static void draw_static_over(unsigned id, Mat m, uint8_t alpha) {
+  Static s;
+  static_get(id, &s);
+  for (int d = 0; d < s.ndraws; d++) {
+    const uint8_t *p = s.draws + 8 * d;
+    if (p[7] != 255) continue;          /* see-through parts (shadows) are already in the layer */
+    uint16_t sp = rd16(p);
+    Sprite si;
+    sprite_info(sp, &si);
+    if (si.kind > 1) continue;          /* big ground images never stand in front */
+    int x = rds16(p + 2), y = rds16(p + 4);
+    uint8_t f = p[6];
+    /* the drawn rectangle's corner, back to a matrix */
+    Mat dm;
+    if (f & BD_TRANSPOSE) {
+      float c = f & BD_FLIPX ? -1.f : 1.f, b = f & BD_FLIPY ? -1.f : 1.f;
+      dm = (Mat){0, b, c, 0, c < 0 ? x + si.h : x, b < 0 ? y + si.w : y};
+    } else {
+      float a = f & BD_FLIPX ? -1.f : 1.f, dd = f & BD_FLIPY ? -1.f : 1.f;
+      dm = (Mat){a, 0, 0, dd, a < 0 ? x + si.w : x, dd < 0 ? y + si.h : y};
+    }
+    gfx_sprite_ex(sp, mat_mul(m, dm), alpha, true);
+  }
+}
+
+/* the map's children in draw order, with the statics that belong in front of them */
+static void draw_map(NodeId map, Mat m, uint8_t alpha) {
+  float vx, vy;
+  view_origin(&vx, &vy);
+  float vx1 = vx + VIEW_W, vy1 = vy + VIEW_H;
+  uint8_t bits[STATIC_BITS / 8];
+  memset(bits, 0, sizeof bits);
+  uint16_t front[FRONT_MAX];
+  int nfront = 0;
+  for (NodeId c = nodes[map].first; c; c = nodes[c].next) {
+    if (!node_visible(c) || !nodes[c].alpha) continue;
+    float bx, by, bw, bh;
+    if (!node_bounds_in(c, map, &bx, &by, &bw, &bh) || bw <= 0 || bh <= 0) continue;
+    if (bx >= vx1 || by >= vy1 || bx + bw <= vx || by + bh <= vy) continue;
+    float key = draw_key(c);
+    if (key < -1000) continue;            /* ground things: nothing static is below them */
+    uint8_t cb[STATIC_BITS / 8];
+    memset(cb, 0, sizeof cb);
+    int lo, hi;
+    if (!statics_in(bx, by, bx + bw, by + bh, cb, &lo, &hi)) continue;
+    for (int id = lo; id <= hi && nfront < FRONT_MAX; id++) {
+      if (!(cb[id >> 3] & (1 << (id & 7))) || (bits[id >> 3] & (1 << (id & 7)))) continue;
+      Static s;
+      static_get((unsigned)id, &s);
+      if (s.key <= key || s.x1 <= bx || s.y1 <= by || s.x0 >= bx + bw || s.y0 >= by + bh) continue;
+      bits[id >> 3] |= (uint8_t)(1 << (id & 7));
+      /* in draw order */
+      int j = nfront++;
+      while (j > 0 && front[j - 1] > id) { front[j] = front[j - 1]; j--; }
+      front[j] = (uint16_t)id;
+    }
+  }
+  int f = 0;
+  for (NodeId c = nodes[map].first; c; c = nodes[c].next) {
+    if (f < nfront && node_visible(c)) {
+      float key = draw_key(c);
+      while (f < nfront) {
+        Static s;
+        static_get(front[f], &s);
+        if (s.key >= key) break;
+        draw_static_over(front[f++], m, alpha);
+      }
+    }
+    node_draw_in(c, m, alpha);
+  }
+  while (f < nfront) draw_static_over(front[f++], m, alpha);
+}
+
+/* ---------------------------------------------------------------- live children */
+static void on_trigger(NodeId t, NodeId other, bool entered);
+
+static void streamed_in(NodeId c) {
+  ent_register_tree(c);
+  uint16_t T = nodes[c].T;
+  if (T == NONE16) return;
+  /* sr: places are markers for the designers */
+  if (comp_has(T, C_location) && !comp_has(T, C_boundable)) nodes[c].alpha = 0;
+  /* Qs: one-frame children do not need ticking (kept as is) */
+}
+
+static void stream_children(bool force) {
+  float vx, vy;
+  view_origin(&vx, &vy);
+  if (!force && W->streamed && fabsf(vx - W->stream_x) < 24 && fabsf(vy - W->stream_y) < 24) return;
+  W->stream_x = vx;
+  W->stream_y = vy;
+  W->streamed = true;
+  node_stream(W->map, vx - 96, vy - 96, vx + VIEW_W + 96, vy + VIEW_H + 96);
+}
+
+/* ---------------------------------------------------------------- places (location markers) */
+typedef struct { const char *want; float px, py; float best; bool found; char name[32]; } PlaceQuery;
+
+/* the map's timeline children that are places: their name and where (bounds bottom centre, else origin) */
+typedef struct { void (*fn)(const char *name, float x, float y, void *ctx); void *ctx; } PlaceIter;
+static bool place_slot(unsigned slot, const SlotInfo *si, void *ctx) {
+  PlaceIter *it = ctx;
+  Clip cc;
+  if (!clip_get(si->sym, &cc) || cc.T == NONE16 || !comp_has(cc.T, C_location)) return true;
+  uint16_t nm = comp_str(cc.T, C_location, F_name);
+  if (nm == NONE16) return true;
+  bool box = comp_has(cc.T, C_boundable) && si->has_bounds && si->bw > 0;
+  it->fn(str(nm), box ? si->bx + si->bw / 2 : si->x, box ? si->by + si->bh : si->y, it->ctx);
+  (void)slot;
+  return true;
+}
+static void each_place(void (*fn)(const char *name, float x, float y, void *ctx), void *ctx) {
+  PlaceIter it = {fn, ctx};
+  clip_each_slot(nodes[W->map].sym, 0, place_slot, &it);
+}
+
+static void find_place(const char *name, float x, float y, void *ctx) {
+  PlaceQuery *q = ctx;
+  if (q->want) {
+    if (!q->found && !strcmp(name, q->want)) { q->px = x; q->py = y; q->found = true; }
+    return;
+  }
+  float d = (x - q->px) * (x - q->px) + (y - q->py) * (y - q->py);
+  if (!q->found || d < q->best) { q->best = d; q->found = true; snprintf(q->name, sizeof q->name, "%s", name); }
+}
+
+/* fr: to a place */
+static void teleport(const char *name) {
+  PlaceQuery q = {name, 0, 0, 0, false, ""};
+  each_place(find_place, &q);
+  if (q.found && W->player) ent_set_pos(W->player, q.px, q.py);
+}
+
+/* er: remember the nearest place (where the game starts next time) */
+static void save_place(void) {
+  if (!W->player) return;
+  PlaceQuery q = {NULL, 0, 0, 0, false, ""};
+  ent_pos(W->player, &q.px, &q.py);
+  float px = q.px, py = q.py;
+  each_place(find_place, &q);
+  if (q.found) store_set_str("PLAYER_LOC", q.name);
+  store_set_num("PLAYER_POS_X", px);
+  store_set_num("PLAYER_POS_Y", py);
+}
+
+void overworld_teleport(const char *location) {
+  if (W && W->map && location && location[0]) teleport(location);
+}
+
+/* ---------------------------------------------------------------- physics near the player */
+static void solids_update(void) {
+  if (!W->player) return;
+  float px, py;
+  ent_pos(W->player, &px, &py);
+  if (W->solid_valid && fabsf(px - W->solid_x) < 32 && fabsf(py - W->solid_y) < 32) return;
+  W->solid_valid = true;
+  W->solid_x = px;
+  W->solid_y = py;
+  const float R = 112;
+  /* drop the far ones */
+  for (int i = 0; i < W->nsolid; i++) {
+    Static s;
+    static_get(W->solid_id[i], &s);
+    float cx = (s.c[0] + s.c[2]) * .5f, cy = (s.c[1] + s.c[3]) * .5f;
+    if (fabsf(cx - px) > R + 48 + (s.c[2] - s.c[0]) * .5f || fabsf(cy - py) > R + 48 + (s.c[3] - s.c[1]) * .5f) {
+      phys_remove(W->solid_body[i]);
+      W->solid_id[i] = W->solid_id[--W->nsolid];
+      W->solid_body[i] = W->solid_body[W->nsolid];
+      i--;
+    }
+  }
+  uint8_t bits[STATIC_BITS / 8];
+  memset(bits, 0, sizeof bits);
+  int lo, hi;
+  if (!statics_in(px - R, py - R, px + R, py + R, bits, &lo, &hi)) return;
+  int type = phys_type("prop");
+  for (int id = lo; id <= hi && W->nsolid < SOLID_MAX; id++) {
+    if (!(bits[id >> 3] & (1 << (id & 7)))) continue;
+    Static s;
+    static_get((unsigned)id, &s);
+    if (!(s.flags & 1) || s.c[2] <= px - R || s.c[0] >= px + R || s.c[3] <= py - R || s.c[1] >= py + R) continue;
+    bool have = false;
+    for (int i = 0; i < W->nsolid; i++) if (W->solid_id[i] == id) have = true;
+    if (have) continue;
+    float hw = (s.c[2] - s.c[0]) * .5f, hh = (s.c[3] - s.c[1]) * .5f;
+    int b = phys_add(type, SH_BOX, s.c[0] + hw, s.c[1] + hh, 50, hw, hh, 50);
+    if (b < 0) break;
+    bodies[b].user = 0;
+    W->solid_id[W->nsolid] = (uint16_t)id;
+    W->solid_body[W->nsolid++] = (int16_t)b;
+  }
+}
+
+/* ---------------------------------------------------------------- the sea */
+static uint16_t sprite_of(uint16_t sym) {
+  SymInfo si;
+  sym_info(sym, &si);
+  return si.type == SYM_BITMAP ? (uint16_t)si.v : NONE16;
+}
+
+static void water_make(int look) {
+  /* w9a: the tile NewLargeWater1Art2 (frames 0-15), with Art1 over it (frames 16-31) */
+  const uint16_t spr[2] = {sprite_of(S_overworld_Mf), sprite_of(S_overworld_Uf)};
+  int clear = bg_clear_index();
+  memset(W->water, clear < 0 ? 0 : clear, sizeof W->water);
+  for (int k = 0; k <= look; k++) {
+    const uint8_t *r = spr[k] != NONE16 ? spr_get(spr[k]) : NULL;
+    if (!r) continue;
+    const uint8_t *al = palalpha(SHEET_OVERWORLD);
+    int h = rd16(r + 2);
+    for (int v = 0; v < h && v < WATER; v++) {
+      const uint8_t *p = r + rd16(r + 4 + 2 * v);
+      int n = *p++, u = 0;
+      for (int j = 0; j < n; j++) {
+        u += *p++;
+        int len = *p++;
+        for (int i = 0; i < len; i++, u++)
+          if (u < WATER && al[p[i]] >= 128) W->water[v * WATER + u] = p[i];
+        p += len;
+      }
+    }
+  }
+  W->water_look = look;
+}
+
+/* ---------------------------------------------------------------- systems */
+/* Fp: Back opens the map (the stats menu), or offers to skip the tutorial */
+static void sys_back_map(void) {
+  if (!in.pressed[A_BACK]) return;
+  input_consume(A_BACK);
+  if (store_bool("TUTORIAL_DONE", false)) menus_open("stats");
+  else menus_open("skip");
+}
+
+/* gr: walking and rolling */
+static void sys_overworld_player(void) {
+  NodeId p = W->player;
+  if (!p) return;
+  Ent *e = ent_get(p);
+  if (!e) return;
+  float len = sqrtf(in.jx * in.jx + in.jy * in.jy);
+  float h = roundf(8 * len) / 8;
+  if (W->roll > 0) W->roll--;
+  else if (len > 0) {
+    int d = dir_of(in.jx, in.jy, false);
+    if (in.pressed[A_ACTION]) {
+      ent_label(p, "roll", false);
+      W->roll = 9;
+      e->vx = in.jx / len * 5;
+      e->vy = in.jy / len * 5;
+      SOUND(uja);
+    } else {
+      ent_label(p, "walk", false);
+      e->vx = in.jx / len * 3 * h;
+      e->vy = in.jy / len * 3 * h;
+    }
+    if (d >= 0) e->dir = (int8_t)d;
+  } else {
+    ent_label(p, "idle", false);
+    e->vx = e->vy = 0;
+  }
+}
+
+/* Er: storageSprite shows the frame of its first true condition (a quarter of them per tick) */
+static void sys_storage_sprites(void) {
+  for (int i = 0; i < ent_count(); i++) {
+    NodeId n = ent_at(i);
+    if (!n || !comp_has(nodes[n].T, C_storageSprite)) continue;
+    if (W->tick && n % 4 != W->tick % 4) continue;
+    uint16_t T = nodes[n].T;
+    for (int k = 0; k < 10; k++) {
+      uint16_t fr = comp_str(T, C_storageSprite, F_frame1 + 2 * k);
+      if (fr == NONE16 || !str(fr)[0]) continue;
+      uint16_t cond = comp_str(T, C_storageSprite, F_condition1 + 2 * k);
+      if (cond == NONE16 || !str(cond)[0] || cond_eval(cond)) {
+        ent_label(n, str(fr), false);
+        break;
+      }
+    }
+  }
+}
+
+/* Dr: conditionallyVisible */
+static void sys_conditional(void) {
+  for (int i = 0; i < ent_count(); i++) {
+    NodeId n = ent_at(i);
+    if (!n || !comp_has(nodes[n].T, C_conditionallyVisible)) continue;
+    uint16_t cond = comp_str(nodes[n].T, C_conditionallyVisible, F_condition);
+    node_set_visible(n, cond == NONE16 || !str(cond)[0] || cond_eval(cond));
+  }
+}
+
+static bool triggered(NodeId n) {
+  Ent *e = ent_get(n);
+  return e && e->ntrig > 0;
+}
+
+/* a storage value as kitsune's kk() reads it: number, true, false, null, else text */
+static void store_parsed(const char *key, const char *v) {
+  if (key[0] == '$') key++;
+  char *end;
+  float f = strtof(v, &end);
+  if (v[0] && !*end) store_set_num(key, f);
+  else if (!strcmp(v, "true") || !strcmp(v, "True")) store_set_bool(key, true);
+  else if (!strcmp(v, "false") || !strcmp(v, "False")) store_set_bool(key, false);
+  else if (!strcmp(v, "null")) store_set(key, (Value){SV_NULL, false, 0, NONE16});
+  else store_set_str(key, v);
+}
+
+/* Gr: storageOnAction; kr: menuPortal (the leaderboard) */
+static void sys_on_action(void) {
+  if (!in.pressed[A_ACTION]) return;
+  for (int i = 0; i < ent_count(); i++) {
+    NodeId n = ent_at(i);
+    if (!n || !triggered(n)) continue;
+    uint16_t T = nodes[n].T;
+    if (comp_has(T, C_storageOnAction)) {
+      uint16_t k = comp_str(T, C_storageOnAction, F_key), v = comp_str(T, C_storageOnAction, F_value);
+      if (k != NONE16) store_parsed(str(k), v != NONE16 ? str(v) : "");
+    }
+    if (comp_has(T, C_menuPortal)) menus_open("leaderboard");
+  }
+}
+
+/* ir: a door or path with the player in it takes them on when OK is let go */
+static void go_portal(const char *spec) {
+  char name[48];
+  snprintf(name, sizeof name, "%s", spec);
+  char *at = strchr(name, '@'), *colon = strchr(name, ':');
+  bool plain = !colon || (at && colon > at);
+  if (at) *at = 0;
+  if (colon && (!at || colon < at)) *colon = 0;
+  /* a sport's first visit starts with its film */
+  if (game_is_sport(name) && plain) {
+    char k[48];
+    snprintf(k, sizeof k, "%sintro_VIDEO_SEEN", name);
+    if (!store_bool(k, false)) {
+      snprintf(k, sizeof k, "video:%sintro", name);
+      save_place();
+      game_go(k);
+      return;
+    }
+  }
+  save_place();
+  game_go(spec);
+}
+
+static void sys_portals(void) {
+  if (!in.released[A_ACTION]) return;
+  for (int i = 0; i < ent_count(); i++) {
+    NodeId n = ent_at(i);
+    if (!n || !comp_has(nodes[n].T, C_scenePortal) || !triggered(n)) continue;
+    uint16_t nm = comp_str(nodes[n].T, C_scenePortal, F_name);
+    if (nm != NONE16) { go_portal(str(nm)); return; }
+  }
+}
+
+/* or: talking to someone (OK, standing still, in their trigger area) */
+static void sys_npcs(void) {
+  if (!in.held[A_ACTION]) W->talked = 0;
+  bool still = in.jx == 0 && in.jy == 0;
+  for (int i = 0; i < ent_count(); i++) {
+    NodeId n = ent_at(i);
+    if (!n || !comp_has(nodes[n].T, C_npc)) continue;
+    uint16_t T = nodes[n].T;
+    if (!triggered(n)) continue;
+    if (!still || W->talked == n || !in.pressed[A_ACTION]) continue;
+    uint16_t name = comp_str(T, C_npc, F_name), node = NONE16;
+    if (comp_has(T, C_storageNpc))
+      for (int k = 0; k < 10 && node == NONE16; k++) {
+        uint16_t nd = comp_str(T, C_storageNpc, k == 0 ? F_node1 : F_node2 + 2 * (k - 1));
+        if (nd == NONE16 || !str(nd)[0]) continue;
+        uint16_t cond = comp_str(T, C_storageNpc, k == 0 ? F_condition1 : F_condition2 + 2 * (k - 1));
+        if (cond == NONE16 || !str(cond)[0] || cond_eval(cond)) node = nd;
+      }
+    if (node == NONE16) node = comp_str(T, C_npc, F_node);
+    extern bool dialog_first_node(uint16_t npc, uint16_t *name);
+    if ((node == NONE16 || !str(node)[0]) && !(name != NONE16 && dialog_first_node(name, &node))) continue;
+    W->talked = n;
+    input_consume(A_ACTION);
+    dialog_start(name, node);
+    return;
+  }
+}
+
+/* tr, ur, Fr: what trigger areas do when the player walks in */
+static void on_trigger(NodeId t, NodeId other, bool entered) {
+  if (!entered) return;
+  uint16_t T = nodes[t].T;
+  if (comp_has(T, C_dialogTrigger)) {
+    uint16_t npc = comp_str(T, C_dialogTrigger, F_npc), node = comp_str(T, C_dialogTrigger, F_node);
+    if (npc != NONE16 && node != NONE16) dialog_start(npc, node);
+  }
+  if (comp_has(T, C_sceneTrigger)) {
+    uint16_t nm = comp_str(T, C_sceneTrigger, F_name);
+    if (nm != NONE16) { save_place(); game_go(str(nm)); }
+  }
+  if (comp_has(T, C_storageTrigger)) {
+    uint16_t k = comp_str(T, C_storageTrigger, F_key), v = comp_str(T, C_storageTrigger, F_value);
+    if (k != NONE16) store_parsed(str(k), v != NONE16 ? str(v) : "");
+  }
+  (void)other;
+}
+
+/* rr: the rain over the mountain fades in near it (until the RAIN quest is done) */
+static void sys_rain(void) {
+  if (!W->rain || W->region_rain < 0 || !W->player) return;
+  const uint8_t *r = wd.regions + 10 * (unsigned)W->region_rain;
+  float rx = rds16(r + 2), rb = rds16(r + 8);
+  float px, py;
+  ent_pos(W->player, &px, &py);
+  float a = fminf(clampf((px - rx - 250) / 300, 0, 1), clampf((rb - py) / 400, 0, 1));
+  float al = nodes[W->rain].alpha / 255.f * .8f + .2f * a;
+  nodes[W->rain].alpha = (uint8_t)(al * 255 + .5f);
+}
+
+/* mr: the place is saved every two seconds */
+static void sys_save_place(void) {
+  if (W->tick % 60 == 59) save_place();
+}
+
+/* ---------------------------------------------------------------- the scene */
+static NodeId child_of_sym(NodeId n, uint16_t sym) {
+  for (NodeId c = nodes[n].first; c; c = nodes[c].next)
+    if (nodes[c].sym == sym) return c;
+  return 0;
+}
+
+static void start_overworld(void) {
+  W = scene_state(sizeof(World));
+  W->region_rain = -1;
+  world_load(S_overworld_jqa);
+  /* oU: the sea (w9a), the map (jqa, lazy), the ending's sky (oAa, mAa) and the rain (bca) */
+  node_lazy_sym = S_overworld_jqa;
+  NodeId root = node_new_sym(S_overworld_oU);
+  node_lazy_sym = NONE16;
+  if (!root) return;
+  node_add(game.root, root);
+  W->map = child_of_sym(root, S_overworld_jqa);
+  /* the sea and the rain are drawn by code (the layer's water, draw_over) */
+  node_free(child_of_sym(root, S_overworld_w9a));
+  W->rain = child_of_sym(root, S_overworld_bca);
+  if (W->rain) { node_remove(W->rain); node_free(W->rain); W->rain = 0; }
+  NodeId sky = child_of_sym(root, S_overworld_mAa);
+  if (sky) node_free(sky);
+  if (!W->map) return;
+  mem_layout(VIEW_W + 8, VIEW_H + 8, SHEET_OVERWORLD, paint);
+  bg_blend_lut(wd.lut);
+  ent_register_tree(root);
+  node_stream_hook = streamed_in;
+  node_draw_hook_id = W->map;
+  node_draw_hook = draw_map;
+  ent_on_trigger(on_trigger);
+  /* wr: the island's physics */
+  phys_steps(1, 20);
+  for (int i = 0; i < wd.nregions; i++)
+    if (rd16(wd.regions + 10 * i) == S_overworld_bT) W->region_rain = i;
+  /* the player (the map's child "Player") is always there */
+  node_stream(W->map, -1e5f, -1e5f, 1e5f, 1e5f);
+  for (NodeId c = nodes[W->map].first; c; c = nodes[c].next)
+    if (nodes[c].T != NONE16 && comp_has(nodes[c].T, C_overworldPlayer)) W->player = c;
+  if (W->player) nodes[W->player].flags2 |= NF2_KEEP;
+  /* sr: where to appear: the scene's place, else the saved one (else the dock) */
+  const char *where = game.location[0] ? game.location : store_str("PLAYER_LOC");
+  if (where) teleport(where);
+  sys_camera_snap();
+  stream_children(true);
+  W->water_look = -1;
+}
+
+static void end_overworld(void) {
+  node_stream_hook = NULL;
+  node_draw_hook = NULL;
+  node_draw_hook_id = 0;
+  ent_on_trigger(NULL);
+  W = NULL;
+}
+
+static void tick_overworld(void) {
+  if (!W || !W->map) return;
+  sys_back_map();
+  sys_overworld_player();
+  sys_camera_target();
+  sys_camera_move();
+  sys_tile_backgrounds();
+  sys_storage_sprites();
+  sys_conditional();
+  sys_on_action();
+  sys_sort_draw();
+  sys_triggers();
+  sys_jump_to_frame();
+  sys_sprite_dirs();
+  solids_update();
+  sys_physics();
+  sys_ground_height();
+  sys_portals();
+  sys_save_place();
+  sys_npcs();
+  sys_rain();
+  stream_children(false);
+  W->tick++;
+}
+
+static void draw_under_overworld(void) {
+  if (!W || !W->map) return;
+  float vx, vy;
+  view_origin(&vx, &vy);
+  bg_camera((int)floorf(vx + .5f), (int)floorf(vy + .5f));
+  /* the sea's look changes every 16 frames */
+  int look = (int)(game.ticks / 16) % 2;
+  if (look != W->water_look) {
+    water_make(look);
+    bg_water(W->water, WATER, WATER);
+    bg_redraw_water();
+  }
+}
+
+const SceneDef scene_overworld = {"overworld", start_overworld, tick_overworld, end_overworld, draw_under_overworld, NULL, NULL};
+
+/* ---------------------------------------------------------------- interiors */
+static void start_interior(void) {
+  NodeId n = node_new_sym(S_interior_mbb);
+  node_add(game.root, n);
+  ent_register_tree(n);
+}
+static void tick_interior(void) {}
+const SceneDef scene_interior = {"interior", start_interior, tick_interior, NULL, NULL, NULL, NULL};

@@ -1,0 +1,48 @@
+#ifndef CI_GFX_H
+#define CI_GFX_H
+#include "ci.h"
+
+/* A frame is a draw list (built while walking the display tree, in painting
+ * order) rasterised band by band into the 320x180 view. */
+typedef struct { float a, b, c, d, tx, ty; } Mat;   /* x' = a x + c y + tx, y' = b x + d y + ty */
+static inline Mat mat_mul(Mat m, Mat n) {
+  return (Mat){m.a * n.a + m.c * n.b, m.b * n.a + m.d * n.b, m.a * n.c + m.c * n.d, m.b * n.c + m.d * n.d,
+               m.a * n.tx + m.c * n.ty + m.tx, m.b * n.tx + m.d * n.ty + m.ty};
+}
+static const Mat MAT_ID = {1, 0, 0, 1, 0, 0};
+
+void gfx_begin(void);                                     /* new draw list */
+void gfx_sprite(uint16_t sprite, Mat m, uint8_t alpha);  /* a sprite placed by m */
+void gfx_sprite_ex(uint16_t sprite, Mat m, uint8_t alpha, bool opaque_only);   /* opaque_only: skips see-through pixels */
+void gfx_shape(const uint8_t *shape, Mat m, uint8_t alpha);  /* filled polygons (payload) */
+void gfx_rect(int x, int y, int w, int h, uint16_t c, uint8_t alpha);
+/* text: font size in px of the doodle's layout, colour RGB565 */
+void gfx_text(const char *s, Mat m, uint16_t color, uint8_t align, int16_t line_w, int16_t line_h, uint8_t alpha);
+void gfx_text_k(const char *s, Mat m, uint16_t color, uint8_t align, int16_t line_w, int16_t line_h, uint8_t alpha, int scale);
+void gfx_end(void);                                       /* rasterise and push the bands that changed */
+void gfx_redraw_all(void);                                /* next frame: every band */
+void gfx_clear_color(uint16_t c);                        /* what shows where nothing is drawn */
+void gfx_letterbox(uint16_t c);                          /* fills the bands above and below the view */
+
+/* The background layer: an 8-bit image of the scene's static backdrop in
+ * world coordinates, redrawn only where the camera uncovers something. */
+typedef void (*BgPaint)(int x0, int y0, int w, int h);  /* paint world rect into the layer via bg_blit* */
+void bg_setup(uint8_t *mem, int w, int h, uint8_t sheet, BgPaint paint);
+void bg_off(void);
+void bg_invalidate(void);
+void bg_camera(int x, int y);                             /* world position of the view's top-left */
+void bg_blit_sprite(uint16_t sprite, int x, int y, bool flipx, bool flipy);
+/* any image (banked, streamed or banded) with mirrors or a quarter turn, and
+ * alpha blended into the palette through bg_blend_lut's table */
+enum { BD_FLIPX = 1, BD_FLIPY = 2, BD_TRANSPOSE = 4 };
+void bg_draw(uint16_t sprite, int x, int y, uint8_t flags, uint8_t alpha);
+void bg_blend_lut(const uint8_t *lut444);                 /* RGB444 -> palette index (pack.py) */
+void bg_water(const uint8_t *tile, int w, int h);         /* shown where the layer is clear (NULL: none) */
+void bg_redraw_water(void);                               /* the water tile's pixels changed */
+int bg_clear_index(void);                                 /* the palette's clear index, -1 if none */
+void bg_blit_stream(uint16_t sprite, int x, int y);
+void bg_fill(int x, int y, int w, int h, uint8_t index);
+uint8_t *bg_layer(int *w, int *h);
+
+uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b);
+#endif

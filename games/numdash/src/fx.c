@@ -180,8 +180,21 @@ void fx_update(Game *g, float dt, color_t p1, color_t p2, bool practice) {
         break;
       }
       case FX_ORB_TOUCH: circle(e->x, e->y, CE_ORB_TOUCH, 0xffff, e->obj, false); break;
-      case FX_PORTAL:
-        circle(e->x, e->y, CE_PORTAL, e->arg == 2 ? rgb(255, 90, 40) : e->arg ? rgb(255, 0, 255) : rgb(0, 255, 50), e->obj, false);
+      case FX_PORTAL: {
+        static const uint8_t pc[4][3] = {{0, 255, 50}, {255, 0, 255}, {255, 90, 40}, {255, 150, 0}};
+        const uint8_t *c = pc[e->arg & 3];
+        circle(e->x, e->y, CE_PORTAL, rgb(c[0], c[1], c[2]), e->obj, false);
+        break;
+      }
+      case FX_SIZE: {
+        color_t c = e->arg ? rgb(255, 31, 255) : rgb(0, 255, 50);
+        circle(e->x, e->y, CE_PORTAL, c, e->obj, false);
+        circle(p->x, p->y, CE_PORTAL, c, -1, false);
+        break;
+      }
+      case FX_JUMP:   /* the UFO's flap: a puff under the saucer */
+        if (e->arg == 1)
+          for (int i = 0; i < 8; i++) spawn(PE_SHIP_FIRE, e->x, e->y + (p->upside ? 8 : -8), rgb(255, 150, 0), true, 0, false, 0, p->upside ? 90 : 270);
         break;
       case FX_GRAVITY:
         circle(e->x, e->y, CE_PORTAL, e->arg ? rgb(255, 200, 0) : rgb(0, 200, 255), e->obj, false);
@@ -231,6 +244,10 @@ void fx_update(Game *g, float dt, color_t p1, color_t p2, bool practice) {
       } else {
         drag_acc = 0;
       }
+    } else if (p->mode == MODE_UFO) {
+      trail_on = true;
+      emit_rate(&smoke_acc, 40, dt);
+      while (smoke_acc >= 1) { smoke_acc -= 1; spawn(PE_SHIP_SMOKE, p->x, p->y + (p->upside ? 9 : -9), p1, true, 0, false, 0, 1e9f); }
     } else {
       trail_on = true;
       float r = p->rot * 3.14159265f / 180.f, s = p->upside ? -1.f : 1.f;
@@ -248,24 +265,26 @@ void fx_update(Game *g, float dt, color_t p1, color_t p2, bool practice) {
     int n = (int)obj_acc;
     obj_acc -= n;
     if (n > 0) {
-      const Level *L = g->L;
-      unsigned i = level_lower_bound(L, (int)(cam_x - 30));
-      for (; i < L->count && L->objs[i].x < cam_x + VIEW_W + 30; i++) {
-        const LObj *o = &L->objs[i];
-        int sp = objdefs[o->type].special;
+      LIter it;
+      level_iter(g->L, cam_x - 30, cam_x + VIEW_W + 30, &it);
+      for (const RObj *o; (o = level_next(&it));) {
+        float ox = obj_x(o), oy = obj_y(o);
+        if (ox < cam_x - 30 || ox >= cam_x + VIEW_W + 30) continue;
+        int sp = objdefs[o->type].special, xf = obj_xf(o);
         for (int k = 0; k < n; k++) {
           if (sp == SP_PAD_Y || sp == SP_PAD_P || sp == SP_PAD_B) {
             color_t c = sp == SP_PAD_Y ? rgb(255, 255, 0) : sp == SP_PAD_B ? rgb(0, 255, 255) : rgb(255, 0, 255);
-            bool down = (o->xf & 3) == 2 || (o->xf & 8);
-            if (rnd() < 0.8f) spawn(PE_BUMP, o->x, o->y, c, true, 0, false, 0, down ? 270 : 90);
-          } else if (sp >= SP_ORB_Y && sp <= SP_ORB_B && !game_used(g, i)) {
+            bool down = (xf & 3) == 2 || (xf & 8);
+            if (rnd() < 0.8f) spawn(PE_BUMP, ox, oy, c, true, 0, false, 0, down ? 270 : 90);
+          } else if (sp >= SP_ORB_Y && sp <= SP_ORB_B && !game_used(g, o, it.gi)) {
             color_t c = sp == SP_ORB_Y ? rgb(255, 255, 0) : sp == SP_ORB_P ? rgb(255, 0, 255) : rgb(0, 255, 255);
-            if (rnd() < 0.9f) spawn(PE_RING, o->x, o->y, c, true, c, true, 0, 1e9f);
-          } else if (sp >= SP_GRAV_N && sp <= SP_PORTAL_SHIP) {
-            color_t c = sp == SP_GRAV_N ? rgb(0, 255, 255) : sp == SP_GRAV_F ? rgb(255, 255, 0) : sp == SP_PORTAL_CUBE ? rgb(0, 255, 0) : rgb(255, 0, 255);
-            if (rnd() < 0.6f) spawn(PE_PORTAL, o->x + 14, o->y, c, true, c, true, 0, 180);
-          } else if (sp == SP_COIN && !game_used(g, i)) {
-            if (rnd() < 0.5f) spawn(PE_COIN, o->x, o->y - 10, 0, false, 0, false, 0, 1e9f);
+            if (rnd() < 0.9f) spawn(PE_RING, ox, oy, c, true, c, true, 0, 1e9f);
+          } else if ((sp >= SP_GRAV_N && sp <= SP_PORTAL_SHIP) || (sp >= SP_PORTAL_UFO && sp <= SP_SIZE_NORMAL)) {
+            color_t c = sp == SP_GRAV_N ? rgb(0, 255, 255) : sp == SP_GRAV_F ? rgb(255, 255, 0) : sp == SP_PORTAL_CUBE || sp == SP_SIZE_NORMAL ? rgb(0, 255, 0)
+                      : sp == SP_PORTAL_UFO ? rgb(255, 150, 0) : rgb(255, 0, 255);
+            if (rnd() < 0.6f) spawn(PE_PORTAL, ox + 14, oy, c, true, c, true, 0, 180);
+          } else if (sp == SP_COIN && !game_used(g, o, it.gi)) {
+            if (rnd() < 0.5f) spawn(PE_COIN, ox, oy - 10, 0, false, 0, false, 0, 1e9f);
           }
         }
       }

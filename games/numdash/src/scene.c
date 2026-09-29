@@ -83,16 +83,20 @@ void scene_ground(color_t g1, color_t line, float ground_x, int top_y, bool ceil
 /* ------------------------------------------------------------ objects */
 
 typedef struct {
-  int16_t x, y;          /* anchor position, px */
-  uint8_t spr, xf, ct, alpha, layer, kind;
+  int16_t x, y;          /* anchor position, 1/4 px */
+  uint16_t spr;          /* sprite, or tile program (K_PROG) */
   uint16_t scale;        /* 256 = 1 */
+  int16_t angle;         /* extra clockwise rotation, 1/16 degree */
+  uint8_t xf, ct, alpha, layer, kind, pad;
 } Item;
-enum { K_SPRITE, K_SCALED, K_PLAYER };
+/* sprite at a whole pixel; rotated / scaled sprite; four mirrored quarters
+   of a round object; a block drawn from rectangles; the player */
+enum { K_SPRITE, K_SCALED, K_QUAD, K_PROG, K_PLAYER };
 #define MAX_ITEMS 1100
 static Item items[MAX_ITEMS];
 static uint16_t order[MAX_ITEMS];
 static int nitems;
-static color_t tint_obj, tint_p1, tint_p2;
+static color_t tint_obj, tint_p1, tint_p2, tint_lbg;
 static const Game *G;
 static SceneOpts O;
 static float player_sx, player_sy;
@@ -112,10 +116,10 @@ static int fade_at(const Level *L, float x) {
   return eff;
 }
 
-static void push(int x, int y, int spr, int xf, int ct, int alpha, int layer, int kind, int scale) {
-  if (nitems >= MAX_ITEMS || spr < 0) return;
-  items[nitems++] = (Item){(int16_t)x, (int16_t)y, (uint8_t)spr, (uint8_t)xf, (uint8_t)ct, (uint8_t)(alpha > 255 ? 255 : alpha),
-                           (uint8_t)layer, (uint8_t)kind, (uint16_t)scale};
+static void push(float sx, float sy, int spr, int xf, int ct, int alpha, int layer, int kind, int scale, int angle16) {
+  if (nitems >= MAX_ITEMS || spr < 0 || sx < -2000 || sx > 2000 || sy < -2000 || sy > 2000) return;
+  items[nitems++] = (Item){(int16_t)floorf(sx * 4 + .5f), (int16_t)floorf(sy * 4 + .5f), (uint16_t)spr, (uint16_t)scale, (int16_t)angle16,
+                           (uint8_t)xf, (uint8_t)ct, (uint8_t)(alpha > 255 ? 255 : alpha), (uint8_t)layer, (uint8_t)kind, 0};
 }
 
 static float pulse_amount(void) {
@@ -146,24 +150,32 @@ void scene_prepare(const Game *g, const SceneOpts *o) {
   g1_col = scene_channel(g, CH_G1);
   line_col = scene_channel(g, CH_LINE);
   tint_obj = scene_channel(g, CH_OBJ);
+  tint_lbg = c_hsv_lighten(bg_col, -20, 20);
   tint_p1 = o->p1;
   tint_p2 = o->p2;
   float cam_x = g->cam_x;
-  unsigned i = level_lower_bound(L, (int)(cam_x - 90));
   float pulse = pulse_amount();
   unsigned coin_frame = (unsigned)(o->time * 8) & 3;
-  for (; i < L->count && L->objs[i].x < cam_x + VIEW_W + 90; i++) {
-    const LObj *ob = &L->objs[i];
+  LIter it;
+  level_iter(L, cam_x - 90, cam_x + VIEW_W + 90, &it);
+  for (const RObj *ob; (ob = level_next(&it));) {
+    unsigned i = it.gi;
+    float obx = obj_x(ob), oby = obj_y(ob);
+    if (obx < cam_x - 90 || obx >= cam_x + VIEW_W + 90) continue;
     const ObjDef *d = &objdefs[ob->type];
-    if (d->special == SP_COIN && game_used(g, i)) continue;
+    if (d->special == SP_COIN && game_used(g, ob, i)) continue;
     if (o->low_detail && d->hit == HIT_NONE && !o->editor) continue;
-    float rel = ob->x - cam_x;
+    int xf = obj_xf(ob);
+    float angle = 0;   /* degrees on top of the quarter turns in xf */
+    if (xf < 0) { angle = obj_rot(ob) * (360.f / 1024); xf = (int)(obj_flips(ob) << 2); }
+    float rel = obx - cam_x;
     float fade = o->editor ? 1 : rel < 0 || rel > VIEW_W ? 0 : rel < FADE_W ? rel / FADE_W : rel > VIEW_W - FADE_W ? (VIEW_W - rel) / FADE_W : 1;
     if (fade <= 0) continue;
     float offx = 0, offy = 0, sc = 1;
     if (fade < 1) {
-      int eff = fade_at(L, rel < VIEW_W / 2 ? ob->x + 75 : ob->x - (VIEW_W - PLAYER_SCREEN_X) + 75);
+      int eff = fade_at(L, rel < VIEW_W / 2 ? obx + 75 : obx - (VIEW_W - PLAYER_SCREEN_X) + 75);
       float off = (1 - fade) * 127.5f;
+      bool high = oby - g->cam_y > VIEW_H / 2 - GROUND_OFFSET;
       switch (eff) {
         case 1: offy = -off; break;          /* rises into place from below */
         case 2: offy = off; break;
@@ -171,31 +183,50 @@ void scene_prepare(const Game *g, const SceneOpts *o) {
         case 4: offx = off; break;
         case 5: sc = fade; break;
         case 6: sc = 1 + (1 - fade) / 2; break;
+        case 8: offx = high ? -off : off; break;   /* halve left / right */
+        case 9: offx = high ? off : -off; break;
+        case 10: offy = high ? off : -off; break;  /* halve: the top half from above */
+        case 11: offy = high ? -off : off; break;  /* inverse halve */
         default: break;
       }
     }
-    float wx = ob->x + offx, wy = ob->y + offy;
+    float wx = obx + offx, wy = oby + offy;
     int alpha = (int)(fade * 255 + .5f);
     if (d->special == SP_COIN && (o->coins_saved >> game_coin_index(L, i) & 1)) alpha = alpha * 2 / 5;
+    if (d->anim == ANIM_SAW || d->anim == ANIM_SPIN)
+      angle += (d->anim == ANIM_SAW ? 360.f : 180.f) * o->time * ((i * 2654435761u >> 16 & 1) ? -1 : 1);
+    else if (d->anim == ANIM_INVIS && !o->editor) {
+      /* invisible objects show faintly near the player */
+      float dist = fabsf(obx - g->p.x);
+      alpha = (int)(alpha * fmaxf(0, fminf(1, (210 - dist) / 90)) * 0.7f);
+      if (alpha <= 0) continue;
+    }
     for (int k = 0; k < d->nparts; k++) {
-      const ObjPart *pt = &d->parts[k];
+      const ObjPart *pt = OBJ_PART(d, k);
       if (o->low_detail && pt->ctype >= CT_GLOW) continue;
       int spr = pt->sprite;
       if (pt->flags & PF_RANDOM3) spr += (int)(i % 3);
       if (pt->flags & PF_COIN) spr += (int)coin_frame;
       float ox, oy;
-      part_offset(ob->xf, pt->dx4 / 4.f * sc, pt->dy4 / 4.f * sc, &ox, &oy);
+      part_offset(xf, pt->dx4 / 4.f * sc, pt->dy4 / 4.f * sc, &ox, &oy);
+      if (angle != 0 && (ox != 0 || oy != 0)) {
+        float r = -angle * 3.14159265f / 180.f, c = cosf(r), s = sinf(r), t = ox * c - oy * s;
+        oy = ox * s + oy * c;
+        ox = t;
+      }
       float sx = (wx + ox - cam_x) * PX, sy = 240 - (GROUND_OFFSET + wy + oy - g->cam_y) * PX;
       int psc = (int)(sc * 256);
       if (pt->flags & PF_PULSE) psc = (int)(psc * (1 + 0.22f * pulse));
-      int kind = psc != 256 ? K_SCALED : K_SPRITE;
-      push((int)floorf(sx + .5f), (int)floorf(sy + .5f), spr, ob->xf, pt->ctype, alpha, pt->layer, kind, psc);
+      if (pt->flags & PF_HALF) psc *= 2;
+      int a16 = (int)(angle * 16);
+      int kind = pt->prog ? K_PROG : (pt->flags & PF_QUAD) ? K_QUAD : (psc != 256 || a16) ? K_SCALED : K_SPRITE;
+      push(sx, sy, pt->prog ? pt->prog : spr, xf, pt->ctype, alpha, pt->layer, kind, psc, a16);
     }
   }
   /* the player */
   player_sx = wx_to_sx(g, g->p.x);
   player_sy = wy_to_sy(g, g->p.y);
-  if (!g->dead && !o->hide_player) push(0, 0, 0, 0, 0, 255, LAYER_PLAYER, K_PLAYER, 256);
+  if (!g->dead && !o->hide_player) push(0, 0, 0, 0, 0, 255, LAYER_PLAYER, K_PLAYER, 256, 0);
   /* sort by layer, stable */
   uint16_t count[LAYER_COUNT + 1] = {0};
   for (int k = 0; k < nitems; k++) count[items[k].layer + 1]++;
@@ -216,6 +247,7 @@ static void tint_for(int ct, color_t *c, int *mode) {
     case CT_WHITE: *c = 0xffff; break;
     case CT_P1ADD: *c = tint_p1; *mode = BLEND_ADD; break;
     case CT_P2ADD: *c = tint_p2; *mode = BLEND_ADD; break;
+    case CT_LBG: *c = tint_lbg; break;
     case CT_GLOW: *c = tint_obj; *mode = BLEND_ADD; break;
     case CT_GLOW_Y: *c = rgb(255, 255, 0); *mode = BLEND_ADD; break;
     case CT_GLOW_B: *c = rgb(0, 255, 255); *mode = BLEND_ADD; break;
@@ -225,16 +257,23 @@ static void tint_for(int ct, color_t *c, int *mode) {
 
 void scene_draw_player_icon(int mode, float cx, float cy, float rot, float scale, color_t p1, color_t p2, bool upside, unsigned alpha) {
   int x16 = (int)(cx * 16), y16 = (int)(cy * 16), a16 = (int)(rot * 16);
-  if (mode == MODE_SHIP) {
+  if (mode == MODE_SHIP || mode == MODE_UFO) {
+    bool ship = mode == MODE_SHIP;
     float r = rot * 3.14159265f / 180.f, s = upside ? -1.f : 1.f;
-    /* the pilot sits in the cockpit, scaled down with the ship */
-    float lx = 0, ly = -6.5f * PX * s * scale;
+    /* the pilot sits in the cockpit (or under the dome), at half size */
+    float lx = 0, ly = (ship ? -6.5f : -4.0f) * PX * s * scale;
     float px_ = cx + lx * cosf(r) - ly * sinf(r), py_ = cy + lx * sinf(r) + ly * cosf(r);
-    int fl = upside ? XF_FLIPY : 0;
-    gfx_sprite_ex(SPR_CUBE1_S, (int)(px_ * 16), (int)(py_ * 16), a16, (int)(128 * scale), fl, p2, alpha, BLEND_NORMAL);
-    gfx_sprite_ex(SPR_CUBE1_P, (int)(px_ * 16), (int)(py_ * 16), a16, (int)(128 * scale), fl, p1, alpha, BLEND_NORMAL);
-    gfx_sprite_ex(SPR_SHIP1_S, x16, y16 + (int)(2 * 16 * s * scale), a16, (int)(256 * scale), fl, p2, alpha, BLEND_NORMAL);
-    gfx_sprite_ex(SPR_SHIP1_P, x16, y16 + (int)(2 * 16 * s * scale), a16, (int)(256 * scale), fl, p1, alpha, BLEND_NORMAL);
+    int fl = upside ? XF_FLIPY : 0, sc = (int)(256 * scale);
+    if (!ship) gfx_sprite_ex(SPR_UFO1_DOME, x16, y16, a16, sc, fl, 0xffff, alpha, BLEND_NORMAL);
+    gfx_sprite_ex(SPR_CUBE1_S, (int)(px_ * 16), (int)(py_ * 16), a16, sc / 2, fl, p2, alpha, BLEND_NORMAL);
+    gfx_sprite_ex(SPR_CUBE1_P, (int)(px_ * 16), (int)(py_ * 16), a16, sc / 2, fl, p1, alpha, BLEND_NORMAL);
+    if (ship) {
+      gfx_sprite_ex(SPR_SHIP1_S, x16, y16 + (int)(2 * 16 * s * scale), a16, sc, fl, p2, alpha, BLEND_NORMAL);
+      gfx_sprite_ex(SPR_SHIP1_P, x16, y16 + (int)(2 * 16 * s * scale), a16, sc, fl, p1, alpha, BLEND_NORMAL);
+    } else {
+      gfx_sprite_ex(SPR_UFO1_S, x16, y16, a16, sc, fl, p2, alpha, BLEND_NORMAL);
+      gfx_sprite_ex(SPR_UFO1_P, x16, y16, a16, sc, fl, p1, alpha, BLEND_NORMAL);
+    }
     return;
   }
   bool ball = mode == MODE_BALL;
@@ -242,10 +281,54 @@ void scene_draw_player_icon(int mode, float cx, float cy, float rot, float scale
   gfx_sprite_ex(ball ? SPR_BALL1_P : SPR_CUBE1_P, x16, y16, a16, (int)(256 * scale), 0, p1, alpha, BLEND_NORMAL);
 }
 
+/* Tile program: rectangles in half units around the item's anchor, turned
+   and flipped like the object (quarter turns keep them axis aligned). */
+static void draw_prog(const Item *it) {
+  const uint8_t *p = tile_prog_data + tile_prog_off[it->spr];
+  float cx = it->x * 0.25f, cy = it->y * 0.25f, s = PX * 0.5f * it->scale / 256;
+  if (cy + 60 * s * 2 < gfx_y0 || cy - 60 * s * 2 > gfx_y1) return;
+  while (*p) {
+    int op = p[0] & 0x7f;
+    float k4 = (p[0] & TOP_BIG) ? 4 : 1;
+    float q[4] = {(int8_t)p[1] * k4, (int8_t)p[2] * k4, (int8_t)p[3] * k4, (int8_t)p[4] * k4};
+    int ct = p[5];
+    unsigned a0 = p[6], a1 = op == TOP_VGRAD ? p[7] : a0;
+    p += op == TOP_VGRAD ? 8 : 7;
+    /* corners after the object's flips and quarter turns (y up) */
+    float xs[2], ys[2];
+    for (int k = 0; k < 2; k++) {
+      float x = q[k * 2], y = q[k * 2 + 1];
+      part_offset(it->xf, x, y, &xs[k], &ys[k]);
+    }
+    float x0 = cx + fminf(xs[0], xs[1]) * s, x1 = cx + fmaxf(xs[0], xs[1]) * s;
+    float y0 = cy - fmaxf(ys[0], ys[1]) * s, y1 = cy - fminf(ys[0], ys[1]) * s;
+    color_t c;
+    int mode;
+    tint_for(ct, &c, &mode);
+    unsigned al = it->alpha + 1;
+    if (a0 == a1) {
+      gfx_rectf(x0, y0, x1, y1, c, a0 * al >> 8, mode);
+    } else {
+      /* where did the top edge go: split into bands along that axis */
+      float tx, ty;
+      part_offset(it->xf, 0, 1, &tx, &ty);
+      const int bands = 6;
+      for (int b = 0; b < bands; b++) {
+        float f0 = (float)b / bands, f1 = (float)(b + 1) / bands;
+        unsigned a = (unsigned)(a0 + ((int)a1 - (int)a0) * (b + .5f) / bands) * al >> 8;
+        if (ty > .5f) gfx_rectf(x0, y0 + (y1 - y0) * f0, x1, y0 + (y1 - y0) * f1, c, a, mode);
+        else if (ty < -.5f) gfx_rectf(x0, y1 - (y1 - y0) * f1, x1, y1 - (y1 - y0) * f0, c, a, mode);
+        else if (tx > .5f) gfx_rectf(x1 - (x1 - x0) * f1, y0, x1 - (x1 - x0) * f0, y1, c, a, mode);
+        else gfx_rectf(x0 + (x1 - x0) * f0, y0, x0 + (x1 - x0) * f1, y1, c, a, mode);
+      }
+    }
+  }
+}
+
 static void draw_player(void) {
   const Player *p = &G->p;
   fx_draw_player_trail();
-  scene_draw_player_icon(p->mode, player_sx, player_sy, p->rot, 1, O.p1, O.p2, p->upside, 256);
+  scene_draw_player_icon(p->mode, player_sx, player_sy, p->rot, p->mini ? 0.6f : 1, O.p1, O.p2, p->upside, 256);
 }
 
 static void draw_end_wall(void) {
@@ -330,17 +413,29 @@ void scene_draw(void) {
   for (int k = 0; k < nitems; k++) {
     const Item *it = &items[order[k]];
     if (it->kind == K_PLAYER) { draw_player(); continue; }
-    const Sprite *s = &sprites[it->spr];
+    if (it->kind == K_PROG) { draw_prog(it); continue; }
+    const Sprite *s = sprite_def(it->spr);
     int ext = (s->w > s->h ? s->w : s->h) * (it->scale > 256 ? it->scale : 256) / 256 + 2;
-    if (it->y + ext < gfx_y0 || it->y - ext > gfx_y1) continue;
+    if (it->kind == K_QUAD) ext *= 2;
+    int y = it->y >> 2;
+    if (y + ext < gfx_y0 || y - ext > gfx_y1) continue;
     color_t c;
     int mode;
     tint_for(it->ct, &c, &mode);
+    if (it->kind == K_SPRITE) {
+      gfx_sprite(it->spr, (it->x + 2) >> 2, (it->y + 2) >> 2, it->xf, c, it->alpha + 1, mode);
+      continue;
+    }
+    int a16 = (it->xf & 3) * 90 * 16 + it->angle, fl = it->xf & (XF_FLIPX | XF_FLIPY);
     if (it->kind == K_SCALED) {
       /* 90 degree transforms are expressed as rotation + flips for the bilinear path */
-      gfx_sprite_ex(it->spr, it->x * 16, it->y * 16, (it->xf & 3) * 90 * 16, it->scale, it->xf & (XF_FLIPX | XF_FLIPY), c, it->alpha + 1, mode);
+      gfx_sprite_ex(it->spr, it->x * 4, it->y * 4, a16, it->scale, fl, c, it->alpha + 1, mode);
     } else {
-      gfx_sprite(it->spr, it->x, it->y, it->xf, c, it->alpha + 1, mode);
+      /* the sprite is the top right quarter; the others are its mirror images */
+      for (int q = 0; q < 4; q++) {
+        int qf = (q == 1 || q == 2 ? XF_FLIPX : 0) | (q >= 2 ? XF_FLIPY : 0);
+        gfx_sprite_ex(it->spr, it->x * 4, it->y * 4, a16, it->scale, qf | XF_ANCHOR, c, it->alpha + 1, mode);
+      }
     }
   }
   draw_end_wall();

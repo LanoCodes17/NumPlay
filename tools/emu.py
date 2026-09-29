@@ -163,11 +163,16 @@ class Calculator:
                              if s["p_type"] == "PT_LOAD" and s["p_filesz"]]
             self.entry = e["e_entry"]
             self.symbols = {}
+            self.functions = []  # (start, end, name) for --profile
             st = e.get_section_by_name(".symtab")
             if st:
                 for s in st.iter_symbols():
                     if s.name:
                         self.symbols[s.name] = s["st_value"]
+                        if s["st_info"]["type"] == "STT_FUNC" and s["st_size"]:
+                            a = s["st_value"] & ~1
+                            self.functions.append((a, a + s["st_size"], s.name))
+            self.functions.sort()
         uc = self.uc = Uc(UC_ARCH_ARM, UC_MODE_THUMB | UC_MODE_MCLASS)
         uc.mem_map(FLASH, FLASH_SIZE)
         uc.mem_map(SRAM, SRAM_SIZE)
@@ -199,6 +204,8 @@ class Calculator:
         self.font = Font()
         self.keys = []          # (start_ms, end_ms, key index)
         self.now_ms = 0.0
+        self.slept_ms = 0.0     # time the app spent in msleep/usleep (its idle time)
+        self.samples = None     # --profile: pc samples, one per emulated millisecond
         self.rng = 0x2545F491
         self.events = []
         self.flash_log = []
@@ -409,8 +416,10 @@ class Calculator:
             ret, ret1 = ms & 0xFFFFFFFF, ms >> 32
         elif n == 49:
             self.now_ms += r0
+            self.slept_ms += r0
         elif n == 50:
             self.now_ms += r0 / 1000
+            self.slept_ms += r0 / 1000
         elif n == 45:
             self.rng ^= (self.rng << 13) & 0xFFFFFFFF
             self.rng ^= self.rng >> 17
@@ -480,6 +489,8 @@ class Calculator:
                 pc = self.reg(UC_ARM_REG_PC)
                 raise RuntimeError(f"CPU fault {err} at pc {pc:#x}") from None
             self.pc = self.reg(UC_ARM_REG_PC) | 1
+            if self.samples is not None:
+                self.samples.append(self.pc & ~1)
             self.insns += chunk
             self.now_ms += 1
             while self.pending_shots and self.pending_shots[0][0] <= self.now_ms:
@@ -518,10 +529,14 @@ def main():
     ap.add_argument("--nwlink", default="nwlink")
     ap.add_argument("--records", action="store_true", help="list storage records at the end")
     ap.add_argument("--frames", help="save raw RGB565 frames here (for tools/record.py --frames)")
+    ap.add_argument("--profile", type=int, default=0,
+                    help="print the N functions the CPU was found in most (build the .nwa without stripping it)")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     c = Calculator(a.nwa, a.flash_start, a.storage, a.nwlink)
     c.keys = parse_keys(a.keys)
+    if a.profile:
+        c.samples = []
     c.pending_shots = sorted((int(t), os.path.join(a.out, f"shot_{int(t):06d}.png"))
                              for t in filter(None, a.shots.split(",")))
     frames = []
@@ -545,7 +560,22 @@ def main():
         frames[0].save(os.path.join(a.out, "anim.gif"), save_all=True, append_images=frames[1:],
                        duration=int(1000 / a.fps), loop=0)
     c.save_png(os.path.join(a.out, "last.png"))
-    print(f"emu: {c.now_ms:.0f} ms, {c.insns / 1e6:.1f} M instructions, exited={c.exited}")
+    print(f"emu: {c.now_ms:.0f} ms, {c.insns / 1e6:.1f} M instructions, exited={c.exited}, "
+          f"idle {100 * c.slept_ms / max(c.now_ms, 1):.0f}%")
+    if "perf_frames" in c.symbols:   # apps may count their frames in a uint32_t perf_frames
+        n = struct.unpack("<I", bytes(c.uc.mem_read(c.symbols["perf_frames"], 4)))[0]
+        print(f"emu: {n} frames, {n * 1000 / max(c.now_ms, 1):.1f} fps, "
+              f"{(c.now_ms - c.slept_ms) / max(n, 1):.1f} ms of work per frame")
+    if a.profile and c.samples:
+        import bisect
+        from collections import Counter
+        starts = [f[0] for f in c.functions]
+        hits = Counter()
+        for pc in c.samples:
+            i = bisect.bisect_right(starts, pc) - 1
+            hits[c.functions[i][2] if i >= 0 and pc < c.functions[i][1] else f"?{pc:#x}"] += 1
+        for name, n in hits.most_common(a.profile):
+            print(f"emu: {100 * n / len(c.samples):5.1f}%  {name}")
     if c.flash_log:
         print("emu: flash operations:", len(c.flash_log), "failed:", sum(1 for x in c.flash_log if not x[-1]))
     if a.records:

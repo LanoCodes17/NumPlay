@@ -219,6 +219,30 @@ void gfx_round_rect(int x, int y, int w, int h, int r, color_t c, unsigned alpha
     }
   }
 }
+void gfx_rectf(float x0, float y0, float x1, float y1, color_t c, unsigned alpha, int mode) {
+  if (x1 <= x0 || y1 <= y0 || !alpha) return;
+  int ix0 = (int)floorf(x0), iy0 = (int)floorf(y0), ix1 = (int)ceilf(x1), iy1 = (int)ceilf(y1);
+  int x = ix0, y = iy0, w = ix1 - ix0, h = iy1 - iy0;
+  if (!clip_rect(&x, &y, &w, &h)) return;
+  /* columns: a partial pixel on each side, full coverage in between */
+  int fx0 = (int)ceilf(x0), fx1 = (int)floorf(x1);
+  float lcov = fx0 > x1 ? x1 - x0 : fx0 - x0, rcov = x1 - fx1;
+  if (fx0 < x) fx0 = x;
+  if (fx1 > x + w) fx1 = x + w;
+  for (int j = y; j < y + h; j++) {
+    float cy = fminf(y1, j + 1.f) - fmaxf(y0, (float)j);
+    if (cy <= 0) continue;
+    unsigned ra = cy >= 1 ? alpha : (unsigned)(cy * alpha), a = a32_of(ra);
+    uint16_t *p = pix(0, j);
+    if (ix0 >= x && ix0 < x + w && lcov > 0 && ix0 < (int)ceilf(x0)) put(p + ix0, c, a32_of((unsigned)(lcov * ra)), mode);
+    if (fx1 >= x && fx1 < x + w && rcov > 0 && fx1 >= fx0) put(p + fx1, c, a32_of((unsigned)(rcov * ra)), mode);
+    if (!a) continue;
+    if (mode == BLEND_NORMAL && a >= 32) for (int i = fx0; i < fx1; i++) p[i] = c;
+    else if (mode == BLEND_ADD) for (int i = fx0; i < fx1; i++) p[i] = px_add(p[i], c, a);
+    else for (int i = fx0; i < fx1; i++) p[i] = px_mix(p[i], c, a);
+  }
+}
+
 void gfx_triangle(int x0, int y0, int x1, int y1, int x2, int y2, color_t c, unsigned alpha) {
   float X[3] = {(float)x0, (float)x1, (float)x2}, Y[3] = {(float)y0, (float)y1, (float)y2};
   float area = (X[1] - X[0]) * (Y[2] - Y[0]) - (X[2] - X[0]) * (Y[1] - Y[0]);
@@ -258,16 +282,17 @@ typedef struct {
 } Sampler;
 
 static void sampler_init(Sampler *sm, int spr, color_t tint, unsigned alpha) {
-  const Sprite *s = &sprites[spr];
+  const Sprite *s = sprite_def(spr);
+  bool lv = spr >= SPR_COUNT;
   sm->s = s;
-  sm->data = sprite_blob + s->off;
+  sm->data = (lv ? sprite_blob_lv : sprite_blob) + s->off;
   sm->stride = s->fmt == 1 ? s->w : (s->w + 1) / 2;
   unsigned al = alpha > 256 ? 256 : alpha;
   for (int k = 0; k < 16; k++) {
     if (s->fmt == 2) {
-      sm->col[k] = sprite_pal_rgb[s->pal][k];
+      sm->col[k] = (lv ? sprite_pal_rgb_lv : sprite_pal_rgb)[s->pal][k];
       if (tint != 0xffff) sm->col[k] = rgb(c_r(sm->col[k]) * c_r(tint) / 255, c_g(sm->col[k]) * c_g(tint) / 255, c_b(sm->col[k]) * c_b(tint) / 255);
-      sm->a32[k] = (uint8_t)((sprite_pal_a[s->pal][k] * al * 32 + 15 * 128) / (15 * 256));
+      sm->a32[k] = (uint8_t)(((lv ? sprite_pal_a_lv : sprite_pal_a)[s->pal][k] * al * 32 + 15 * 128) / (15 * 256));
     } else {
       sm->col[k] = s->fmt == 1 ? c_scale(tint, (unsigned)(k * 256 / 15)) : tint;
       sm->a32[k] = (uint8_t)((k * al * 32 + 15 * 128) / (15 * 256));
@@ -289,12 +314,12 @@ static inline unsigned sample(const Sampler *sm, int u, int v, uint16_t *c) {
   return sm->a32[idx];
 }
 
-int gfx_sprite_w(int spr, int xf) { return (xf & 1) ? sprites[spr].h : sprites[spr].w; }
-int gfx_sprite_h(int spr, int xf) { return (xf & 1) ? sprites[spr].w : sprites[spr].h; }
+int gfx_sprite_w(int spr, int xf) { return (xf & 1) ? sprite_def(spr)->h : sprite_def(spr)->w; }
+int gfx_sprite_h(int spr, int xf) { return (xf & 1) ? sprite_def(spr)->w : sprite_def(spr)->h; }
 
 void gfx_sprite(int spr, int x, int y, int xf, color_t tint, unsigned alpha, int mode) {
   if (spr < 0 || !alpha) return;
-  const Sprite *s = &sprites[spr];
+  const Sprite *s = sprite_def(spr);
   int w = s->w, h = s->h, rot = xf & XF_ROT;
   int ax = (xf & XF_FLIPX) ? w - s->ax : s->ax, ay = (xf & XF_FLIPY) ? h - s->ay : s->ay;
   int tax, tay, dw = w, dh = h;
@@ -333,7 +358,7 @@ void gfx_sprite(int spr, int x, int y, int xf, color_t tint, unsigned alpha, int
  * sample falls inside the texture. */
 void gfx_sprite_ex(int spr, int x16, int y16, int ang16, int scale256, int flips, color_t tint, unsigned alpha, int mode) {
   if (spr < 0 || !alpha || scale256 <= 0) return;
-  const Sprite *s = &sprites[spr];
+  const Sprite *s = sprite_def(spr);
   float sc = scale256 / 256.f, ang = ang16 / 16.f * 3.14159265f / 180.f;
   float cs = cosf(ang), sn = sinf(ang), cx = x16 / 16.f, cy = y16 / 16.f;
   float w = s->w, h = s->h, ax = s->ax, ay = s->ay;
@@ -352,8 +377,8 @@ void gfx_sprite_ex(int spr, int x16, int y16, int ang16, int scale256, int flips
   /* u = (dx*cs + dy*sn)*inv + ax - .5, v = (-dx*sn + dy*cs)*inv + ay - .5 */
   float dudx = cs * inv, dvdx = -sn * inv, dudy = sn * inv, dvdy = cs * inv;
   float u0 = ax - .5f, v0 = ay - .5f;
-  if (flips & XF_FLIPX) { dudx = -dudx; dudy = -dudy; u0 = w - 1 - u0; }
-  if (flips & XF_FLIPY) { dvdx = -dvdx; dvdy = -dvdy; v0 = h - 1 - v0; }
+  if (flips & XF_FLIPX) { dudx = -dudx; dudy = -dudy; if (!(flips & XF_ANCHOR)) u0 = w - 1 - u0; }
+  if (flips & XF_FLIPY) { dvdx = -dvdx; dvdy = -dvdy; if (!(flips & XF_ANCHOR)) v0 = h - 1 - v0; }
   const int W = s->w, H = s->h;
   const int32_t sdu = (int32_t)(dudx * 65536), sdv = (int32_t)(dvdx * 65536);
   const unsigned al = alpha > 256 ? 256 : alpha;

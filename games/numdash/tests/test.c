@@ -1,7 +1,9 @@
 /* Host tests: level data, physics, saves and storage safety, and the app
  * driven through its real input path. Extra modes:
  *   tests --replay <level> <file>   complete a level with a recorded input
- *   tests --shots <dir>             render every screen to PPM files */
+ *   tests --shots <dir>             render every screen to PPM files
+ *   tests --frames <level> <file> <dir> <x,...>
+ *                                   play a replay, saving a frame at each x */
 #include "app.h"
 #include "ui.h"
 #include <assert.h>
@@ -71,14 +73,14 @@ static void fresh_app(void) {
 
 static void test_levels(void) {
   static Level L;
-  static const uint16_t counts[LEVEL_COUNT] = {2272, 1530, 1509, 1402, 2126, 1691, 2767, 3563, 3852};
+  static const uint16_t counts[LEVEL_COUNT] = {2272, 1530, 1509, 1402, 2126, 1691, 2767, 3563, 3852, 7506};
   for (unsigned i = 0; i < LEVEL_COUNT; i++) {
     assert(level_load_builtin(&L, i));
     assert(L.count == counts[i]);
     assert(level_valid(&L));
     unsigned coins = 0;
-    for (unsigned k = 0; k < L.count; k++) coins += L.objs[k].type == OT_COIN;
-    assert(coins <= 3);
+    assert(level_check_all(&L, &coins));
+    assert(coins <= 3 && coins == L.coin_count);
   }
   assert(!level_load_builtin(&L, LEVEL_COUNT));
   uint8_t out[8];
@@ -89,8 +91,9 @@ static void test_levels(void) {
 static void test_physics(void) {
   static Level L;
   static Game a, b;
+  static LObj objs[1];
   memset(&L, 0, sizeof(L));
-  L.objs = level_objs;
+  level_load_flat(&L, objs, 0);
   L.end_x = L.wall_x = 60000;
   game_start(&a, &L, false);
   float peak = 0;
@@ -117,13 +120,14 @@ static void test_physics(void) {
   for (int i = 0; i < 300; i++) { game_step(&a, i % 30 < 8); game_step(&b, i % 30 < 8); }
   assert(!memcmp(&a.p, &b.p, sizeof(a.p)));
   /* a spike on the ground kills */
-  level_objs[0] = (LObj){300, 15, OT_SPIKE, 0};
-  L.count = 1;
+  objs[0] = (LObj){300, 15, OT_SPIKE, 0};
+  level_load_flat(&L, objs, 1);
   game_start(&a, &L, false);
   for (int i = 0; i < 400 && !a.dead; i++) game_step(&a, false);
   assert(a.dead && a.death_obj == 0);
   /* landing on a block is safe */
-  level_objs[0] = (LObj){300, 15, OT_BLOCK, 0};
+  objs[0] = (LObj){300, 15, OT_BLOCK, 0};
+  level_load_flat(&L, objs, 1);
   game_start(&a, &L, false);
   for (int i = 0; i < 400 && !a.dead; i++) game_step(&a, i >= 150 && i < 154);
   assert(!a.dead && a.p.x > 400);
@@ -429,6 +433,15 @@ static int shots(const char *dir) {
   tap(K_RIGHT); run(0, 30);
   render(); save_ppm(dir, "06_select_scroll");
   settle();
+  for (int i = 9; i < LEVEL_COUNT; i++) {   /* the demon levels */
+    char name[32];
+    snprintf(name, sizeof(name), "06_select_%d", i + 1);
+    app.select_page = app.select_scroll = i;
+    settle();
+    render(); save_ppm(dir, name);
+  }
+  app.select_page = app.select_scroll = 1;
+  settle();
   tap(K_LEFT); settle();
   tap(K_OK); settle();
   render(); save_ppm(dir, "07_play_start");
@@ -485,6 +498,50 @@ static int shots(const char *dir) {
   return 0;
 }
 
+/* Plays a level through the app with a replay and saves a frame whenever
+   the player passes one of the given x positions. */
+static int frames(int index, const char *path, const char *dir, const char *list) {
+  static int ticks[8192], vals[8192];
+  float xs[64];
+  int nx = 0, n = 0, t, v;
+  for (const char *c = list; *c && nx < 64;) {
+    xs[nx++] = strtof(c, NULL);
+    while (*c && *c != ',') c++;
+    if (*c) c++;
+  }
+  FILE *f = fopen(path, "r");
+  if (!f) return 2;
+  while (n < 8192 && fscanf(f, "input=%d,%d\n", &t, &v) == 2) { ticks[n] = t; vals[n++] = v; }
+  fclose(f);
+  fresh_app();
+  app.level = index;
+  app.practice = false;
+  app_go(SCR_PLAY);
+  settle();
+  if (app.screen != SCR_PLAY) return 2;
+  /* restart the way a death does, so the replay's ticks line up */
+  app.attempt = 0;
+  app.g.dead = true;
+  app.death_t = 10;
+  run(0, 6);
+  draw_frames = false;
+  bool held = false;
+  int pos = 0, next = 0;
+  for (int i = 1; i < 200 * ND_HZ && !app.g.complete && !app.g.dead && next < nx; i++) {
+    while (pos < n && ticks[pos] <= i) held = vals[pos++] != 0;
+    run(held ? K_OK : 0, 1);
+    if (app.g.p.x >= xs[next] && frame_ticks % 6 == 0) {
+      char name[32];
+      snprintf(name, sizeof(name), "x%05d", (int)xs[next++]);
+      render();
+      save_ppm(dir, name);
+      printf("%s camera %.0f %.0f\n", name, app.g.cam_x, app.g.cam_y);
+    }
+  }
+  printf("%d frames, %s at x=%.0f\n", next, app.g.dead ? "dead" : "alive", app.g.p.x);
+  return 0;
+}
+
 /* ------------------------------------------------------------ monkey */
 
 /* Random input across every screen, drawing every frame, with storage that
@@ -533,6 +590,7 @@ int main(int argc, char **argv) {
   if (argc == 4 && !strcmp(argv[1], "--replay")) return replay(atoi(argv[2]), argv[3]);
   if (argc == 4 && !strcmp(argv[1], "--monkey")) return monkey((unsigned)atoi(argv[2]), atol(argv[3]));
   if (argc == 3 && !strcmp(argv[1], "--shots")) return shots(argv[2]);
+  if (argc == 6 && !strcmp(argv[1], "--frames")) return frames(atoi(argv[2]), argv[3], argv[4], argv[5]);
   test_levels();
   test_physics();
   test_storage();

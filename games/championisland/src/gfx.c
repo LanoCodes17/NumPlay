@@ -1,0 +1,765 @@
+/* The renderer: a draw list rasterised in bands of BAND rows. */
+#include "gfx.h"
+#include <math.h>
+#include "font.h"
+#include "spr.h"
+#include <stdlib.h>
+#include <stdio.h>
+
+#define BAND 6
+#define MAX_ITEMS 320
+#define MAX_AFF 64
+
+enum { DI_SPRITE, DI_AFFINE, DI_RECT, DI_SHAPE, DI_TEXT, DI_STREAM };
+#define STREAM_OVER (16 * 1024)   /* sprites bigger than this once cached are decoded as they are drawn */
+enum { DF_FLIPX = 1, DF_FLIPY = 2, DF_MISSING = 4, DF_OPAQUE = 8 };   /* missing: not in the cache this frame; opaque: only fully opaque pixels */
+typedef struct {
+  uint8_t kind, alpha, flags, pad;
+  int16_t x0, y0, x1, y1;       /* covered screen area in view coordinates (x1, y1 excluded) */
+  uint16_t ref;                 /* sprite, affine slot */
+  uint16_t color;               /* rect/text colour, or the sprite of an affine item */
+} Item;
+static const void *item_ptr[MAX_AFF];   /* shape payload or text, by affine slot */
+typedef struct { float ia, ib, ic, id, itx, ity; Mat m; uint8_t align, scale; int16_t lw, lh; } Aff;
+
+static uint8_t stream_buf[SPRITE_W_MAX];   /* a decoded row (streams, affine sprites, scenery) */
+static Item items[MAX_ITEMS];
+static Aff affs[MAX_AFF];
+static int nitems, naffs;
+static uint16_t band[VIEW_W * BAND];
+static uint16_t clear_color;
+
+uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) { return (uint16_t)((r >> 3) << 11 | (g >> 2) << 5 | b >> 3); }
+
+static inline uint16_t blend(uint16_t fg, uint16_t bg, unsigned a) {   /* a: 0..32 */
+  uint32_t f = (fg | (uint32_t)fg << 16) & 0x07E0F81Fu, b = (bg | (uint32_t)bg << 16) & 0x07E0F81Fu;
+  uint32_t r = (b + (((f - b) * a) >> 5)) & 0x07E0F81Fu;
+  return (uint16_t)(r | r >> 16);
+}
+
+void gfx_begin(void) {
+  nitems = 0;
+  naffs = 0;
+}
+
+void gfx_clear_color(uint16_t c) { clear_color = c; }
+
+static Item *add(void) { return nitems < MAX_ITEMS ? &items[nitems++] : NULL; }
+
+static bool axis_aligned(Mat m) {
+  return fabsf(m.b) < 1e-4f && fabsf(m.c) < 1e-4f && fabsf(fabsf(m.a) - 1) < 1e-3f && fabsf(fabsf(m.d) - 1) < 1e-3f;
+}
+
+/* bounding box of the w x h rectangle placed by m */
+static void bbox(Mat m, float w, float h, int *x0, int *y0, int *x1, int *y1) {
+  float xs[4] = {m.tx, m.tx + m.a * w, m.tx + m.c * h, m.tx + m.a * w + m.c * h};
+  float ys[4] = {m.ty, m.ty + m.b * w, m.ty + m.d * h, m.ty + m.b * w + m.d * h};
+  float lx = xs[0], hx = xs[0], ly = ys[0], hy = ys[0];
+  for (int i = 1; i < 4; i++) {
+    lx = xs[i] < lx ? xs[i] : lx;
+    hx = xs[i] > hx ? xs[i] : hx;
+    ly = ys[i] < ly ? ys[i] : ly;
+    hy = ys[i] > hy ? ys[i] : hy;
+  }
+  *x0 = (int)floorf(lx); *y0 = (int)floorf(ly); *x1 = (int)ceilf(hx); *y1 = (int)ceilf(hy);
+}
+
+static bool on_view(int x0, int y0, int x1, int y1) { return x1 > 0 && y1 > 0 && x0 < VIEW_W && y0 < VIEW_H && x1 > x0 && y1 > y0; }
+
+static bool set_affine(Item *it, Mat m) {
+  float det = m.a * m.d - m.b * m.c;
+  if (fabsf(det) < 1e-6f || naffs >= MAX_AFF) return false;
+  Aff *f = &affs[naffs];
+  f->ia = m.d / det; f->ib = -m.b / det; f->ic = -m.c / det; f->id = m.a / det;
+  f->itx = -(f->ia * m.tx + f->ic * m.ty); f->ity = -(f->ib * m.tx + f->id * m.ty);
+  f->m = m;
+  it->ref = (uint16_t)naffs++;
+  return true;
+}
+
+void gfx_sprite(uint16_t sp, Mat m, uint8_t alpha) { gfx_sprite_ex(sp, m, alpha, false); }
+
+void gfx_sprite_ex(uint16_t sp, Mat m, uint8_t alpha, bool opaque_only) {
+  if (sp >= SPRITE_COUNT || !alpha) return;
+  Sprite s;
+  sprite_info(sp, &s);
+  int x0, y0, x1, y1;
+  bbox(m, s.w, s.h, &x0, &y0, &x1, &y1);
+  if (!on_view(x0, y0, x1, y1)) return;
+  Item *it = add();
+  if (!it) return;
+  *it = (Item){DI_SPRITE, alpha, 0, 0, (int16_t)x0, (int16_t)y0, (int16_t)x1, (int16_t)y1, sp, 0};
+  if (axis_aligned(m)) {
+    if (s.kind == 1 && s.rle > STREAM_OVER && m.d > 0) it->kind = DI_STREAM;
+    /* the canvas snaps unrotated images to whole pixels */
+    int x = (int)floorf((m.a < 0 ? m.tx - s.w : m.tx) + 0.5f), y = (int)floorf((m.d < 0 ? m.ty - s.h : m.ty) + 0.5f);
+    it->x0 = (int16_t)x; it->y0 = (int16_t)y; it->x1 = (int16_t)(x + s.w); it->y1 = (int16_t)(y + s.h);
+    it->flags = (uint8_t)((m.a < 0 ? DF_FLIPX : 0) | (m.d < 0 ? DF_FLIPY : 0) | (opaque_only ? DF_OPAQUE : 0));
+    it->color = sp;
+  } else {
+    it->kind = DI_AFFINE;
+    it->color = sp;
+    it->flags = opaque_only ? DF_OPAQUE : 0;
+    if (!set_affine(it, m)) nitems--;
+  }
+}
+
+void gfx_rect(int x, int y, int w, int h, uint16_t c, uint8_t alpha) {
+  if (!on_view(x, y, x + w, y + h) || !alpha) return;
+  Item *it = add();
+  if (it) *it = (Item){DI_RECT, alpha, 0, 0, (int16_t)x, (int16_t)y, (int16_t)(x + w), (int16_t)(y + h), 0, c};
+}
+
+void gfx_shape(const uint8_t *shape, Mat m, uint8_t alpha) {
+  if (!alpha || !shape[0]) return;
+  /* bounds from the points */
+  float lx = 1e9f, ly = 1e9f, hx = -1e9f, hy = -1e9f;
+  const uint8_t *p = shape + 1;
+  bool visible = false;
+  for (int s = 0; s < shape[0]; s++) {
+    if (p[3]) visible = true;
+    int npoly = p[4];
+    p += 5;
+    for (int k = 0; k < npoly; k++) {
+      int n = rd16(p);
+      p += 2;
+      for (int i = 0; i < n; i++, p += 4) {
+        float px = rds16(p) * 0.25f, py = rds16(p + 2) * 0.25f;
+        float X = m.a * px + m.c * py + m.tx, Y = m.b * px + m.d * py + m.ty;
+        lx = X < lx ? X : lx;
+        hx = X > hx ? X : hx;
+        ly = Y < ly ? Y : ly;
+        hy = Y > hy ? Y : hy;
+      }
+    }
+  }
+  if (!visible) return;
+  int x0 = (int)floorf(lx), y0 = (int)floorf(ly), x1 = (int)ceilf(hx), y1 = (int)ceilf(hy);
+  if (!on_view(x0, y0, x1, y1)) return;
+  Item *it = add();
+  if (!it) return;
+  *it = (Item){DI_SHAPE, alpha, 0, 0, (int16_t)x0, (int16_t)y0, (int16_t)x1, (int16_t)y1, 0, 0};
+  if (!set_affine(it, m)) nitems--;
+  else item_ptr[it->ref] = shape;
+}
+
+void gfx_text(const char *s, Mat m, uint16_t color, uint8_t align, int16_t lw, int16_t lh, uint8_t alpha) { gfx_text_k(s, m, color, align, lw, lh, alpha, 1); }
+
+void gfx_text_k(const char *s, Mat m, uint16_t color, uint8_t align, int16_t lw, int16_t lh, uint8_t alpha, int k) {
+  if (!s || !*s || !alpha) return;
+  int w, h;
+  font_scale(k);
+  font_measure(s, lw, lh, &w, &h);
+  font_scale(1);
+  int ox = align == 1 ? -w / 2 : align == 2 ? -w : 0;
+  int x0 = (int)floorf(m.tx) + ox, y0 = (int)floorf(m.ty);
+  if (!on_view(x0, y0, x0 + w, y0 + h)) return;
+  Item *it = add();
+  if (!it) return;
+  *it = (Item){DI_TEXT, alpha, 0, 0, (int16_t)x0, (int16_t)y0, (int16_t)(x0 + w), (int16_t)(y0 + h), 0, color};
+  if (naffs < MAX_AFF) {
+    item_ptr[naffs] = s;
+    affs[naffs].align = align;
+    affs[naffs].lw = lw;
+    affs[naffs].lh = lh;
+    affs[naffs].m = m;
+    affs[naffs].scale = (uint8_t)k;
+    it->ref = (uint16_t)naffs++;
+  } else nitems--;
+}
+
+/* ---------------------------------------------------------------- the background layer */
+static uint8_t *bgmem;
+static int bgw, bgh, bgx, bgy;      /* layer size; world position of the area it holds */
+static bool bg_valid;
+static uint8_t bgsheet;
+static BgPaint bgpaint;
+static int bg_cx, bg_cy;            /* camera */
+static int clip_x0, clip_y0, clip_x1, clip_y1;   /* world rect being painted */
+static uint32_t bg_gen;             /* changes whenever the layer's pixels do */
+static int bg_see;                  /* palette index that shows the water (-1: none) */
+static const uint8_t *water;        /* the water: a tile of palette indices, repeating from world (0, 0) */
+static int water_w, water_h;
+static const uint8_t *bglut;        /* RGB444 -> palette index, to blend into the layer */
+
+void bg_setup(uint8_t *mem, int w, int h, uint8_t sheet, BgPaint paint) {
+  bgmem = mem;
+  bgw = w;
+  bgh = h;
+  bgsheet = sheet;
+  bgpaint = paint;
+  bg_valid = false;
+  bg_see = -1;
+  water = NULL;
+  bglut = NULL;
+  bg_gen++;
+  const uint8_t *al = palalpha(sheet);
+  for (int i = 0; i < 256; i++)
+    if (!al[i]) { bg_see = i; break; }
+}
+
+void bg_off(void) { bgmem = NULL; bg_gen++; }
+void bg_invalidate(void) { bg_valid = false; }
+uint8_t *bg_layer(int *w, int *h) { *w = bgw; *h = bgh; return bgmem; }
+static uint32_t water_gen;
+void bg_water(const uint8_t *tile, int w, int h) { water = tile; water_w = w; water_h = h; water_gen++; }
+void bg_redraw_water(void) { water_gen++; }
+void bg_blend_lut(const uint8_t *lut) { bglut = lut; }
+int bg_clear_index(void) { return bg_see; }
+
+/* layer pixel for world (x, y): the layer is a torus */
+static inline uint8_t *bg_at(int x, int y) {
+  int lx = x % bgw, ly = y % bgh;
+  if (lx < 0) lx += bgw;
+  if (ly < 0) ly += bgh;
+  return bgmem + ly * bgw + lx;
+}
+
+static void bg_paint_rect(int x0, int y0, int x1, int y1) {
+  if (x1 <= x0 || y1 <= y0) return;
+  bg_gen++;
+  clip_x0 = x0; clip_y0 = y0; clip_x1 = x1; clip_y1 = y1;
+  uint8_t clear = bg_see >= 0 ? (uint8_t)bg_see : 0;
+  for (int y = y0; y < y1; y++)
+    for (int x = x0; x < x1; x++) *bg_at(x, y) = clear;
+  bgpaint(x0, y0, x1 - x0, y1 - y0);
+}
+
+void bg_camera(int cx, int cy) {
+  if (!bgmem) return;
+  bg_cx = cx;
+  bg_cy = cy;
+  if (!bg_valid || cx < bgx - bgw || cx > bgx + 2 * bgw || cy < bgy - bgh || cy > bgy + 2 * bgh) {
+    /* center the spare margin around the view */
+    bgx = cx - (bgw - VIEW_W) / 2;
+    bgy = cy - (bgh - VIEW_H) / 2;
+    bg_paint_rect(bgx, bgy, bgx + bgw, bgy + bgh);
+    bg_valid = true;
+    return;
+  }
+  /* the view left the layer: move the layer so that the whole margin lies
+   * ahead, and paint what it newly covers (a strip at a time) */
+  if (cx < bgx || cx + VIEW_W > bgx + bgw) {
+    int nx = cx < bgx ? cx + VIEW_W - bgw : cx;
+    if (nx > bgx) bg_paint_rect(bgx + bgw > nx ? bgx + bgw : nx, bgy, nx + bgw, bgy + bgh);
+    else bg_paint_rect(nx, bgy, bgx < nx + bgw ? bgx : nx + bgw, bgy + bgh);
+    bgx = nx;
+  }
+  if (cy < bgy || cy + VIEW_H > bgy + bgh) {
+    int ny = cy < bgy ? cy + VIEW_H - bgh : cy;
+    if (ny > bgy) bg_paint_rect(bgx, bgy + bgh > ny ? bgy + bgh : ny, bgx + bgw, ny + bgh);
+    else bg_paint_rect(bgx, ny, bgx + bgw, bgy < ny + bgh ? bgy : ny + bgh);
+    bgy = ny;
+  }
+}
+
+void bg_fill(int x, int y, int w, int h, uint8_t index) {
+  int x0 = x > clip_x0 ? x : clip_x0, y0 = y > clip_y0 ? y : clip_y0;
+  int x1 = x + w < clip_x1 ? x + w : clip_x1, y1 = y + h < clip_y1 ? y + h : clip_y1;
+  for (int yy = y0; yy < y1; yy++)
+    for (int xx = x0; xx < x1; xx++) *bg_at(xx, yy) = index;
+}
+
+/* one pixel of a sprite (palette of `sheet`) onto the layer, with alpha 0..255 */
+static inline void bg_put(uint8_t *d, uint8_t c, const uint16_t *spal, const uint8_t *sal, uint8_t sheet, unsigned alpha) {
+  unsigned a = sal[c] * alpha;          /* 0..65025 */
+  if (!a) return;
+  if (a >= 255 * 255 - 255 && sheet == bgsheet) { *d = c; return; }
+  if (!bglut) { if (a >= 128 * 255 && sheet == bgsheet) *d = c; return; }
+  uint16_t fg = spal[c];
+  uint16_t col = fg;
+  if (a < 255 * 255 - 255) {
+    uint16_t bgc = (bg_see >= 0 && *d == bg_see && water) ? fg : pal565(bgsheet)[*d];
+    col = blend(fg, bgc, (a + 1024) >> 11);
+  }
+  *d = bglut[(col >> 12 & 15) << 8 | (col >> 7 & 15) << 4 | (col >> 1 & 15)];
+}
+
+void bg_blit_sprite(uint16_t sp, int x, int y, bool flipx, bool flipy) {
+  bg_draw(sp, x, y, (flipx ? BD_FLIPX : 0) | (flipy ? BD_FLIPY : 0), 255);
+}
+
+/* a big image kept as columns (see pack.py): each column band is its own
+ * stream, decoded from its top down to the last row needed */
+static void bg_draw_banded(uint16_t sp, const Sprite *s, int x, int y, uint8_t flags, uint8_t alpha) {
+  const uint8_t *t = ci_data + s->off;
+  unsigned nb = rd16(t);
+  const uint16_t *spal = pal565(s->sheet);
+  const uint8_t *sal = palalpha(s->sheet);
+  bool fx = flags & BD_FLIPX, fy = flags & BD_FLIPY;
+  /* rows needed, in the image's own rows */
+  int r0 = fy ? y + s->h - clip_y1 : clip_y0 - y, r1 = fy ? y + s->h - clip_y0 : clip_y1 - y;
+  if (r0 < 0) r0 = 0;
+  if (r1 > s->h) r1 = s->h;
+  if (r0 >= r1) return;
+  for (unsigned b = 0; b < nb; b++) {
+    int u0 = (int)b * 128, u1 = u0 + 128 > s->w ? s->w : u0 + 128, bw = u1 - u0;
+    /* world columns of this band */
+    int wx0 = fx ? x + s->w - u1 : x + u0, wx1 = wx0 + bw;
+    if (wx1 <= clip_x0 || wx0 >= clip_x1) continue;
+    z_open(rd32(t + 2 + 8 * b), rd32(t + 6 + 8 * b), (uint32_t)bw * s->h);
+    if (r0) z_get(NULL, (uint32_t)r0 * bw);
+    for (int r = r0; r < r1; r++) {
+      if (!z_get(stream_buf, (uint32_t)bw)) return;
+      int wy = fy ? y + s->h - 1 - r : y + r;
+      uint8_t *row = bg_at(0, wy) - (bg_at(0, wy) - bgmem) % bgw;   /* the layer row */
+      for (int i = 0; i < bw; i++) {
+        int wx = fx ? wx1 - 1 - i : wx0 + i;
+        if (wx < clip_x0 || wx >= clip_x1) continue;
+        int lx = wx % bgw;
+        if (lx < 0) lx += bgw;
+        bg_put(row + lx, stream_buf[i], spal, sal, s->sheet, alpha);
+      }
+    }
+  }
+}
+
+void bg_draw(uint16_t sp, int x, int y, uint8_t flags, uint8_t alpha) {
+  if (sp >= SPRITE_COUNT || !bgmem) return;
+  Sprite s;
+  sprite_info(sp, &s);
+  bool tr = flags & BD_TRANSPOSE;
+  int dw = tr ? s.h : s.w, dh = tr ? s.w : s.h;
+  if (x >= clip_x1 || y >= clip_y1 || x + dw <= clip_x0 || y + dh <= clip_y0 || !alpha) return;
+  if (s.kind == 2) { if (!tr) bg_draw_banded(sp, &s, x, y, flags, alpha); return; }
+  if (s.kind == 1 && !flags) { bg_blit_stream(sp, x, y); return; }
+  const uint8_t *r = spr_get(sp);
+  if (!r) return;
+  const uint16_t *spal = pal565(s.sheet);
+  const uint8_t *sal = palalpha(s.sheet);
+  bool fx = flags & BD_FLIPX, fy = flags & BD_FLIPY;
+  int w = rd16(r), h = rd16(r + 2);
+  for (int v = 0; v < h; v++) {
+    const uint8_t *p = r + rd16(r + 4 + 2 * v);
+    int n = *p++, u = 0;
+    for (int k = 0; k < n; k++) {
+      u += *p++;
+      int len = *p++;
+      for (int i = 0; i < len; i++, u++) {
+        /* source (u, v) -> offset (i, j) in the drawn rectangle */
+        int di = tr ? v : u, dj = tr ? u : v;
+        if (fx) di = dw - 1 - di;
+        if (fy) dj = dh - 1 - dj;
+        int wx = x + di, wy = y + dj;
+        if (wx < clip_x0 || wx >= clip_x1 || wy < clip_y0 || wy >= clip_y1) continue;
+        bg_put(bg_at(wx, wy), p[i], spal, sal, s.sheet, alpha);
+      }
+      p += len;
+    }
+  }
+  (void)w;
+}
+
+void bg_blit_stream(uint16_t sp, int x, int y) {
+  Sprite s;
+  sprite_info(sp, &s);
+  if (x >= clip_x1 || y >= clip_y1 || x + s.w <= clip_x0 || y + s.h <= clip_y0) return;
+  const uint8_t *st = spr_stream(sp);
+  if (!st) { bg_blit_sprite(sp, x, y, false, false); return; }
+  const uint8_t *alpha = palalpha(s.sheet);
+  z_open(rd32(st + 2), rd32(st + 6), rd32(st + 10));
+  int r0 = clip_y0 - y, r1 = clip_y1 - y;
+  if (r0 < 0) r0 = 0;
+  if (r1 > s.h) r1 = s.h;
+  z_get(NULL, (uint32_t)r0 * s.w);
+  int c0 = clip_x0 - x, c1 = clip_x1 - x;
+  if (c0 < 0) c0 = 0;
+  if (c1 > s.w) c1 = s.w;
+  for (int row = r0; row < r1; row++) {
+    /* the part of the row that is needed, straight from the decoder */
+    uint32_t done = 0;
+    while (done < s.w) {
+      const uint8_t *p;
+      uint32_t got = z_read(s.w - done, &p);
+      if (!got) return;
+      for (uint32_t i = 0; i < got; i++) {
+        int sx = (int)(done + i);
+        if (sx >= c0 && sx < c1 && alpha[p[i]]) *bg_at(x + sx, y + row) = p[i];
+      }
+      done += got;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- rasterising */
+static void band_bg(int by, int rows) {
+  if (!bgmem) {
+    for (int i = 0; i < VIEW_W * rows; i++) band[i] = clear_color;
+    return;
+  }
+  const uint16_t *pal = pal565(bgsheet);
+  for (int r = 0; r < rows; r++) {
+    uint16_t *d = band + r * VIEW_W;
+    int wy = bg_cy + by + r;
+    int ly = wy % bgh;
+    if (ly < 0) ly += bgh;
+    const uint8_t *row = bgmem + ly * bgw;
+    int lx = bg_cx % bgw;
+    if (lx < 0) lx += bgw;
+    if (water && bg_see >= 0) {
+      /* where the layer is clear, the water shows */
+      int ty = wy % water_h;
+      if (ty < 0) ty += water_h;
+      const uint8_t *wrow = water + ty * water_w;
+      int tx = bg_cx % water_w;
+      if (tx < 0) tx += water_w;
+      uint8_t see = (uint8_t)bg_see;
+      for (int x = 0; x < VIEW_W; x++) {
+        uint8_t c = row[lx];
+        d[x] = pal[c == see ? wrow[tx] : c];
+        if (++lx == bgw) lx = 0;
+        if (++tx == water_w) tx = 0;
+      }
+    } else {
+      for (int x = 0; x < VIEW_W; x++) {
+        d[x] = pal[row[lx]];
+        if (++lx == bgw) lx = 0;
+      }
+    }
+  }
+}
+
+static void draw_rle_row(const uint8_t *p, int x, int w, bool flipx, uint16_t *d, const uint16_t *pal,
+                         const uint8_t *al, unsigned galpha) {
+  int n = *p++, cx = 0;
+  for (int k = 0; k < n; k++) {
+    cx += *p++;
+    int len = *p++;
+    const uint8_t *src = p;
+    p += len;
+    int start = cx;
+    cx += len;
+    int i0 = 0, i1 = len;
+    uint16_t *dd;
+    if (!flipx) {
+      int sx = x + start;               /* screen x of src[0] */
+      if (sx >= VIEW_W) break;
+      if (sx < 0) i0 = -sx;
+      if (sx + len > VIEW_W) i1 = VIEW_W - sx;
+      dd = d + sx;
+      if (galpha == 32) {
+        for (int i = i0; i < i1; i++) {
+          unsigned c = src[i], a = al[c];
+          dd[i] = a == 255 ? pal[c] : blend(pal[c], dd[i], (a + 4) >> 3);
+        }
+      } else {
+        for (int i = i0; i < i1; i++) {
+          unsigned c = src[i];
+          dd[i] = blend(pal[c], dd[i], (al[c] * galpha + 128) >> 8);
+        }
+      }
+    } else {
+      int base = x + w - 1 - start;     /* screen x of src[0]; src[i] lands at base - i */
+      if (base < 0) break;
+      if (base >= VIEW_W) i0 = base - VIEW_W + 1;
+      if (base - (len - 1) < 0) i1 = base + 1;
+      dd = d + base;
+      for (int i = i0; i < i1; i++) {
+        unsigned c = src[i], a = al[c];
+        dd[-i] = (a == 255 && galpha == 32) ? pal[c] : blend(pal[c], dd[-i], (a * galpha + 128) >> 8);
+      }
+    }
+  }
+}
+
+/* the one big sprite of the frame decoded as the bands go down */
+static const Item *streaming;
+static int stream_row;
+
+/* affine sprites sample the one source row they last decoded (into stream_buf) */
+static const uint8_t *line_spr;
+static int line_v;
+static uint8_t line_mask[(SPRITE_W_MAX + 7) / 8];
+static void line_decode(const uint8_t *r, int v, int w) {
+  memset(line_mask, 0, (size_t)(w + 7) / 8);
+  const uint8_t *p = r + rd16(r + 4 + 2 * v);
+  int n = *p++, cx = 0;
+  for (int k = 0; k < n; k++) {
+    cx += *p++;
+    int len = *p++;
+    for (int i = 0; i < len && cx + i < w; i++) {
+      stream_buf[cx + i] = p[i];
+      line_mask[(cx + i) >> 3] |= (uint8_t)(1 << ((cx + i) & 7));
+    }
+    p += len;
+    cx += len;
+  }
+  line_spr = r;
+  line_v = v;
+}
+
+static void stream_begin(const Item *it) {
+  streaming = it;
+  const uint8_t *st = spr_stream(it->ref);
+  if (!st) { streaming = NULL; return; }
+  z_open(rd32(st + 2), rd32(st + 6), rd32(st + 10));
+  stream_row = 0;
+}
+
+static void draw_stream(const Item *it, int y0, int y1, int by, unsigned ga) {
+  line_spr = NULL;   /* stream_buf is overwritten */
+  Sprite s;
+  sprite_info(it->ref, &s);
+  const uint16_t *pal = pal565(s.sheet);
+  const uint8_t *al = palalpha(s.sheet);
+  for (int y = y0; y < y1; y++) {
+    int row = y - it->y0;
+    if (row < stream_row) continue;
+    if (row > stream_row) z_get(NULL, (uint32_t)(row - stream_row) * s.w);
+    if (!z_get(stream_buf, s.w)) return;
+    stream_row = row + 1;
+    uint16_t *d = band + (y - by) * VIEW_W;
+    bool fx = it->flags & DF_FLIPX;
+    for (int i = 0; i < s.w; i++) {
+      uint8_t c = stream_buf[i];
+      unsigned a = al[c];
+      if (!a) continue;
+      int sx = fx ? it->x0 + s.w - 1 - i : it->x0 + i;
+      if ((unsigned)sx >= VIEW_W) continue;
+      d[sx] = (a == 255 && ga == 32) ? pal[c] : blend(pal[c], d[sx], (a * ga + 128) >> 8);
+    }
+  }
+}
+
+static __attribute__((noinline)) void draw_sprite_item(const Item *it, int y0, int y1, int by, int rows, unsigned ga) {
+  const uint8_t *r = spr_peek(it->ref);
+  if (!r) return;
+  Sprite s;
+  sprite_info(it->ref, &s);
+  const uint16_t *pal = pal565(s.sheet);
+  const uint8_t *al = palalpha(s.sheet);
+  int h = rd16(r + 2), w = rd16(r);
+  static uint8_t al_opaque[256];      /* for DF_OPAQUE: 255 stays, the rest are skipped */
+  if (it->flags & DF_OPAQUE) {
+    for (int i = 0; i < 256; i++) al_opaque[i] = al[i] == 255 ? 255 : 0;
+    al = al_opaque;
+  }
+  for (int y = y0; y < y1; y++) {
+    int row = y - it->y0;
+    if (it->flags & DF_FLIPY) row = h - 1 - row;
+    draw_rle_row(r + rd16(r + 4 + 2 * row), it->x0, w, it->flags & DF_FLIPX, band + (y - by) * VIEW_W, pal, al, ga);
+  }
+}
+
+static __attribute__((noinline)) void draw_affine_item(const Item *it, int y0, int y1, int by, int rows, unsigned ga) {
+  const uint8_t *r = spr_peek(it->color);
+  if (!r) return;
+  Sprite s;
+  sprite_info(it->color, &s);
+  const uint16_t *pal = pal565(s.sheet);
+  const uint8_t *al = palalpha(s.sheet);
+  const Aff *f = &affs[it->ref];
+  int w = rd16(r), h = rd16(r + 2);
+  int x0 = it->x0 < 0 ? 0 : it->x0, x1 = it->x1 > VIEW_W ? VIEW_W : it->x1;
+  for (int y = y0; y < y1; y++) {
+    uint16_t *d = band + (y - by) * VIEW_W;
+    float fu = f->ia * (x0 + 0.5f) + f->ic * (y + 0.5f) + f->itx, fv = f->ib * (x0 + 0.5f) + f->id * (y + 0.5f) + f->ity;
+    for (int x = x0; x < x1; x++, fu += f->ia, fv += f->ib) {
+      if (fu < 0 || fv < 0 || fu >= w || fv >= h) continue;
+      int v = (int)fv, u = (int)fu;
+      if (r != line_spr || v != line_v) line_decode(r, v, w);
+      if (!(line_mask[u >> 3] & (1 << (u & 7)))) continue;
+      unsigned c = stream_buf[u], a = al[c];
+      d[x] = (a == 255 && ga == 32) ? pal[c] : blend(pal[c], d[x], (a * ga + 128) >> 8);
+    }
+  }
+}
+
+static __attribute__((noinline)) void draw_shape_item(const Item *it, int y0, int y1, int by, int rows, unsigned ga) {
+  /* scanlines: where each row's pixel centres cross the polygons' edges (even-odd) */
+  const Mat m = affs[it->ref].m;
+  const uint8_t *sh = item_ptr[it->ref];
+  float xs[64];
+  for (int y = y0; y < y1; y++) {
+    uint16_t *d = band + (y - by) * VIEW_W;
+    float fy = y + 0.5f;
+    const uint8_t *p = sh + 1;
+    for (int k = 0; k < sh[0]; k++) {
+      uint16_t col = rgb565(p[0], p[1], p[2]);
+      unsigned a = (p[3] * ga + 128) >> 8;
+      int npoly = p[4], nx = 0;
+      p += 5;
+      for (int q = 0; q < npoly; q++) {
+        int n = rd16(p);
+        p += 2;
+        if (a && n) {
+          float px = rds16(p + 4 * (n - 1)) * 0.25f, py = rds16(p + 4 * (n - 1) + 2) * 0.25f;
+          float X0 = m.a * px + m.c * py + m.tx, Y0 = m.b * px + m.d * py + m.ty;
+          for (int i = 0; i < n; i++) {
+            px = rds16(p + 4 * i) * 0.25f;
+            py = rds16(p + 4 * i + 2) * 0.25f;
+            float X1 = m.a * px + m.c * py + m.tx, Y1 = m.b * px + m.d * py + m.ty;
+            if ((Y1 > fy) != (Y0 > fy) && nx < 64) xs[nx++] = X0 + (fy - Y0) * (X1 - X0) / (Y1 - Y0);
+            X0 = X1;
+            Y0 = Y1;
+          }
+        }
+        p += 4 * n;
+      }
+      if (nx < 2) continue;
+      for (int i = 1; i < nx; i++) {
+        float t = xs[i];
+        int j = i;
+        for (; j > 0 && xs[j - 1] > t; j--) xs[j] = xs[j - 1];
+        xs[j] = t;
+      }
+      for (int i = 0; i + 1 < nx; i += 2) {
+        int xa = (int)ceilf(xs[i] - 0.5f), xb = (int)ceilf(xs[i + 1] - 0.5f);
+        if (xa < 0) xa = 0;
+        if (xb > VIEW_W) xb = VIEW_W;
+        for (int x = xa; x < xb; x++) d[x] = a >= 32 ? col : blend(col, d[x], a);
+      }
+    }
+  }
+}
+
+static __attribute__((noinline)) void draw_text_item(const Item *it, int y0, int y1, int by, int rows, unsigned ga) {
+  const Aff *f = &affs[it->ref];
+  font_scale(f->scale);
+  font_draw(item_ptr[it->ref], f->align, f->lw, f->lh, (int)floorf(f->m.tx), (int)floorf(f->m.ty), band, by, rows, VIEW_W, it->color, ga);
+  font_scale(1);
+}
+
+static void draw_item(const Item *it, int by, int rows) {
+  int y0 = it->y0 > by ? it->y0 : by, y1 = it->y1 < by + rows ? it->y1 : by + rows;
+  if (y0 >= y1) return;
+  unsigned ga = (it->alpha * 32u + 127) / 255;
+  switch (it->kind) {
+    case DI_STREAM:
+      /* another big one this frame is drawn from the cache if it fits */
+      if (it == streaming) draw_stream(it, y0, y1, by, ga);
+      else draw_sprite_item(it, y0, y1, by, rows, ga);
+      break;
+    case DI_RECT:
+      for (int y = y0; y < y1; y++) {
+        uint16_t *d = band + (y - by) * VIEW_W;
+        int x0 = it->x0 < 0 ? 0 : it->x0, x1 = it->x1 < VIEW_W ? it->x1 : VIEW_W;
+        if (ga >= 32) for (int x = x0; x < x1; x++) d[x] = it->color;
+        else for (int x = x0; x < x1; x++) d[x] = blend(it->color, d[x], ga);
+      }
+      break;
+    case DI_SPRITE: draw_sprite_item(it, y0, y1, by, rows, ga); break;
+    case DI_AFFINE: draw_affine_item(it, y0, y1, by, rows, ga); break;
+    case DI_SHAPE: draw_shape_item(it, y0, y1, by, rows, ga); break;
+    case DI_TEXT: draw_text_item(it, y0, y1, by, rows, ga); break;
+  }
+}
+
+/* Bands whose content is the same as last frame's are not drawn again: the
+ * screen keeps them. A band's content is summed up as a hash of its items. */
+#define NBANDS ((VIEW_H + BAND - 1) / BAND)
+static uint32_t band_hash[NBANDS];
+static bool redraw_all = true;
+void gfx_redraw_all(void) { redraw_all = true; }
+
+static inline uint32_t mix(uint32_t h, uint32_t v) { return (h ^ v) * 16777619u; }
+static uint32_t mixf(uint32_t h, float f) {
+  uint32_t v;
+  memcpy(&v, &f, 4);
+  return mix(h, v);
+}
+static uint32_t item_hash(uint32_t h, const Item *it) {
+  h = mix(h, (uint32_t)it->kind | (uint32_t)it->alpha << 8 | (uint32_t)it->flags << 16);
+  h = mix(h, (uint32_t)(uint16_t)it->x0 | (uint32_t)(uint16_t)it->y0 << 16);
+  h = mix(h, (uint32_t)(uint16_t)it->x1 | (uint32_t)(uint16_t)it->y1 << 16);
+  h = mix(h, (uint32_t)it->ref | (uint32_t)it->color << 16);
+  if (it->kind == DI_AFFINE || it->kind == DI_SHAPE || it->kind == DI_TEXT) {
+    const Aff *f = &affs[it->ref];
+    h = mixf(mixf(mixf(h, f->m.a), f->m.b), f->m.c);
+    h = mixf(mixf(mixf(h, f->m.d), f->m.tx), f->m.ty);
+    if (it->kind != DI_AFFINE) h = mix(h, (uint32_t)(uintptr_t)item_ptr[it->ref]);
+    if (it->kind == DI_TEXT) {
+      h = mix(h, (uint32_t)f->align | (uint32_t)f->scale << 8 | (uint32_t)(uint16_t)f->lw << 16);
+      for (const char *c = item_ptr[it->ref]; *c; c++) h = mix(h, (uint8_t)*c);
+    }
+  }
+  return h;
+}
+
+static uint16_t letter_color;
+static bool letter_dirty = true;
+void gfx_letterbox(uint16_t c) {
+  if (c != letter_color) letter_dirty = true;
+  letter_color = c;
+}
+
+void gfx_end(void) {
+  if (letter_dirty) {
+    plat_fill(0, 0, SCREEN_W, VIEW_Y, letter_color);
+    plat_fill(0, VIEW_Y + VIEW_H, SCREEN_W, SCREEN_H - VIEW_Y - VIEW_H, letter_color);
+    letter_dirty = false;
+  }
+#ifdef HOST
+  if (getenv("CI_STATS")) {
+    long area[6] = {0};
+    int cnt[6] = {0};
+    for (int i = 0; i < nitems; i++) {
+      const Item *it = &items[i];
+      int x0 = it->x0 < 0 ? 0 : it->x0, x1 = it->x1 > VIEW_W ? VIEW_W : it->x1;
+      int y0 = it->y0 < 0 ? 0 : it->y0, y1 = it->y1 > VIEW_H ? VIEW_H : it->y1;
+      if (x1 > x0 && y1 > y0) area[it->kind] += (long)(x1 - x0) * (y1 - y0);
+      cnt[it->kind]++;
+    }
+    fprintf(stderr, "items %d: sprite %d/%ld affine %d/%ld rect %d/%ld shape %d/%ld text %d/%ld stream %d/%ld\n", nitems,
+            cnt[0], area[0], cnt[1], area[1], cnt[2], area[2], cnt[3], area[3], cnt[4], area[4], cnt[5], area[5]);
+  }
+#endif
+  /* decode what the frame needs before drawing, so bands only read the cache */
+  streaming = NULL;
+  line_spr = NULL;
+  uint8_t seen[(SPRITE_COUNT + 7) / 8];
+  memset(seen, 0, sizeof seen);
+  uint32_t need = 0;   /* cache the frame's sprites take */
+  for (int i = 0; i < nitems; i++) {
+    Item *it = &items[i];
+    if (it->kind != DI_SPRITE && it->kind != DI_AFFINE) continue;
+    uint16_t sp = it->kind == DI_SPRITE ? it->ref : it->color;
+    if (!(seen[sp >> 3] & (1 << (sp & 7)))) {
+      Sprite t;
+      sprite_info(sp, &t);
+      need += (t.rle + 3) & ~3u;
+      seen[sp >> 3] |= (uint8_t)(1 << (sp & 7));
+    }
+    spr_get(sp);
+  }
+  /* big sprites are cached too while everything fits; otherwise the first
+   * one keeps the decoder while the bands go down */
+  for (int i = 0; i < nitems; i++) {
+    Item *it = &items[i];
+    if (it->kind != DI_STREAM) continue;
+    Sprite t;
+    sprite_info(it->ref, &t);
+    uint32_t sz = (t.rle + 3) & ~3u;
+    if (need + sz + 1024 <= spr_capacity() && spr_get(it->ref)) {
+      it->kind = DI_SPRITE;
+      need += sz;
+    } else if (!streaming) stream_begin(it);
+  }
+  /* a sprite pushed out of the cache by a later one is drawn next frame */
+  for (int i = 0; i < nitems; i++) {
+    Item *it = &items[i];
+    if ((it->kind == DI_SPRITE || it->kind == DI_AFFINE || (it->kind == DI_STREAM && it != streaming)) &&
+        !spr_peek(it->kind == DI_AFFINE ? it->color : it->ref))
+      it->flags |= DF_MISSING;
+  }
+  uint32_t base = bgmem ? mix(mix(mix(mix(2166136261u, (uint32_t)bg_cx), (uint32_t)bg_cy), bg_gen), water_gen)
+                        : mix(1, clear_color);
+  for (int by = 0; by < VIEW_H; by += BAND) {
+    int rows = VIEW_H - by < BAND ? VIEW_H - by : BAND;
+    uint32_t h = base;
+    for (int i = 0; i < nitems; i++) {
+      const Item *it = &items[i];
+      if (it->y1 > by && it->y0 < by + rows) h = item_hash(h, it);
+    }
+    if (!redraw_all && h == band_hash[by / BAND]) continue;
+    band_hash[by / BAND] = h;
+    band_bg(by, rows);
+    for (int i = 0; i < nitems; i++) {
+      const Item *it = &items[i];
+      if (it->y1 > by && it->y0 < by + rows) draw_item(it, by, rows);
+    }
+    plat_push(0, VIEW_Y + by, VIEW_W, rows, band);
+  }
+  redraw_all = false;
+  spr_tick();
+}

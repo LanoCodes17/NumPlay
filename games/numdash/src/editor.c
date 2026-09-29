@@ -22,17 +22,15 @@ static SceneOpts opts;
 static bool settings_open;
 static int settings_sel, clear_armed;
 static const char *const slot_names[CUSTOM_SLOTS] = {"MY LEVEL 1", "MY LEVEL 2", "MY LEVEL 3"};
-static const char *const theme_names[LEVEL_COUNT] = {"BLUE", "PINK", "GREEN", "RED", "OCEAN", "PURPLE", "VIOLET",
+static const char *const theme_names[THEME_COUNT] = {"BLUE", "PINK", "GREEN", "RED", "OCEAN", "PURPLE", "VIOLET",
                                                               "LIME", "PLUM"};
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 static void fill_level(Level *L, int slot, const CustomMeta *m, unsigned n) {
   memset(L, 0, sizeof(*L));
-  const LevelDef *d = &level_defs[m->theme % LEVEL_COUNT];
+  const LevelDef *d = &level_defs[m->theme % THEME_COUNT];
   L->name = slot_names[slot];
-  L->objs = level_objs;
-  L->count = (uint16_t)n;
   unsigned end = n ? level_objs[n - 1].x + 300u : 0;
   if (end < 900) end = 900;
   if (end > 64000) end = 64000;
@@ -44,7 +42,7 @@ static void fill_level(Level *L, int slot, const CustomMeta *m, unsigned n) {
   memset(L->colors[CH_OBJ], 255, 3);
   L->bpm = 120;
   L->start_mode = m->flags & 1 ? MODE_SHIP : MODE_CUBE;
-  level_index_coins(L);
+  level_load_flat(L, level_objs, n);
 }
 
 bool editor_load_slot(int slot, Level *L) {
@@ -118,9 +116,18 @@ static void cell_offset(int type, int rot, int *ox, int *oy) {
   }
 }
 
+static unsigned lower_bound(int x) {
+  unsigned a = 0, b = count;
+  while (a < b) {
+    unsigned m = (a + b) / 2;
+    if (level_objs[m].x < x) a = m + 1; else b = m;
+  }
+  return a;
+}
+
 static int find_in_cell(int col, int row, int from_end) {
   int x0 = col * 30, y0 = row * 30;
-  unsigned i = level_lower_bound(&edit_level, x0);
+  unsigned i = lower_bound(x0);
   int found = -1;
   for (; i < count && level_objs[i].x < x0 + 30; i++)
     if (level_objs[i].y >= y0 && level_objs[i].y < y0 + 30) {
@@ -160,7 +167,7 @@ static void place(void) {
   LObj o = {(uint16_t)(app.cur_x * 30 + 15 + ox), (int16_t)(app.cur_y * 30 + 15 + oy), (uint8_t)type, (uint8_t)(app.rotate & 3)};
   /* the same object in the same cell is replaced */
   int x0 = app.cur_x * 30, y0 = app.cur_y * 30;
-  for (unsigned i = level_lower_bound(&edit_level, x0); i < count && level_objs[i].x < x0 + 30; i++)
+  for (unsigned i = lower_bound(x0); i < count && level_objs[i].x < x0 + 30; i++)
     if (level_objs[i].type == type && level_objs[i].y >= y0 && level_objs[i].y < y0 + 30) {
       push_undo(UNDO_REMOVE, i, level_objs[i]);
       remove_at(i);
@@ -227,7 +234,7 @@ static void settings_tick(void) {
   if (app_hit(K_DOWN)) settings_sel = (settings_sel + 1) % 3;
   if (settings_sel != 2) clear_armed = 0;
   int d = app_hit(K_RIGHT) ? 1 : app_hit(K_LEFT) ? -1 : 0;
-  if (settings_sel == 0 && d) { meta.theme = (uint8_t)((meta.theme + LEVEL_COUNT + d) % LEVEL_COUNT); edited(); }
+  if (settings_sel == 0 && d) { meta.theme = (uint8_t)((meta.theme + THEME_COUNT + d) % THEME_COUNT); edited(); }
   if (settings_sel == 1 && (d || app_accept())) { meta.flags ^= 1; edited(); }
   if (settings_sel == 2 && app_accept()) {
     if (clear_armed) {
@@ -428,15 +435,15 @@ static void draw_type_icon(int type, int cx, int cy, int box, int rot, unsigned 
   const ObjDef *d = &objdefs[type];
   int w = 0, h = 0;
   for (int k = 0; k < d->nparts; k++) {
-    const Sprite *s = &sprites[d->parts[k].sprite];
-    if (d->parts[k].ctype >= CT_GLOW) continue;
+    const Sprite *s = &sprites[OBJ_PART(d, k)->sprite];
+    if (OBJ_PART(d, k)->ctype >= CT_GLOW) continue;
     if (s->w > w) w = s->w;
     if (s->h > h) h = s->h;
   }
   float sc = box / (float)(w > h ? w : h);
   if (sc > 1) sc = 1;
   for (int k = d->nparts - 1; k >= 0; k--) {
-    const ObjPart *pt = &d->parts[k];
+    const ObjPart *pt = OBJ_PART(d, k);
     if (pt->ctype >= CT_GLOW) continue;
     color_t tint = pt->ctype == CT_BLACK ? 0 : pt->ctype == CT_P1ADD ? app_p1() : pt->ctype == CT_P2ADD ? app_p2() : 0xffff;
     int mode = pt->ctype == CT_P1ADD || pt->ctype == CT_P2ADD ? BLEND_ADD : BLEND_NORMAL;
@@ -493,7 +500,7 @@ static void settings_draw(void) {
   ui_dim(110);
   ui_window_brown(40, 44, 240, 150);
   ui_title(FONT_BIG, 160, 70, "LEVEL SETTINGS");
-  const LevelDef *d = &level_defs[meta.theme % LEVEL_COUNT];
+  const LevelDef *d = &level_defs[meta.theme % THEME_COUNT];
   const char *labels[3] = {"COLORS", "START MODE", "CLEAR LEVEL"};
   for (int i = 0; i < 3; i++) {
     int y = 98 + i * 28;
@@ -502,7 +509,7 @@ static void settings_draw(void) {
   }
   gfx_round_rect(176, 90, 18, 16, 3, 0, 256);
   gfx_fill(177, 91, 16, 14, rgb(d->bg[0], d->bg[1], d->bg[2]));
-  gfx_text(FONT_SMALL, 200, 102, theme_names[meta.theme % LEVEL_COUNT], 0xffff, 0xffff, 256);
+  gfx_text(FONT_SMALL, 200, 102, theme_names[meta.theme % THEME_COUNT], 0xffff, 0xffff, 256);
   gfx_text(FONT_SMALL, 200, 130, meta.flags & 1 ? "SHIP" : "CUBE", 0xffff, 0xffff, 256);
   ui_text_button(214, 154, 90, 20, clear_armed ? "SURE?" : "CLEAR", clear_armed ? BTN_PINK : BTN_GRAY, settings_sel == 2 ? 1.08f : 1);
   gfx_text_center(FONT_SMALL, 160, 186, "LEFT RIGHT: CHANGE    BACK: CLOSE", rgb(255, 230, 190), rgb(255, 230, 190), 220);

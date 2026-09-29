@@ -20,9 +20,12 @@ static uint64_t key(const Game *g) {
   uint64_t y = (uint64_t)(int64_t)(p->y * 4), v = (uint64_t)(int64_t)(p->vy * 2);
   uint64_t k = (y & 0xffff) | ((v & 0xffff) << 16) | ((uint64_t)p->mode << 32) | ((uint64_t)p->upside << 34) |
                ((uint64_t)p->on_ground << 35) | ((uint64_t)g->hold_prev << 36) | ((uint64_t)p->buffer << 37) |
-               ((uint64_t)p->on_ceiling << 40);
-  unsigned first = level_lower_bound(g->L, (int)p->x - 120) / 8;
-  for (unsigned i = first; i < first + 6 && i < MAX_OBJECTS / 8; i++) k = (k ^ g->used[i]) * 1099511628211ull;
+               ((uint64_t)p->on_ceiling << 40) | ((uint64_t)p->mini << 41);
+  /* the used bits of the objects around the player */
+  LIter it;
+  level_iter(g->L, p->x - 120, p->x + 120, &it);
+  for (const RObj *o; (o = level_next(&it));)
+    if (objdefs[o->type].hit == HIT_SPECIAL && game_used(g, o, it.gi)) k = (k ^ it.gi) * 1099511628211ull;
   return k;
 }
 static int insert(uint64_t k) {

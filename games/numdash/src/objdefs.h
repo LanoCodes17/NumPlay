@@ -43,17 +43,108 @@ enum {
   OT_PORTAL_SHIP = 37,
   OT_COIN = 38,
   OT_PORTAL_BALL = 39,
-  OT_COUNT = 40
+  OT_UFO_PORTAL = 40,
+  OT_SIZE_MINI = 41,
+  OT_SIZE_NORMAL = 42,
+  OT_BLACK_T = 43,
+  OT_BLACK_TL = 44,
+  OT_BLACK_C = 45,
+  OT_BLACK_IN = 46,
+  OT_BLACK_LTR = 47,
+  OT_BLACK_LR = 48,
+  OT_BEVEL_ALL = 49,
+  OT_BEVEL_T = 50,
+  OT_BEVEL_C = 51,
+  OT_BEVEL_LR = 52,
+  OT_BRICK_ALL = 53,
+  OT_BRICK_T = 54,
+  OT_BRICK_TL = 55,
+  OT_BRICK_C = 56,
+  OT_BRICK_IN = 57,
+  OT_BRICK_LTR = 58,
+  OT_BRICK_LR = 59,
+  OT_STONE_T = 60,
+  OT_STONE_TL = 61,
+  OT_STONE_C = 62,
+  OT_STONE_IN = 63,
+  OT_STONE_LTR = 64,
+  OT_STONE_LR = 65,
+  OT_STONE_CREN = 66,
+  OT_STONE_CHECK = 67,
+  OT_METAL_SLAB = 68,
+  OT_METAL_SLAB2 = 69,
+  OT_FAKE_SPIKE = 70,
+  OT_FAKE_SQUARE = 71,
+  OT_FAKE_SPIKE_H = 72,
+  OT_FAKE_SPIKE_S = 73,
+  OT_GROUND_SPIKES = 74,
+  OT_ICE_SPIKE = 75,
+  OT_ICE_SPIKE_HALF = 76,
+  OT_ICE_SPIKE_SMALL = 77,
+  OT_INVIS_SPIKE = 78,
+  OT_INVIS_SPIKE_S = 79,
+  OT_INVIS_SQUARE = 80,
+  OT_SAW_BIG = 81,
+  OT_SAW_MED = 82,
+  OT_SAW_SMALL = 83,
+  OT_BLADE_BIG = 84,
+  OT_BLADE_MED = 85,
+  OT_BLADE_SMALL = 86,
+  OT_OBLADE_BIG = 87,
+  OT_OBLADE_MED = 88,
+  OT_GEAR_L = 89,
+  OT_GEAR_M = 90,
+  OT_GEAR_S = 91,
+  OT_WHEEL_L = 92,
+  OT_WHEEL_M = 93,
+  OT_WHEEL_S = 94,
+  OT_SPIKEWHEEL = 95,
+  OT_CARTWHEEL_L = 96,
+  OT_CARTWHEEL_M = 97,
+  OT_CARTWHEEL_S = 98,
+  OT_WIDE_CHAIN = 99,
+  OT_WIDE_CHAIN_S = 100,
+  OT_CLOUD_FADE_L = 101,
+  OT_CLOUD_FADE_S = 102,
+  OT_CLOUD_M = 103,
+  OT_CLOUD_L = 104,
+  OT_CLOUD_S = 105,
+  OT_PULSE_DISC = 106,
+  OT_PULSE_RING = 107,
+  OT_PULSE_DIAMOND = 108,
+  OT_PULSE_ARROW = 109,
+  OT_PULSE_CROSS = 110,
+  OT_SPIKEROD_L = 111,
+  OT_SPIKEROD_M = 112,
+  OT_SPIKEROD_S = 113,
+  OT_DIAMOND_ROD = 114,
+  OT_WAVY = 115,
+  OT_WAVY_L = 116,
+  OT_WAVY_R = 117,
+  OT_DECO_BRICKS_L = 118,
+  OT_DECO_BRICKS_M = 119,
+  OT_TOUCH = 120,
+  OT_COUNT = 121
 };
 enum { HIT_NONE, HIT_SOLID, HIT_HAZARD, HIT_SPECIAL };
-enum { SP_NONE, SP_PAD_Y, SP_PAD_P, SP_PAD_B, SP_ORB_Y, SP_ORB_P, SP_ORB_B, SP_GRAV_N, SP_GRAV_F, SP_PORTAL_CUBE, SP_PORTAL_SHIP, SP_COIN, SP_PORTAL_BALL };
-enum { CT_OBJ, CT_BLACK, CT_WHITE, CT_P1ADD, CT_P2ADD, CT_GLOW, CT_GLOW_Y, CT_GLOW_B, CT_GLOW_P };
-enum { LAYER_DECO_BACK, LAYER_RODS, LAYER_ROD_BALLS, LAYER_DETAIL, LAYER_SPECIAL_GLOW, LAYER_SPECIAL, LAYER_PORTAL_BACK, LAYER_BLOCK_GLOW, LAYER_PLAYER, LAYER_COIN, LAYER_PORTAL_FRONT, LAYER_FILL, LAYER_BLOCK, LAYER_COUNT };
-enum { PF_PULSE = 1, PF_RANDOM3 = 2, PF_COIN = 4, PF_ANIM = 8 };
+enum { SHAPE_BOX, SHAPE_CIRCLE, SHAPE_SLOPE };
+enum { SP_NONE, SP_PAD_Y, SP_PAD_P, SP_PAD_B, SP_ORB_Y, SP_ORB_P, SP_ORB_B, SP_GRAV_N, SP_GRAV_F, SP_PORTAL_CUBE, SP_PORTAL_SHIP, SP_COIN, SP_PORTAL_BALL, SP_PORTAL_UFO, SP_SIZE_MINI, SP_SIZE_NORMAL, SP_PORTAL_WAVE, SP_PORTAL_ROBOT, SP_SPEED_0, SP_SPEED_1, SP_SPEED_2, SP_SPEED_3, SP_DUAL_ON, SP_DUAL_OFF, SP_TELEPORT, SP_ORB_G, SP_KEY, SP_TOUCH };
+enum { CT_OBJ, CT_BLACK, CT_WHITE, CT_P1ADD, CT_P2ADD, CT_LBG, CT_GLOW, CT_GLOW_Y, CT_GLOW_B, CT_GLOW_P, CT_BASE, CT_DETAIL };
+enum { LAYER_B4, LAYER_DECO_BACK, LAYER_RODS, LAYER_ROD_BALLS, LAYER_DETAIL, LAYER_SPECIAL_GLOW, LAYER_SPECIAL, LAYER_PORTAL_BACK, LAYER_BLOCK_GLOW, LAYER_PLAYER, LAYER_COIN, LAYER_PORTAL_FRONT, LAYER_FILL, LAYER_BLOCK, LAYER_T2, LAYER_COUNT };
+enum { PF_PULSE = 1, PF_RANDOM3 = 2, PF_COIN = 4, PF_ANIM = 8, PF_QUAD = 16, PF_HALF = 32 };
+enum { ANIM_NONE = 0, ANIM_SAW = 1, ANIM_SPIN = 2, ANIM_INVIS = 3 };
+/* Tile programs: ops of {op, x0, y0, x1, y1, colour type, alpha[, bottom alpha]} in half units
+   (2 units with TOP_BIG), y up; rectangle, or rectangle with a vertical alpha ramp. */
+enum { TOP_END, TOP_RECT, TOP_VGRAD, TOP_BIG = 0x80 };
+extern const uint8_t tile_prog_data[];
+extern const uint16_t tile_prog_off[];
 enum { EV_COLOR = 1, EV_FADE = 2, EV_TRAIL = 3 };
-typedef struct { int16_t sprite; int8_t dx4, dy4; uint8_t layer, ctype, flags; } ObjPart;
-typedef struct { uint16_t gd_id; uint8_t hit, special; uint16_t w10, h10; int8_t editor_dy; uint8_t nparts; ObjPart parts[2]; } ObjDef;
+typedef struct { int16_t sprite; int8_t dx4, dy4; uint8_t layer, ctype, flags, prog; } ObjPart;
+/* dbase, ddetail: default colour channels (dense index, see level.h); hx2: hitbox x offset in half units */
+typedef struct { uint16_t gd_id; uint8_t hit, special; uint16_t w10, h10; int8_t editor_dy; uint8_t nparts; uint16_t part0; uint8_t shape, anim, dbase, ddetail; int8_t hx2; } ObjDef;
 extern const ObjDef objdefs[OT_COUNT];
+extern const ObjPart objparts[];
+#define OBJ_PART(d, k) (&objparts[(d)->part0 + (k)])
 #define EDITOR_TYPES 29
 extern const uint8_t editor_types[EDITOR_TYPES];
 #endif

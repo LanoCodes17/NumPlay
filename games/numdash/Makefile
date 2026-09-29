@@ -5,7 +5,7 @@ NWLINK = node node_modules/nwlink/bin/nwlink
 WARN = -Wall -Wextra -Werror -Wno-misleading-indentation
 # Like the calculator's build: no fused multiply-add, so replays play out the same.
 HOST_FP = -ffp-contract=off
-CORE = src/game.c src/level.c src/inflate.c src/leveldata.c src/objdefs.c src/assets.c src/gfx.c src/scene.c src/fx.c src/save.c
+CORE = src/game.c src/trig.c src/level.c src/inflate.c src/leveldata.c src/objdefs.c src/assets.c src/assets_lv.c src/gfx.c src/scene.c src/fx.c src/save.c
 COMMON = $(CORE) src/ui.c src/app.c src/menu.c src/play.c src/editor.c
 DEVICE_SOURCES = $(COMMON) src/platform_eadk.c src/main.c
 DEVICE_OBJECTS = $(patsubst src/%.c,build/arm/%.o,$(DEVICE_SOURCES))
@@ -23,6 +23,7 @@ levels:
 	$(PYTHON) tools/levels.py
 assets:
 	$(PYTHON) tools/assets.py
+	$(PYTHON) tools/assets_lv.py
 build/.stamp:
 	mkdir -p build
 	touch $@
@@ -42,7 +43,7 @@ build/tests: $(COMMON) tests/test.c $(HEADERS) | build/.stamp
 	$(CC) -std=c11 -O1 -g $(HOST_FP) $(WARN) -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc $(COMMON) tests/test.c -lm -o $@
 test: build/tests
 	./build/tests
-	@for i in 1 2 3 4 5 6 7 8 9; do ./build/tests --replay $$((i-1)) tests/replays/level$$i.txt || exit 1; done
+	@for i in 1 2 3 4 5 6 7 8 9 10; do ./build/tests --replay $$((i-1)) tests/replays/level$$i.txt || exit 1; done
 	./build/tests --monkey 1 60000
 	./build/tests --monkey 2 60000
 run: simulator

@@ -128,7 +128,13 @@ SEEDS = {
     "g2048": b"2\1\1" + bytes([0, 1, 0, 0, 0]) + struct.pack("<12I", 0, 1000, 0, 0, 0, 500, 0, 0, 0, 40, 0, 0)
              + bytes(9) + bytes([1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]) + bytes(61 + 2),
 }
+# games that keep a copy of their save in a Python script (the only files the
+# NumWorks installer keeps): before the second session, as after installing
+# the app again, only the scripts are left, and the save must come back
+COPIES = {"championisland": "champion_saves.py"}
 CHECKS = {
+    # the island remembers where Lucky was; after the reinstall, from the copy
+    "championisland": (lambda v: v[:3] == b"CI1" and b"PLAYER_LOC" in v,) * 2,
     "numdrive": (lambda v: v[27] == 1, lambda v: v[27] == 0),  # last played level
     "chess": (lambda v: v == SEEDS["chess"],) * 2,  # read back and kept
     "numvisuals": (lambda v: v[:2] == b"V\1" and v[3] == 4 and struct.unpack_from("<i", v, 8)[0] == 2,
@@ -256,6 +262,19 @@ def main():
             # a script added after the save, then a second session
             buf = bytearray(open(storage, "rb").read())
             lst = records(buf)
+            if name in COPIES:
+                copy = dict(lst).get(COPIES[name], b"")
+                tag = b"#>" + save.encode() + b":"
+                line = copy[copy.find(tag) + len(tag):].split(b"\n")[0] if tag in copy else b""
+                if not line or __import__("base64").b64decode(line) != dict(lst).get(save):
+                    problems.append(f"{COPIES[name]} does not hold {save}")
+                lst = [(n, v) for n, v in lst if n.endswith(".py")]
+                buf = bytearray(emu.STORAGE_SIZE)
+                q = 0
+                for n, v in lst:
+                    struct.pack_into("<H", buf, q, 2 + len(n) + 1 + len(v))
+                    buf[q + 2:q + 3 + len(n) + len(v)] = n.encode() + b"\0" + v
+                    q += 2 + len(n) + 1 + len(v)
             p = sum(2 + len(n) + 1 + len(v) for n, v in lst)
             late = b"\x01print('later')\n"
             size = 2 + len("late.py") + 1 + len(late)

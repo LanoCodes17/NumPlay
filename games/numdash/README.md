@@ -37,7 +37,7 @@ The two demons and the newest level come after Cycles, each with its 3 coins. Th
 
 <img src="docs/screenshots/clubstep.png" width="320" alt="Clubstep"> <img src="docs/screenshots/deadlocked.png" width="320" alt="Deadlocked">
 
-<img src="docs/screenshots/dash.png" width="320" alt="Dash">
+<img src="docs/screenshots/dash.png" width="320" alt="Dash"> <img src="docs/dash.gif" width="320" alt="The start of Dash: fire, pixel art and a turning level">
 
 ### It plays like the original
 
@@ -79,16 +79,19 @@ The **?** button on the main menu shows these again. For the level editor, **KEY
 - **There is no music.** NumWorks calculators have no speaker. Objects still pulse to the beat of each song.
 - **Your old progress is kept.** If you played an older version of NumDash, your progress on the first four levels and your custom levels carry over.
 - **It won't mess with your other files.** NumDash saves into a few small files of its own and never touches your Python scripts or anything else.
-- NumDash is a free fan project and is not affiliated with RobTop Games, who make Geometry Dash. All the graphics were redrawn from scratch to look like the game.
+- NumDash is a free fan project, inspired by Geometry Dash and not affiliated with RobTop Games. All the graphics were redrawn from scratch to look like the game.
 
 ## Thanks
 
-- **RobTop Games** for Geometry Dash.
+Inspired by Geometry Dash. Not affiliated with RobTop Games.
+
 - **[gd3ds](https://github.com/AleFunky/gd3ds)** by AleFunky and friends, a Geometry Dash remake for the Nintendo 3DS, whose research into how the game works made this possible.
 - **[gdsolver](https://github.com/gdsolver/gdsolver)** (MIT), whose measurements of Geometry Dash 2.2 shaped the newer game modes, triggers and turning levels.
 - **[GDRWeb](https://github.com/iliasHDZ/GDRWeb)** by IliasHDZ (MIT), a Geometry Dash level renderer, used to check the redrawn objects against the originals.
 - **[gmdkit](https://github.com/UHDanke/gmdkit)** by HDanke (MIT), where the level data of Clubstep, Deadlocked and Dash comes from.
 - The **Rammetto One** and **Nunito** fonts, both free under the SIL Open Font License (see the [LICENSES](LICENSES) folder).
+
+Made by Mason Chen as part of NumPlay.
 
 ## For developers
 

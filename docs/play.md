@@ -30,7 +30,7 @@ In every game, **Back** pauses, and the pause menu has a small **Quit game** but
 | **0** | Place a checkpoint (practice mode) |
 | **⌫** | Remove your last checkpoint |
 
-Nine levels, from Stereo Madness to Time Machine and Cycles. The **?** button on the main menu shows every key. In the level editor, **KEYS** on the My Levels screen draws the keyboard with what each key does (it also shows the first time you open the editor).
+Twelve levels, from Stereo Madness to Clubstep, Deadlocked and Dash. The **?** button on the main menu shows every key. In the level editor, **KEYS** on the My Levels screen draws the keyboard with what each key does (it also shows the first time you open the editor).
 
 <br clear="right">
 

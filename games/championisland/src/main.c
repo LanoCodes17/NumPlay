@@ -34,6 +34,7 @@ void ci_init(void) {
 #ifndef HOST
 uint32_t perf_frames __attribute__((used));   /* read by tools/emu.py */
 uint32_t perf_ms __attribute__((used));
+uint32_t perf_max __attribute__((used));      /* the slowest frame's work, ms (after the first second) */
 
 int main(void) {
   plat_begin();
@@ -59,10 +60,12 @@ int main(void) {
   ci_init();
   uint32_t next = plat_millis();
   while (game_running) {
+    uint32_t t0 = plat_millis();
     game_tick();
     if (!game_running) break;
     game_draw();
     perf_frames++;
+    if (perf_frames > 30 && plat_millis() - t0 > perf_max) perf_max = plat_millis() - t0;
     next += 1000 / FPS + (game.ticks % 3 == 0 ? 1 : 0);   /* 33.3 ms */
     uint32_t now = plat_millis();
     if ((int32_t)(next - now) > 0) plat_sleep(next - now);

@@ -604,6 +604,23 @@ static __attribute__((noinline)) void draw_affine_item(const Item *it, int y0, i
   float itx = -(ia * m->tx + ic * m->ty), ity = -(ib * m->tx + id * m->ty);
   int w = rd16(r), h = rd16(r + 2);
   int x0 = it->x0 < 0 ? 0 : it->x0, x1 = it->x1 > VIEW_W ? VIEW_W : it->x1;
+  if (fabsf(ib) > fabsf(ia)) {
+    /* turned about 90 degrees: a screen column walks one source row, so go
+     * column by column (one row decode per column, not one per pixel) */
+    for (int x = x0; x < x1; x++) {
+      float fu = ia * (x + 0.5f) + ic * (y0 + 0.5f) + itx, fv = ib * (x + 0.5f) + id * (y0 + 0.5f) + ity;
+      for (int y = y0; y < y1; y++, fu += ic, fv += id) {
+        if (fu < 0 || fv < 0 || fu >= w || fv >= h) continue;
+        int v = (int)fv, u = (int)fu;
+        if (r != line_spr || v != line_v) line_decode(r, v, w);
+        if (!(line_mask[u >> 3] & (1 << (u & 7)))) continue;
+        uint16_t *d = band + (y - by) * VIEW_W + x;
+        unsigned c = stream_buf[u], a = al[c];
+        *d = (a == 255 && ga == 32) ? pal[c] : blend(pal[c], *d, (a * ga + 128) >> 8);
+      }
+    }
+    return;
+  }
   for (int y = y0; y < y1; y++) {
     uint16_t *d = band + (y - by) * VIEW_W;
     float fu = ia * (x0 + 0.5f) + ic * (y + 0.5f) + itx, fv = ib * (x0 + 0.5f) + id * (y + 0.5f) + ity;

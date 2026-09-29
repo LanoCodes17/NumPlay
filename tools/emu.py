@@ -565,7 +565,10 @@ def main():
     if "perf_frames" in c.symbols:   # apps may count their frames in a uint32_t perf_frames
         n = struct.unpack("<I", bytes(c.uc.mem_read(c.symbols["perf_frames"], 4)))[0]
         print(f"emu: {n} frames, {n * 1000 / max(c.now_ms, 1):.1f} fps, "
-              f"{(c.now_ms - c.slept_ms) / max(n, 1):.1f} ms of work per frame")
+              f"{(c.now_ms - c.slept_ms) / max(n, 1):.1f} ms of work per frame", end="")
+        if "perf_max" in c.symbols:
+            print(f", slowest {struct.unpack('<I', bytes(c.uc.mem_read(c.symbols['perf_max'], 4)))[0]} ms", end="")
+        print()
     if a.profile and c.samples:
         import bisect
         from collections import Counter

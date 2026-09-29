@@ -388,6 +388,10 @@ static void spawn_balls(void) {
   memset(b, 0, sizeof *b);
   b->n = n;
   b->sprite = node_child(n, "currSprite");
+  /* its "smoking" pose (6 clips) is never shown (only a label of the ball's
+   * root is asked for, which it does not have): it goes, to spare nodes */
+  for (NodeId c = b->sprite ? nodes[b->sprite].first : 0; c; c = nodes[c].next)
+    if (nodes[c].sym == S_pingpong_Sba) { node_free(c); break; }
   b->shadow = node_child(n, "shadow");
   b->body = -1;
   b->live = true;
@@ -948,18 +952,15 @@ static void movement(void) {   /* Rp */
 
 
 #ifdef HOST
+/* tests: PPDBG=1 prints the state every tick (compare with the doodle's) */
 static void debug_log(void) {
   static int on = -1;
-  if (on < 0) on = getenv("PPDBG") != NULL;
+  if (on < 0 && (on = getenv("PPDBG") != NULL)) printf("state %u bytes\n", (unsigned)sizeof(State));
   if (!on) return;
   float px, py, ex, ey;
   pos_of(S->player, &px, &py);
   pos_of(S->enemy, &ex, &ey);
   printf("T %u p %.2f %.2f e %.2f %.2f wp %d eu %d my %.3f", game.ticks, px, py, ex, ey, S->wp, S->eu, S->my);
-  if (getenv("PPDBG")[0] == '2') {
-    printf(" pl %s f%d st%d:", node_label(S->player), nodes[S->player].frame, S->pstate);
-    for (NodeId c = nodes[S->player].first; c; c = nodes[c].next) printf(" %u/%d%s", nodes[c].sym, nodes[c].frame, (nodes[c].flags & NF_ONSTAGE) ? "+" : "");
-  }
   for (int i = 0; i < S->nballs; i++) {
     Ball *b = &S->balls[i];
     float x, y;

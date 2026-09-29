@@ -55,8 +55,18 @@ static NodeId button(NodeId m, const char *ev) {
   return 0;
 }
 
+/* every text of that name under parent (a button has one per pose: idle, focus...) */
+static void set_all(NodeId n, const char *name, const char *s) {
+  for (NodeId c = nodes[n].first; c; c = nodes[c].next) {
+    if (nodes[c].kind == NK_TEXT && node_named(c, name)) node_set_text(c, s);
+    else if (nodes[c].kind == NK_CLIP && !(nodes[c].T != NONE16 && comp_has(nodes[c].T, C_button) && n != c)) set_all(c, name, s);
+  }
+}
+
 static void set_text(NodeId parent, const char *name, const char *s) {
-  NodeId t = parent ? node_find(parent, name) : 0;
+  if (!parent) return;
+  if (nodes[parent].T != NONE16 && comp_has(nodes[parent].T, C_button)) { set_all(parent, name, s); return; }
+  NodeId t = node_find(parent, name);
   if (t) node_set_text(t, s);
 }
 
@@ -74,6 +84,7 @@ static void hide_button(NodeId m, const char *ev) {
   if (b) node_set_visible(b, false);
 }
 
+static uint16_t team_color(const char *team);
 static const char *const sports[7] = {"archery", "climbing", "marathon", "pingpong", "rugby", "skate", "swim"};
 
 /* the rules of the current sport (lo) */
@@ -155,6 +166,27 @@ static void setup(NodeId m) {
   } else if (!strcmp(id, "leaderboard")) {
     set_text(m, "title", msg("LEADERBOARD"));
     set_label(button(m, "back"), "CLOSE");
+    /* lr: the teams' scores come from the doodle's server; on the calculator
+     * there is only the player's own team and the stars they won for it */
+    NodeId l = node_find(m, "loading");
+    if (l) node_set_visible(l, false);
+    for (int i = 1; i < 4; i++) {
+      char k[16];
+      snprintf(k, sizeof k, "teamName%d", i);
+      if ((l = node_find(m, k))) node_set_visible(l, false);
+      snprintf(k, sizeof k, "teamScore%d", i);
+      if ((l = node_find(m, k))) node_set_visible(l, false);
+    }
+    static char team[16], score[12];
+    const char *t = store_str("PLAYER_TEAM");
+    snprintf(team, sizeof team, "%s", t && t[0] ? t : "NO_TEAM");
+    for (char *c = team; *c; c++) if (*c >= 'a' && *c <= 'z') *c -= 32;
+    snprintf(score, sizeof score, "%d", (int)store_num("SUBMITTED_SCORES", 0));
+    if ((l = node_find(m, "teamName0"))) {
+      node_set_text(l, msg(team));
+      node_set_text_color(l, team_color(team));
+    }
+    if ((l = node_find(m, "teamScore0"))) node_set_text(l, score);
   } else if (!strcmp(id, "controls")) {
     set_label(button(m, "back"), "BACK");
   }
@@ -374,6 +406,15 @@ static void results_tick(NodeId m) {
   if (count_t > 26) results_counting = false;
 }
 
+/* the doodle's team colours (Ts) */
+static uint16_t team_color(const char *team) {
+  static const struct { const char *team; uint16_t c; } teams[] = {
+      {"BLUE", 0x657E}, {"GREEN", 0x6F8D}, {"RED", 0xFACB}, {"YELLOW", 0xF74D}, {"NO_TEAM", 0xFFFF}};
+  for (unsigned i = 0; i < sizeof teams / sizeof teams[0]; i++)
+    if (!strcmp(teams[i].team, team)) return teams[i].c;
+  return 0xFFFF;
+}
+
 /* Gp: the map with each sport's best, its stars, the team and where the player is */
 static void stats_tick(NodeId m) {
   static const char *const nm[7] = {"archery", "climbing", "marathon", "pingpong", "rugby", "skate", "syncswim"};
@@ -394,8 +435,6 @@ static void stats_tick(NodeId m) {
     if (st) node_goto(st, stars[rt < 0 ? 0 : rt > 3 ? 3 : rt], 0, false);
   }
   /* the team, in its colour */
-  static const struct { const char *team; uint16_t c; } teams[] = {
-      {"BLUE", 0x657E}, {"GREEN", 0x6F8D}, {"RED", 0xFACB}, {"YELLOW", 0xF74D}, {"NO_TEAM", 0xFFFF}};
   const char *team = store_str("PLAYER_TEAM");
   static char up[16];
   snprintf(up, sizeof up, "%s", team && team[0] ? team : "NO_TEAM");
@@ -403,8 +442,7 @@ static void stats_tick(NodeId m) {
   NodeId tn = node_find(m, "teamName");
   if (tn) {
     node_set_text(tn, msg(up));
-    for (unsigned i = 0; i < sizeof teams / sizeof teams[0]; i++)
-      if (!strcmp(teams[i].team, up)) node_set_text_color(tn, teams[i].c);
+    node_set_text_color(tn, team_color(up));
   }
   /* the player on the map: the island (Vs) squeezed into the map picture (Ws) */
   NodeId map = node_find(m, "map"), pl = map ? node_find(map, "player") : 0;

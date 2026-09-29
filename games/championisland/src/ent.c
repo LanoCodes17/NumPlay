@@ -708,6 +708,14 @@ void sys_ground_height(void) {
   }
 }
 
+/* Oq: a translatable text shows the message with its id */
+void ent_translate(NodeId e) {
+  if (!e || nodes[e].T == NONE16 || !comp_has(nodes[e].T, C_translatable)) return;
+  uint16_t id = comp_str(nodes[e].T, C_translatable, F_id);
+  NodeId t = node_child(e, "text");
+  if (id != NONE16 && t) node_set_text(t, msg(str(id)));
+}
+
 /* addFx / removeFx: spawn an effect where an entity appears or goes */
 static void spawn_fx(NodeId e, int comp) {
   uint16_t s = comp_sym(nodes[e].T, comp, F_mc);

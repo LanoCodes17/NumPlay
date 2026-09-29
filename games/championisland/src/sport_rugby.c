@@ -24,6 +24,9 @@
 #include <stdio.h>
 #include "ent.h"
 #include "phys.h"
+#ifdef RG_DEBUG
+#include <stdlib.h>
+#endif
 
 #define ACT_MAX 32
 #define OB_MAX 176
@@ -625,6 +628,15 @@ static void start(void) {
       S->view = (Rect){x0, y0, 960 / g.a, 540 / g.d};
     }
   }
+#ifdef RG_DEBUG
+  if (getenv("RG_X"))   /* tests: the team starts further on */
+    for (int i = 0; i < S->nact; i++)
+      if (S->act[i].kind == A_CHAR) { S->act[i].x += atof(getenv("RG_X")); if (getenv("RG_Y")) S->act[i].y += atof(getenv("RG_Y")); }
+#endif
+#ifdef RG_START_X   /* performance tests on the calculator: the team starts further on */
+  for (int i = 0; i < S->nact; i++)
+    if (S->act[i].kind == A_CHAR) S->act[i].x += RG_START_X;
+#endif
   for (int i = 0; i < S->nact; i++) {
     Actor *a = &S->act[i];
     Rect v = rect_pad(S->view, 240, 216, 240, 432);
@@ -1036,7 +1048,7 @@ static void physics(void) {
     bd->vx = 30 * a->vx;
     bd->vy = 30 * a->vy;
     bd->vz = 0;
-    if (nmv < ACT_MAX) mv[nmv++] = rect_pad(r, 24, 24, 24, 24);
+    if (nmv < ACT_MAX) mv[nmv++] = rect_pad(r, 16, 16, 16, 16);
   }
   /* rocks: bodies only where something moves near them */
   for (int i = 0; i < S->nob; i++) {
@@ -1355,6 +1367,7 @@ static void tick(void) {
   the_end(zone);                        /* Et */
 #ifdef RG_DEBUG
   if (S->pl >= 0) { Actor *a = &S->act[S->pl]; float x, y; act_pos(a, &x, &y);
+    { int nb = 0; for (int i = 0; i < BODY_MAX; i++) nb += bodies[i].used; static int mx; if (nb > mx) { mx = nb; fprintf(stderr, "bodies max %d, state %d\n", mx, (int)sizeof(State)); } }
     fprintf(stderr, "t%u pl %d pos %.2f %.2f v %.2f %.2f body %d go %d label %s nodes %u\n", game.ticks, S->pl, x, y, a->vx, a->vy, a->body, go, a->n ? node_label(a->n) : "-", node_count()); }
 #endif
 }
@@ -1451,6 +1464,8 @@ static void draw_under(void) {
 }
 
 static void end(void) {
+  if (S)
+    for (int i = 0; i < S->nproto; i++) node_free(S->proto[i]);   /* not in the scene's tree */
   phys_reset();
   S = NULL;
 }

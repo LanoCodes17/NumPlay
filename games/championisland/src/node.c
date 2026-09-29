@@ -612,21 +612,116 @@ static bool shape_bounds(const uint8_t *sh, float *x, float *y, float *w, float 
   return true;
 }
 
-bool node_bounds(NodeId n, float *x, float *y, float *w, float *h) {
-  const Node *p = &nodes[n];
-  if (p->kind == NK_SHAPE && p->ref != NONE16) return shape_bounds(payload(p->ref), x, y, w, h);
-  if (p->kind == NK_BITMAP) {
-    Sprite s;
-    sprite_info(p->ref, &s);
-    *x = 0; *y = 0; *w = s.w; *h = s.h;
-    return true;
+/* CreateJS getBounds: a bitmap's rectangle, a shape's extent, and for a
+ * clip the union of its visible children's bounds at its current frame */
+typedef struct { float lx, ly, hx, hy; bool any; } Acc;
+
+static void acc_rect(Acc *a, Mat m, float x, float y, float w, float h) {
+  float xs[4] = {x, x + w, x, x + w}, ys[4] = {y, y, y + h, y + h};
+  for (int i = 0; i < 4; i++) {
+    float X = m.a * xs[i] + m.c * ys[i] + m.tx, Y = m.b * xs[i] + m.d * ys[i] + m.ty;
+    if (!a->any) { a->lx = a->hx = X; a->ly = a->hy = Y; a->any = true; continue; }
+    a->lx = X < a->lx ? X : a->lx; a->hx = X > a->hx ? X : a->hx;
+    a->ly = Y < a->ly ? Y : a->ly; a->hy = Y > a->hy ? Y : a->hy;
   }
+}
+
+static Mat key_mat(const Key *k) {
+  float a = 1, b = 0, c = 0, d = 1;
+  if (k->mat) { const float *mm = mat(k->mat); a = mm[0]; b = mm[1]; c = mm[2]; d = mm[3]; }
+  float rx = k->rx4 * 0.25f, ry = k->ry4 * 0.25f;
+  return (Mat){a, b, c, d, k->x - (rx * a + ry * c), k->y - (rx * b + ry * d)};
+}
+
+static void sym_acc(uint16_t sym, unsigned frame, Mat m, Acc *a, int depth) {
+  if (sym >= SYM_COUNT || depth > 12) return;
+  SymInfo si;
+  sym_info(sym, &si);
+  float x, y, w, h;
+  if (si.type == SYM_BITMAP) {
+    Sprite sp;
+    sprite_info((uint16_t)si.v, &sp);
+    acc_rect(a, m, 0, 0, sp.w, sp.h);
+  } else if (si.type == SYM_SHAPE) {
+    if (shape_bounds(payload((uint16_t)si.v), &x, &y, &w, &h)) acc_rect(a, m, x, y, w, h);
+  } else if (si.type == SYM_CLIP) {
+    Clip c;
+    if (!clip_get(sym, &c)) return;
+    if (c.nframes && frame >= c.nframes) frame %= c.nframes;
+    const uint8_t *q = c.slots;
+    for (unsigned s = 0; s < c.nslots; s++) {
+      Key k;
+      uint16_t idx;
+      q = slot_key(q, frame, &k, &idx);
+      if (idx == NONE16 || (k.flags & (K_ABSENT | K_HIDDEN))) continue;
+      Mat km = mat_mul(m, key_mat(&k));
+      if (k.kind == CK_SHAPE) { if (shape_bounds(payload(k.ref), &x, &y, &w, &h)) acc_rect(a, km, x, y, w, h); }
+      else if (k.kind == CK_SYM) {
+        unsigned f = k.mode == MODE_SYNCHED ? k.sp + frame - k.start : k.mode == MODE_SINGLE ? k.sp : 0;
+        sym_acc(k.ref, f, km, a, depth + 1);
+      }
+    }
+  }
+}
+
+static void node_acc(NodeId id, Mat m, Acc *a, int depth) {
+  const Node *n = &nodes[id];
+  float x, y, w, h;
+  if (depth > 12) return;
+  if (n->kind == NK_BITMAP) {
+    Sprite sp;
+    sprite_info(n->ref, &sp);
+    acc_rect(a, m, 0, 0, sp.w, sp.h);
+    return;
+  }
+  if (n->kind == NK_SHAPE) {
+    if (n->ref != NONE16 && shape_bounds(payload(n->ref), &x, &y, &w, &h)) acc_rect(a, m, x, y, w, h);
+    return;
+  }
+  if (n->kind == NK_TEXT) return;
   Clip c;
-  if (p->kind == NK_CLIP && clip_get(p->sym, &c) && (c.nb[2] || c.nb[3])) {
-    *x = c.nb[0]; *y = c.nb[1]; *w = c.nb[2]; *h = c.nb[3];
-    return true;
+  NodeId ch = n->first;
+  if (n->kind == NK_CLIP && !(n->flags & NF_SORTED) && clip_get(n->sym, &c)) {
+    const uint8_t *q = c.slots;
+    for (unsigned s = 0; s < c.nslots; s++) {
+      while (ch && nodes[ch].slot != NONE16 && nodes[ch].slot < s) ch = nodes[ch].next;
+      Key k;
+      uint16_t idx;
+      q = slot_key(q, n->frame, &k, &idx);
+      if (ch && nodes[ch].slot == s) {
+        if (node_visible(ch)) node_acc(ch, mat_mul(m, node_local(ch)), a, depth + 1);
+        continue;
+      }
+      if (idx == NONE16 || (k.flags & (K_ABSENT | K_HIDDEN)) || needs_node(&k)) continue;
+      Mat km = mat_mul(m, key_mat(&k));
+      if (k.kind == CK_SHAPE) { if (shape_bounds(payload(k.ref), &x, &y, &w, &h)) acc_rect(a, km, x, y, w, h); }
+      else if (k.kind == CK_SYM) {
+        unsigned f = k.mode == MODE_SYNCHED ? k.sp + n->frame - k.start : k.mode == MODE_SINGLE ? k.sp : 0;
+        sym_acc(k.ref, f, km, a, depth + 1);
+      }
+    }
+    for (NodeId x2 = n->first; x2; x2 = nodes[x2].next)
+      if (nodes[x2].slot == NONE16 && node_visible(x2)) node_acc(x2, mat_mul(m, node_local(x2)), a, depth + 1);
+    return;
   }
-  return false;
+  for (NodeId x2 = n->first; x2; x2 = nodes[x2].next)
+    if (node_visible(x2)) node_acc(x2, mat_mul(m, node_local(x2)), a, depth + 1);
+}
+
+bool node_bounds(NodeId n, float *x, float *y, float *w, float *h) {
+  Acc a = {0, 0, 0, 0, false};
+  node_acc(n, MAT_ID, &a, 0);
+  if (!a.any) {
+    /* nothing to show: Animate's nominal bounds, if any */
+    Clip c;
+    if (nodes[n].kind == NK_CLIP && clip_get(nodes[n].sym, &c) && (c.nb[2] || c.nb[3])) {
+      *x = c.nb[0]; *y = c.nb[1]; *w = c.nb[2]; *h = c.nb[3];
+      return true;
+    }
+    return false;
+  }
+  *x = a.lx; *y = a.ly; *w = a.hx - a.lx; *h = a.hy - a.ly;
+  return true;
 }
 
 bool node_bounds_in(NodeId n, NodeId space, float *x, float *y, float *w, float *h) {

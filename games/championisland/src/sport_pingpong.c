@@ -19,6 +19,9 @@
  * the filtered ball, in the map's draw order, without nodes. */
 #include <math.h>
 #include <stdio.h>
+#ifdef HOST
+#include <stdlib.h>
+#endif
 #include "../src/ent.h"
 #include "../src/font.h"
 #include "../src/phys.h"
@@ -34,7 +37,7 @@ enum { PART_SMOKE, PART_FLAME };                      /* mna, UV */
 
 typedef struct {
   NodeId n, sprite, shadow;
-  int16_t body;
+  int8_t body;          /* the physics has seen it (Gp) */
   uint8_t state;         /* 0 normal, 1 smoking, 2 flaming, 3 power shot */
   uint8_t dl;            /* DL: the player's hits */
   uint8_t side;
@@ -65,7 +68,7 @@ typedef struct {
   NodeId walls[WALL_MAX];
   int16_t wall_body[WALL_MAX];
   int nwalls;
-  int16_t table_body, player_body;
+  int16_t player_body;
   Rect table_box, court_box, ptarget_box, etarget_box, ebounds_box;
   float table_top;                 /* its z + height */
   float pvx, pvy, pvz;             /* the player's velocity component */
@@ -87,7 +90,7 @@ typedef struct {
   bool over, reported;             /* Zo, Xd */
   int end_t, rating;
   float score;
-  int last_meter, last_pprog, last_eprog;
+  int last_meter, last_pprog, last_eprog, meter_f;
   Part parts[PART_MAX];
   int nparts;
   Banner banner;
@@ -356,7 +359,6 @@ static Ball *ball_of(NodeId n) {
 
 static void ball_remove(int i) {
   Ball *b = &S->balls[i];
-  if (b->body >= 0) phys_remove(b->body);
   ent_remove(b->n);
   memmove(&S->balls[i], &S->balls[i + 1], (size_t)(S->nballs - i - 1) * sizeof(Ball));
   S->nballs--;
@@ -495,8 +497,12 @@ static bool power_shot(void) {
   return true;
 }
 
+/* (the engine also ticks the sprites a clip is not showing, and their scripts
+ * dispatch: only the pose on stage counts, as in createjs) */
+static bool showing(NodeId n, const char *label) { return !strcmp(node_label(n), label); }
+
 static void on_super_swing(NodeId t, uint16_t ev, void *ctx) {
-  if (!S || !S->super_on) return;
+  if (!S || !S->super_on || !showing(t, "super")) return;
   SOUND(power_swing);
   for (int i = 0; i < S->nballs; i++) {
     Ball *b = &S->balls[i];
@@ -514,7 +520,7 @@ static void on_super_swing(NodeId t, uint16_t ev, void *ctx) {
 }
 
 static void on_super_end(NodeId t, uint16_t ev, void *ctx) {
-  if (!S || !S->super_on) return;
+  if (!S || !S->super_on || !showing(t, "super")) return;
   S->super_on = false;
   S->pstate = 0;
   S->pmove = true;
@@ -527,7 +533,7 @@ static void on_super_end(NodeId t, uint16_t ev, void *ctx) {
 
 /* st: a paddle's swing ends */
 static void on_swing_finished(NodeId t, uint16_t ev, void *ctx) {
-  if (!S) return;
+  if (!S || !showing(t, "swing")) return;
   ent_label(t, "walk", false);
   if (t == S->player) { S->pstate = 0; S->pmove = true; }
   else S->estate = 0;
@@ -661,7 +667,11 @@ static void scoring(void) {
   if (S->t_score) node_set_text(S->t_score, S->s_score);
   meter(S->pprog, (float)S->wp / S->dJ, &S->last_pprog);
   meter(S->eprog, (float)S->eu / S->dJ, &S->last_eprog);
-  meter(S->meter, S->my, &S->last_meter);
+  /* the power meter's progress bar is masked (frames 1-30): the clip stays on
+   * its empty frame and draw_over draws the bar as far as the mask shows it */
+  int mf = (int)floorf(S->my * 31);
+  S->meter_f = mf < 0 ? 0 : mf > 31 ? 31 : mf;
+  meter(S->meter, S->meter_f == 31 ? 1.0f : 0.0f, &S->last_meter);
   if (S->plabel) node_set_text(S->plabel, msg("TUT_PINGPONG_DESKTOP_ACTION"));
 }
 
@@ -807,7 +817,7 @@ static void start(void) {
   const char *v = game.variant;
   const char *label = !strcmp(v, "hard") || !strcmp(v, "ultra") || !strcmp(v, "tutorial") ? v : "game";
   S->tutorial = !strcmp(v, "tutorial");
-  S->table_body = S->player_body = -1;
+  S->player_body = -1;
   S->last_meter = S->last_pprog = S->last_eprog = -1;
   S->pmove = true;
   S->ty = 10000;
@@ -896,11 +906,71 @@ static void countdown(void) {   /* Wo */
   if (S->cd > 0) S->cd--;
 }
 
+
+#if defined(HOST) || defined(PP_AUTO)
+/* tests: PPAUTO=1 (or a build with -DPP_AUTO) plays the player: it goes to
+ * the ball coming its way and uses the power shot when two balls are in play */
+static void autopilot(void) {
+#ifdef PP_AUTO
+  const bool on = true;
+#else
+  static int on = -1;
+  if (on < 0) on = getenv("PPAUTO") != NULL;
+#endif
+  if (!on || !S->pmove) return;
+  Rect r;
+  if (!box_of(S->player, &r)) return;
+  float best = 1e9f, gx = 0, gy = 0;
+  bool any = false;
+  for (int i = 0; i < S->nballs; i++) {
+    Ball *b = &S->balls[i];
+    float x, y;
+    pos_of(b->n, &x, &y);
+    if (!b->live || b->side == SIDE_PLAYER || x > S->table_box.x + S->table_box.w) continue;
+    if (x < best) { best = x; gx = x; gy = y - b->z; any = true; }
+  }
+  in.jx = in.jy = 0;
+  if (any) {
+    float dx = gx - (r.x + r.w / 2), dy = gy - (r.y + r.h / 2), d = sqrtf(dx * dx + dy * dy);
+    if (d > 2) { in.jx = dx / d; in.jy = dy / d; }
+  }
+  in.held[A_ACTION] = S->my >= 1 && S->nballs >= 2;
+}
+#else
+static void autopilot(void) {}
+#endif
+
 static void movement(void) {   /* Rp */
   if (!S->pmove) return;
   S->pvx = in.jx * S->pspeed;
   S->pvy = in.jy * S->pspeed;
 }
+
+
+#ifdef HOST
+static void debug_log(void) {
+  static int on = -1;
+  if (on < 0) on = getenv("PPDBG") != NULL;
+  if (!on) return;
+  float px, py, ex, ey;
+  pos_of(S->player, &px, &py);
+  pos_of(S->enemy, &ex, &ey);
+  printf("T %u p %.2f %.2f e %.2f %.2f wp %d eu %d my %.3f", game.ticks, px, py, ex, ey, S->wp, S->eu, S->my);
+  if (getenv("PPDBG")[0] == '2') {
+    printf(" pl %s f%d st%d:", node_label(S->player), nodes[S->player].frame, S->pstate);
+    for (NodeId c = nodes[S->player].first; c; c = nodes[c].next) printf(" %u/%d%s", nodes[c].sym, nodes[c].frame, (nodes[c].flags & NF_ONSTAGE) ? "+" : "");
+  }
+  for (int i = 0; i < S->nballs; i++) {
+    Ball *b = &S->balls[i];
+    float x, y;
+    pos_of(b->n, &x, &y);
+    printf(" [%.2f %.2f z %.2f kt %.2f v %.3f %.3f %.3f dl %d st %d]", x, y, b->z, b->kt, b->vx, b->vy, b->vz, b->dl, b->state);
+  }
+  printf("\n");
+}
+#else
+static void debug_log(void) {}
+#endif
 
 static void tick(void) {
   if (!S || !S->map) { sys_back_pauses(); return; }
@@ -918,6 +988,7 @@ static void tick(void) {
   end_of_game();                                       /* qt, pt */
   remove_dead();                                       /* ot */
   if (on && !S->over) spawn_balls();                   /* jt */
+  autopilot();
   movement();                                          /* Rp */
   if (on && !S->over && !power_shot()) {               /* et */
     paddle_swing(SIDE_PLAYER);
@@ -925,6 +996,7 @@ static void tick(void) {
   }
   physics();                                           /* yr */
   if (on) ground_heights();                            /* Ar */
+  debug_log();
   if (!S->over || S->tutorial) scoring();              /* lt */
   if (on) { shadows(); zsprites(); }                   /* tt, dq */
   sort_map();                                          /* Qp */
@@ -1002,9 +1074,23 @@ static void draw_under(void) {
   mp->flags &= (uint8_t)~NF_VISIBLE;
 }
 
+/* l4a's frames 1 to 30: PowerShotBarProgressArt (a yellow bar with round
+ * ends, at (1, 1)) under a mask whose right edge is at 3 + 10 (frame - 1) */
+static void draw_meter(void) {
+  int f = S->meter_f;
+  if (!S->meter || f < 1 || f > 30 || !node_visible_chain(S->meter)) return;
+  Mat m = mat_mul((Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0}, node_global(S->meter));
+  int w = 2 + 10 * (f - 1), x = (int)floorf(m.tx + 1 + .5f), y = (int)floorf(m.ty + 1 + .5f);
+  uint16_t c = rgb565(253, 202, 64);
+  gfx_rect(x, y + 1, w, 4, c, 255);
+  gfx_rect(x + 1, y, w - 1, 1, c, 255);
+  gfx_rect(x + 1, y + 5, w - 1, 1, c, 255);
+}
+
 static void draw_over(void) {
   if (!S) return;
   if (S->map) nodes[S->map].flags |= NF_VISIBLE;
+  if (S->map) draw_meter();
   banner_draw();
 }
 

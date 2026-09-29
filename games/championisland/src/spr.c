@@ -155,16 +155,21 @@ static uint8_t *alloc(uint32_t n, bool force) {
 }
 
 /* Encodes rows of palette indices as runs of visible pixels:
- * u16 w, u16 h, u16 row offsets[h], then per row: nruns, (skip, len, px...)... */
+ * u16 w, u16 h, u16 row offsets[h] (from the start), then per row: u16 nruns,
+ * and per run: skip (transparent pixels before it), then either a fill
+ * (0x80 | (length - 1), one colour: 1 to 128 pixels of one colour) or
+ * literal pixels (length 0..127, then the colours). pack.py's rle_size()
+ * computes the same sizes. */
 typedef struct { uint8_t *base, *p, *end; uint16_t row; bool ok; } Rle;
-
 static void rle_row(Rle *r, const uint8_t *px, int w, const uint8_t *alpha) {
   if (!r->ok) return;
   uint32_t off = (uint32_t)(r->p - r->base);
   r->base[4 + 2 * r->row] = (uint8_t)off;
   r->base[5 + 2 * r->row] = (uint8_t)(off >> 8);
   r->row++;
-  uint8_t *count = r->p++;
+  if (r->p + 2 > r->end) { r->ok = false; return; }
+  uint8_t *count = r->p;
+  r->p += 2;
   int n = 0, x = 0;
   while (x < w) {
     int skip = 0;
@@ -174,22 +179,34 @@ static void rle_row(Rle *r, const uint8_t *px, int w, const uint8_t *alpha) {
       if (r->p + 2 > r->end) { r->ok = false; return; }
       *r->p++ = 255; *r->p++ = 0; skip -= 255; n++;
     }
-    int len = 0;
-    while (x + len < w && alpha[px[x + len]] && len < 255) len++;
-    if (r->p + 2 + len > r->end) { r->ok = false; return; }
-    *r->p++ = (uint8_t)skip;
-    *r->p++ = (uint8_t)len;
-    memcpy(r->p, px + x, (size_t)len);
-    r->p += len;
-    x += len;
+    int run = 1;
+    while (x + run < w && run < 128 && px[x + run] == px[x]) run++;
+    if (run >= 3) {
+      if (r->p + 3 > r->end) { r->ok = false; return; }
+      *r->p++ = (uint8_t)skip;
+      *r->p++ = (uint8_t)(0x80 | (run - 1));
+      *r->p++ = px[x];
+      x += run;
+    } else {
+      int len = 0;
+      while (x + len < w && len < 127 && alpha[px[x + len]] &&
+             !(x + len + 2 < w && px[x + len] == px[x + len + 1] && px[x + len] == px[x + len + 2]))
+        len++;
+      if (!len) len = 1;
+      if (r->p + 2 + len > r->end) { r->ok = false; return; }
+      *r->p++ = (uint8_t)skip;
+      *r->p++ = (uint8_t)len;
+      memcpy(r->p, px + x, (size_t)len);
+      r->p += len;
+      x += len;
+    }
     n++;
   }
-  *count = (uint8_t)n;
+  count[0] = (uint8_t)n;
+  count[1] = (uint8_t)(n >> 8);
 }
-
 /* Worst-case size of a sprite's runs. */
-static uint32_t rle_bound(int w, int h) { return 4 + 2u * h + (uint32_t)h * (1 + (uint32_t)w + 2 * ((uint32_t)w / 2 + 2)); }
-
+static uint32_t rle_bound(int w, int h) { return 4 + 2u * h + (uint32_t)h * (2 + 3 * ((uint32_t)w / 2 + 2) + (uint32_t)w); }
 static uint8_t rowbuf[SPRITE_W_MAX];
 
 /* Adds sprite sp from the decoder, whose next bytes are its pixels. */

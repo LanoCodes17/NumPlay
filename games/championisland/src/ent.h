@@ -121,5 +121,6 @@ void ent_on_trigger(TriggerFn fn);
 
 /* per-scene hooks for spawned entities (addFx / removeFx) */
 void sys_add_fx(NodeId e);                   /* Xp */
+void ent_translate(NodeId e);                /* Oq: translatable texts */
 void sys_remove_fx(NodeId e);                /* Yp */
 #endif

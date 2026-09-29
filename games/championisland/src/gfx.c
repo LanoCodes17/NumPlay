@@ -181,6 +181,9 @@ static int bg_see;                  /* palette index that shows the water (-1: n
 static const uint8_t *water;        /* the water: a tile of palette indices, repeating from world (0, 0) */
 static int water_w, water_h;
 static const uint8_t *bglut;        /* RGB444 -> palette index, to blend into the layer */
+/* the see-through entries of the layer's palette: a pixel partly over the
+ * water keeps the nearest one, and is blended over the water when drawn */
+static uint8_t seethru[32], nseethru;
 
 void bg_setup(uint8_t *mem, int w, int h, uint8_t sheet, BgPaint paint) {
   bgmem = mem;
@@ -194,8 +197,11 @@ void bg_setup(uint8_t *mem, int w, int h, uint8_t sheet, BgPaint paint) {
   bglut = NULL;
   bg_gen++;
   const uint8_t *al = palalpha(sheet);
-  for (int i = 0; i < 256; i++)
-    if (!al[i]) { bg_see = i; break; }
+  nseethru = 0;
+  for (int i = 0; i < 256; i++) {
+    if (!al[i] && bg_see < 0) bg_see = i;
+    if (al[i] && al[i] != 255 && nseethru < (int)sizeof seethru) seethru[nseethru++] = (uint8_t)i;
+  }
 }
 
 void bg_off(void) { bgmem = NULL; bg_gen++; }
@@ -261,6 +267,22 @@ void bg_fill(int x, int y, int w, int h, uint8_t index) {
 }
 
 /* one pixel of a sprite (palette of `sheet`) onto the layer, with alpha 0..255 */
+
+static uint8_t nearest_seethru(uint16_t col, unsigned a) {
+  const uint16_t *pal = pal565(bgsheet);
+  const uint8_t *al = palalpha(bgsheet);
+  int best = -1;
+  unsigned bd = 0;
+  for (int i = 0; i < nseethru; i++) {
+    uint16_t p = pal[seethru[i]];
+    int dr = (int)(p >> 11) - (int)(col >> 11), dg = (int)(p >> 5 & 63) - (int)(col >> 5 & 63), db = (int)(p & 31) - (int)(col & 31);
+    int da = (int)al[seethru[i]] - (int)a;
+    unsigned dd = (unsigned)(4 * dr * dr + dg * dg + 4 * db * db) + (unsigned)(da * da) / 16;
+    if (best < 0 || dd < bd) { best = seethru[i]; bd = dd; }
+  }
+  return (uint8_t)(best < 0 ? bg_see : best);
+}
+
 static inline void bg_put(uint8_t *d, uint8_t c, const uint16_t *spal, const uint8_t *sal, uint8_t sheet, unsigned alpha) {
   unsigned a = sal[c] * alpha;          /* 0..65025 */
   if (!a) return;
@@ -269,8 +291,18 @@ static inline void bg_put(uint8_t *d, uint8_t c, const uint16_t *spal, const uin
   uint16_t fg = spal[c];
   uint16_t col = fg;
   if (a < 255 * 255 - 255) {
-    uint16_t bgc = (bg_see >= 0 && *d == bg_see && water) ? fg : pal565(bgsheet)[*d];
-    col = blend(fg, bgc, (a + 1024) >> 11);
+    const uint8_t *al = palalpha(bgsheet);
+    if (water && al[*d] != 255) {
+      /* over the water (or over something see-through): stays see-through */
+      unsigned a8 = (a + 127) / 255;
+      if (al[*d]) {
+        a8 = a8 + al[*d] * (255 - a8) / 255;
+        col = blend(fg, pal565(bgsheet)[*d], (unsigned)((a + 1024) >> 11) * 255 / (a8 ? a8 : 1) > 32 ? 32 : (unsigned)(((a + 1024) >> 11) * 255 / (a8 ? a8 : 1)));
+      }
+      *d = a8 >= 250 ? bglut[(col >> 12 & 15) << 8 | (col >> 7 & 15) << 4 | (col >> 1 & 15)] : nearest_seethru(col, a8);
+      return;
+    }
+    col = blend(fg, pal565(bgsheet)[*d], (a + 1024) >> 11);
   }
   *d = bglut[(col >> 12 & 15) << 8 | (col >> 7 & 15) << 4 | (col >> 1 & 15)];
 }
@@ -331,10 +363,12 @@ void bg_draw(uint16_t sp, int x, int y, uint8_t flags, uint8_t alpha) {
   int w = rd16(r), h = rd16(r + 2);
   for (int v = 0; v < h; v++) {
     const uint8_t *p = r + rd16(r + 4 + 2 * v);
-    int n = *p++, u = 0;
+    int n = rd16(p), u = 0;
+    p += 2;
     for (int k = 0; k < n; k++) {
       u += *p++;
-      int len = *p++;
+      int code = *p++, len = code & 0x80 ? (code & 0x7F) + 1 : code;
+      bool fill = code & 0x80;
       for (int i = 0; i < len; i++, u++) {
         /* source (u, v) -> offset (i, j) in the drawn rectangle */
         int di = tr ? v : u, dj = tr ? u : v;
@@ -342,9 +376,9 @@ void bg_draw(uint16_t sp, int x, int y, uint8_t flags, uint8_t alpha) {
         if (fy) dj = dh - 1 - dj;
         int wx = x + di, wy = y + dj;
         if (wx < clip_x0 || wx >= clip_x1 || wy < clip_y0 || wy >= clip_y1) continue;
-        bg_put(bg_at(wx, wy), p[i], spal, sal, s.sheet, alpha);
+        bg_put(bg_at(wx, wy), fill ? p[0] : p[i], spal, sal, s.sheet, alpha);
       }
-      p += len;
+      p += fill ? 1 : len;
     }
   }
   (void)w;
@@ -403,10 +437,11 @@ static void band_bg(int by, int rows) {
       const uint8_t *wrow = water + ty * water_w;
       int tx = bg_cx % water_w;
       if (tx < 0) tx += water_w;
-      uint8_t see = (uint8_t)bg_see;
+      const uint8_t *al = palalpha(bgsheet);
       for (int x = 0; x < VIEW_W; x++) {
         uint8_t c = row[lx];
-        d[x] = pal[c == see ? wrow[tx] : c];
+        unsigned a = al[c];
+        d[x] = a == 255 ? pal[c] : !a ? pal[wrow[tx]] : blend(pal[c], pal[wrow[tx]], (a + 4) >> 3);
         if (++lx == bgw) lx = 0;
         if (++tx == water_w) tx = 0;
       }
@@ -421,42 +456,55 @@ static void band_bg(int by, int rows) {
 
 static void draw_rle_row(const uint8_t *p, int x, int w, bool flipx, uint16_t *d, const uint16_t *pal,
                          const uint8_t *al, unsigned galpha) {
-  int n = *p++, cx = 0;
+  int n = rd16(p), cx = 0;
+  p += 2;
   for (int k = 0; k < n; k++) {
     cx += *p++;
-    int len = *p++;
+    int code = *p++;
+    bool fill = code & 0x80;
+    int len = fill ? (code & 0x7F) + 1 : code;
     const uint8_t *src = p;
-    p += len;
+    p += fill ? 1 : len;
     int start = cx;
     cx += len;
     int i0 = 0, i1 = len;
     uint16_t *dd;
+    int step;
     if (!flipx) {
-      int sx = x + start;               /* screen x of src[0] */
+      int sx = x + start;               /* screen x of the run's first pixel */
       if (sx >= VIEW_W) break;
       if (sx < 0) i0 = -sx;
       if (sx + len > VIEW_W) i1 = VIEW_W - sx;
       dd = d + sx;
-      if (galpha == 32) {
-        for (int i = i0; i < i1; i++) {
-          unsigned c = src[i], a = al[c];
-          dd[i] = a == 255 ? pal[c] : blend(pal[c], dd[i], (a + 4) >> 3);
-        }
-      } else {
-        for (int i = i0; i < i1; i++) {
-          unsigned c = src[i];
-          dd[i] = blend(pal[c], dd[i], (al[c] * galpha + 128) >> 8);
-        }
-      }
+      step = 1;
     } else {
-      int base = x + w - 1 - start;     /* screen x of src[0]; src[i] lands at base - i */
+      int base = x + w - 1 - start;     /* screen x of the run's first pixel; the run goes left */
       if (base < 0) break;
       if (base >= VIEW_W) i0 = base - VIEW_W + 1;
       if (base - (len - 1) < 0) i1 = base + 1;
       dd = d + base;
+      step = -1;
+    }
+    if (i0 >= i1) continue;
+    if (fill) {
+      unsigned c = src[0], a = al[c];
+      if (!a) continue;
+      uint16_t col = pal[c];
+      if (a == 255 && galpha == 32) {
+        for (int i = i0; i < i1; i++) dd[i * step] = col;
+      } else {
+        unsigned aa = (a * galpha + 128) >> 8;
+        for (int i = i0; i < i1; i++) dd[i * step] = blend(col, dd[i * step], aa);
+      }
+    } else if (galpha == 32) {
       for (int i = i0; i < i1; i++) {
         unsigned c = src[i], a = al[c];
-        dd[-i] = (a == 255 && galpha == 32) ? pal[c] : blend(pal[c], dd[-i], (a * galpha + 128) >> 8);
+        dd[i * step] = a == 255 ? pal[c] : blend(pal[c], dd[i * step], (a + 4) >> 3);
+      }
+    } else {
+      for (int i = i0; i < i1; i++) {
+        unsigned c = src[i];
+        dd[i * step] = blend(pal[c], dd[i * step], (al[c] * galpha + 128) >> 8);
       }
     }
   }
@@ -473,15 +521,18 @@ static uint8_t line_mask[(SPRITE_W_MAX + 7) / 8];
 static void line_decode(const uint8_t *r, int v, int w) {
   memset(line_mask, 0, (size_t)(w + 7) / 8);
   const uint8_t *p = r + rd16(r + 4 + 2 * v);
-  int n = *p++, cx = 0;
+  int n = rd16(p), cx = 0;
+  p += 2;
   for (int k = 0; k < n; k++) {
     cx += *p++;
-    int len = *p++;
+    int code = *p++;
+    bool fill = code & 0x80;
+    int len = fill ? (code & 0x7F) + 1 : code;
     for (int i = 0; i < len && cx + i < w; i++) {
-      stream_buf[cx + i] = p[i];
+      stream_buf[cx + i] = fill ? p[0] : p[i];
       line_mask[(cx + i) >> 3] |= (uint8_t)(1 << ((cx + i) & 7));
     }
-    p += len;
+    p += fill ? 1 : len;
     cx += len;
   }
   line_spr = r;

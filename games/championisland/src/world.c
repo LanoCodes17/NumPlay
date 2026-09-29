@@ -11,7 +11,9 @@
  * The systems are the doodle's overworld scene ($s) and interior scene (Ir). */
 #include <math.h>
 #include <stdio.h>
+#ifdef HOST
 #include <stdlib.h>
+#endif
 #include "ent.h"
 #include "phys.h"
 #include "spr.h"
@@ -230,8 +232,14 @@ static void draw_map(NodeId map, Mat m, uint8_t alpha) {
 /* ---------------------------------------------------------------- live children */
 static void on_trigger(NodeId t, NodeId other, bool entered);
 
+static void translate_tree(NodeId n) {
+  ent_translate(n);
+  for (NodeId c = nodes[n].first; c; c = nodes[c].next) translate_tree(c);
+}
+
 static void streamed_in(NodeId c) {
   ent_register_tree(c);
+  translate_tree(c);
   uint16_t T = nodes[c].T;
   if (T == NONE16) return;
   /* sr: places are markers for the designers */
@@ -366,13 +374,16 @@ static void water_make(int look) {
     int h = rd16(r + 2);
     for (int v = 0; v < h && v < WATER; v++) {
       const uint8_t *p = r + rd16(r + 4 + 2 * v);
-      int n = *p++, u = 0;
+      int n = rd16(p), u = 0;
+      p += 2;
       for (int j = 0; j < n; j++) {
         u += *p++;
-        int len = *p++;
-        for (int i = 0; i < len; i++, u++)
-          if (u < WATER && al[p[i]] >= 128) W->water[v * WATER + u] = p[i];
-        p += len;
+        int code = *p++, len = code & 0x80 ? (code & 0x7F) + 1 : code;
+        for (int i = 0; i < len; i++, u++) {
+          uint8_t c = code & 0x80 ? p[0] : p[i];
+          if (u < WATER && al[c] >= 128) W->water[v * WATER + u] = c;
+        }
+        p += code & 0x80 ? 1 : len;
       }
     }
   }
@@ -417,6 +428,11 @@ static void sys_overworld_player(void) {
   }
 }
 
+static const uint8_t COND_F[10] = {F_condition1, F_condition2, F_condition3, F_condition4, F_condition5,
+                                   F_condition6, F_condition7, F_condition8, F_condition9, F_condition10};
+static const uint8_t FRAME_F[5] = {F_frame1, F_frame2, F_frame3, F_frame4, F_frame5};
+static const uint8_t NODE_F[10] = {F_node1, F_node2, F_node3, F_node4, F_node5, F_node6, F_node7, F_node8, F_node9, F_node10};
+
 /* Er: storageSprite shows the frame of its first true condition (a quarter of them per tick) */
 static void sys_storage_sprites(void) {
   for (int i = 0; i < ent_count(); i++) {
@@ -424,10 +440,10 @@ static void sys_storage_sprites(void) {
     if (!n || !comp_has(nodes[n].T, C_storageSprite)) continue;
     if (W->tick && n % 4 != W->tick % 4) continue;
     uint16_t T = nodes[n].T;
-    for (int k = 0; k < 10; k++) {
-      uint16_t fr = comp_str(T, C_storageSprite, F_frame1 + 2 * k);
+    for (int k = 0; k < 5; k++) {
+      uint16_t fr = comp_str(T, C_storageSprite, FRAME_F[k]);
       if (fr == NONE16 || !str(fr)[0]) continue;
-      uint16_t cond = comp_str(T, C_storageSprite, F_condition1 + 2 * k);
+      uint16_t cond = comp_str(T, C_storageSprite, COND_F[k]);
       if (cond == NONE16 || !str(cond)[0] || cond_eval(cond)) {
         ent_label(n, str(fr), false);
         break;
@@ -451,12 +467,30 @@ static bool triggered(NodeId n) {
   return e && e->ntrig > 0;
 }
 
+/* a whole string as a decimal number (newlib's strtof would pull in abort) */
+static bool parse_num(const char *s, float *out) {
+  bool neg = *s == '-';
+  if (neg || *s == '+') s++;
+  if (!*s) return false;
+  float v = 0, scale = 1;
+  bool dot = false, digits = false;
+  for (; *s; s++) {
+    if (*s == '.' && !dot) { dot = true; continue; }
+    if (*s < '0' || *s > '9') return false;
+    digits = true;
+    if (dot) { scale /= 10; v += (float)(*s - '0') * scale; }
+    else v = v * 10 + (float)(*s - '0');
+  }
+  if (!digits) return false;
+  *out = neg ? -v : v;
+  return true;
+}
+
 /* a storage value as kitsune's kk() reads it: number, true, false, null, else text */
 static void store_parsed(const char *key, const char *v) {
   if (key[0] == '$') key++;
-  char *end;
-  float f = strtof(v, &end);
-  if (v[0] && !*end) store_set_num(key, f);
+  float f;
+  if (parse_num(v, &f)) store_set_num(key, f);
   else if (!strcmp(v, "true") || !strcmp(v, "True")) store_set_bool(key, true);
   else if (!strcmp(v, "false") || !strcmp(v, "False")) store_set_bool(key, false);
   else if (!strcmp(v, "null")) store_set(key, (Value){SV_NULL, false, 0, NONE16});
@@ -524,9 +558,9 @@ static void sys_npcs(void) {
     uint16_t name = comp_str(T, C_npc, F_name), node = NONE16;
     if (comp_has(T, C_storageNpc))
       for (int k = 0; k < 10 && node == NONE16; k++) {
-        uint16_t nd = comp_str(T, C_storageNpc, k == 0 ? F_node1 : F_node2 + 2 * (k - 1));
+        uint16_t nd = comp_str(T, C_storageNpc, NODE_F[k]);
         if (nd == NONE16 || !str(nd)[0]) continue;
-        uint16_t cond = comp_str(T, C_storageNpc, k == 0 ? F_condition1 : F_condition2 + 2 * (k - 1));
+        uint16_t cond = comp_str(T, C_storageNpc, COND_F[k]);
         if (cond == NONE16 || !str(cond)[0] || cond_eval(cond)) node = nd;
       }
     if (node == NONE16) node = comp_str(T, C_npc, F_node);
@@ -576,6 +610,16 @@ static void sys_save_place(void) {
 }
 
 /* ---------------------------------------------------------------- the scene */
+static bool player_slot(unsigned slot, const SlotInfo *si, void *ctx) {
+  Clip c;
+  if (!clip_get(si->sym, &c) || c.T == NONE16 || !comp_has(c.T, C_overworldPlayer)) return true;
+  float *p = ctx;
+  p[0] = si->x;
+  p[1] = si->y;
+  (void)slot;
+  return false;
+}
+
 static NodeId child_of_sym(NodeId n, uint16_t sym) {
   for (NodeId c = nodes[n].first; c; c = nodes[c].next)
     if (nodes[c].sym == sym) return c;
@@ -612,7 +656,9 @@ static void start_overworld(void) {
   for (int i = 0; i < wd.nregions; i++)
     if (rd16(wd.regions + 10 * i) == S_overworld_bT) W->region_rain = i;
   /* the player (the map's child "Player") is always there */
-  node_stream(W->map, -1e5f, -1e5f, 1e5f, 1e5f);
+  float ppos[2] = {0, 0};
+  clip_each_slot(S_overworld_jqa, 0, player_slot, ppos);
+  node_stream(W->map, ppos[0] - 1, ppos[1] - 1, ppos[0] + 1, ppos[1] + 1);
   for (NodeId c = nodes[W->map].first; c; c = nodes[c].next)
     if (nodes[c].T != NONE16 && comp_has(nodes[c].T, C_overworldPlayer)) W->player = c;
   if (W->player) nodes[W->player].flags2 |= NF2_KEEP;
@@ -654,21 +700,31 @@ static void tick_overworld(void) {
   sys_npcs();
   sys_rain();
   stream_children(false);
+#ifdef HOST
+  if (getenv("CI_DEBUG") && W->player && W->tick % 10 == 0) {
+    float px, py;
+    ent_pos(W->player, &px, &py);
+    Ent *e = ent_get(W->player);
+    Rect r;
+    bool hb = ent_bounds(W->player, &r);
+    fprintf(stderr, "t%u in %.1f,%.1f p %.1f,%.1f v %.2f,%.2f body %d bounds %d (%.0f %.0f %.0f %.0f) solids %d label %s\n", W->tick, in.jx, in.jy,
+            px, py, e ? e->vx : 0, e ? e->vy : 0, e ? e->body : -9, hb, r.x, r.y, r.w, r.h, W->nsolid, node_label(W->player));
+  }
+#endif
   W->tick++;
 }
 
 static void draw_under_overworld(void) {
   if (!W || !W->map) return;
-  float vx, vy;
-  view_origin(&vx, &vy);
-  bg_camera((int)floorf(vx + .5f), (int)floorf(vy + .5f));
   /* the sea's look changes every 16 frames */
   int look = (int)(game.ticks / 16) % 2;
   if (look != W->water_look) {
     water_make(look);
     bg_water(W->water, WATER, WATER);
-    bg_redraw_water();
   }
+  float vx, vy;
+  view_origin(&vx, &vy);
+  bg_camera((int)floorf(vx + .5f), (int)floorf(vy + .5f));
 }
 
 const SceneDef scene_overworld = {"overworld", start_overworld, tick_overworld, end_overworld, draw_under_overworld, NULL, NULL};

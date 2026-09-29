@@ -203,6 +203,117 @@ for (lib, k) in SYMS:
         SPR[SPR_ID[key]]['libs'].add(lib)
         sym_sprite[(lib, k)] = SPR_ID[key]
 
+# ------------------------------------------------------------------ shapes & texts
+def parse_color(style):
+    if not style or style in ('null', 'undefined'):
+        return None
+    style = style.strip()
+    m = re.match(r'#([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$', style)
+    if m:
+        v = int(m.group(1), 16)
+        a = int(m.group(2), 16) if m.group(2) else 255
+        return (v >> 16, v >> 8 & 255, v & 255, a)
+    m = re.match(r'#([0-9a-fA-F]{3})$', style)
+    if m:
+        r, g, b = (int(ch * 2, 16) for ch in m.group(1))
+        return (r, g, b, 255)
+    m = re.match(r'rgba?\(([^)]*)\)', style)
+    if m:
+        p = [float(v) for v in m.group(1).split(',')]
+        return (int(p[0]), int(p[1]), int(p[2]), int(round((p[3] if len(p) > 3 else 1) * 255)))
+    return None
+
+
+def flatten_path(ins):
+    """Graphics instructions -> [(fill rgba or None, [polygon, ...])]. CreateJS
+    lists a path's commands first, then its fill (or stroke)."""
+    shapes, polys, poly = [], [], []
+    cx = cy = 0.0
+
+    def close():
+        nonlocal poly
+        if len(poly) >= 2:
+            polys.append(poly)
+        poly = []
+
+    def emit(fill):
+        nonlocal polys
+        close()
+        if polys:
+            shapes.append((fill, polys))
+        polys = []
+
+    for kind, d in ins:
+        if kind == 'P':
+            emit(None)
+        elif kind == 'F':
+            emit(parse_color(d.get('style')))
+        elif kind in ('S', 'SS'):
+            close()
+        elif kind == 'M':
+            close()
+            cx, cy = d['x'], d['y']
+            poly = [(cx, cy)]
+        elif kind == 'L':
+            cx, cy = d['x'], d['y']
+            poly.append((cx, cy))
+        elif kind == 'Q':
+            x0, y0 = cx, cy
+            for i in range(1, 9):
+                t = i / 8
+                poly.append(((1 - t) ** 2 * x0 + 2 * (1 - t) * t * d['cpx'] + t * t * d['x'],
+                             (1 - t) ** 2 * y0 + 2 * (1 - t) * t * d['cpy'] + t * t * d['y']))
+            cx, cy = d['x'], d['y']
+        elif kind == 'B':
+            x0, y0 = cx, cy
+            for i in range(1, 11):
+                t = i / 10
+                mt = 1 - t
+                poly.append((mt ** 3 * x0 + 3 * mt * mt * t * d['cp1x'] + 3 * mt * t * t * d['cp2x'] + t ** 3 * d['x'],
+                             mt ** 3 * y0 + 3 * mt * mt * t * d['cp1y'] + 3 * mt * t * t * d['cp2y'] + t ** 3 * d['y']))
+            cx, cy = d['x'], d['y']
+        elif kind == 'Z':
+            close()
+        elif kind in ('R', 'RR'):
+            close()
+            x, y, w, h = d['x'], d['y'], d['w'], d['h']
+            polys.append([(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
+        elif kind == 'C':
+            close()
+            polys.append([(d['x'] + d['radius'] * math.cos(i * math.pi / 8), d['y'] + d['radius'] * math.sin(i * math.pi / 8)) for i in range(16)])
+        elif kind == 'E':
+            close()
+            x, y, w, h = d['x'], d['y'], d['w'], d['h']
+            polys.append([(x + w / 2 + w / 2 * math.cos(i * math.pi / 8), y + h / 2 + h / 2 * math.sin(i * math.pi / 8)) for i in range(16)])
+    emit(None)
+    return shapes
+
+
+def enc_shape(ins):
+    out = bytearray()
+    shapes = flatten_path(ins)
+    out.append(len(shapes))
+    for fill, polys in shapes:
+        r, g, b, a = fill if fill else (0, 0, 0, 0)
+        out += struct.pack('<BBBBB', r, g, b, a, len(polys))
+        for p in polys:
+            out += struct.pack('<H', len(p))
+            for (x, y) in p:
+                out += struct.pack('<hh', int(round(x * 4)), int(round(y * 4)))
+    return bytes(out)
+
+
+def enc_text(c):
+    font = c.get('font') or ''
+    m = re.search(r'(\d+(?:\.\d+)?)px', font)
+    size = int(round(float(m.group(1)))) if m else 10
+    col = parse_color(c.get('color')) or (255, 255, 255, 255)
+    align = {'left': 0, 'start': 0, 'center': 1, 'right': 2, 'end': 2}.get(c.get('align') or 'left', 0)
+    base = {'top': 0, 'hanging': 0, 'middle': 1, 'alphabetic': 2, 'ideographic': 2, 'bottom': 3}.get(c.get('base') or 'top', 0)
+    return struct.pack('<HBBBBBBhh', sid(c.get('text') or ''), size, col[0], col[1], col[2], align, base,
+                       int(round((c.get('lw') or 0) * 4)), int(round((c.get('lh') or 0) * 4)))
+
+
 # ------------------------------------------------------------------ worlds
 # The island map (the overworld's "jqa") is huge: 24 regions holding some 9000
 # display objects. On the calculator its scenery (ground, trees, houses,
@@ -271,13 +382,40 @@ def flatten_draws(lib, k, M, alpha, frame, out, depth=0):
         flatten_draws(lib, c['sym'], mat_mul(M, matrix(tr)), a, f, out, depth + 1)
 
 
-def sym_bounds(lib, k):
+def sym_bounds(lib, k, depth=0):
+    """CreateJS getBounds at frame 0: a bitmap's size, else the union of the visible children's bounds."""
     s = LIB[lib]['syms'].get(k, {})
-    if s.get('t') == 'b' and (lib, k) in sym_sprite:
-        _, _, _, w, h = SPR[sym_sprite[(lib, k)]]['key']
-        return (0, 0, w, h)
-    nb = s.get('nb')
-    return tuple(nb) if nb else None
+    if s.get('t') == 'b':
+        if (lib, k) in sym_sprite:
+            _, _, _, w, h = SPR[sym_sprite[(lib, k)]]['key']
+            return (0, 0, w, h)
+        return None
+    if s.get('t') == 's':
+        pts = [p for _, polys in flatten_path(s.get('g') or []) for poly in polys for p in poly]
+        if not pts:
+            return None
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        return (min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
+    if s.get('t') != 'm' or depth > 12 or not s.get('frames'):
+        return None
+    box = None
+    for c in s['frames'][0]:
+        tr = c.get('tr', {})
+        if tr.get('v', 1) == 0:
+            continue
+        if c['t'] == 's':
+            pts = [p for _, polys in flatten_path(c.get('g') or []) for poly in polys for p in poly]
+            r = (min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts) - min(p[0] for p in pts),
+                 max(p[1] for p in pts) - min(p[1] for p in pts)) if pts else None
+        elif c.get('sym'):
+            r = sym_bounds(lib, c['sym'], depth + 1)
+        else:
+            r = None
+        if not r:
+            continue
+        b = aabb(matrix(tr), r)
+        box = b if box is None else (min(box[0], b[0]), min(box[1], b[1]), max(box[2], b[2]), max(box[3], b[3]))
+    return (box[0], box[1], box[2] - box[0], box[3] - box[1]) if box else None
 
 
 def aabb(M, r):
@@ -551,117 +689,6 @@ def enc_T(T):
             else:
                 raise SystemExit('unsupported component value %r' % (v,))
     return bytes(out)
-
-
-# ------------------------------------------------------------------ shapes & texts
-def parse_color(style):
-    if not style or style in ('null', 'undefined'):
-        return None
-    style = style.strip()
-    m = re.match(r'#([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$', style)
-    if m:
-        v = int(m.group(1), 16)
-        a = int(m.group(2), 16) if m.group(2) else 255
-        return (v >> 16, v >> 8 & 255, v & 255, a)
-    m = re.match(r'#([0-9a-fA-F]{3})$', style)
-    if m:
-        r, g, b = (int(ch * 2, 16) for ch in m.group(1))
-        return (r, g, b, 255)
-    m = re.match(r'rgba?\(([^)]*)\)', style)
-    if m:
-        p = [float(v) for v in m.group(1).split(',')]
-        return (int(p[0]), int(p[1]), int(p[2]), int(round((p[3] if len(p) > 3 else 1) * 255)))
-    return None
-
-
-def flatten_path(ins):
-    """Graphics instructions -> [(fill rgba or None, [polygon, ...])]. CreateJS
-    lists a path's commands first, then its fill (or stroke)."""
-    shapes, polys, poly = [], [], []
-    cx = cy = 0.0
-
-    def close():
-        nonlocal poly
-        if len(poly) >= 2:
-            polys.append(poly)
-        poly = []
-
-    def emit(fill):
-        nonlocal polys
-        close()
-        if polys:
-            shapes.append((fill, polys))
-        polys = []
-
-    for kind, d in ins:
-        if kind == 'P':
-            emit(None)
-        elif kind == 'F':
-            emit(parse_color(d.get('style')))
-        elif kind in ('S', 'SS'):
-            close()
-        elif kind == 'M':
-            close()
-            cx, cy = d['x'], d['y']
-            poly = [(cx, cy)]
-        elif kind == 'L':
-            cx, cy = d['x'], d['y']
-            poly.append((cx, cy))
-        elif kind == 'Q':
-            x0, y0 = cx, cy
-            for i in range(1, 9):
-                t = i / 8
-                poly.append(((1 - t) ** 2 * x0 + 2 * (1 - t) * t * d['cpx'] + t * t * d['x'],
-                             (1 - t) ** 2 * y0 + 2 * (1 - t) * t * d['cpy'] + t * t * d['y']))
-            cx, cy = d['x'], d['y']
-        elif kind == 'B':
-            x0, y0 = cx, cy
-            for i in range(1, 11):
-                t = i / 10
-                mt = 1 - t
-                poly.append((mt ** 3 * x0 + 3 * mt * mt * t * d['cp1x'] + 3 * mt * t * t * d['cp2x'] + t ** 3 * d['x'],
-                             mt ** 3 * y0 + 3 * mt * mt * t * d['cp1y'] + 3 * mt * t * t * d['cp2y'] + t ** 3 * d['y']))
-            cx, cy = d['x'], d['y']
-        elif kind == 'Z':
-            close()
-        elif kind in ('R', 'RR'):
-            close()
-            x, y, w, h = d['x'], d['y'], d['w'], d['h']
-            polys.append([(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
-        elif kind == 'C':
-            close()
-            polys.append([(d['x'] + d['radius'] * math.cos(i * math.pi / 8), d['y'] + d['radius'] * math.sin(i * math.pi / 8)) for i in range(16)])
-        elif kind == 'E':
-            close()
-            x, y, w, h = d['x'], d['y'], d['w'], d['h']
-            polys.append([(x + w / 2 + w / 2 * math.cos(i * math.pi / 8), y + h / 2 + h / 2 * math.sin(i * math.pi / 8)) for i in range(16)])
-    emit(None)
-    return shapes
-
-
-def enc_shape(ins):
-    out = bytearray()
-    shapes = flatten_path(ins)
-    out.append(len(shapes))
-    for fill, polys in shapes:
-        r, g, b, a = fill if fill else (0, 0, 0, 0)
-        out += struct.pack('<BBBBB', r, g, b, a, len(polys))
-        for p in polys:
-            out += struct.pack('<H', len(p))
-            for (x, y) in p:
-                out += struct.pack('<hh', int(round(x * 4)), int(round(y * 4)))
-    return bytes(out)
-
-
-def enc_text(c):
-    font = c.get('font') or ''
-    m = re.search(r'(\d+(?:\.\d+)?)px', font)
-    size = int(round(float(m.group(1)))) if m else 10
-    col = parse_color(c.get('color')) or (255, 255, 255, 255)
-    align = {'left': 0, 'start': 0, 'center': 1, 'right': 2, 'end': 2}.get(c.get('align') or 'left', 0)
-    base = {'top': 0, 'hanging': 0, 'middle': 1, 'alphabetic': 2, 'ideographic': 2, 'bottom': 3}.get(c.get('base') or 'top', 0)
-    return struct.pack('<HBBBBBBhh', sid(c.get('text') or ''), size, col[0], col[1], col[2], align, base,
-                       int(round((c.get('lw') or 0) * 4)), int(round((c.get('lh') or 0) * 4)))
 
 
 # ------------------------------------------------------------------ clips
@@ -1055,24 +1082,36 @@ for sp in sorted(banded):
     band_off[sp] = blob.add(struct.pack('<H', len(recs)) + b''.join(struct.pack('<II', o, n) for o, n in recs))
 
 def rle_size(sp):
-    """Bytes of the cache's run-length form (spr.c: rle_row)."""
+    """Bytes of the cache's run-length form (spr.c: rle_row), exactly."""
     sh, x, y, w, h = SPR[sp]['key']
-    op = sheet_alpha[sh][sprite_pixels(sp)] > 0
+    px = sprite_pixels(sp)
+    al = sheet_alpha[sh]
     n = 4 + 2 * h
-    for row in op:
-        n += 1
+    for row in px:
+        row = row.tolist()
+        op = [al[c] > 0 for c in row]
+        n += 2
         xx = 0
         while xx < w:
             skip = 0
-            while xx < w and not row[xx]:
+            while xx < w and not op[xx]:
                 xx += 1
                 skip += 1
             if xx >= w:
                 break
-            n += 2 * (skip // 255)
+            n += 2 * ((skip - 1) // 255) if skip > 255 else 0
+            run = 1
+            while xx + run < w and run < 128 and row[xx + run] == row[xx]:
+                run += 1
+            if run >= 3:
+                n += 3
+                xx += run
+                continue
             ln = 0
-            while xx + ln < w and row[xx + ln] and ln < 255:
+            while xx + ln < w and ln < 127 and op[xx + ln] and not (
+                    xx + ln + 2 < w and row[xx + ln] == row[xx + ln + 1] and row[xx + ln] == row[xx + ln + 2]):
                 ln += 1
+            ln = max(ln, 1)
             n += 2 + ln
             xx += ln
     return n
@@ -1157,15 +1196,18 @@ for w in WORLD:
             dw, dh = (shh, sw) if fl & 4 else (sw, shh)
             draws.append(struct.pack('<HhhBB', sp, x, y, fl, int(round(min(1, a) * 255))))
             bx0, by0, bx1, by1 = min(bx0, x), min(by0, y), max(bx1, x + dw), max(by1, y + dh)
-        if not draws:
-            bx0 = by0 = bx1 = by1 = 0
         coll = st['coll']
+        if coll:   # invisible walls are found by their solid box
+            cx0, cy0, cx1, cy1 = (int(math.floor(coll[0])), int(math.floor(coll[1])), int(math.ceil(coll[2])), int(math.ceil(coll[3])))
+            bx0, by0, bx1, by1 = min(bx0, cx0), min(by0, cy0), max(bx1, cx1), max(by1, cy1)
+        if bx0 > bx1:
+            bx0 = by0 = bx1 = by1 = 0
         rec = struct.pack('<fhhhhBB', st['key'], int(bx0), int(by0), int(bx1), int(by1), len(draws), 1 if coll else 0)
         if coll:
             rec += struct.pack('<hhhh', *(int(round(v)) for v in coll))
         rec += b''.join(draws)
         recs.append(rec)
-        boxes.append((bx0, by0, bx1, by1) if draws else None)
+        boxes.append((bx0, by0, bx1, by1) if draws or coll else None)
     gx0 = int(min(b[0] for b in boxes if b)) // WORLD_CELL * WORLD_CELL
     gy0 = int(min(b[1] for b in boxes if b)) // WORLD_CELL * WORLD_CELL
     gw = (int(max(b[2] for b in boxes if b)) - gx0) // WORLD_CELL + 1

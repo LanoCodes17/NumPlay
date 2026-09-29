@@ -92,7 +92,8 @@ const ScoreRule *score_rule(const char *key) {
 int score_rating(const char *key, float g) {
   const ScoreRule *r = score_rule(key);
   if (!r) return 0;
-  if (r->time) return g < r->gold ? 3 : g < r->silver ? 2 : g < r->bronze ? 1 : 0;
+  /* Ao: the doodle compares the rule itself with "time", never true, so every
+   * score is rated as points (bigger is better) */
   return g > r->gold ? 3 : g > r->silver ? 2 : g > r->bronze ? 1 : 0;
 }
 

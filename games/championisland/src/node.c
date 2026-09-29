@@ -15,7 +15,7 @@ static Xf xfs[XF_MAX];
 
 /* texts set by code */
 #define TX_MAX 48
-typedef struct { NodeId n; const char *s; } Tx;
+typedef struct { NodeId n; const char *s; int32_t color; } Tx;   /* color: RGB565, -1 as designed */
 static Tx txs[TX_MAX];
 
 /* event listeners */
@@ -198,12 +198,13 @@ NodeId node_new_sym_lazy(uint16_t sym) {
   return n;
 }
 
-uint16_t node_lazy_sym = NONE16;
+uint16_t node_lazy_sym = NONE16, node_dynamic_sym = NONE16;
 static bool key_bounds(const Key *k, float *x, float *y, float *w, float *h);
 
 static NodeId new_child_for(const Key *k) {
   NodeId c = 0;
-  if (k->kind == CK_SYM) c = k->ref == node_lazy_sym ? node_new_sym_lazy(k->ref) : node_new_sym(k->ref);
+  if (k->kind == CK_SYM)
+    c = k->ref == node_lazy_sym ? node_new_sym_lazy(k->ref) : k->ref == node_dynamic_sym ? node_new_sym_dynamic(k->ref) : node_new_sym(k->ref);
   else if (k->kind == CK_SHAPE) { c = node_new(NK_SHAPE); if (c) nodes[c].ref = k->ref; }
   else if (k->kind == CK_TEXT) { c = node_new(NK_TEXT); if (c) nodes[c].ref = k->ref; }
   if (c) {
@@ -234,6 +235,16 @@ NodeId node_new_sym_frame(uint16_t sym, int frame) {
   only_current = true;
   instantiate_children(n);
   only_current = false;
+  return n;
+}
+
+/* a long movie: only the children of its current frame, made and freed as it plays */
+NodeId node_new_sym_dynamic(uint16_t sym) {
+  NodeId n = node_new_sym_frame(sym, 0);
+  if (n && nodes[n].kind == NK_CLIP) {
+    nodes[n].flags2 |= NF2_DYN;
+    nodes[n].flags |= NF_PLAYING;
+  }
   return n;
 }
 
@@ -454,9 +465,37 @@ static void update_rec(NodeId n) {
     Clip c;
     if (clip_get(p->sym, &c) && c.nframes > 1) {
       const uint8_t *q = c.slots;
-      NodeId ch = p->first;
+      NodeId ch = p->first, prev = 0;
+      bool dyn = p->flags2 & NF2_DYN;
       for (unsigned s = 0; s < c.nslots; s++) {
-        while (ch && nodes[ch].slot != NONE16 && nodes[ch].slot < s) ch = nodes[ch].next;
+        while (ch && nodes[ch].slot != NONE16 && nodes[ch].slot < s) { prev = ch; ch = nodes[ch].next; }
+        if (dyn) {
+          /* a long movie: its children exist while they are on stage */
+          Key k;
+          uint16_t idx;
+          const uint8_t *q2 = slot_key(q, p->frame, &k, &idx);
+          bool present = idx != NONE16 && !(k.flags & K_ABSENT);
+          bool have = ch && nodes[ch].slot == s;
+          if (present && !have && needs_node(&k)) {
+            NodeId nc = new_child_for(&k);
+            if (nc) {
+              nodes[nc].slot = (uint16_t)s;
+              nodes[nc].parent = n;
+              nodes[nc].next = ch;
+              nodes[nc].key = NONE16;           /* its key is applied just below */
+              nodes[nc].flags &= (uint8_t)~NF_ONSTAGE;
+              if (prev) nodes[prev].next = nc; else nodes[n].first = nc;
+              ch = nc;
+              if (node_stream_hook) node_stream_hook(nc);
+            }
+          } else if (!present && have && !(nodes[ch].flags2 & NF2_KEEP) && nodes[ch].name == NONE16) {
+            NodeId nx = nodes[ch].next;
+            node_free(ch);
+            ch = nx;
+            q = q2;
+            continue;
+          }
+        }
         if (ch && nodes[ch].slot == s) {
           Key k;
           uint16_t idx;
@@ -955,6 +994,7 @@ static void draw_virtual(uint16_t sym, unsigned frame, Mat m, uint8_t alpha, int
 }
 
 static const char *text_of(NodeId n);
+static int32_t text_color(NodeId n);
 
 static void draw_rec(NodeId id, Mat parent, uint8_t alpha) {
   const Node *n = &nodes[id];
@@ -979,7 +1019,8 @@ static void draw_rec(NodeId id, Mat parent, uint8_t alpha) {
       int yoff = t[7] == 1 ? -5 * k : t[7] >= 2 ? -9 * k : 0;   /* middle / alphabetic baselines */
       Mat tm = m;
       tm.ty += yoff;
-      gfx_text_k(s, tm, rgb565(t[3], t[4], t[5]), t[6], (int16_t)lw, (int16_t)lh, al, k);
+      int32_t tc = text_color(id);
+      gfx_text_k(s, tm, tc >= 0 ? (uint16_t)tc : rgb565(t[3], t[4], t[5]), t[6], (int16_t)lw, (int16_t)lh, al, k);
       return;
     }
     default: break;
@@ -1036,13 +1077,23 @@ void node_emit(NodeId n, uint16_t ev) {
 
 /* ---------------------------------------------------------------- texts */
 static const char *text_of(NodeId n) {
-  for (int i = 0; i < TX_MAX; i++) if (txs[i].n == n) return txs[i].s;
+  for (int i = 0; i < TX_MAX; i++) if (txs[i].n == n && txs[i].s) return txs[i].s;
   return nodes[n].ref != NONE16 ? str(rd16(payload(nodes[n].ref))) : "";
 }
 
 void node_set_text(NodeId n, const char *s) {
   for (int i = 0; i < TX_MAX; i++) if (txs[i].n == n) { txs[i].s = s; return; }
-  for (int i = 0; i < TX_MAX; i++) if (!txs[i].n) { txs[i] = (Tx){n, s}; return; }
+  for (int i = 0; i < TX_MAX; i++) if (!txs[i].n) { txs[i] = (Tx){n, s, -1}; return; }
+}
+
+void node_set_text_color(NodeId n, uint16_t c) {
+  for (int i = 0; i < TX_MAX; i++) if (txs[i].n == n) { txs[i].color = c; return; }
+  for (int i = 0; i < TX_MAX; i++) if (!txs[i].n) { txs[i] = (Tx){n, NULL, c}; return; }
+}
+
+static int32_t text_color(NodeId n) {
+  for (int i = 0; i < TX_MAX; i++) if (txs[i].n == n) return txs[i].color;
+  return -1;
 }
 
 const char *node_text(NodeId n) { return text_of(n); }

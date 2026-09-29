@@ -33,6 +33,8 @@ static uint32_t key_bit(const char *s) {
   return 0;
 }
 
+void world_census(void);
+
 int main(int argc, char **argv) {
   const char *scene = NULL, *out = "build/play", *saves = "build/play/saves", *shots = "", *gif = NULL;
   int frames = 300;
@@ -82,5 +84,6 @@ int main(int argc, char **argv) {
     if (gif && f >= g0 && f <= g1 && (f - g0) % gs == 0) { snprintf(p, sizeof p, "%s/f_%05d.ppm", out, f); host_shot(p); }
   }
   printf("frames done: %u ticks, nodes %u, cache %u, scene %s:%s\n", game.ticks, node_count(), spr_cache_used(), game.name, game.variant);
+  if (getenv("CI_CENSUS")) world_census();
   return 0;
 }

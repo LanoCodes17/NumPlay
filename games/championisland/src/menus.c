@@ -374,19 +374,44 @@ static void results_tick(NodeId m) {
   if (count_t > 26) results_counting = false;
 }
 
+/* Gp: the map with each sport's best, its stars, the team and where the player is */
 static void stats_tick(NodeId m) {
+  static const char *const nm[7] = {"archery", "climbing", "marathon", "pingpong", "rugby", "skate", "syncswim"};
+  static const char *const stars[4] = {"0star", "1star", "2star", "3star"};
   for (int i = 0; i < 7; i++) {
-    NodeId b = button(m, sports[i]);
-    if (!b) continue;
+    char k[24];
     bool has;
     float s = score_best(sports[i], &has);
     const ScoreRule *r = score_rule(sports[i]);
     if (has) format_score(stat_bufs[i], sizeof stat_bufs[i], s, r && r->time);
     else snprintf(stat_bufs[i], sizeof stat_bufs[i], "???");
-    NodeId sc = node_find(b, "score");
+    snprintf(k, sizeof k, "%sScore", nm[i]);
+    NodeId sc = node_find(m, k);
     if (sc) node_set_text(sc, stat_bufs[i]);
-    NodeId st = node_find(b, "stars");
-    if (st) node_goto(st, NULL, rating_of(sports[i]), false);
+    snprintf(k, sizeof k, "%sStars", nm[i]);
+    NodeId st = node_find(m, k);
+    int rt = rating_of(sports[i]);
+    if (st) node_goto(st, stars[rt < 0 ? 0 : rt > 3 ? 3 : rt], 0, false);
+  }
+  /* the team, in its colour */
+  static const struct { const char *team; uint16_t c; } teams[] = {
+      {"BLUE", 0x657E}, {"GREEN", 0x6F8D}, {"RED", 0xFACB}, {"YELLOW", 0xF74D}, {"NO_TEAM", 0xFFFF}};
+  const char *team = store_str("PLAYER_TEAM");
+  static char up[16];
+  snprintf(up, sizeof up, "%s", team && team[0] ? team : "NO_TEAM");
+  for (char *c = up; *c; c++) if (*c >= 'a' && *c <= 'z') *c -= 32;
+  NodeId tn = node_find(m, "teamName");
+  if (tn) {
+    node_set_text(tn, msg(up));
+    for (unsigned i = 0; i < sizeof teams / sizeof teams[0]; i++)
+      if (!strcmp(teams[i].team, up)) node_set_text_color(tn, teams[i].c);
+  }
+  /* the player on the map: the island (Vs) squeezed into the map picture (Ws) */
+  NodeId map = node_find(m, "map"), pl = map ? node_find(map, "player") : 0;
+  if (pl && store_get("PLAYER_POS_X").type == SV_NUM) {
+    float nx = (store_num("PLAYER_POS_X", 0) + 1536) / 3088, ny = (store_num("PLAYER_POS_Y", 0) + 833) / 1600;
+    nodes[pl].x = 120 * clampf(nx, .1f, .9f);
+    nodes[pl].y = 96 * clampf(ny, .1f, .85f);
   }
 }
 

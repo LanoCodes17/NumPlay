@@ -41,7 +41,7 @@ typedef struct {
   uint8_t kind, flags, flags2, alpha;
 } Node;
 /* flags2: how its parent's timeline drives it, streaming */
-enum { NF2_LAZY = 1, NF2_KEEP = 2, NF2_NOLOOP = 4, NF2_MODE = 24 /* mode << 3 */ };
+enum { NF2_LAZY = 1, NF2_KEEP = 2, NF2_NOLOOP = 4, NF2_MODE = 24 /* mode << 3 */, NF2_DYN = 32 };
 static inline uint8_t node_mode(const Node *n) { return (uint8_t)((n->flags2 & NF2_MODE) >> 3); }
 static inline bool node_loops(const Node *n) { return !(n->flags2 & NF2_NOLOOP); }
 
@@ -97,6 +97,10 @@ NodeId node_new_sym_lazy(uint16_t sym);
 void node_stream(NodeId n, float x0, float y0, float x1, float y1);
 extern void (*node_stream_hook)(NodeId n);
 extern uint16_t node_lazy_sym;                 /* instances of this symbol are made lazy */
+/* A long movie (NF2_DYN) has nodes only for the children on stage now; they
+ * are made and freed as it plays (new ones go through node_stream_hook). */
+NodeId node_new_sym_dynamic(uint16_t sym);
+extern uint16_t node_dynamic_sym;              /* instances of this symbol are made dynamic */
 
 /* a clip's timeline children at a frame, without nodes: symbol, instance
  * name, origin and bounds in the clip's space; fn returns false to stop */
@@ -127,5 +131,6 @@ void node_emit(NodeId n, uint16_t event);
 
 /* text nodes */
 void node_set_text(NodeId n, const char *s);   /* string kept by pointer */
+void node_set_text_color(NodeId n, uint16_t rgb565);
 const char *node_text(NodeId n);
 #endif

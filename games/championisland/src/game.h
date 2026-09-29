@@ -78,6 +78,7 @@ void menus_tick(void);
 void menus_draw(void);
 /* end of a sport: rates the score, records it, plays the outro or shows the results */
 void menus_game_over(float score);
+void menus_game_over_rated(float score, int rating);   /* when the sport rates it itself (-1: by score) */
 void menus_game_over_rated(float score, int rating);   /* the sport's own rating (0..3), -1: the table's */
 
 void hud_init(void);

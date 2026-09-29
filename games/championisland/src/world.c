@@ -275,11 +275,11 @@ static void streamed_in(NodeId c) {
 static void stream_children(bool force) {
   float vx, vy;
   view_origin(&vx, &vy);
-  if (!force && W->streamed && fabsf(vx - W->stream_x) < 24 && fabsf(vy - W->stream_y) < 24) return;
+  if (!force && W->streamed && fabsf(vx - W->stream_x) < 16 && fabsf(vy - W->stream_y) < 16) return;
   W->stream_x = vx;
   W->stream_y = vy;
   W->streamed = true;
-  node_stream(W->map, vx - 96, vy - 96, vx + VIEW_W + 96, vy + VIEW_H + 96);
+  node_stream(W->map, vx - 40, vy - 40, vx + VIEW_W + 40, vy + VIEW_H + 40);
 }
 
 /* ---------------------------------------------------------------- places (location markers) */
@@ -649,6 +649,35 @@ static void sys_save_place(void) {
   if (W->tick % 60 == 59) save_place();
 }
 
+/* ---------------------------------------------------------------- tests (host) */
+#ifdef HOST
+typedef struct { int want, i; char name[32]; } Nth;
+void nth_place(const char *name, float x, float y, void *ctx) {
+  Nth *q = ctx;
+  if (q->i++ == q->want) snprintf(q->name, sizeof q->name, "%s", name);
+  (void)x; (void)y;
+}
+static int subtree(NodeId n) {
+  int t = 1;
+  for (NodeId c = nodes[n].first; c; c = nodes[c].next) t += subtree(c);
+  return t;
+}
+void world_census(void) {
+  int used = 0;
+  for (int i = 1; i < NODE_MAX; i++) if (nodes[i].flags & NF_USED) used++;
+  fprintf(stderr, "census: %d nodes\n", used);
+  for (int i = 1; i < NODE_MAX; i++)
+    if ((nodes[i].flags & NF_USED) && !nodes[i].parent) fprintf(stderr, "  root %d sym %d: %d\n", i, nodes[i].sym, subtree((NodeId)i));
+  if (!W || !W->map) return;
+  int k = 0;
+  for (NodeId c = nodes[W->map].first; c; c = nodes[c].next, k++) {
+    int n = subtree(c);
+    if (n >= 4) fprintf(stderr, "  map child sym %d T %d: %d\n", nodes[c].sym, nodes[c].T, n);
+  }
+  fprintf(stderr, "  map children %d\n", k);
+}
+#endif
+
 /* ---------------------------------------------------------------- the scene */
 static bool player_slot(unsigned slot, const SlotInfo *si, void *ctx) {
   Clip c;
@@ -741,6 +770,21 @@ static void tick_overworld(void) {
   sys_rain();
   stream_children(false);
 #ifdef HOST
+  /* CI_TOUR: visit every place, one per 20 frames, and report the busiest */
+  if (getenv("CI_TOUR")) {
+    static int place_i, max_nodes;
+    static char max_at[32];
+    typedef struct { int want, i; char name[32]; } Nth;
+    void nth_place(const char *name, float x, float y, void *ctx);
+    if (W->tick % 20 == 19) {
+      unsigned used = node_count();
+      if ((int)used > max_nodes) { max_nodes = (int)used; snprintf(max_at, sizeof max_at, "%s", game.location); }
+      Nth q = {place_i++, 0, ""};
+      each_place(nth_place, &q);
+      if (q.name[0]) { teleport(q.name); snprintf(game.location, sizeof game.location, "%s", q.name); sys_camera_snap(); stream_children(true); }
+      else if (place_i == q.i + 1) fprintf(stderr, "tour: busiest %s with %d nodes\n", max_at, max_nodes);
+    }
+  }
   if (getenv("CI_DEBUG") && W->player && W->tick % 10 == 0) {
     float px, py;
     ent_pos(W->player, &px, &py);

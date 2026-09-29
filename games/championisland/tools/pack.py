@@ -725,7 +725,9 @@ def child_name(c):
     """The names code can find a child by: its instance name and/or the property
     it is kept in, as "name|property" when both."""
     nm, pk = c['tr'].get('nm'), c.get('pk')
-    if pk not in USED_PROPS or pk == nm:
+    if nm == 'hitArea':   # touch areas: the calculator has keys
+        nm = None
+    if pk not in USED_PROPS or pk == nm or pk == 'hitArea':
         pk = None
     if nm and pk:
         return nm + '|' + pk

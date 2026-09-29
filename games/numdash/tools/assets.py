@@ -86,10 +86,11 @@ def palette_quantize(img, n=15, iters=12):
 
 
 class Packer:
-    def __init__(self):
+    def __init__(self, dedupe=False):
         self.blob = bytearray()
         self.sprites = []      # (name, w, h, ax, ay, fmt, pal, off)
         self.palettes = []
+        self.seen = {} if dedupe else None   # pixel data -> offset: recoloured copies share it
 
     def add(self, name, img, ax, ay, fmt):
         img, ax, ay = trim(img, ax, ay)
@@ -108,7 +109,13 @@ class Packer:
             data = pack_nibbles(idx)
             pal_i = len(self.palettes)
             self.palettes.append(pal)
-        self.blob += data
+        key = (fmt, w, h, bytes(data))
+        if self.seen is not None and key in self.seen:
+            off = self.seen[key]
+        else:
+            if self.seen is not None:
+                self.seen[key] = off
+            self.blob += data
         self.sprites.append((name, w, h, ax, ay, FMT[fmt], pal_i, off))
         return len(self.sprites) - 1
 

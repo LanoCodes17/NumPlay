@@ -483,7 +483,13 @@ int gfx_text_width(int font, const char *s) {
 /* Glyph coverage and its dilation (the black outline). Outline radii are 1
  * (3x3 square) or 2 (5x5 disc without corners), computed separably. */
 enum { GB_W = 48, GB_H = 56 };
-static uint8_t g_cov[GB_H][GB_W], g_h1[GB_H][GB_W], g_dil[GB_H][GB_W];
+/* They live in the level decoder's scratch memory: text is never drawn
+   while a chunk is being decoded. */
+extern uint8_t level_scratch[];
+#define g_cov ((uint8_t (*)[GB_W])(level_scratch))
+#define g_h1 ((uint8_t (*)[GB_W])(level_scratch + GB_W * GB_H))
+#define g_dil ((uint8_t (*)[GB_W])(level_scratch + 2 * GB_W * GB_H))
+_Static_assert(3 * GB_W * GB_H <= 8064, "glyph buffers exceed the shared scratch");
 
 /* Fills rows [k0, k1) of the extended glyph box (w x h plus a margin of r). */
 static void glyph_rows(const Sprite *s, int r, int ew, int eh, int k0, int k1) {

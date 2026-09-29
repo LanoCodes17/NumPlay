@@ -43,7 +43,7 @@ build/tests: $(COMMON) tests/test.c $(HEADERS) | build/.stamp
 	$(CC) -std=c11 -O1 -g $(HOST_FP) $(WARN) -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc $(COMMON) tests/test.c -lm -o $@
 test: build/tests
 	./build/tests
-	@for i in 1 2 3 4 5 6 7 8 9 10; do ./build/tests --replay $$((i-1)) tests/replays/level$$i.txt || exit 1; done
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12; do ./build/tests --replay $$((i-1)) tests/replays/level$$i.txt || exit 1; done
 	./build/tests --monkey 1 60000
 	./build/tests --monkey 2 60000
 run: simulator

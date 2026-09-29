@@ -72,6 +72,12 @@ static float trail_x[TRAIL_N], trail_y[TRAIL_N];
 static int trail_len;
 static bool trail_on;
 static float trail_acc;
+/* wave trail: the corners of the wave's path, oldest first; the live end
+   follows the player */
+#define WAVE_N 48
+static float wave_x[WAVE_N], wave_y[WAVE_N], wave_hx, wave_hy, wave_dx, wave_dy;
+static int wave_len;
+static bool wave_live, wave_mini;
 #define GHOST_N 10
 typedef struct { float x, y, rot, life; uint8_t mode, upside; } Ghost;
 static Ghost ghosts[GHOST_N];
@@ -84,7 +90,50 @@ void fx_reset(void) {
   memset(circles, 0, sizeof(circles));
   trail_len = 0;
   trail_on = false;
+  wave_len = 0;
+  wave_live = false;
   memset(ghosts, 0, sizeof(ghosts));
+}
+
+static void wave_push(float x, float y) {
+  if (wave_len == WAVE_N) {
+    memmove(wave_x, wave_x + 1, sizeof(float) * (WAVE_N - 1));
+    memmove(wave_y, wave_y + 1, sizeof(float) * (WAVE_N - 1));
+    wave_len--;
+  }
+  wave_x[wave_len] = x;
+  wave_y[wave_len++] = y;
+}
+
+static void wave_update(const Game *g) {
+  const Player *p = &g->p;
+  bool on = p->mode == MODE_WAVE && !g->dead;
+  if (on && !wave_live) {
+    wave_push(p->x, p->y);
+    wave_dx = wave_dy = 0;
+  } else if (on) {
+    /* a new corner when the direction changes */
+    float dx = p->x - wave_hx, dy = p->y - wave_hy;
+    if (dx * dx + dy * dy > 0.01f) {
+      float cr = dx * wave_dy - dy * wave_dx, dot = dx * wave_dx + dy * wave_dy;
+      if (wave_dx * wave_dx + wave_dy * wave_dy > 0 && (fabsf(cr) > 0.03f * fabsf(dot) || dot < 0)) wave_push(wave_hx, wave_hy);
+      wave_dx = dx;
+      wave_dy = dy;
+    }
+  } else if (wave_live) {
+    wave_push(wave_hx, wave_hy);
+  }
+  wave_live = on;
+  if (on) { wave_hx = p->x; wave_hy = p->y; wave_mini = p->mini; }
+  /* forget what has scrolled away */
+  int k = 0;
+  while (k + 1 < wave_len && wave_x[k + 1] < cam_x - 40) k++;
+  if (k) {
+    memmove(wave_x, wave_x + k, sizeof(float) * (wave_len - k));
+    memmove(wave_y, wave_y + k, sizeof(float) * (wave_len - k));
+    wave_len -= k;
+  }
+  if (wave_len == 1 && !wave_live && wave_x[0] < cam_x - 40) wave_len = 0;
 }
 
 static void spawn(int def, float x, float y, color_t c0, bool use_c0, color_t c1, bool use_c1, int flags, float angle_override) {
@@ -168,21 +217,25 @@ void fx_update(Game *g, float dt, color_t p1, color_t p2, bool practice) {
           for (int i = 0; i < 10; i++) spawn(PE_LAND, e->x, e->y + (p->upside ? 11 : -11), p1, true, 0, false, 0, p->upside ? 270 : 90);
         break;
       case FX_PAD: {
-        color_t c = e->arg == 0 ? rgb(255, 200, 0) : e->arg == 1 ? rgb(0, 255, 255) : rgb(255, 50, 255);
+        color_t c = e->arg == 0 ? rgb(255, 200, 0) : e->arg == 1 ? rgb(0, 255, 255) : e->arg == 2 ? rgb(255, 50, 255) : rgb(255, 40, 40);
         circle(e->x, e->y, CE_PAD, c, e->obj, false);
         trail_on = true;
         break;
       }
       case FX_ORB: {
-        color_t c = e->arg == 0 ? rgb(255, 200, 0) : e->arg == 1 ? rgb(255, 50, 255) : rgb(0, 255, 255);
-        circle(e->x, e->y, CE_ORB, c, e->obj, false);
+        /* yellow, pink, blue, dash, red, spider, toggle */
+        static const uint8_t oc[7][3] = {{255, 200, 0}, {255, 50, 255}, {0, 255, 255}, {60, 255, 120}, {255, 40, 40}, {170, 60, 255}, {230, 230, 230}};
+        const uint8_t *q = oc[e->arg < 7 ? e->arg : 2];
+        circle(e->x, e->y, CE_ORB, rgb(q[0], q[1], q[2]), e->obj, false);
         trail_on = true;
         break;
       }
       case FX_ORB_TOUCH: circle(e->x, e->y, CE_ORB_TOUCH, 0xffff, e->obj, false); break;
       case FX_PORTAL: {
-        static const uint8_t pc[4][3] = {{0, 255, 50}, {255, 0, 255}, {255, 90, 40}, {255, 150, 0}};
-        const uint8_t *c = pc[e->arg & 3];
+        /* cube, ship, ball, UFO, wave, robot, dual, single, teleport, spider, swing */
+        static const uint8_t pc[11][3] = {{0, 255, 50}, {255, 0, 255}, {255, 90, 40}, {255, 150, 0}, {0, 200, 255}, {235, 235, 235},
+                                          {255, 150, 0}, {0, 200, 255}, {0, 160, 255}, {170, 60, 255}, {255, 230, 0}};
+        const uint8_t *c = pc[e->arg < 11 ? e->arg : 0];
         circle(e->x, e->y, CE_PORTAL, rgb(c[0], c[1], c[2]), e->obj, false);
         break;
       }
@@ -210,6 +263,8 @@ void fx_update(Game *g, float dt, color_t p1, color_t p2, bool practice) {
         circle(e->x, e->y, CE_DEATH, p1, -1, false);
         for (int i = 0; i < 60; i++) spawn(PE_EXPLODE, e->x, e->y, 0, false, 0, false, 0, 1e9f);
         trail_len = 0;
+        wave_len = 0;
+        wave_live = false;
         break;
       case FX_WALL:
         circle(e->x, e->y, CE_WALL1, p1, -1, false);
@@ -220,7 +275,13 @@ void fx_update(Game *g, float dt, color_t p1, color_t p2, bool practice) {
   g->fx_count = 0;
   /* continuous emitters */
   if (!g->dead && !g->complete) {
-    if (p->mode == MODE_CUBE) {
+    if (p->mode == MODE_WAVE) {
+      trail_on = false;
+    } else if (p->mode == MODE_ROBOT && !p->on_ground && g->hold_prev && p->hover) {
+      /* the robot's jets while it hovers */
+      emit_rate(&fire_acc, 90, dt);
+      while (fire_acc >= 1) { fire_acc -= 1; spawn(PE_SHIP_FIRE, p->x - 4, p->y + (p->upside ? 12 : -12), rgb(255, 150, 0), true, 0, false, 0, p->upside ? 90 : 270); }
+    } else if (p->mode == MODE_CUBE || p->mode == MODE_ROBOT || p->mode == MODE_SPIDER) {
       if (p->time_since_ground < 0.1f && !g->ending) {
         emit_rate(&drag_acc, 100, dt);
         while (drag_acc >= 1) {
@@ -244,7 +305,7 @@ void fx_update(Game *g, float dt, color_t p1, color_t p2, bool practice) {
       } else {
         drag_acc = 0;
       }
-    } else if (p->mode == MODE_UFO) {
+    } else if (p->mode == MODE_UFO || p->mode == MODE_SWING) {
       trail_on = true;
       emit_rate(&smoke_acc, 40, dt);
       while (smoke_acc >= 1) { smoke_acc -= 1; spawn(PE_SHIP_SMOKE, p->x, p->y + (p->upside ? 9 : -9), p1, true, 0, false, 0, 1e9f); }
@@ -290,6 +351,7 @@ void fx_update(Game *g, float dt, color_t p1, color_t p2, bool practice) {
       }
     }
   }
+  wave_update(g);
   /* motion trail samples */
   trail_acc += dt;
   bool sample = trail_acc >= 1.0f / 40;
@@ -412,8 +474,37 @@ static void draw_circles(bool screen_pass) {
   }
 }
 
+static void wave_seg(float x0, float y0, float x1, float y1, float w, color_t c, unsigned a) {
+  float dx = x1 - x0, dy = y1 - y0, len = sqrtf(dx * dx + dy * dy);
+  if (len < 0.01f) return;
+  float nx = -dy / len * w * .5f, ny = dx / len * w * .5f;
+  float q[8] = {x0 + nx, y0 + ny, x1 + nx, y1 + ny, x1 - nx, y1 - ny, x0 - nx, y0 - ny};
+  gfx_poly(q, 4, c, a, BLEND_ADD);
+}
+
+static void draw_wave_trail(void) {
+  int n = wave_len + (wave_live ? 1 : 0);
+  if (n < 2) return;
+  float w = (wave_mini ? 5.5f : 9.f) * (2.f / 3);
+  float px_ = 0, py_ = 0;
+  for (int pass = 0; pass < 2; pass++) {
+    float ww = pass ? w * .35f : w;
+    color_t c = pass ? 0xffff : col_p2;
+    unsigned a = pass ? 170 : 200;
+    for (int i = 0; i < n; i++) {
+      float x = i < wave_len ? wave_x[i] : wave_hx, y = i < wave_len ? wave_y[i] : wave_hy, sx, sy;
+      to_screen(x, y, false, &sx, &sy);
+      if (i) wave_seg(px_, py_, sx, sy, ww, c, a);
+      if (i && i < n - 1 && !pass) gfx_disc((int)(sx * 16), (int)(sy * 16), (int)(ww * 8), c, a / 2, BLEND_ADD);
+      px_ = sx;
+      py_ = sy;
+    }
+  }
+}
+
 void fx_draw_player_trail(void) {
   if (!G) return;
+  draw_wave_trail();
   /* afterimages */
   for (int i = 0; i < GHOST_N; i++) {
     const Ghost *gh = &ghosts[i];

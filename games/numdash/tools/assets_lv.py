@@ -47,7 +47,7 @@ def main():
     sprites = lv_sprites()
     if len(sys.argv) > 1:
         preview(sprites, sys.argv[1])
-    pk = Packer()
+    pk = Packer(dedupe=True)
     for name, art, fmt in sprites:
         pk.add(name, art.image(), art.ax, art.ay, fmt)
     names = [s[0] for s in pk.sprites]

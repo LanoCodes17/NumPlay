@@ -558,5 +558,424 @@ def clubstep_sprites():
     return out
 
 
+# ---------------------------------------------------------------- Deadlocked (2.0)
+
+def ring_seg(R, thick, a0=12, a1=78):
+    """One arc of a split circle (the renderer mirrors it into four)."""
+    a = Art(px(2 * R) + 2, px(2 * R) + 2)
+    u, v = a.grid()
+    r = np.hypot(u, v)
+    ang = np.degrees(np.arctan2(v, u))
+    m = (r < R) & (r > R - thick) & (ang > a0) & (ang < a1)
+    t = np.clip((ang - a0) / (a1 - a0), 0, 1)
+    a.paint(m.astype(np.float32), WHITE, 1.0)
+    a.a = (a.a * (0.35 + 0.65 * t)).astype(np.float32)
+    return a
+
+
+def swirl(R, arms=3):
+    """Rotating swirl: tapered spiral arms fading to their tails."""
+    a = Art(px(2 * R) + 2, px(2 * R) + 2)
+    u, v = a.grid()
+    r = np.hypot(u, v) / R
+    ang = np.arctan2(v, u)
+    out = np.zeros_like(r)
+    for k in range(arms):
+        ph = (ang - 2.4 * r - k * 2 * math.pi / arms) % (2 * math.pi)
+        width = 0.55 * (1 - r) + 0.08
+        m = (ph < width * 2.2) & (r < 1) & (r > 0.12)
+        fade = np.clip(1 - ph / (width * 2.2), 0, 1) * np.clip(r * 1.6, 0, 1)
+        out = np.maximum(out, np.where(m, fade, 0))
+    a.rgb[:] = 1
+    a.a = out.astype(np.float32)
+    return a
+
+
+def pickup_ring(dots):
+    """Ring of arcs with dots (1055-1057)."""
+    a = Art(px(44) + 2, px(44) + 2)
+    u, v = a.grid()
+    r = np.hypot(u, v)
+    ang = np.degrees(np.arctan2(v, u)) % 360
+    m = ((r < 20) & (r > 16.5) & ((ang % 90) > 18) & ((ang % 90) < 72)) | ((r < 13) & (r > 10.5) & ((ang % 90) > 30) & ((ang % 90) < 60))
+    a.paint(m.astype(np.float32), WHITE, 0.85)
+    for k in range(dots):
+        t = math.radians(45 + k * 360 / dots)
+        a.paint(a.ellipse_mask(18.2 * math.cos(t), 18.2 * math.sin(t), 3.6, 3.6), WHITE, 1.0)
+    return a
+
+
+def flame(w, h, lobes, seed, inner=False):
+    """A flame: tongues rising from a rounded base, soft at the tips."""
+    rnd = random.Random(seed)
+    a = Art(px(w) + 2, px(h) + 2)
+    u, v = a.grid()
+    out = np.zeros_like(u)
+    for k in range(lobes):
+        cx = (rnd.random() - 0.5) * w * 0.55
+        top = h * (0.15 + 0.35 * rnd.random()) if k else h * 0.48
+        wid = w * (0.18 + 0.14 * rnd.random())
+        base = -h * 0.5 + wid
+        t = np.clip((v - base) / max(1e-3, top - base), 0, 1)
+        half = wid * (1 - t) ** 0.8 * (1 + 0.25 * np.sin(t * 7 + k))
+        sway = np.sin(t * 3.5 + k) * wid * 0.5 * t
+        body = (np.abs(u - cx - sway) < half) & (v > base) & (v < top)
+        cap = ((u - cx) ** 2 + (v - base) ** 2) < wid * wid
+        out = np.maximum(out, np.where(body | cap, 1 - t ** 3 * 0.7, 0))
+    a.rgb[:] = 1
+    a.a = np.clip(out * (0.95 if not inner else 0.9), 0, 1).astype(np.float32)
+    return a
+
+
+def cog_saw(R, teeth, ring=False):
+    """2.0 spiked saw: a black cog, or its coloured inner ring."""
+    a = Art(px(2 * R) + 2, px(2 * R) + 2)
+    u, v = a.grid()
+    r = np.hypot(u, v)
+    ang = np.arctan2(v, u)
+    if ring:
+        m = (r < R * 0.52) & (r > R * 0.4) | (r < R * 0.16)
+        a.paint(m.astype(np.float32), WHITE, 0.95)
+        return a
+    tooth = np.cos(ang * teeth) > -0.1
+    outer = np.where(tooth, R, R * 0.8)
+    body = (r < outer) & (r > R * 0.22)
+    a.paint(body.astype(np.float32), BLACK, 1.0)
+    edge = body & (r > outer - 1.6)
+    a.paint(edge.astype(np.float32), WHITE, 0.55)
+    return a
+
+
+def dark_blade(R, arms, core=False):
+    a = Art(px(2 * R) + 2, px(2 * R) + 2)
+    if core:
+        u, v = a.grid()
+        a.paint((np.hypot(u, v) < R * 0.3).astype(np.float32), WHITE, 1.0)
+        return a
+    for k in range(arms):
+        t = 2 * math.pi * k / arms
+        c, s = math.cos(t), math.sin(t)
+        pts = [(c * R, s * R), (c * R * 0.3 - s * R * 0.22, s * R * 0.3 + c * R * 0.22), (c * R * 0.55 + s * R * 0.12, s * R * 0.55 - c * R * 0.12)]
+        a.paint(a.poly_mask(pts), BLACK, 1.0)
+    u, v = a.grid()
+    r = np.hypot(u, v)
+    a.paint(((r < R * 0.42) & (r > R * 0.3)).astype(np.float32), BLACK, 1.0)
+    a.paint(((r < R * 0.46) & (r > R * 0.42)).astype(np.float32), WHITE, 0.6)
+    return a
+
+
+def beast_jaw(top):
+    """The beast's jaw: a black shape with a row of teeth and a pale rim."""
+    w, h = 72, 44
+    a = Art(px(w) + 2, px(h) + 2)
+    if top:
+        pts = [(-36, -6), (-30, 14), (-8, 20), (20, 18), (36, 8), (30, -6)]
+        teeth = [(-26 + 11 * k, -6) for k in range(6)]
+        tip = -16
+    else:
+        pts = [(-34, 6), (-24, -16), (4, -20), (30, -12), (36, 6)]
+        teeth = [(-24 + 11 * k, 6) for k in range(6)]
+        tip = 16
+    body = a.poly_mask(pts)
+    for (x, y) in teeth:
+        body = np.maximum(body, a.poly_mask([(x - 4.5, y), (x + 4.5, y), (x, y + tip * 0.6)]))
+    a.paint(body, BLACK, 1.0)
+    a.paint(np.clip(stroke_mask(a, pts, 1.6) - body * 0.0, 0, 1), WHITE, 0.7)
+    return a
+
+
+def speed_portal(n, col, flip=False):
+    """Speed portals: n chevrons (the slow one points back)."""
+    light, dark = col
+    w = 22 + 13 * (n - 1)
+    a = Art(px(w + 4) + 2, px(48) + 2)
+    for k in range(n):
+        x0 = -w / 2 + 13 * k
+        if flip:
+            pts = [(x0 + 18, 22), (x0 + 8, 0), (x0 + 18, -22), (x0 + 8, -22), (x0 - 2, 0), (x0 + 8, 22)]
+        else:
+            pts = [(x0, 22), (x0 + 10, 0), (x0, -22), (x0 + 10, -22), (x0 + 20, 0), (x0 + 10, 22)]
+        m = a.poly_mask(pts)
+        a.paint(np.clip(stroke_mask(a, pts, 3.0), 0, 1), BLACK, 1.0)
+        a.paint(m, dark, 1.0)
+        inner = a.poly_mask([(p[0] + (1.6 if not flip else -1.6), p[1] * 0.8) for p in pts])
+        a.paint(inner, light, 0.9)
+    return a
+
+
+def key_art(detail=False):
+    a = Art(px(28) + 2, px(22) + 2)
+    u, v = a.grid()
+    ring = ((u + 7) ** 2 + v ** 2 < 49) & ((u + 7) ** 2 + v ** 2 > 12)
+    shaft = (u > -1) & (u < 12) & (np.abs(v) < 2.2)
+    bits = ((u > 6) & (u < 8.5) & (v < 0) & (v > -6)) | ((u > 10) & (u < 12) & (v < 0) & (v > -5))
+    m = ring | shaft | bits
+    if detail:
+        a.paint((((u + 7) ** 2 + v ** 2 < 49) & ((u + 7) ** 2 + v ** 2 > 36)).astype(np.float32), WHITE, 1.0)
+        return a
+    a.paint(np.clip(m.astype(np.float32), 0, 1), WHITE, 1.0)
+    return a
+
+
+def keyhole_art(detail=False):
+    a = Art(px(24) + 2, px(28) + 2)
+    u, v = a.grid()
+    r = np.hypot(u, v - 2)
+    if detail:
+        a.paint(((r < 12) & (r > 10)).astype(np.float32), WHITE, 1.0)
+        return a
+    plate = r < 11
+    hole = (np.hypot(u, v - 4) < 4) | ((np.abs(u) < 2.4 + (4 - v) * 0.15) & (v < 4) & (v > -7))
+    a.paint((plate & ~hole).astype(np.float32), WHITE, 1.0)
+    return a
+
+
+PORTAL_STYLE.update({
+    'wave': (hexc('d0f4ff'), hexc('30c8ff'), hexc('0060ff')),
+    'robot': (hexc('ffffff'), hexc('d8d8d8'), hexc('808080')),
+    'dual': (hexc('ffe0a0'), hexc('ff9a20'), hexc('e05000')),
+    'single': (hexc('b8ffff'), hexc('30b0ff'), hexc('0050e0')),
+    'tele': (hexc('c8f8ff'), hexc('20b8ff'), hexc('0050c0')),
+    'tele_exit': (hexc('ffe8c0'), hexc('ffaa30'), hexc('e06000')),
+})
+
+
+def orb_green():
+    a = Art(px(30) + 1, px(30) + 1)
+    u, v = a.grid()
+    r = np.hypot(u, v)
+    ang = np.degrees(np.arctan2(v, u)) % 90
+    ring = (r > 12.3) & (r < 14.6) & ((ang > 12) & (ang < 78))
+    body = r < 9.6
+    t = np.clip((v + 9) / 18, 0, 1)
+    col = np.stack([lerp(hexc('20c020')[i], hexc('90ff70')[i], t) for i in range(3)], -1)
+    a.paint(ring.astype(np.float32), WHITE, 1.0)
+    a.paint(body.astype(np.float32), col, 1.0)
+    return a
+
+
+def orb_green_glow():
+    a = Art(px(40) + 1, px(40) + 1)
+    u, v = a.grid()
+    r = np.hypot(u, v)
+    a.rgb[:] = hexc('40ff40')
+    a.a = (np.clip(1 - np.abs(r - 13.5) / 6.5, 0, 1) ** 1.5 * 0.6).astype(np.float32)
+    return a
+
+
+def icon_layers(outline_pts_list, prim_pts_list, sec_pts_list, w, h, ow=2.2):
+    """An icon in two tintable layers over a black outline: primary shapes
+    (with the outline) and secondary shapes painted on a separate layer."""
+    W, H = px(w) + 2, px(h) + 2
+    p, s = Art(W, H), Art(W, H)
+    for pts in outline_pts_list:
+        m = np.maximum(p.poly_mask(pts), stroke_mask(p, pts, ow))
+        p.paint(m, BLACK, 1.0)
+    for pts, shade in prim_pts_list:
+        p.paint(p.poly_mask(pts), (shade, shade, shade), 1.0)
+    for pts, shade in sec_pts_list:
+        m = s.poly_mask(pts)
+        p.erase(m)
+        s.paint(m, (shade, shade, shade), 1.0)
+    return p, s
+
+
+def wave_icon():
+    """The wave's dart: an arrowhead pointing along the travel."""
+    body = [(12, 0), (-9, 10.5), (-4, 0), (-9, -10.5)]
+    inner = [(6.5, 0), (-5.5, 6.2), (-2.4, 0), (-5.5, -6.2)]
+    return icon_layers([body], [(body, 1.0)], [(inner, 1.0)], 30, 26)
+
+
+def robot_icon():
+    """Robot head and body (the legs are drawn at run time)."""
+    head = [(-13, -3), (-13, 11), (-10, 14), (11, 14), (14, 11), (14, -3)]
+    visor = [(-2, 2), (-2, 10), (11, 10), (11, 2)]
+    chin = [(-11, -1), (12, -1), (12, 1), (-11, 1)]
+    p, s = icon_layers([head], [(head, 1.0)], [(visor, 1.0), (chin, 0.8)], 34, 34)
+    eye = p.rect_mask(4, 4, 8, 8)
+    s.paint(eye, BLACK, 1.0)
+    return p, s
+
+
+def spider_icon():
+    """Spider body: a wide dome with two eyes (legs drawn at run time)."""
+    body = [(-14, -4), (-12, 5), (-6, 11), (6, 11), (12, 5), (14, -4), (8, -7), (-8, -7)]
+    band = [(-12, -3), (12, -3), (9, -6), (-9, -6)]
+    p, s = icon_layers([body], [(body, 1.0)], [(band, 1.0)], 34, 30)
+    for ex in (-4.5, 4.5):
+        p.paint(p.ellipse_mask(ex, 3, 3.2, 3.6), WHITE, 1.0)
+        p.paint(p.ellipse_mask(ex + 0.8, 3, 1.6, 2.2), BLACK, 1.0)
+    return p, s
+
+
+def swing_icon():
+    """Swing copter: a round body between two flame vents."""
+    W, H = px(36) + 2, px(32) + 2
+    p, s = Art(W, H), Art(W, H)
+    u, v = p.grid()
+    ring = p.ellipse_mask(0, 0, 11.5, 11.5)
+    vents = np.maximum(p.poly_mask([(-16, 4), (-9, 7), (-9, -7), (-16, -4)]), p.poly_mask([(16, 4), (9, 7), (9, -7), (16, -4)]))
+    p.paint(np.maximum(np.maximum(ring, vents), stroke_mask(p, [(-16, 4), (-9, 7), (-9, -7), (-16, -4)], 2.2)), BLACK, 1.0)
+    p.paint(stroke_mask(p, [(16, 4), (9, 7), (9, -7), (16, -4)], 2.2), BLACK, 1.0)
+    p.paint(p.ellipse_mask(0, 0, 9.8, 9.8), WHITE, 1.0)
+    p.paint(p.poly_mask([(-14.8, 3.2), (-10, 5.4), (-10, -5.4), (-14.8, -3.2)]), (0.8, 0.8, 0.8), 1.0)
+    p.paint(p.poly_mask([(14.8, 3.2), (10, 5.4), (10, -5.4), (14.8, -3.2)]), (0.8, 0.8, 0.8), 1.0)
+    core = p.ellipse_mask(0, 0, 5.5, 5.5)
+    p.erase(core)
+    s.paint(core, WHITE, 1.0)
+    s.paint(s.ellipse_mask(-1.5, 1.5, 2, 2), (0.6, 0.6, 0.6), 1.0)
+    return p, s
+
+
+PORTAL_STYLE.update({
+    'spider': (hexc('f0c8ff'), hexc('b45cff'), hexc('7010d0')),
+    'swing': (hexc('fff4b8'), hexc('ffd020'), hexc('e89000')),
+})
+
+
+def ring_orb(core_hi, core_lo, arrow=None, dots=0):
+    """A ring with a coloured core; optionally an arrow (dash rings) or dots."""
+    a = Art(px(32) + 1, px(32) + 1)
+    u, v = a.grid()
+    r = np.hypot(u, v)
+    ring = (r > 12.3) & (r < 14.6)
+    body = r < 9.6
+    t = np.clip((v + 9) / 18, 0, 1)
+    col = np.stack([lerp(core_lo[i], core_hi[i], t) for i in range(3)], -1)
+    a.paint(ring.astype(np.float32), WHITE, 1.0)
+    a.paint(body.astype(np.float32), col, 1.0)
+    if arrow:
+        a.paint(a.poly_mask([(-5, -4.5), (1, 0), (-5, 4.5), (-3, 0)]), WHITE, 0.95)
+        a.paint(a.poly_mask([(0, -4.5), (6, 0), (0, 4.5), (2, 0)]), WHITE, 0.95)
+    for k in range(dots):
+        t2 = math.radians(90 + k * 360 / dots)
+        a.paint(a.ellipse_mask(11.4 * math.cos(t2), 11.4 * math.sin(t2), 1.8, 1.8), BLACK, 1.0)
+    return a
+
+
+def glow_ring(c):
+    a = Art(px(40) + 1, px(40) + 1)
+    u, v = a.grid()
+    r = np.hypot(u, v)
+    a.rgb[:] = c
+    a.a = (np.clip(1 - np.abs(r - 13.5) / 6.5, 0, 1) ** 1.5 * 0.6).astype(np.float32)
+    return a
+
+
+def red_pad():
+    a = Art(px(30) + 1, px(12) + 1)
+    u, v = a.grid()
+    base = -2.5
+    dome = ((u / 12.5) ** 2 + ((v - base) / 5.5) ** 2 < 1) & (v >= base)
+    t = np.clip((v - base) / 5.5, 0, 1)
+    col = np.stack([lerp(hexc('c00000')[i], hexc('ff7060')[i], t) for i in range(3)], -1)
+    a.paint(dome.astype(np.float32), col, 1.0)
+    return a
+
+
+def toggle_orb(detail):
+    a = Art(px(32) + 1, px(32) + 1)
+    u, v = a.grid()
+    r = np.hypot(u, v)
+    if detail:
+        a.paint(((r < 6) & (r > 3.5)).astype(np.float32), WHITE, 1.0)
+        return a
+    a.paint(((r > 12.3) & (r < 14.6)).astype(np.float32), WHITE, 1.0)
+    a.paint((r < 9.6).astype(np.float32), (0.8, 0.8, 0.8), 1.0)
+    return a
+
+
+def pickup_item(detail):
+    """A small bottle (pixel collectable)."""
+    rows = ['..kk..', '..bb..', '.kbbk.', 'kbddbk', 'kbddbk', '.kkkk.']
+    a = Art(px(16) + 2, px(16) + 2)
+    for j, row in enumerate(rows):
+        for i, ch in enumerate(row):
+            x0, y0 = -7.5 + i * 2.5, 7.5 - j * 2.5
+            m = a.rect_mask(x0, y0 - 2.5, x0 + 2.5, y0)
+            if detail and ch == 'd':
+                a.paint(m, WHITE, 1.0)
+            elif not detail and ch in 'bd':
+                a.paint(m, WHITE, 1.0)
+            elif not detail and ch == 'k':
+                a.paint(m, BLACK, 1.0)
+    return a
+
+
+def dash_sprites():
+    out = []
+    add = lambda n, a, f: out.append((n, a, f))
+    for st in ('spider', 'swing'):
+        add('portal_%s_back' % st, mode_portal_art(st, 'back'), 'PAL4')
+        add('portal_%s_front' % st, mode_portal_art(st, 'front'), 'PAL4')
+    add('orb_dash', ring_orb(hexc('a0ff80'), hexc('10c020'), arrow=True), 'PAL4')
+    add('orb_dash_g', ring_orb(hexc('ffa0ff'), hexc('e020e0'), arrow=True), 'PAL4')
+    add('orb_spider', ring_orb(hexc('e0a0ff'), hexc('8020e0'), dots=3), 'PAL4')
+    add('orb_red', ring_orb(hexc('ff9080'), hexc('d00000')), 'PAL4')
+    add('glow_orb_red', glow_ring(hexc('ff3030')), 'A4')
+    add('pad_red', red_pad(), 'PAL4')
+    add('orb_toggle', toggle_orb(False), 'LA44')
+    add('orb_toggle_detail', toggle_orb(True), 'A4')
+    add('pickup_item', pickup_item(False), 'LA44')
+    add('pickup_item_detail', pickup_item(True), 'A4')
+    return out
+
+
+def deadlocked_sprites():
+    out = []
+    add = lambda n, a, f: out.append((n, a, f))
+    add('ringseg_l', Quarter(ring_seg(56, 7)), 'A4')
+    add('ringseg_m', Quarter(ring_seg(44, 6)), 'A4')
+    add('ringseg_s', Quarter(ring_seg(32, 5)), 'A4')
+    add('ringseg_xs', Quarter(ring_seg(20, 4)), 'A4')
+    add('swirl_l', swirl(20), 'A4')
+    add('swirl_m', swirl(15), 'A4')
+    add('pickup_ring1', pickup_ring(1), 'A4')
+    add('pickup_ring2', pickup_ring(2), 'A4')
+    add('pickup_ring4', pickup_ring(4), 'A4')
+    add('fire_l', flame(62, 68, 6, 11), 'A4')
+    add('fire_l_in', flame(32, 40, 4, 12, True), 'A4')
+    add('fire_burst', flame(15, 84, 2, 13), 'A4')
+    add('fire_burst_in', flame(8, 44, 2, 14, True), 'A4')
+    add('fire_t1', flame(28, 54, 3, 15), 'A4')
+    add('fire_t1_in', flame(15, 28, 2, 16, True), 'A4')
+    add('fire_t2', flame(28, 50, 3, 17), 'A4')
+    add('fire_t2_in', flame(15, 26, 2, 18, True), 'A4')
+    add('cogsaw_l', Quarter(cog_saw(40, 10)), 'LA44')
+    add('cogsaw_l_ring', Quarter(cog_saw(40, 10, True)), 'A4')
+    add('cogsaw_m', cog_saw(26, 9), 'LA44')
+    add('cogsaw_m_ring', cog_saw(26, 9, True), 'A4')
+    add('cogsaw_s', cog_saw(20, 8), 'LA44')
+    add('cogsaw_s_ring', cog_saw(20, 8, True), 'A4')
+    add('darkblade_l', Quarter(dark_blade(42, 4)), 'A4')
+    add('darkblade_l_core', dark_blade(42, 4, True), 'A4')
+    add('darkblade_m', dark_blade(31, 6), 'A4')
+    add('darkblade_m_core', dark_blade(31, 6, True), 'A4')
+    add('beast_top', beast_jaw(True), 'LA44')
+    add('beast_bot', beast_jaw(False), 'LA44')
+    eye = Art(px(12) + 2, px(12) + 2)
+    eye.paint(eye.ellipse_mask(0, 0, 5.5, 5.5), WHITE, 1.0)
+    add('beast_eye', eye, 'A4')
+    add('speed0', speed_portal(1, (hexc('ffe060'), hexc('ff9c00')), True), 'PAL4')
+    add('speed1', speed_portal(1, (hexc('a0f4ff'), hexc('10b0ff'))), 'PAL4')
+    add('speed2', speed_portal(2, (hexc('b0ff90'), hexc('20c020'))), 'PAL4')
+    add('speed3', speed_portal(3, (hexc('ffb0ff'), hexc('e030e0'))), 'PAL4')
+    for st in ('wave', 'robot', 'dual', 'single', 'tele', 'tele_exit'):
+        add('portal_%s_back' % st, mode_portal_art(st, 'back'), 'PAL4')
+        add('portal_%s_front' % st, mode_portal_art(st, 'front'), 'PAL4')
+    add('orb_green', orb_green(), 'PAL4')
+    add('glow_orb_green', orb_green_glow(), 'A4')
+    add('key', key_art(), 'A4')
+    add('key_detail', key_art(True), 'A4')
+    add('keyhole', keyhole_art(), 'A4')
+    add('keyhole_detail', keyhole_art(True), 'A4')
+    for name, fn in (('wave1', wave_icon), ('robot1', robot_icon), ('spider1', spider_icon), ('swing1', swing_icon)):
+        ip, is_ = fn()
+        add(name + '_p', ip, 'LA44')
+        add(name + '_s', is_, 'LA44')
+    return out
+
+
 def lv_sprites():
-    return clubstep_sprites()
+    return clubstep_sprites() + deadlocked_sprites() + dash_sprites()

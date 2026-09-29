@@ -105,7 +105,7 @@ enum { DYN_LIGHT, DYN_DARK, DYN_PULSE };
 static Pal pal[256];
 static uint16_t dyn_key[PAL_DYN_END - PAL_DYN];
 static int ndyn;
-#define MAX_ITEMS 1100
+#define MAX_ITEMS 900   /* Dash peaks near 800 */
 static Item items[MAX_ITEMS];
 static uint16_t order[MAX_ITEMS];
 static int nitems;
@@ -137,19 +137,40 @@ static void push(float sx, float sy, int spr, int xf, int ct, int detail, int al
 /* ------------------------------------------------------------ palette */
 
 static color_t c3(const uint8_t v[3]) { return rgb(v[0], v[1], v[2]); }
-static uint8_t chan_done[MAX_CHANNELS];
-static uint8_t chan_rgb[MAX_CHANNELS][3];
+/* Palette slots are handed out per frame: the fixed channels keep theirs,
+   the level's other channels get one the first time an object shows them. */
+#define MAX_LEVEL_CHANS 1024
+static uint8_t pal_of[MAX_LEVEL_CHANS];   /* dense channel -> slot, 0xff: none yet */
+static uint8_t slot_rgb[PAL_DYN][3];
+static int next_slot;
+static const Game *pal_game;
 
+/* A channel's state: the live one, or the level's (it never changes). */
+static const Channel *chan_get(const Game *g, unsigned c, Channel *tmp) {
+  const LevelExt *x = g->L->ext;
+  if (!x || c < x->ndyn) return &g->ch[c < MAX_CHANNELS ? c : 0];
+  const LChan *l = &x->chans[c < x->nchans ? c : 0];
+  memcpy(tmp->cur, l->rgb, 3);
+  tmp->op = l->opacity;
+  tmp->flags = l->flags;
+  tmp->copy = l->copy;
+  tmp->h = l->h; tmp->s = l->s; tmp->v = l->v;
+  return tmp;
+}
+
+static int pal_slot(const Game *g, unsigned c);
 static void pulse_rgb(const PulseAction *pu, uint8_t out[3]);
-/* A channel's colour: its own, a player colour, or a copy of another with
-   HSV, then any pulses on it. */
-static const uint8_t *chan_eval(const Game *g, unsigned c, int depth) {
-  uint8_t *out = chan_rgb[c];
-  if (chan_done[c]) return out;
-  const Channel *ch = &g->ch[c];
+static const uint8_t *chan_rgb(const Game *g, unsigned c) { return slot_rgb[pal_slot(g, c)]; }
+
+/* Evaluates channel c into slot s: its own colour, a player colour, or a
+   copy of another with HSV, then any pulses on it. */
+static void chan_fill(const Game *g, unsigned c, int s) {
+  Channel tmp;
+  const Channel *ch = chan_get(g, c, &tmp);
+  uint8_t *out = slot_rgb[s];
   memcpy(out, ch->cur, 3);
-  if ((ch->flags & CHF_COPY) && ch->copy < MAX_CHANNELS && depth < 4 && ch->copy != c)
-    hsv_shift(chan_eval(g, ch->copy, depth + 1), ch->h, ch->s, ch->v, ch->flags, out);
+  if ((ch->flags & CHF_COPY) && ch->copy != c && ch->copy < MAX_LEVEL_CHANS)
+    hsv_shift(chan_rgb(g, ch->copy), ch->h, ch->s, ch->v, ch->flags, out);
   else if (ch->flags & (CHF_P1 | CHF_P2)) {
     color_t pc = (ch->flags & CHF_P1) ? O.p1 : O.p2;
     out[0] = (uint8_t)c_r(pc); out[1] = (uint8_t)c_g(pc); out[2] = (uint8_t)c_b(pc);
@@ -162,33 +183,45 @@ static const uint8_t *chan_eval(const Game *g, unsigned c, int depth) {
     float lv = pulse_level(pu);
     for (int j = 0; j < 3; j++) out[j] = (uint8_t)(out[j] + (prgb[j] - out[j]) * lv);
   }
-  chan_done[c] = 1;
-  return out;
+  pal[s] = (Pal){c3(out), g->L->ext ? ch->op : 255, g->L->ext ? (ch->flags & CHF_BLEND) != 0 : 0};
 }
-static const Game *pal_game;
+
+static int pal_slot(const Game *g, unsigned c) {
+  if (c < CH_SPECIAL) return (int)c;
+  const LevelExt *x = g->L->ext;
+  if (!x || c >= x->nchans || c >= MAX_LEVEL_CHANS) return CH_WHITE;
+  if (pal_of[c] != 0xff) return pal_of[c];
+  if (next_slot >= PAL_DYN) return CH_WHITE;   /* more colours on screen than slots */
+  int s = next_slot++;
+  pal_of[c] = (uint8_t)s;                      /* before filling: copies can loop */
+  chan_fill(g, c, s);
+  return s;
+}
+
 static void pulse_rgb(const PulseAction *pu, uint8_t out[3]) {
-  if ((pu->flags & CHF_COPY) && pu->copy < MAX_CHANNELS) hsv_shift(chan_eval(pal_game, pu->copy, 2), pu->h, pu->s, pu->v, pu->flags, out);
+  if ((pu->flags & CHF_COPY) && pu->copy < MAX_LEVEL_CHANS) hsv_shift(chan_rgb(pal_game, pu->copy), pu->h, pu->s, pu->v, pu->flags, out);
   else memcpy(out, pu->rgb, 3);
 }
 
 static void build_palette(const Game *g) {
   const LevelExt *x = g->L->ext;
   pal_game = g;
-  unsigned n = x ? x->nchans : CH_SPECIAL;
-  if (n > MAX_CHANNELS) n = MAX_CHANNELS;
-  memset(chan_done, 0, sizeof(chan_done));
-  for (unsigned c = 0; c < n; c++) {
-    const Channel *ch = &g->ch[c];
-    pal[c] = (Pal){c3(chan_eval(g, c, 0)), x ? ch->op : 255, x ? (ch->flags & CHF_BLEND) != 0 : 0};
-  }
+  memset(pal_of, 0xff, x && x->nchans < MAX_LEVEL_CHANS ? x->nchans : MAX_LEVEL_CHANS);
+  next_slot = CH_SPECIAL;
+  for (unsigned c = 0; c < CH_SPECIAL; c++) chan_fill(g, c, (int)c);
   /* the fixed ones */
-  pal[CH_P1] = (Pal){x && (g->ch[CH_P1].flags & CHF_COPY) ? pal[CH_P1].c : O.p1, 255, 1};
-  pal[CH_P2] = (Pal){x && (g->ch[CH_P2].flags & CHF_COPY) ? pal[CH_P2].c : O.p2, 255, 1};
+  Channel tmp;
+  pal[CH_P1] = (Pal){x && (chan_get(g, CH_P1, &tmp)->flags & CHF_COPY) ? pal[CH_P1].c : O.p1, 255, 1};
+  pal[CH_P2] = (Pal){x && (chan_get(g, CH_P2, &tmp)->flags & CHF_COPY) ? pal[CH_P2].c : O.p2, 255, 1};
   pal[CH_LBG] = (Pal){c_hsv_lighten(pal[CH_BG].c, -20, 20), 255, 0};
   if (!x) { pal[CH_3DL] = pal[CH_OBJ]; pal[CH_G2] = pal[CH_G1]; }
   pal[CH_BLACK] = (Pal){0, 255, 0};
   pal[CH_WHITE] = (Pal){0xffff, 255, 0};
   pal[CH_LIGHTER] = (Pal){0xffff, 255, 0};
+  static const uint8_t fixed_rgb[][3] = {{0, 0, 0}, {255, 255, 255}, {255, 255, 255}};
+  memcpy(slot_rgb[CH_BLACK], fixed_rgb[0], 3);
+  memcpy(slot_rgb[CH_WHITE], fixed_rgb[1], 3);
+  memcpy(slot_rgb[CH_LIGHTER], fixed_rgb[2], 3);
   pal[PAL_GLOW_Y] = (Pal){rgb(255, 255, 0), 255, 1};
   pal[PAL_GLOW_B] = (Pal){rgb(0, 255, 255), 255, 1};
   pal[PAL_GLOW_P] = (Pal){rgb(255, 0, 255), 255, 1};
@@ -279,21 +312,36 @@ void scene_prepare(const Game *g, const SceneOpts *o) {
   /* z layer buckets of 2.0 objects (0 = the part's own layer) */
   static const uint8_t ZMAP[9] = {0, LAYER_B4, LAYER_DECO_BACK, LAYER_RODS, LAYER_DETAIL, LAYER_BLOCK, LAYER_T2, LAYER_T3, LAYER_T3};
   LIter it;
-  level_iter(L, cam_x - 90, cam_x + VIEW_W + 90, &it);
+  unsigned frame = o->editor ? 0 : g->frame & 3;
+  if (frame) {
+    /* a turned frame: the world box the view covers */
+    float xs[2] = {cam_x - 90, cam_x + VIEW_W + 90}, ys[2] = {g->cam_y - GROUND_OFFSET - 90, g->cam_y + VIEW_H + 90};
+    float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+    for (int a = 0; a < 2; a++)
+      for (int b = 0; b < 2; b++) {
+        float X, Y;
+        to_world(g, xs[a], ys[b], &X, &Y);
+        x0 = fminf(x0, X); x1 = fmaxf(x1, X); y0 = fminf(y0, Y); y1 = fmaxf(y1, Y);
+      }
+    level_iter_y(L, x0, x1, y0, y1, &it);
+  } else {
+    level_iter(L, cam_x - 90, cam_x + VIEW_W + 90, &it);
+  }
   for (const RObj *ob; (ob = level_next(&it));) {
     unsigned i = it.gi;
     const ObjDef *d = &objdefs[ob->type];
     const LStyle *st = obj_style(L, ob);
-    float obx = obj_x(ob), oby = obj_y(ob);
+    float obx = obj_x(ob), oby = obj_y(ob), gang = 0;
     unsigned galpha = 255;
     int gpulse = -1;
+    RObj turned;
     if (st->groups) {
       float dx, dy;
       bool on;
       gset_state(g, st->groups, &dx, &dy, &galpha, &on);
       if (!on || !galpha) continue;
-      obx += dx;
-      oby += dy;
+      if (g->nrg) obj_where_rot(g, ob, &obx, &oby, &gang);
+      else { obx += dx; oby += dy; }
       for (unsigned k = 0; k < g->npu && gpulse < 0; k++) {
         const PulseAction *pu = &g->pu[k];
         if (!(pu->flags & 1)) continue;
@@ -301,7 +349,15 @@ void scene_prepare(const Game *g, const SceneOpts *o) {
         for (unsigned j = 1; j <= set[0]; j++) if (set[j] == pu->target) { gpulse = (int)k; break; }
       }
     }
-    if ((st->flags & STF_HIDE) && !o->editor) continue;
+    if ((st_flags(st) & STF_HIDE) && !o->editor) continue;
+    if (frame || gang != 0) {
+      /* seen from a turned frame, or turned by a rotate trigger */
+      if (frame) to_local(g, obx, oby, &obx, &oby);
+      turned = *ob;
+      int turn = -(int)frame * 256 + (int)lroundf(gang * (1024.f / 360));
+      turned.ys = (turned.ys & ~(1023u << 20)) | ((unsigned)((int)obj_rot(ob) + turn + 4096) & 1023) << 20;
+      ob = &turned;
+    }
     if (obx < cam_x - 90 || obx >= cam_x + VIEW_W + 90) continue;
     if ((d->special == SP_COIN || d->special == SP_KEY) && game_used(g, ob, i)) continue;
     if (o->low_detail && d->hit == HIT_NONE && !o->editor) continue;
@@ -309,10 +365,10 @@ void scene_prepare(const Game *g, const SceneOpts *o) {
     float angle = 0;   /* degrees on top of the quarter turns in xf */
     if (xf < 0) { angle = obj_rot(ob) * (360.f / 1024); xf = (int)(obj_flips(ob) << 2); }
     float rel = obx - cam_x;
-    float fade = o->editor || (st->flags & STF_DONT_FADE) ? 1 : rel < 0 || rel > VIEW_W ? 0 : rel < FADE_W ? rel / FADE_W : rel > VIEW_W - FADE_W ? (VIEW_W - rel) / FADE_W : 1;
+    float fade = o->editor || (st_flags(st) & STF_DONT_FADE) ? 1 : rel < 0 || rel > VIEW_W ? 0 : rel < FADE_W ? rel / FADE_W : rel > VIEW_W - FADE_W ? (VIEW_W - rel) / FADE_W : 1;
     if (fade <= 0) continue;
     float offx = 0, offy = 0, sc = 1;
-    if (fade < 1 && !(st->flags & STF_DONT_ENTER)) {
+    if (fade < 1 && !(st_flags(st) & STF_DONT_ENTER)) {
       int eff = X ? g->fade_effect : fade_at(L, rel < VIEW_W / 2 ? obx + 75 : obx - (VIEW_W - PLAYER_SCREEN_X) + 75);
       float off = (1 - fade) * 127.5f;
       bool high = oby - g->cam_y > VIEW_H / 2 - GROUND_OFFSET;
@@ -345,8 +401,8 @@ void scene_prepare(const Game *g, const SceneOpts *o) {
       if (alpha <= 0) continue;
     }
     /* colours: the object's own channels, or its paint */
-    bool painted = st->main != 255;
-    int base = painted ? st->main : d->dbase, detail = st->detail != 255 ? st->detail : d->ddetail;
+    bool painted = st_main(st) != ST_NONE;
+    int base = pal_slot(g, painted ? st_main(st) : d->dbase), detail = pal_slot(g, st_detail(st) != ST_NONE ? st_detail(st) : d->ddetail);
     if (base == CH_LIGHTER) base = pal_dyn(g, CH_OBJ, DYN_LIGHT);
     if (detail == CH_LIGHTER) detail = pal_dyn(g, base, DYN_LIGHT);
     if (gpulse >= 0) {
@@ -376,9 +432,9 @@ void scene_prepare(const Game *g, const SceneOpts *o) {
       int ct = pt->prog ? base : part_pal(pt->ctype, base, detail, painted);
       if (pt->ctype == CT_GLOW) kind |= K_ADD;
       int layer = pt->layer;
-      if (st->zlayer) {
+      if (st_zlayer(st)) {
         bool glow = layer == LAYER_BLOCK_GLOW || layer == LAYER_SPECIAL_GLOW;
-        layer = ZMAP[st->zlayer];
+        layer = ZMAP[st_zlayer(st)];
         if (glow && layer > 0) layer--;
       }
       int a = alpha * pal[ct].a / 255;
@@ -398,6 +454,7 @@ void scene_prepare(const Game *g, const SceneOpts *o) {
   /* ground positions */
   ground_top = (int)floorf(wy_to_sy(g, 0) + .5f);
   draw_gfx_grounds = g->ground_gfx > 2;
+  if (frame) { ground_top = GFX_H + 1; draw_gfx_grounds = false; }   /* no ground in a turned frame */
   floor_bottom = (int)floorf(240 - g->ground_gfx * PX + .5f);
   ceil_bottom = (int)floorf(g->ground_gfx * PX + .5f);
 }
@@ -408,6 +465,9 @@ static void pal_for(int e, bool add, color_t *c, int *mode, unsigned *alpha) {
   *mode = add || pal[e].add ? BLEND_ADD : BLEND_NORMAL;
   *alpha = pal[e].a;
 }
+
+static float icon_phase;
+static bool icon_air;
 
 void scene_draw_player_icon(int mode, float cx, float cy, float rot, float scale, color_t p1, color_t p2, bool upside, unsigned alpha) {
   int x16 = (int)(cx * 16), y16 = (int)(cy * 16), a16 = (int)(rot * 16);
@@ -428,6 +488,54 @@ void scene_draw_player_icon(int mode, float cx, float cy, float rot, float scale
       gfx_sprite_ex(SPR_UFO1_S, x16, y16, a16, sc, fl, p2, alpha, BLEND_NORMAL);
       gfx_sprite_ex(SPR_UFO1_P, x16, y16, a16, sc, fl, p1, alpha, BLEND_NORMAL);
     }
+    return;
+  }
+  if (mode == MODE_ROBOT || mode == MODE_SPIDER) {
+    /* legs first (behind the body), then the body */
+    float r = rot * 3.14159265f / 180.f, cr = cosf(r), sr = sinf(r), k = PX * scale, s = upside ? -1.f : 1.f;
+    float ph = icon_phase, run = icon_air ? 0 : 1;
+    int nl = mode == MODE_ROBOT ? 2 : 4;
+    for (int pass = 0; pass < 2; pass++)
+      for (int l = 0; l < nl; l++) {
+        float side = (l & 1) ? 1 : -1, sw = sinf(ph + (l & 1) * 3.14159f) * run;
+        float hx, hy, kx, ky, fx_, fy;
+        if (mode == MODE_ROBOT) {
+          hx = side * 4 - 1; hy = -3;
+          fx_ = hx + (icon_air ? side * 3 - 3 : sw * 7); fy = icon_air ? -12 : -15 + fmaxf(0, cosf(ph + (l & 1) * 3.14159f)) * 3 * run;
+          kx = (hx + fx_) / 2 + 3; ky = (hy + fy) / 2;
+        } else {
+          float spread = l < 2 ? 7 : 12;
+          hx = side * (l < 2 ? 5 : 9); hy = -5;
+          fx_ = side * spread + sw * 3; fy = icon_air ? -13 : -15;
+          kx = side * (spread + 4); ky = -8;
+        }
+        float pts[3][2] = {{hx, hy}, {kx, ky}, {fx_, fy}};
+        float sc[3][2];
+        for (int q = 0; q < 3; q++) {
+          float lx = pts[q][0] * k, ly = -pts[q][1] * k * s;
+          sc[q][0] = cx + lx * cr - ly * sr;
+          sc[q][1] = cy + lx * sr + ly * cr;
+        }
+        float w = (pass ? 2.2f : 4.4f) * k;
+        for (int q = 0; q < 2; q++) {
+          float dx = sc[q + 1][0] - sc[q][0], dy = sc[q + 1][1] - sc[q][1], len = sqrtf(dx * dx + dy * dy) + 1e-3f;
+          float nx = -dy / len * w * .5f, ny = dx / len * w * .5f, ex = dx / len * w * .3f, ey = dy / len * w * .3f;
+          float quad[8] = {sc[q][0] + nx - ex, sc[q][1] + ny - ey, sc[q + 1][0] + nx + ex, sc[q + 1][1] + ny + ey,
+                           sc[q + 1][0] - nx + ex, sc[q + 1][1] - ny + ey, sc[q][0] - nx - ex, sc[q][1] - ny - ey};
+          gfx_poly(quad, 4, pass ? p1 : 0, alpha, BLEND_NORMAL);
+        }
+      }
+    int fl = upside ? XF_FLIPY : 0;
+    bool robot = mode == MODE_ROBOT;
+    gfx_sprite_ex(robot ? SPR_ROBOT1_S : SPR_SPIDER1_S, x16, y16, a16, (int)(256 * scale), fl, p2, alpha, BLEND_NORMAL);
+    gfx_sprite_ex(robot ? SPR_ROBOT1_P : SPR_SPIDER1_P, x16, y16, a16, (int)(256 * scale), fl, p1, alpha, BLEND_NORMAL);
+    return;
+  }
+  if (mode == MODE_WAVE || mode == MODE_SWING) {
+    bool wave = mode == MODE_WAVE;
+    int fl = upside ? XF_FLIPY : 0;
+    gfx_sprite_ex(wave ? SPR_WAVE1_S : SPR_SWING1_S, x16, y16, a16, (int)(256 * scale), fl, p2, alpha, BLEND_NORMAL);
+    gfx_sprite_ex(wave ? SPR_WAVE1_P : SPR_SWING1_P, x16, y16, a16, (int)(256 * scale), fl, p1, alpha, BLEND_NORMAL);
     return;
   }
   bool ball = mode == MODE_BALL;
@@ -508,10 +616,17 @@ static void draw_prog(const Item *it) {
   }
 }
 
+static void draw_body(const Player *p, float sx, float sy, bool swap) {
+  icon_phase = p->x * (3.14159265f / 30);
+  icon_air = !(p->on_ground || p->on_ceiling);
+  scene_draw_player_icon(p->mode, sx, sy, p->rot, p->mini ? 0.6f : 1, swap ? O.p2 : O.p1, swap ? O.p1 : O.p2, p->upside, 256);
+}
+
 static void draw_player(void) {
-  const Player *p = &G->p;
   fx_draw_player_trail();
-  scene_draw_player_icon(p->mode, player_sx, player_sy, p->rot, p->mini ? 0.6f : 1, O.p1, O.p2, p->upside, 256);
+  /* the dual's second body wears the colours the other way round */
+  if (G->dual) draw_body(&G->p2, wx_to_sx(G, G->p2.x), wy_to_sy(G, G->p2.y), G->p2.second);
+  draw_body(&G->p, player_sx, player_sy, G->p.second);
 }
 
 static void draw_end_wall(void) {

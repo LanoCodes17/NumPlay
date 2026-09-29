@@ -137,7 +137,7 @@ bool custom_decode(const uint8_t *in, size_t len, LObj *objs, unsigned cap, Cust
     x += (int)dx;
     y += (zy & 1) ? -(int)((zy + 1) / 2) : (int)(zy / 2);
     uint8_t type = in[pos++], xf = in[pos++];
-    if (x > 0xffff || y < -600 || y > 3000 || !type || type >= OT_COUNT || (xf & 0xf0)) return false;
+    if (x > 0xffff || y < -600 || y > 3000 || !type || type >= OT_LOBJ || (xf & 0xf0)) return false;
     objs[i] = (LObj){(uint16_t)x, (int16_t)y, type, xf};
   }
   if (pos != n) return false;
@@ -152,7 +152,7 @@ bool custom_decode(const uint8_t *in, size_t len, LObj *objs, unsigned cap, Cust
 /* ------------------------------------------------------------ legacy saves */
 
 static uint8_t type_for_gd(unsigned id) {
-  for (unsigned t = 1; t < OT_COUNT; t++) if (objdefs[t].gd_id == id) return (uint8_t)t;
+  for (unsigned t = 1; t < OT_LOBJ; t++) if (objdefs[t].gd_id == id) return (uint8_t)t;
   return 0;
 }
 

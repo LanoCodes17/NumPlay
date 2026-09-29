@@ -9,7 +9,7 @@
 
 typedef enum { SCR_MENU, SCR_SELECT, SCR_PLAY, SCR_GARAGE, SCR_CREATOR, SCR_EDITOR, SCR_LOADING } Screen;
 enum { DLG_NONE, DLG_QUIT, DLG_INFO };
-#define MAX_CHECKPOINTS 40
+#define MAX_CHECKPOINTS 32
 
 typedef struct {
   Screen screen, next, back_to;

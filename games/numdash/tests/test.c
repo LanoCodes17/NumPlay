@@ -73,7 +73,7 @@ static void fresh_app(void) {
 
 static void test_levels(void) {
   static Level L;
-  static const uint16_t counts[LEVEL_COUNT] = {2272, 1530, 1509, 1402, 2126, 1691, 2767, 3563, 3852, 7506};
+  static const uint16_t counts[LEVEL_COUNT] = {2272, 1530, 1509, 1402, 2126, 1691, 2767, 3563, 3852, 7506, 19006, 16771};
   for (unsigned i = 0; i < LEVEL_COUNT; i++) {
     assert(level_load_builtin(&L, i));
     assert(L.count == counts[i]);
@@ -220,7 +220,7 @@ static void test_custom(void) {
   unsigned n = 0, x = 15;
   for (unsigned i = 0; i < 600; i++) {
     x += (i * 7) % 3 == 0 ? 30 : 0;
-    a[n++] = (LObj){(uint16_t)x, (int16_t)(15 + (i % 9) * 30 - (i % 4 == 0 ? 13 : 0)), (uint8_t)(1 + i % (OT_COUNT - 1)), (uint8_t)(i & 3)};
+    a[n++] = (LObj){(uint16_t)x, (int16_t)(15 + (i % 9) * 30 - (i % 4 == 0 ? 13 : 0)), (uint8_t)(1 + i % (OT_LOBJ - 1)), (uint8_t)(i & 3)};
   }
   CustomMeta m = {(uint16_t)n, 9000, 3, 1, true}, m2;
   size_t len = custom_encode(a, n, &m, buf, sizeof(buf));
@@ -503,8 +503,12 @@ static int shots(const char *dir) {
 static int frames(int index, const char *path, const char *dir, const char *list) {
   static int ticks[8192], vals[8192];
   float xs[64];
+  bool at_tick[64];
   int nx = 0, n = 0, t, v;
   for (const char *c = list; *c && nx < 64;) {
+    /* "t1234": at that tick instead of an x position */
+    at_tick[nx] = *c == 't';
+    if (*c == 't') c++;
     xs[nx++] = strtof(c, NULL);
     while (*c && *c != ',') c++;
     if (*c) c++;
@@ -513,6 +517,9 @@ static int frames(int index, const char *path, const char *dir, const char *list
   if (!f) return 2;
   while (n < 8192 && fscanf(f, "input=%d,%d\n", &t, &v) == 2) { ticks[n] = t; vals[n++] = v; }
   fclose(f);
+#ifdef ND_PROBE
+  { extern int nd_noclip; if (getenv("NOCLIP")) nd_noclip = 1; }   /* scratch builds only */
+#endif
   fresh_app();
   app.level = index;
   app.practice = false;
@@ -530,9 +537,10 @@ static int frames(int index, const char *path, const char *dir, const char *list
   for (int i = 1; i < 200 * ND_HZ && !app.g.complete && !app.g.dead && next < nx; i++) {
     while (pos < n && ticks[pos] <= i) held = vals[pos++] != 0;
     run(held ? K_OK : 0, 1);
-    if (app.g.p.x >= xs[next] && frame_ticks % 6 == 0) {
+    if (at_tick[next] ? i >= (int)xs[next] : app.g.p.x >= xs[next] && frame_ticks % 6 == 0) {
       char name[32];
-      snprintf(name, sizeof(name), "x%05d", (int)xs[next++]);
+      snprintf(name, sizeof(name), at_tick[next] ? "t%05d" : "x%05d", (int)xs[next]);
+      next++;
       render();
       save_ppm(dir, name);
       printf("%s camera %.0f %.0f\n", name, app.g.cam_x, app.g.cam_y);

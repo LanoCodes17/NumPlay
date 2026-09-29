@@ -3,9 +3,10 @@
 #include "level.h"
 #include <string.h>
 
-uint8_t level_scratch[LEVEL_SCRATCH];
+uint8_t level_scratch[SCRATCH_BYTES];
+_Static_assert(SCRATCH_BYTES >= LEVEL_SCRATCH, "scratch too small");
 
-typedef struct { uint16_t chunk, first, count, rmax; float x0, x1; uint32_t base; } WinChunk;
+typedef struct { uint16_t chunk, first, count, rmax; float x0, x1, y0, y1; uint32_t base; } WinChunk;
 static struct {
   const Level *owner;
   const LObj *flat;       /* the flat array the window was built from */
@@ -25,7 +26,7 @@ RObj obj_make(float x, float y, unsigned type, unsigned xf) {
   uint32_t xq = (uint32_t)((int32_t)(x * 32 + (x >= 0 ? .5f : -.5f)) + OBJ_XBIAS);
   uint32_t yq = (uint32_t)((int32_t)(y * 32 + (y >= 0 ? .5f : -.5f)) + OBJ_YBIAS);
   RObj o;
-  o.xs = xq & 0xffffff;
+  o.xs = xq & OBJ_XMASK;
   o.ys = (yq & 0xfffff) | (uint32_t)(xf & 3) << 28 | (uint32_t)((xf >> 2) & 3) << 30;
   o.type = (uint16_t)type;
   o.paint = 0;
@@ -50,9 +51,9 @@ static int rd_zz(void) { unsigned v = rd_varint(); return (v & 1) ? -(int)((v + 
 static void sort_x(RObj *o, unsigned n) {
   for (unsigned i = 1; i < n; i++) {
     RObj t = o[i];
-    uint32_t x = t.xs & 0xffffff;
+    uint32_t x = t.xs & OBJ_XMASK;
     unsigned j = i;
-    while (j && (o[j - 1].xs & 0xffffff) > x) { o[j] = o[j - 1]; j--; }
+    while (j && (o[j - 1].xs & OBJ_XMASK) > x) { o[j] = o[j - 1]; j--; }
     o[j] = t;
   }
 }
@@ -88,7 +89,7 @@ static bool decode_chunk(const LevelDef *d, const LChunk *c, RObj *out) {
     if (rec[i].type != pt) { px = c->xq0; py = 0; pt = rec[i].type; }
     int u = (props[i] & 64) ? 240 : 1;
     px += rd_zz() * u;
-    rec[i].xs = (uint32_t)(px + OBJ_XBIAS) & 0xffffff;
+    rec[i].xs = (uint32_t)(px + OBJ_XBIAS) & OBJ_XMASK;
     rec[i].ys = 0;
   }
   pt = 0;
@@ -100,7 +101,7 @@ static bool decode_chunk(const LevelDef *d, const LChunk *c, RObj *out) {
   }
   for (unsigned i = 0; i < nrec; i++) if (props[i] & 1) rec[i].ys |= (rd_varint() & 1023) << 20;
   for (unsigned i = 0; i < nrec; i++) if (props[i] & 2) rec[i].ys |= (uint32_t)(*rd_p++ & 3) << 30;
-  for (unsigned i = 0; i < nrec; i++) if (props[i] & 4) rec[i].xs |= (rd_varint() & 255) << 24;
+  for (unsigned i = 0; i < nrec; i++) if (props[i] & 4) rec[i].xs |= (rd_varint() & 2047) << 21;
   for (unsigned i = 0; i < nrec; i++) if (props[i] & 8) rec[i].paint = (uint16_t)rd_varint();
   /* expand runs: records move to the front, each followed by its copies */
   unsigned w = 0;
@@ -118,7 +119,7 @@ static bool decode_chunk(const LevelDef *d, const LChunk *c, RObj *out) {
     for (unsigned j = 0; j < k; j++) {
       RObj o = r;
       if (col) o.ys = (r.ys & ~0xfffffu) | ((r.ys + (uint32_t)(step * (int32_t)j)) & 0xfffff);
-      else o.xs = (r.xs & ~0xffffffu) | ((r.xs + (uint32_t)(step * (int32_t)j)) & 0xffffff);
+      else o.xs = (r.xs & ~OBJ_XMASK) | ((r.xs + (uint32_t)(step * (int32_t)j)) & OBJ_XMASK);
       out[w++] = o;
     }
   }
@@ -144,7 +145,7 @@ static void win_reset(const Level *L) {
     win.flat = L->flat;
     win.flat_count = L->flat_count;
     if (n) {
-      win.wc[0] = (WinChunk){0, 0, (uint16_t)n, 45, -1e9f, 1e9f, 0};
+      win.wc[0] = (WinChunk){0, 0, (uint16_t)n, 45, -1e9f, 1e9f, -1e9f, 1e9f, 0};
       win.nwc = 1;
     }
   }
@@ -160,7 +161,7 @@ static void win_unload(unsigned k) {
   win.nwc--;
 }
 
-static void win_load(const LevelDef *d, unsigned ci, float x0, float x1) {
+static void win_load(const LevelDef *d, unsigned ci, float x0, float x1, float y0, float y1) {
   const LChunk *c = &d->chunks[ci];
   /* make room: drop the chunks farthest from the wanted range */
   while (win.count + c->count > WIN_CAP || win.nwc >= WIN_CHUNKS) {
@@ -169,6 +170,8 @@ static void win_load(const LevelDef *d, unsigned ci, float x0, float x1) {
     for (unsigned j = 0; j < win.nwc; j++) {
       const WinChunk *w = &win.wc[j];
       float dist = w->x1 < x0 ? x0 - w->x1 : w->x0 > x1 ? w->x0 - x1 : -1;
+      float dy = w->y1 < y0 ? y0 - w->y1 : w->y0 > y1 ? w->y0 - y1 : -1;
+      if (dy > dist) dist = dy;
       if (dist > far) { far = dist; best = (int)j; }
     }
     if (best < 0) return;   /* everything is needed: the window is too small */
@@ -177,33 +180,39 @@ static void win_load(const LevelDef *d, unsigned ci, float x0, float x1) {
   if (!decode_chunk(d, c, win_objs + win.count)) return;
   unsigned k = win.nwc;
   while (k && win.wc[k - 1].chunk > ci) { win.wc[k] = win.wc[k - 1]; k--; }
-  win.wc[k] = (WinChunk){(uint16_t)ci, (uint16_t)win.count, c->count, c->rmax, c->x0, c->x1, c->base};
+  win.wc[k] = (WinChunk){(uint16_t)ci, (uint16_t)win.count, c->count, c->rmax, c->x0, c->x1, c->y0, c->y1, c->base};
   win.nwc++;
   win.count += c->count;
 }
 
-void level_stream(const Level *L, float x0, float x1) {
+void level_stream_y(const Level *L, float x0, float x1, float y0, float y1) {
   if (win.owner != L || (L && !L->def && (win.flat != L->flat || win.flat_count != L->flat_count))) win_reset(L);
   if (!L || !L->def) return;
   const LevelDef *d = L->def;
   for (unsigned ci = 0; ci < d->nchunks; ci++) {
     const LChunk *c = &d->chunks[ci];
     if (c->x0 > x1) break;
-    if (c->x1 < x0) continue;
+    if (c->x1 < x0 || c->y1 < y0 || c->y0 > y1) continue;
     bool have = false;
     for (unsigned j = 0; j < win.nwc && !have; j++) have = win.wc[j].chunk == ci;
-    if (!have) win_load(d, ci, x0, x1);
+    if (!have) win_load(d, ci, x0, x1, y0, y1);
   }
 }
 
-void level_iter(const Level *L, float x0, float x1, LIter *it) {
-  level_stream(L, x0, x1);
+void level_stream(const Level *L, float x0, float x1) { level_stream_y(L, x0, x1, -1e9f, 1e9f); }
+
+void level_iter_y(const Level *L, float x0, float x1, float y0, float y1, LIter *it) {
+  level_stream_y(L, x0, x1, y0, y1);
   it->L = L;
   it->c = 0;
   it->i = it->end = it->first = 0;
   it->lo = x0;
   it->hi = x1;
+  it->ylo = y0;
+  it->yhi = y1;
 }
+
+void level_iter(const Level *L, float x0, float x1, LIter *it) { level_iter_y(L, x0, x1, -1e9f, 1e9f, it); }
 
 const RObj *level_next(LIter *it) {
   for (;;) {
@@ -217,7 +226,7 @@ const RObj *level_next(LIter *it) {
     }
     if (it->c >= win.nwc) return NULL;
     const WinChunk *w = &win.wc[it->c++];
-    if (w->x1 < it->lo || w->x0 > it->hi) { it->i = it->end = 0; continue; }
+    if (w->x1 < it->lo || w->x0 > it->hi || w->y1 < it->ylo || w->y0 > it->yhi) { it->i = it->end = 0; continue; }
     /* first object whose centre is not left of lo - rmax */
     unsigned a = w->first, b = w->first + w->count;
     float lo = it->lo - w->rmax;
@@ -285,7 +294,7 @@ void level_index_coins(Level *L) {
 
 static bool valid_obj(const RObj *o) {
   float y = obj_y(o);
-  return o->type && o->type < OT_COUNT && y >= -600 && y <= 3000;
+  return o->type && o->type < OT_COUNT && y >= -2400 && y <= 4800;
 }
 
 bool level_valid(const Level *L) {
@@ -301,7 +310,7 @@ bool level_valid(const Level *L) {
     if (!L->flat || L->flat_count > CUSTOM_MAX) return false;
     for (unsigned i = 0; i < L->flat_count; i++) {
       const LObj *o = &L->flat[i];
-      if (!o->type || o->type >= OT_COUNT || o->y < -600 || o->y > 3000 || (o->xf & 0xf0) || (i && o->x < L->flat[i - 1].x))
+      if (!o->type || o->type >= OT_LOBJ || o->y < -600 || o->y > 3000 || (o->xf & 0xf0) || (i && o->x < L->flat[i - 1].x))
         return false;
     }
   }
@@ -318,9 +327,9 @@ bool level_check_all(const Level *L, unsigned *coins) {
   *coins = 0;
   for (unsigned ci = 0; ci < d->nchunks; ci++) {
     const LChunk *c = &d->chunks[ci];
-    level_stream(L, c->x0, c->x1);
+    level_stream_y(L, c->x0, c->x1, c->y0, c->y1);
     LIter it;
-    level_iter(L, -1e9f, 1e9f, &it);
+    level_iter_y(L, -1e9f, 1e9f, c->y0, c->y1, &it);
     for (const RObj *o; (o = level_next(&it));) {
       if (it.gi < c->base || it.gi >= c->base + c->count) continue;
       if (!valid_obj(o)) return false;

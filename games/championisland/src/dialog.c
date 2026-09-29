@@ -1,6 +1,9 @@
 /* The dialogue box (kitsune's dialog scene: Wq, Yq, Zq). */
 #include <math.h>
 #include <stdio.h>
+#ifdef HOST
+#include <stdlib.h>
+#endif
 #include "ent.h"
 #include "font.h"
 
@@ -155,6 +158,9 @@ static void show(uint16_t npc, uint16_t name) {
 void dialog_start(uint16_t npc, uint16_t node) {
   DNode d;
   if (!dnode_find(npc, node, &d)) return;
+#ifdef HOST
+  if (getenv("CI_LOG")) { extern uint32_t host_time; fprintf(stderr, "t%u dialog %s %s\n", host_time / 33, str(npc), str(node)); }
+#endif
   active = true;
   show(npc, node);
 }
@@ -166,7 +172,7 @@ static void next(int opt) {
   if (shown < len - 1) { shown = len - 1; return; }
   if (opt < cur.nopts) show(cur_npc, rd16(cur.opts + 4 * opt));
   else active = false;
-  if (!active) return;
+  if (!active) input_latch();          /* the OK that ended it opens no door */
 }
 
 void dialog_tick(void) {
@@ -267,5 +273,6 @@ void dialog_tick(void) {
 
 void dialog_draw(void) {
   if (!active) return;
-  node_draw(root, (Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0});
+  /* at the top of the screen, as at the top of the stage */
+  node_draw(root, (Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, (float)gfx_view_top()});
 }

@@ -3,6 +3,9 @@
  * driven with the arrows and OK like the doodle's keyboard navigation. */
 #include <math.h>
 #include <stdio.h>
+#ifdef HOST
+#include <stdlib.h>
+#endif
 #include "ent.h"
 #include "font.h"
 
@@ -203,6 +206,7 @@ bool menus_open(const char *label) {
 }
 
 static void close_all(void) {
+  input_latch();
   depth = 0;
   if (root) node_free(root);
   root = 0;
@@ -210,6 +214,7 @@ static void close_all(void) {
 
 void menus_close(void) {
   if (!depth) return;
+  input_latch();
   depth--;
   if (depth) {
     show_label(stack[depth - 1]);
@@ -220,6 +225,9 @@ void menus_close(void) {
 /* ---------------------------------------------------------------- events */
 static void on_event(NodeId m, const char *ev) {
   const char *id = menu_id(m);
+#ifdef HOST
+  if (getenv("CI_LOG")) { extern uint32_t host_time; fprintf(stderr, "t%u menu %s %s\n", host_time / 33, id, ev); }
+#endif
   if (!strcmp(id, "pause")) {
     if (!strcmp(ev, "resume")) menus_close();
     else if (!strcmp(ev, "how")) { const char *t = tutorial_of(game.name); if (t) menus_open(t); }
@@ -472,5 +480,7 @@ void menus_tick(void) {
 
 void menus_draw(void) {
   if (!depth || !root) return;
+  gfx_overlay(true);
   node_draw(root, (Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0});
+  gfx_overlay(false);
 }

@@ -2,6 +2,7 @@
 #   make            output/championisland.nwa
 #   make check      link it like the calculator does (output/championisland.bin)
 #   make host       build/play: the game on a computer, for tests and screenshots
+#   make test       checks of the host build (tests/check.py)
 #   make data       regenerate src/data.bin (needs the doodle: DOODLE=path, Node + Playwright, Python + Pillow)
 Q ?= @
 CC = arm-none-eabi-gcc
@@ -28,7 +29,7 @@ LDFLAGS = -Wl,--relocatable -nostartfiles --specs=nano.specs
 LDFLAGS += -Wl,-e,main -Wl,-u,eadk_app_name -Wl,-u,eadk_app_icon -Wl,-u,eadk_api_level
 LDFLAGS += -Wl,--gc-sections -flinker-output=nolto-rel
 
-.PHONY: build check clean host data
+.PHONY: build check clean host data test
 build: $(BUILD_DIR)/championisland.nwa
 
 # the calculator gives apps 153676 bytes of RAM (data + bss)
@@ -63,6 +64,10 @@ $(HOST_OUT): $(GAME) src/plat_host.c tests/play.c src/main.c src/data.S src/data
 	$(Q) mkdir -p $(dir $@)
 	$(Q) cc $(HOST_FLAGS) -fsanitize=address,undefined $(GAME) src/plat_host.c src/main.c tests/play.c src/data.S -lm -o $@
 	@echo "HOST    $@"
+
+# the host build in scenes that once went wrong (tests/check.py)
+test: $(HOST_OUT)
+	python3 tests/check.py $(HOST_OUT)
 
 data:
 	cd tools && node extract.js $(DOODLE) ../build/ex

@@ -32,7 +32,7 @@ int dir_of(float x, float y, bool four);             /* mh(): 8 (or 4) way name 
 int dir_parse(const char *s);
 float dir_angle(int d);                              /* degrees */
 
-#define ENT_MAX 96
+#define ENT_MAX 48   /* records: only what moves, turns or holds a trigger (34 at most seen) */
 #define TRIG_MAX 4
 typedef struct {
   NodeId n;
@@ -55,6 +55,7 @@ void ent_reset(void);
 void ent_register_tree(NodeId root);                 /* Mj on a subtree: finds entities */
 void ent_unregister(NodeId n);                       /* on removal (node.c calls it on free) */
 Ent *ent_get(NodeId n);                              /* state record (made on demand), NULL if not an entity */
+Ent *ent_peek(NodeId n);                             /* the state record if it has one (never makes one) */
 bool ent_has(NodeId n, int comp);
 uint16_t ent_T(NodeId n);
 NodeId ent_first(int comp);

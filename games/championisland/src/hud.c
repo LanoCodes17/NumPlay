@@ -28,5 +28,6 @@ void hud_tick(void) {
 }
 
 void hud_draw(void) {
-  if (root) node_draw(root, (Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0});
+  /* in the screen's top left corner, above the island too */
+  if (root) node_draw(root, (Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, (float)gfx_view_top()});
 }

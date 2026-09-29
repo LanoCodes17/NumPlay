@@ -41,7 +41,7 @@ typedef struct {
   uint8_t kind, flags, flags2, alpha;
 } Node;
 /* flags2: how its parent's timeline drives it, streaming */
-enum { NF2_LAZY = 1, NF2_KEEP = 2, NF2_NOLOOP = 4, NF2_MODE = 24 /* mode << 3 */, NF2_DYN = 32 };
+enum { NF2_LAZY = 1, NF2_KEEP = 2, NF2_NOLOOP = 4, NF2_MODE = 24 /* mode << 3 */, NF2_DYN = 32, NF2_FRESH = 64 /* its first tick is to come */ };
 static inline uint8_t node_mode(const Node *n) { return (uint8_t)((n->flags2 & NF2_MODE) >> 3); }
 static inline bool node_loops(const Node *n) { return !(n->flags2 & NF2_NOLOOP); }
 

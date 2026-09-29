@@ -307,7 +307,7 @@ def enc_text(c):
     font = c.get('font') or ''
     m = re.search(r'(\d+(?:\.\d+)?)px', font)
     size = int(round(float(m.group(1)))) if m else 10
-    col = parse_color(c.get('color')) or (255, 255, 255, 255)
+    col = parse_color(c.get('color')) or (0, 0, 0, 255)   # CreateJS draws texts without a colour black
     align = {'left': 0, 'start': 0, 'center': 1, 'right': 2, 'end': 2}.get(c.get('align') or 'left', 0)
     base = {'top': 0, 'hanging': 0, 'middle': 1, 'alphabetic': 2, 'ideographic': 2, 'bottom': 3}.get(c.get('base') or 'top', 0)
     return struct.pack('<HBBBBBBhh', sid(c.get('text') or ''), size, col[0], col[1], col[2], align, base,

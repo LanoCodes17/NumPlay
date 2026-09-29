@@ -42,6 +42,7 @@ static NodeId alloc_node(void) {
   free_head = nodes[n].next;
   memset(&nodes[n], 0, sizeof nodes[n]);
   nodes[n].flags = NF_USED | NF_VISIBLE | NF_ONSTAGE | NF_PLAYING | NF_TICK;
+  nodes[n].flags2 = NF2_FRESH;
   nodes[n].alpha = 255;
   nodes[n].sym = NONE16;
   nodes[n].slot = NONE16;
@@ -419,6 +420,7 @@ bool node_goto(NodeId n, const char *label, int frame, bool play) {
   if (frame >= c.nframes) frame = c.nframes - 1;
   if (frame < 0) frame = 0;
   nodes[n].frame = (uint16_t)frame;
+  nodes[n].flags2 &= (uint8_t)~NF2_FRESH;
   if (play) nodes[n].flags |= NF_PLAYING; else nodes[n].flags &= (uint8_t)~NF_PLAYING;
   run_actions(n, (unsigned)frame);
   return true;
@@ -441,7 +443,18 @@ const char *node_label(NodeId n) {
 /* The Ticker: every playing independent clip moves on one frame. */
 static void tick_rec(NodeId n) {
   Node *p = &nodes[n];
-  if (!(p->flags & NF_TICK)) return;
+  /* CreateJS ticks what is on the display list: a timeline child that is not
+   * on stage at its parent's frame is out of it */
+  if (!(p->flags & NF_TICK) || !(p->flags & NF_ONSTAGE)) return;
+  if (p->flags2 & NF2_FRESH) {
+    /* a new clip's first tick puts it at its frame and runs that frame's script (a stop there holds it) */
+    p->flags2 &= (uint8_t)~NF2_FRESH;
+    if (p->kind == NK_CLIP && node_mode(p) == MODE_INDEPENDENT) {
+      run_actions(n, p->frame);
+      for (NodeId ch = nodes[n].first; ch; ch = nodes[ch].next) tick_rec(ch);
+      return;
+    }
+  }
   if (p->kind == NK_CLIP && node_mode(p) == MODE_INDEPENDENT && (p->flags & NF_PLAYING)) {
     Clip c;
     if (clip_get(p->sym, &c) && c.nframes > 1) {
@@ -508,6 +521,7 @@ static void update_rec(NodeId n) {
             if (!was && node_mode(&nodes[ch]) == MODE_INDEPENDENT && nodes[ch].kind == NK_CLIP) {
               nodes[ch].frame = 0;   /* re-entering the stage restarts it, as Animate does */
               nodes[ch].flags |= NF_PLAYING;
+              nodes[ch].flags2 |= NF2_FRESH;
             }
           }
           if (node_mode(&nodes[ch]) == MODE_SYNCHED && idx != NONE16) {

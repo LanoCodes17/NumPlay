@@ -502,10 +502,10 @@ static int shots(const char *dir) {
    the player passes one of the given x positions. */
 static int frames(int index, const char *path, const char *dir, const char *list) {
   static int ticks[8192], vals[8192];
-  float xs[64];
-  bool at_tick[64];
+  static float xs[1024];
+  static bool at_tick[1024];
   int nx = 0, n = 0, t, v;
-  for (const char *c = list; *c && nx < 64;) {
+  for (const char *c = list; *c && nx < 1024;) {
     /* "t1234": at that tick instead of an x position */
     at_tick[nx] = *c == 't';
     if (*c == 't') c++;

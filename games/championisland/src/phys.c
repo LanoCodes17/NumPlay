@@ -3,6 +3,7 @@
  * the approaching speed is cancelled (or bounced, with restitution), for a
  * few iterations per substep like cannon.js's solver. */
 #include "phys.h"
+_Static_assert(BODY_MAX < 128, "a contact is a body index in an int8_t");
 #include <math.h>
 
 Body bodies[BODY_MAX];
@@ -127,7 +128,7 @@ static float ramp_height(const Body *r, float x) {
 static void add_contact(Body *b, int other) {
   for (int i = 0; i < b->ncontacts; i++)
     if (b->contacts[i] == other) return;
-  if (b->ncontacts < 6) b->contacts[b->ncontacts++] = (int16_t)other;
+  if (b->ncontacts < 6) b->contacts[b->ncontacts++] = (int8_t)other;
 }
 
 /* resolve a dynamic body against another body (static or dynamic) */

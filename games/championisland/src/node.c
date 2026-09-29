@@ -36,8 +36,14 @@ void node_reset(void) {
 
 unsigned node_count(void) { return used_count; }
 
+#ifdef HOST
+unsigned node_alloc_fails;   /* tests: nodes asked for with none left */
+#endif
 static NodeId alloc_node(void) {
   NodeId n = free_head;
+#ifdef HOST
+  if (!n) node_alloc_fails++;
+#endif
   if (!n) return 0;
   free_head = nodes[n].next;
   memset(&nodes[n], 0, sizeof nodes[n]);
@@ -255,6 +261,7 @@ NodeId node_new_sym_dynamic(uint16_t sym) {
 static void instantiate_children(NodeId n) {
   Clip c;
   if (!clip_get(nodes[n].sym, &c)) return;
+  if (only_current) nodes[n].flags2 |= NF2_PARTIAL;
   bool map_kids = c.T != NONE16 && comp_has(c.T, C_map);
   const uint8_t *p = c.slots;
   NodeId last = 0;
@@ -288,34 +295,56 @@ static void instantiate_children(NodeId n) {
 
 void (*node_free_hook)(NodeId n);
 void (*node_stream_hook)(NodeId n);
+void (*node_partial_hook)(NodeId n);
 NodeId node_draw_hook_id;
 void (*node_draw_hook)(NodeId n, Mat m, uint8_t alpha);
+
+static void release(NodeId m) {
+  if (nodes[m].ent && node_free_hook) node_free_hook(m);
+  if (nodes[m].flags & NF_XFORM)
+    for (int i = 0; i < XF_MAX; i++) if (xfs[i].n == m) xfs[i].n = 0;
+  for (int i = 0; i < TX_MAX; i++) if (txs[i].n == m) txs[i].n = 0;
+  for (int i = 0; i < EV_MAX; i++) if (evs[i].n == m) evs[i].n = 0;
+  nodes[m].flags = 0;
+  nodes[m].next = free_head;
+  free_head = m;
+  used_count--;
+}
 
 void node_free(NodeId n) {
   if (!n || !(nodes[n].flags & NF_USED)) return;
   node_remove(n);
-  /* free the subtree iteratively */
-  NodeId stack[64];
-  int sp = 0;
-  stack[sp++] = n;
-  while (sp) {
-    NodeId m = stack[--sp];
-    for (NodeId c = nodes[m].first; c;) {
-      NodeId nx = nodes[c].next;
-      if (sp < 64) stack[sp++] = c;
-      c = nx;
-    }
-    if (nodes[m].ent && node_free_hook) node_free_hook(m);
-    if (nodes[m].flags & NF_XFORM)
-      for (int i = 0; i < XF_MAX; i++) if (xfs[i].n == m) xfs[i].n = 0;
-    for (int i = 0; i < TX_MAX; i++) if (txs[i].n == m) txs[i].n = 0;
-    for (int i = 0; i < EV_MAX; i++) if (evs[i].n == m) evs[i].n = 0;
-    nodes[m].flags = 0;
-    nodes[m].next = free_head;
-    free_head = m;
-    used_count--;
+  /* the subtree, deepest first, through its own links (a stack would have a
+   * size: the climbing wall's map has some 130 children) */
+  for (NodeId m = n;;) {
+    while (nodes[m].first) m = nodes[m].first;
+    NodeId p = nodes[m].parent;
+    bool last = m == n;
+    if (!last) nodes[p].first = nodes[m].next;   /* m was p's first child */
+    release(m);
+    if (last) break;
+    m = p;
   }
 }
+
+#ifdef HOST
+/* tests: a node in use that its parent does not list (0 if none) */
+NodeId node_unlisted(void) {
+  for (NodeId i = 1; i < NODE_MAX; i++) {
+    if (!(nodes[i].flags & NF_USED) || !nodes[i].parent) continue;
+    NodeId c = nodes[nodes[i].parent].first;
+    int guard = 0;
+    while (c && c != i && guard++ < NODE_MAX) c = nodes[c].next;
+    if (c != i) return i;
+  }
+  return 0;
+}
+NodeId node_first_used(NodeId after) {   /* tests: the next node in use */
+  for (NodeId i = (NodeId)(after + 1); i < NODE_MAX; i++)
+    if (nodes[i].flags & NF_USED) return i;
+  return 0;
+}
+#endif
 
 void node_remove(NodeId c) {
   NodeId p = nodes[c].parent;
@@ -481,18 +510,22 @@ static void update_rec(NodeId n) {
     if (clip_get(p->sym, &c) && c.nframes > 1) {
       const uint8_t *q = c.slots;
       NodeId ch = p->first, prev = 0;
-      bool dyn = p->flags2 & NF2_DYN;
+      bool dyn = p->flags2 & NF2_DYN, partial = p->flags2 & NF2_PARTIAL;
       for (unsigned s = 0; s < c.nslots; s++) {
         while (ch && nodes[ch].slot != NONE16 && nodes[ch].slot < s) { prev = ch; ch = nodes[ch].next; }
-        if (dyn) {
-          /* a long movie: its children exist while they are on stage */
+        if (dyn || partial) {
+          /* a long movie: its children exist while they are on stage; a
+           * partial clip: from when they are first on stage */
           Key k;
           uint16_t idx;
           const uint8_t *q2 = slot_key(q, p->frame, &k, &idx);
           bool present = idx != NONE16 && !(k.flags & K_ABSENT);
           bool have = ch && nodes[ch].slot == s;
           if (present && !have && needs_node(&k)) {
+            bool oc = only_current;
+            only_current = partial && !dyn;     /* its own children: made when shown too */
             NodeId nc = new_child_for(&k);
+            only_current = oc;
             if (nc) {
               nodes[nc].slot = (uint16_t)s;
               nodes[nc].parent = n;
@@ -501,9 +534,10 @@ static void update_rec(NodeId n) {
               nodes[nc].flags &= (uint8_t)~NF_ONSTAGE;
               if (prev) nodes[prev].next = nc; else nodes[n].first = nc;
               ch = nc;
-              if (node_stream_hook) node_stream_hook(nc);
+              if (dyn && node_stream_hook) node_stream_hook(nc);
+              if (!dyn && node_partial_hook) node_partial_hook(nc);
             }
-          } else if (!present && have && !(nodes[ch].flags2 & NF2_KEEP) && nodes[ch].name == NONE16) {
+          } else if (dyn && !present && have && !(nodes[ch].flags2 & NF2_KEEP) && nodes[ch].name == NONE16) {
             NodeId nx = nodes[ch].next;
             node_free(ch);
             ch = nx;

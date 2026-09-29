@@ -9,7 +9,7 @@ const char *const dir_names[8] = {"e", "se", "s", "sw", "w", "nw", "n", "ne"};
 
 NodeId ent_map, ent_camera;
 
-#define REG_MAX 320
+#define REG_MAX 192   /* registered entities (153 at most seen) */
 typedef struct { NodeId n; uint16_t T; uint16_t state; } Reg;   /* state: Ent + 1 */
 static Reg reg[REG_MAX];
 static int nreg;
@@ -17,6 +17,7 @@ static Ent ents[ENT_MAX];
 static TriggerFn trigger_fn;
 
 static void on_free(NodeId n) { ent_unregister(n); }
+static void on_made(NodeId n);
 
 void ent_reset(void) {
   memset(reg, 0, sizeof reg);
@@ -25,6 +26,7 @@ void ent_reset(void) {
   ent_map = ent_camera = 0;
   trigger_fn = NULL;
   node_free_hook = on_free;
+  node_partial_hook = on_made;
   phys_reset();
 }
 
@@ -64,6 +66,22 @@ static void register_rec(NodeId n) {
 
 void ent_register_tree(NodeId root) { register_rec(root); }
 
+/* a child a room or a menu made when its frame first showed it (node.c's
+ * partial clips): an entity as if it had been there from the start */
+static void made_rec(NodeId n) {
+  ent_translate(n);
+  uint16_t T = nodes[n].T;
+  /* sr: places are markers for the designers */
+  if (T != NONE16 && comp_has(T, C_location) && !comp_has(T, C_boundable)) nodes[n].alpha = 0;
+  for (NodeId c = nodes[n].first; c; c = nodes[c].next) made_rec(c);
+}
+static void on_made(NodeId n) {
+  for (NodeId a = nodes[n].parent; a; a = nodes[a].parent)
+    if (nodes[a].T != NONE16 && comp_has(nodes[a].T, C_untraversable)) return;
+  register_rec(n);
+  made_rec(n);
+}
+
 void ent_unregister(NodeId n) {
   int i = reg_of(n);
   if (i < 0) return;
@@ -81,6 +99,22 @@ void ent_unregister(NodeId n) {
     for (int t = 0; t < ents[k].ntrig; t++)
       if (ents[k].trig[t] == n) { ents[k].trig[t] = ents[k].trig[--ents[k].ntrig]; t--; }
 }
+
+/* the state record if it has one (never makes one): caches only use this,
+ * so the records go to the entities that move, turn or hold triggers */
+Ent *ent_peek(NodeId n) {
+  int i = n ? reg_of(n) : -1;
+  return i >= 0 && reg[i].state ? &ents[reg[i].state - 1] : NULL;
+}
+
+#ifdef HOST
+/* tests: registered entities and state records in use */
+void ent_stats(int *live, int *states) {
+  *live = *states = 0;
+  for (int k = 0; k < nreg; k++) if (reg[k].n) (*live)++;
+  for (int k = 0; k < ENT_MAX; k++) if (ents[k].n) (*states)++;
+}
+#endif
 
 Ent *ent_get(NodeId n) {
   int i = n ? reg_of(n) : -1;
@@ -149,14 +183,14 @@ static NodeId map_of(NodeId e) {
 
 void ent_moved(NodeId e) {
   /* xj: this entity and its descendants forget their cached position and bounds */
-  Ent *s = nodes[e].ent ? ent_get(e) : NULL;
+  Ent *s = ent_peek(e);
   if (s) s->bounds_valid = s->pos_valid = false;
   for (NodeId c = nodes[e].first; c; c = nodes[c].next)
     if (nodes[c].ent) ent_moved(c);
 }
 
 void ent_pos(NodeId e, float *x, float *y) {
-  Ent *s = nodes[e].ent ? ent_get(e) : NULL;
+  Ent *s = ent_peek(e);
   if (s && s->pos_valid) { *x = s->px; *y = s->py; return; }
   NodeId m = map_of(e);
   Mat t = node_to(e, m);
@@ -201,7 +235,7 @@ static NodeId find_bounds_child(NodeId n) {
 }
 
 bool ent_bounds(NodeId e, Rect *r) {
-  Ent *s = nodes[e].ent ? ent_get(e) : NULL;
+  Ent *s = ent_peek(e);
   if (s && s->bounds_valid) { *r = s->bounds; return true; }
   if (!comp_has(nodes[e].T, C_boundable)) return false;
   NodeId b = find_bounds_child(e);
@@ -436,6 +470,7 @@ void sys_move_direct(void) {
     if (!n || !comp_has(reg[i].T, C_velocity)) continue;
     if (comp_has(reg[i].T, C_collidable) && comp_has(reg[i].T, C_boundable)) continue;
     Ent *e = ent_get(n);
+    if (!e) continue;
     float x, y;
     ent_pos(n, &x, &y);
     ent_set_pos(n, x + e->vx, y + e->vy);
@@ -478,7 +513,7 @@ static float key_positional(NodeId c) {
   uint16_t T = nodes[c].T;
   if (comp_has(T, C_drawOrderOverride)) return comp_float(T, C_drawOrderOverride, F_drawOrder, 0);
   Rect r;
-  Ent *e = ent_get(c);
+  Ent *e = ent_peek(c);
   if (comp_has(T, C_zObject) && comp_has(T, C_boundable) && comp_has(T, C_zBoundable) && ent_bounds(c, &r)) {
     float h = comp_float(T, C_zBoundable, F_height, 100);
     return r.y + h + (comp_has(T, C_velocity) ? (e && e->has_ground ? e->ground : 0) : e ? e->z : 0);
@@ -577,6 +612,7 @@ void sys_player_movement(void) {
     NodeId n = reg[i].n;
     if (!n || !comp_has(reg[i].T, C_playerMovement) || !comp_has(reg[i].T, C_velocity)) continue;
     Ent *e = ent_get(n);
+    if (!e) continue;
     float sp = comp_float(reg[i].T, C_playerMovement, F_speed, 1);
     float len = sqrtf(in.jx * in.jx + in.jy * in.jy);
     e->vx = len ? in.jx / len * sp * len : 0;
@@ -618,6 +654,7 @@ void sys_tile_backgrounds(void) {
     int fc = comp_int(reg[i].T, C_tileBackground, F_frameCount, 0), fd = comp_int(reg[i].T, C_tileBackground, F_frameDuration, 1);
     if (fc <= 0) continue;
     Ent *e = ent_get(n);
+    if (!e) continue;
     e->anim_t++;
     int f = (int)(e->anim_t / (fd > 0 ? fd : 1)) % fc;
     /* its children are clips: all show frame f * frameDuration */

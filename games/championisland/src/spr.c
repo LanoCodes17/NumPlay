@@ -18,6 +18,9 @@ static CLzmaDec dec;
 static const uint8_t *z_src;
 static uint32_t z_in, z_len, z_out, z_total;
 
+#ifdef HOST
+uint64_t z_bytes, z_opens;   /* tests: how much the decoder did */
+#endif
 void z_open(uint32_t off, uint32_t clen, uint32_t rawlen) {
   memset(&dec, 0, sizeof dec);
   dec.prop.lc = 0;
@@ -31,6 +34,9 @@ void z_open(uint32_t off, uint32_t clen, uint32_t rawlen) {
   dec.dicBufSize = LZMA_DICT;
   LzmaDec_Init(&dec);
   z_src = ci_data + off;
+#ifdef HOST
+  z_opens++;
+#endif
   z_in = 0;
   z_len = clen;
   z_out = 0;
@@ -54,6 +60,9 @@ uint32_t z_read(uint32_t n, const uint8_t **at) {
   z_in += (uint32_t)inlen;
   uint32_t got = (uint32_t)dec.dicPos - start;
   z_out += got;
+#ifdef HOST
+  z_bytes += got;
+#endif
   *at = ring + start;
   return got;
 }
@@ -129,6 +138,16 @@ static void compact(void) {
 
 static inline uint16_t age(const Entry *e) { return (uint16_t)((uint16_t)tick - e->used); }
 
+/* the cache the entries used this tick (keep = 0) or the last too (keep = 1) take */
+static uint32_t fresh_bytes(unsigned keep, unsigned *count) {
+  uint32_t n = 0;
+  unsigned c = 0;
+  for (unsigned i = 0; i < nent; i++)
+    if (age(&ent[i]) <= keep) { n += (ent[i].size + 3) & ~3u; c++; }
+  if (count) *count = c;
+  return n;
+}
+
 static void evict_one(void) {
   int old = 0;
   for (int i = 1; i < nent; i++)
@@ -136,18 +155,21 @@ static void evict_one(void) {
   ent[old] = ent[--nent];
 }
 
-/* Room for n bytes; evicts only entries not used this tick unless forced. */
-static uint8_t *alloc(uint32_t n, bool force) {
+/* Room for n bytes; evicts only entries not used this tick or the last
+ * (keep = 1), or this tick (keep = 0), unless forced. */
+static uint8_t *alloc_keep(uint32_t n, bool force, unsigned keep) {
   n = (n + 3) & ~3u;
   if (n > cache_bytes) return NULL;
   if (top + n > cache_bytes || nent >= ENTRIES) {
     uint32_t live = 0;
     for (int i = 0; i < nent; i++) live += (ent[i].size + 3) & ~3u;
     while (nent && (live + n > cache_bytes || nent >= ENTRIES)) {
+      /* the oldest goes; of what this very frame draws (a frame bigger than
+       * the cache), the smallest: a big one costs the most to decode again */
       int old = 0;
       for (int i = 1; i < nent; i++)
-        if (age(&ent[i]) > age(&ent[old])) old = i;
-      if (!force && age(&ent[old]) <= 1) return NULL;
+        if (age(&ent[i]) > age(&ent[old]) || (!age(&ent[i]) && !age(&ent[old]) && ent[i].size < ent[old].size)) old = i;
+      if (!force && age(&ent[old]) <= keep) return NULL;
       live -= (ent[old].size + 3) & ~3u;
       evict_one();
     }
@@ -159,6 +181,7 @@ static uint8_t *alloc(uint32_t n, bool force) {
   top += n;
   return p;
 }
+static uint8_t *alloc(uint32_t n, bool force) { return alloc_keep(n, force, 1); }
 
 /* Encodes rows of palette indices as runs of visible pixels:
  * u16 w, u16 h, u16 row offsets[h] (from the start), then per row: u16 nruns,
@@ -254,6 +277,44 @@ static const uint8_t *pinned(uint16_t sp) {
     if (pins[i].rle && pins[i].sp == sp) return pins[i].rle;
   return NULL;
 }
+bool spr_pinned(uint16_t sp) { return pinned(sp) != NULL; }
+
+/* A big sprite's opaque inner rectangle (a menu's panel: what it covers is not
+ * drawn), measured once from its pixels: the rows around the middle one whose
+ * middle pixel is opaque, and the opaque run through it that they all share.
+ * box: x0, y0, x1, y1 in the sprite (excluded ends); false if none. */
+#define BOXES 8
+static struct { uint16_t sp; int16_t b[4]; } boxes[BOXES];
+static int nboxes, box_next;
+bool spr_opaque_box(uint16_t sp, int16_t box[4]) {
+  for (int i = 0; i < nboxes; i++)
+    if (boxes[i].sp == sp) { memcpy(box, boxes[i].b, sizeof boxes[i].b); return box[2] > box[0] && box[3] > box[1]; }
+  Sprite s;
+  sprite_info(sp, &s);
+  if (s.w > SPRITE_W_MAX || !spr_rows_open(sp, &s)) return false;
+  const uint8_t *al = palalpha(s.sheet);
+  int cx = s.w / 2, cy = s.h / 2, x0 = 0, x1 = s.w, y0 = -1, y1 = -1;
+  for (int y = 0; y < s.h; y++) {
+    if (!z_get(rowbuf, s.w)) { y0 = -1; break; }
+    if (al[rowbuf[cx]] != 255) {
+      if (y > cy) break;             /* the block around the middle row ended */
+      y0 = -1;                       /* a block above the middle: not it */
+      continue;
+    }
+    int a = cx, b = cx + 1;
+    while (a > 0 && al[rowbuf[a - 1]] == 255) a--;
+    while (b < s.w && al[rowbuf[b]] == 255) b++;
+    if (y0 < 0) { y0 = y; x0 = a; x1 = b; }
+    else { x0 = a > x0 ? a : x0; x1 = b < x1 ? b : x1; }
+    y1 = y + 1;
+  }
+  int16_t b[4] = {(int16_t)x0, (int16_t)(y0 < 0 ? 0 : y0), (int16_t)x1, (int16_t)(y0 < 0 ? 0 : y1)};
+  int i = nboxes < BOXES ? nboxes++ : box_next++ % BOXES;
+  boxes[i].sp = sp;
+  memcpy(boxes[i].b, b, sizeof b);
+  memcpy(box, b, sizeof b);
+  return b[2] > b[0] && b[3] > b[1];
+}
 
 const uint8_t *spr_get(uint16_t sp) {
   if (sp >= SPRITE_COUNT || !mem) return NULL;
@@ -298,6 +359,16 @@ const uint8_t *spr_get(uint16_t sp) {
   return f2 ? mem + 4u * ent[f2 - 1].off4 : NULL;
 }
 
+/* spr_get, only if what this frame drew so far can stay */
+const uint8_t *spr_get_soft(uint16_t sp) {
+  const uint8_t *r = spr_peek(sp);
+  if (r || sp >= SPRITE_COUNT || !mem) return r;
+  Sprite s;
+  sprite_info(sp, &s);
+  if (fresh_bytes(0, NULL) + (((s.rle ? s.rle : rle_bound(s.w, s.h)) + 3) & ~3u) > cache_bytes) return NULL;
+  return spr_get(sp);
+}
+
 /* the cached runs if the sprite is in the cache now (never decodes) */
 const uint8_t *spr_peek(uint16_t sp) {
   const uint8_t *pn = pinned(sp);
@@ -307,6 +378,26 @@ const uint8_t *spr_peek(uint16_t sp) {
   Entry *e = &ent[f - 1];
   e->used = (uint16_t)tick;
   return mem + 4u * e->off4;
+}
+
+bool spr_rows_open(uint16_t sp, const Sprite *s) {
+  if (s->kind == 1) {
+    const uint8_t *st = spr_stream(sp);
+    if (!st) return false;
+    z_open(rd32(st + 2), rd32(st + 6), rd32(st + 10));
+    return true;
+  }
+  if (s->kind != 0) return false;
+  const uint8_t *b = ci_data + HDR(H_BANKS) + 12u * s->bank;
+  z_open(rd32(b), rd32(b + 4), rd32(b + 8));
+  return z_get(NULL, s->off);
+}
+
+bool spr_room(uint32_t n) {
+  n = (n + 3) & ~3u;
+  if (!mem || n > cache_bytes) return false;
+  unsigned nfresh;
+  return fresh_bytes(1, &nfresh) + n <= cache_bytes && nfresh < ENTRIES;
 }
 
 const uint8_t *spr_stream(uint16_t sp) {
@@ -372,6 +463,33 @@ static uint32_t mask_build(const uint8_t *r, const uint8_t *al, uint8_t *out) {
   return o.at;
 }
 
+/* the same from the decoder's rows (the sprite is not in the cache) */
+static uint32_t mask_rows(uint16_t sp, const Sprite *s, const uint8_t *al, uint8_t *out) {
+#ifdef HOST
+  if (getenv("CI_SPR_MISS")) fprintf(stderr, "maskrows %u %dx%d rle %u out %d\n", sp, s->w, s->h, (unsigned)s->rle, out != NULL);
+#endif
+  if (!spr_rows_open(sp, s)) return 0;
+  MaskOut o = {out, 4 + 2u * s->h, 0, 0};
+  for (int y = 0; y < s->h; y++) {
+    if (!z_get(rowbuf, s->w)) return 0;
+    if (out) { out[4 + 2 * y] = (uint8_t)o.at; out[5 + 2 * y] = (uint8_t)(o.at >> 8); }
+    uint32_t cnt_at = o.at;
+    o.at += 2;
+    o.n = 0;
+    o.last = 0;
+    int s0 = -1;
+    for (int x = 0; x < s->w; x++) {
+      bool op = al[rowbuf[x]] == 255;
+      if (op && s0 < 0) s0 = x;
+      else if (!op && s0 >= 0) { mask_span(&o, s0, x); s0 = -1; }
+    }
+    if (s0 >= 0) mask_span(&o, s0, s->w);
+    if (out) { out[cnt_at] = (uint8_t)o.n; out[cnt_at + 1] = (uint8_t)(o.n >> 8); }
+  }
+  if (out) { out[0] = (uint8_t)s->w; out[1] = (uint8_t)(s->w >> 8); out[2] = (uint8_t)s->h; out[3] = (uint8_t)(s->h >> 8); }
+  return o.at;
+}
+
 const uint8_t *spr_mask(uint16_t sp) {
   if (sp >= SPRITE_COUNT || !mem) return NULL;
   unsigned f = find((uint16_t)(sp | MASK));
@@ -379,13 +497,26 @@ const uint8_t *spr_mask(uint16_t sp) {
     ent[f - 1].used = (uint16_t)tick;
     return mem + 4u * ent[f - 1].off4;
   }
-  if (!spr_get(sp)) return NULL;
   Sprite s;
   sprite_info(sp, &s);
   const uint8_t *al = palalpha(s.sheet);
+  if (!find(sp) && !spr_room(s.rle ? s.rle : rle_bound(s.w, s.h))) {
+    /* no room for the sprite: its mask straight from the decoder, measured then
+     * written; not even measured when what the frame draws leaves too little
+     * room (a guess: an eighth of the sprite's runs), as a frame bigger than
+     * the cache would measure it again and again */
+    if (fresh_bytes(0, NULL) + s.rle / 8 > cache_bytes) return NULL;
+    uint32_t n = mask_rows(sp, &s, al, NULL);
+    if (!n || n > 0xFFFF || nent >= ENTRIES) return NULL;
+    uint8_t *m = alloc_keep(n, false, 0);
+    if (!m || mask_rows(sp, &s, al, m) != n || nent >= ENTRIES) return NULL;
+    ent[nent++] = (Entry){(uint16_t)(sp | MASK), (uint16_t)((uint32_t)(m - mem) / 4), (uint16_t)n, (uint16_t)tick};
+    return m;
+  }
+  if (!spr_get(sp)) return NULL;
   uint32_t n = mask_build(mem + 4u * ent[find(sp) - 1].off4, al, NULL);
   if (n > 0xFFFF || nent >= ENTRIES) return NULL;
-  uint8_t *m = alloc(n, false);        /* may move the sprite (compaction): look it up again */
+  uint8_t *m = alloc_keep(n, false, 0);   /* may move the sprite (compaction): look it up again */
   unsigned fs = find(sp);
   if (!m || !fs) return NULL;
   mask_build(mem + 4u * ent[fs - 1].off4, al, m);

@@ -23,6 +23,7 @@ typedef struct {
 extern Input in;
 void input_tick(void);
 void input_consume(int action);     /* an overlay used this press */
+void input_latch(void);             /* OK and Back, if down now, count again only once let go */
 
 /* ---------------------------------------------------------------- scenes */
 typedef struct {
@@ -46,7 +47,16 @@ typedef struct {
 } Game;
 extern Game game;
 
-#define ARENA_BYTES (85 * 1024)
+/* all the RAM the app has left (tests can ask for another size): the island
+ * needs its 328 x 244 layer and a cache of 12 KB or more */
+#ifndef ARENA_BYTES
+#define ARENA_BYTES 100000
+#endif
+/* the sprite cache a scene with a layer keeps at least: a frame's sprites
+ * (big scenery goes straight from the decoder into the layer) */
+#ifndef MIN_CACHE
+#define MIN_CACHE (12 * 1024)
+#endif
 /* a scene with a background layer of bg_w x bg_h (0: none) calls this in start() */
 void mem_layout(int bg_w, int bg_h, uint8_t sheet, BgPaint paint);
 /* the scene's own state (zeroed), taken from the arena until the next scene:

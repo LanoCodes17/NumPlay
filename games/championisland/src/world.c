@@ -129,7 +129,8 @@ static int statics_in(float x0, float y0, float x1, float y1, uint8_t *bits, int
 #define RAIN_MAX 48
 #define PETAL_MAX 80
 typedef struct {
-  uint8_t water[WATER * WATER];        /* the sea's tile now (w9a: frames 0-15, 16-31) */
+  uint8_t water[WATER * WATER / 2];    /* the sea's tile now (w9a: frames 0-15, 16-31), 4 bits a pixel */
+  uint16_t water_col[16];              /* their colours (it has 10) */
   int water_look;                      /* which, -1 before the first */
   NodeId map, player, water_clip;
   float rain;                          /* bca's alpha (drawn by code, draw_over) */
@@ -155,6 +156,10 @@ typedef struct {
   uint8_t npc_beeps;
 } World;
 static World *W;
+/* the island's layer (the screen and a margin) fits, with its cache */
+#define LAYER_W (VIEW_W + 8)
+#define LAYER_H (SCREEN_H + 4)
+_Static_assert(sizeof(World) + LAYER_W * LAYER_H + MIN_CACHE <= ARENA_BYTES, "the island's layer does not fit");
 
 /* ---------------------------------------------------------------- the layer */
 static void paint(int x0, int y0, int w, int h) {
@@ -224,7 +229,8 @@ static void draw_static_over(unsigned id, Mat m, uint8_t alpha) {
 static void draw_map(NodeId map, Mat m, uint8_t alpha) {
   float vx, vy;
   view_origin(&vx, &vy);
-  float vx1 = vx + VIEW_W, vy1 = vy + VIEW_H;
+  float vx1 = vx + VIEW_W, vy1 = vy + gfx_view_bottom();
+  vy += gfx_view_top();
   uint8_t bits[STATIC_BITS / 8];
   memset(bits, 0, sizeof bits);
   uint16_t front[FRONT_MAX];
@@ -314,7 +320,7 @@ static void stream_children(bool force) {
   W->stream_x = vx;
   W->stream_y = vy;
   W->streamed = true;
-  node_stream(W->map, vx - 40, vy - 40, vx + VIEW_W + 40, vy + VIEW_H + 40);
+  node_stream(W->map, vx - 40, vy + gfx_view_top() - 40, vx + VIEW_W + 40, vy + gfx_view_bottom() + 40);
 }
 
 /* ---------------------------------------------------------------- places (location markers) */
@@ -437,31 +443,42 @@ static uint16_t sprite_of(uint16_t sym) {
   return si.type == SYM_BITMAP ? (uint16_t)si.v : NONE16;
 }
 
+extern uint8_t spr_rowbuf[SPRITE_W_MAX];
+
 static void water_make(int look) {
   /* w9a: the tile NewLargeWater1Art2 (frames 0-15), with Art1 over it (frames 16-31) */
   const uint16_t spr[2] = {sprite_of(S_overworld_Mf), sprite_of(S_overworld_Uf)};
+  const uint16_t *pal = pal565(SHEET_OVERWORLD);
+  const uint8_t *al = palalpha(SHEET_OVERWORLD);
   int clear = bg_clear_index();
-  memset(W->water, clear < 0 ? 0 : clear, sizeof W->water);
+  /* colour 0 is the clear one, the others come as the tile shows them */
+  uint8_t used[16];
+  int nused = 1;
+  used[0] = (uint8_t)(clear < 0 ? 0 : clear);
+  memset(W->water, 0, sizeof W->water);
+  /* straight from the decoder: the cache keeps what the frames draw */
   for (int k = 0; k <= look; k++) {
-    const uint8_t *r = spr[k] != NONE16 ? spr_get(spr[k]) : NULL;
-    if (!r) continue;
-    const uint8_t *al = palalpha(SHEET_OVERWORLD);
-    int h = rd16(r + 2);
-    for (int v = 0; v < h && v < WATER; v++) {
-      const uint8_t *p = r + rd16(r + 4 + 2 * v);
-      int n = rd16(p), u = 0;
-      p += 2;
-      for (int j = 0; j < n; j++) {
-        u += *p++;
-        int code = *p++, len = code & 0x80 ? (code & 0x7F) + 1 : code;
-        for (int i = 0; i < len; i++, u++) {
-          uint8_t c = code & 0x80 ? p[0] : p[i];
-          if (u < WATER && al[c] >= 128) W->water[v * WATER + u] = c;
+    Sprite si;
+    if (spr[k] == NONE16) continue;
+    sprite_info(spr[k], &si);
+    if (si.w > SPRITE_W_MAX || !spr_rows_open(spr[k], &si)) continue;
+    for (int v = 0; v < si.h && v < WATER; v++) {
+      if (!z_get(spr_rowbuf, si.w)) break;
+      for (int u = 0; u < si.w && u < WATER; u++) {
+        uint8_t c = spr_rowbuf[u];
+        if (al[c] < 128) continue;
+        int j = 0;
+        while (j < nused && used[j] != c) j++;
+        if (j == nused) {
+          if (nused < 16) used[nused++] = c;
+          else j = nused - 1;          /* more than 16 colours (never): the last one */
         }
-        p += code & 0x80 ? 1 : len;
+        uint8_t *b = &W->water[(v * WATER + u) >> 1];
+        *b = (uint8_t)(u & 1 ? (*b & 0x0F) | j << 4 : (*b & 0xF0) | j);
       }
     }
   }
+  for (int j = 0; j < 16; j++) W->water_col[j] = pal[used[j < nused ? j : 0]];
   W->water_look = look;
 }
 
@@ -538,7 +555,7 @@ static void sys_conditional(void) {
 }
 
 static bool triggered(NodeId n) {
-  Ent *e = ent_get(n);
+  Ent *e = ent_peek(n);                /* a trigger has one (sys_triggers) */
   return e && e->ntrig > 0;
 }
 
@@ -713,7 +730,7 @@ static bool petal_slot(unsigned slot, const SlotInfo *si, void *ctx) {
 }
 static void draw_ending(float mx, float my) {
   uint16_t gs = glow_sprite();
-  if (gs != NONE16) gfx_sprite(gs, MAT_ID, 255);
+  if (gs != NONE16) gfx_sprite(gs, (Mat){1, 0, 0, 1, 0, (float)gfx_view_top()}, 255);   /* over the top of the screen */
   const uint8_t *t = pattern(1);
   if (!t || !W->npetal) return;
   unsigned looks = rd16(t + 2), look = W->tick / 3 % (looks ? looks : 1);
@@ -815,7 +832,9 @@ static void start_overworld(void) {
   W->ending = ending;
   if (W->ending) clip_each_slot(S_overworld_mAa, 0, petal_slot, NULL);
   if (!W->map) return;
-  mem_layout(VIEW_W + 8, VIEW_H + 8, SHEET_OVERWORLD, paint);
+  /* the island fills the screen: the stage and 30 rows above and below */
+  gfx_view(-VIEW_Y, VIEW_H + VIEW_Y);
+  mem_layout(LAYER_W, LAYER_H, SHEET_OVERWORLD, paint);
   /* after the ending, the glow is read from its runs in the data (pack.py) */
   const uint8_t *glow = pattern(2);
   if (ending && glow && rd16(glow + 2) == glow_sprite()) spr_pin(glow_sprite(), glow + 4);
@@ -894,7 +913,7 @@ static void tick_overworld(void) {
   if (getenv("CI_DEBUG") && W->player && W->tick % 10 == 0) {
     float px, py;
     ent_pos(W->player, &px, &py);
-    Ent *e = ent_get(W->player);
+    Ent *e = ent_peek(W->player);
     Rect r;
     bool hb = ent_bounds(W->player, &r);
     for (int i = 0; i < ent_count(); i++) {
@@ -902,7 +921,7 @@ static void tick_overworld(void) {
       if (!n || !comp_has(nodes[n].T, C_scenePortal)) continue;
       float x, y;
       ent_pos(n, &x, &y);
-      Ent *pe = ent_get(n);
+      Ent *pe = ent_peek(n);
       if (fabsf(x - px) < 150 && fabsf(y - py) < 150)
         fprintf(stderr, "  portal %s at %.0f,%.0f trig %d vis %d\n", str(comp_str(nodes[n].T, C_scenePortal, F_name)), x, y, pe ? pe->ntrig : -1, node_visible(n));
     }
@@ -915,11 +934,11 @@ static void tick_overworld(void) {
 
 static void draw_under_overworld(void) {
   if (!W || !W->map) return;
-  /* the sea's look changes every 16 frames */
-  int look = (int)(game.ticks / 16) % 2;
+  /* the sea's look changes every 16 frames (of the island's: still under a menu) */
+  int look = (int)(W->tick / 16) % 2;
   if (look != W->water_look) {
     water_make(look);
-    bg_water(W->water, WATER, WATER);
+    bg_water4(W->water, WATER, WATER, W->water_col);
   }
   float vx, vy;
   view_origin(&vx, &vy);

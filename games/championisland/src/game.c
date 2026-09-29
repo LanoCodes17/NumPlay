@@ -19,7 +19,7 @@ static struct { int w, h; uint8_t sheet; BgPaint paint; } bg_def;
 
 static void relayout(void) {
   uint32_t bg = bg_def.w > 0 && bg_def.h > 0 ? (uint32_t)(bg_def.w * bg_def.h + 3) & ~3u : 0;
-  if (state_bytes + bg > ARENA_BYTES - 16 * 1024) bg = 0;
+  if (state_bytes + bg > ARENA_BYTES - MIN_CACHE) bg = 0;
   if (bg) bg_setup(arena + state_bytes, bg_def.w, bg_def.h, bg_def.sheet, bg_def.paint); else bg_off();
   spr_setup(arena + state_bytes + bg, ARENA_BYTES - state_bytes - bg);
 }
@@ -43,6 +43,17 @@ void *scene_state(uint32_t size) {
 
 /* ---------------------------------------------------------------- input */
 static uint32_t prev_keys;
+/* OK or Back still down from a press a scene or an overlay already used: the
+ * key is up for the game until it is let go (its release would otherwise
+ * count: an island door opens when OK is let go) */
+static bool latched[A_COUNT];
+
+void input_latch(void) {
+  latched[A_ACTION] = (prev_keys & K_ACTION) != 0;
+  latched[A_BACK] = (prev_keys & K_BACK) != 0;
+  for (int a = A_ACTION; a <= A_BACK; a++)
+    if (latched[a]) in.held[a] = in.pressed[a] = in.released[a] = false;
+}
 
 void input_tick(void) {
   uint32_t k = plat_keys();
@@ -53,6 +64,10 @@ void input_tick(void) {
   in.jy = y;
   bool now[A_COUNT] = {x < -.1f, x > .1f, y < -.1f, y > .1f, (k & K_ACTION) != 0, (k & K_BACK) != 0};
   for (int i = 0; i < A_COUNT; i++) {
+    if (latched[i]) {
+      if (!now[i]) latched[i] = false;
+      now[i] = false;
+    }
     in.pressed[i] = now[i] && !in.held[i];
     in.released[i] = !now[i] && in.held[i];
     in.held[i] = now[i];
@@ -128,6 +143,10 @@ bool game_is_sport(const char *name) {
 }
 bool game_is_world(const char *name) { return !strcmp(name, "overworld") || !strcmp(name, "interior"); }
 
+#ifdef HOST
+#include <stdlib.h>
+extern uint32_t host_time;
+#endif
 static char pending[80];
 static bool has_pending;
 
@@ -158,12 +177,46 @@ static void switch_scene(void) {
   for (unsigned i = 0; i < sizeof scenes / sizeof scenes[0]; i++)
     if (scenes[i] && !strcmp(scenes[i]->name, name)) def = scenes[i];
   if (!def) return;
+#ifdef HOST
+  if (getenv("CI_LOG")) fprintf(stderr, "t%u scene %s\n", host_time / 33, pending);
+#endif
   if (game.def && game.def->end) game.def->end();
   if (game.root) node_free(game.root);
+#ifdef HOST
+  if (getenv("CI_LEAK")) {   /* nodes nobody holds: not under a root (the HUD, the dialogue box, the menus) */
+    extern NodeId node_first_used(NodeId after);
+    int n = 0, orphans = 0;
+    for (NodeId i = node_first_used(0); i; i = node_first_used(i)) {
+      n++;
+      NodeId r = i;
+      while (nodes[r].parent) r = nodes[r].parent;
+      if (nodes[r].sym != S_hud_Ap && nodes[r].sym != S_dialog_Spa && nodes[r].sym != S_menus_Obb) {
+        orphans++;
+        if (orphans <= 3) {
+          fprintf(stderr, "  leaked %u sym %u:", i, nodes[i].sym);
+          for (NodeId q = i; q; q = nodes[q].parent) fprintf(stderr, " %u(sym %u used %d)", q, nodes[q].sym, (nodes[q].flags & NF_USED) != 0);
+          fprintf(stderr, "\n");
+        }
+        if (nodes[i].parent == 0) {
+          int sub = 0;
+          for (NodeId j = node_first_used(0); j; j = node_first_used(j)) {
+            NodeId q = j;
+            while (nodes[q].parent) q = nodes[q].parent;
+            if (q == i) sub++;
+          }
+          fprintf(stderr, "  leaked root %u sym %u kind %u first %u (sym %u) nodes %d\n", i, nodes[i].sym, nodes[i].kind, nodes[i].first,
+                  nodes[i].first ? nodes[nodes[i].first].sym : 0, sub);
+        }
+      }
+    }
+    fprintf(stderr, "t%u switch to %s: %d nodes used, %d not under a root\n", host_time / 33, pending, n, orphans);
+  }
+#endif
   toast_style("", 0, -1, -1);          /* Hq: a new scene takes the banner away */
   state_bytes = 0;
   mem_layout(0, 0, 0, NULL);
   memset(&in.pressed, 0, sizeof in.pressed);
+  input_latch();
   game.def = def;
   snprintf(game.name, sizeof game.name, "%s", name);
   snprintf(game.variant, sizeof game.variant, "%s", variant);
@@ -173,6 +226,7 @@ static void switch_scene(void) {
   game.paused = false;
   game.ticks = 0;
   game.fade = 10;
+  gfx_view(0, VIEW_H);                 /* the stage; the island asks for more */
   def->start();
   if (variant[0] && def->goto_frame) def->goto_frame(variant);
   store_save();
@@ -258,8 +312,9 @@ void game_draw(void) {
   dialog_draw();
   menus_draw();
   banner_draw();
-  if (game.fade > 0 && game.fade <= 8) gfx_rect(0, 0, VIEW_W, VIEW_H, 0, (uint8_t)(game.fade * 255 / 8));
-  else if (game.fade > 8) gfx_rect(0, 0, VIEW_W, VIEW_H, 0, 255);
+  int top = gfx_view_top(), h = gfx_view_bottom() - top;
+  if (game.fade > 0 && game.fade <= 8) gfx_rect(0, top, VIEW_W, h, 0, (uint8_t)(game.fade * 255 / 8));
+  else if (game.fade > 8) gfx_rect(0, top, VIEW_W, h, 0, 255);
   gfx_end();
 }
 

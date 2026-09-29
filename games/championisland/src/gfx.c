@@ -6,13 +6,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define BAND 6
-#define MAX_ITEMS 320
-#define MAX_AFF 64
+#define BAND 4
+#define MAX_ITEMS 288   /* 215 at most seen */
+#define MAX_AFF 56      /* 41 at most seen */
 
-enum { DI_SPRITE, DI_AFFINE, DI_RECT, DI_SHAPE, DI_TEXT, DI_STREAM, DI_TILES, DI_MASK, DI_KINDS };
+enum { DI_SPRITE, DI_AFFINE, DI_RECT, DI_SHAPE, DI_TEXT, DI_STREAM, DI_TILES, DI_MASK, DI_HIDDEN /* under an overlay's panel */, DI_KINDS };
 #define STREAM_OVER (16 * 1024)   /* sprites bigger than this once cached are decoded as they are drawn */
-enum { DF_FLIPX = 1, DF_FLIPY = 2, DF_MISSING = 4, DF_OPAQUE = 8 };   /* missing: not in the cache this frame; opaque: only fully opaque pixels */
+enum { DF_FLIPX = 1, DF_FLIPY = 2, DF_MISSING = 4, DF_OPAQUE = 8, DF_OVERLAY = 16 };   /* missing: not in the cache this frame; opaque: only fully opaque pixels; overlay: a menu's */
 typedef struct {
   uint8_t kind, alpha, flags, pad;
   int16_t x0, y0, x1, y1;       /* covered screen area in view coordinates (x1, y1 excluded) */
@@ -29,6 +29,11 @@ static Aff affs[MAX_AFF];
 static int nitems, naffs;
 static uint16_t band[VIEW_W * BAND];
 static uint16_t clear_color;
+/* the stage rows on screen: the doodle's 180 (0 to 180), or, on the island,
+ * the whole screen (-30 to 210) */
+static int view_top = 0, view_bottom = VIEW_H;
+static bool overlay;                /* drawing an overlay (gfx_overlay) */
+void gfx_overlay(bool on) { overlay = on; }
 
 uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) { return (uint16_t)((r >> 3) << 11 | (g >> 2) << 5 | b >> 3); }
 
@@ -65,7 +70,7 @@ static void bbox(Mat m, float w, float h, int *x0, int *y0, int *x1, int *y1) {
   *x0 = (int)floorf(lx); *y0 = (int)floorf(ly); *x1 = (int)ceilf(hx); *y1 = (int)ceilf(hy);
 }
 
-static bool on_view(int x0, int y0, int x1, int y1) { return x1 > 0 && y1 > 0 && x0 < VIEW_W && y0 < VIEW_H && x1 > x0 && y1 > y0; }
+static bool on_view(int x0, int y0, int x1, int y1) { return x1 > 0 && y1 > view_top && x0 < VIEW_W && y0 < view_bottom && x1 > x0 && y1 > y0; }
 
 static bool set_affine(Item *it, Mat m) {
   float det = m.a * m.d - m.b * m.c;
@@ -93,12 +98,12 @@ void gfx_sprite_ex(uint16_t sp, Mat m, uint8_t alpha, bool opaque_only) {
     /* the canvas snaps unrotated images to whole pixels */
     int x = (int)floorf((m.a < 0 ? m.tx - s.w : m.tx) + 0.5f), y = (int)floorf((m.d < 0 ? m.ty - s.h : m.ty) + 0.5f);
     it->x0 = (int16_t)x; it->y0 = (int16_t)y; it->x1 = (int16_t)(x + s.w); it->y1 = (int16_t)(y + s.h);
-    it->flags = (uint8_t)((m.a < 0 ? DF_FLIPX : 0) | (m.d < 0 ? DF_FLIPY : 0) | (opaque_only ? DF_OPAQUE : 0));
+    it->flags = (uint8_t)((m.a < 0 ? DF_FLIPX : 0) | (m.d < 0 ? DF_FLIPY : 0) | (opaque_only ? DF_OPAQUE : 0) | (overlay ? DF_OVERLAY : 0));
     it->color = sp;
   } else {
     it->kind = DI_AFFINE;
     it->color = sp;
-    it->flags = opaque_only ? DF_OPAQUE : 0;
+    it->flags = (uint8_t)((opaque_only ? DF_OPAQUE : 0) | (overlay ? DF_OVERLAY : 0));
     if (!set_affine(it, m)) nitems--;
   }
 }
@@ -116,7 +121,7 @@ void gfx_tiles(const uint8_t *px, int w, int h, const uint16_t *pal, const uint8
   Item *it = add();
   if (!it) return;
   tl.px = px; tl.pts = NULL; tl.pal = pal; tl.al = al; tl.pos = pos; tl.n = n; tl.w = w; tl.h = h; tl.ox = ox; tl.oy = oy;
-  *it = (Item){DI_TILES, alpha, 0, 0, 0, 0, VIEW_W, VIEW_H, (uint16_t)(uintptr_t)px, (uint16_t)((ox & 0xFF) | (oy & 0xFF) << 8)};
+  *it = (Item){DI_TILES, alpha, 0, 0, 0, (int16_t)view_top, VIEW_W, (int16_t)view_bottom, (uint16_t)(uintptr_t)px, (uint16_t)((ox & 0xFF) | (oy & 0xFF) << 8)};
 }
 
 void gfx_points(const uint8_t *pts, int w, int h, const uint16_t *pal, const uint8_t *al, const int16_t *pos, int n, int ox, int oy, uint8_t alpha) {
@@ -148,6 +153,14 @@ void gfx_shape(const uint8_t *shape, Mat m, uint8_t alpha) {
     }
   }
   if (!visible) return;
+  /* an overlay's backdrop over the whole stage (a menu's shade) covers the
+   * whole view when it is taller than the stage */
+  if (overlay && (view_top < 0 || view_bottom > VIEW_H) && lx <= 0 && ly <= 0 && hx >= VIEW_W && hy >= VIEW_H) {
+    float k = (float)(view_bottom - view_top) / VIEW_H;
+    m = (Mat){m.a, m.b * k, m.c, m.d * k, m.tx, m.ty * k + (float)view_top};
+    ly = ly * k + (float)view_top;
+    hy = hy * k + (float)view_top;
+  }
   int x0 = (int)floorf(lx), y0 = (int)floorf(ly), x1 = (int)ceilf(hx), y1 = (int)ceilf(hy);
   if (!on_view(x0, y0, x1, y1)) return;
   Item *it = add();
@@ -197,6 +210,7 @@ static int clip_x0, clip_y0, clip_x1, clip_y1;   /* world rect being painted */
 static uint32_t bg_gen;             /* changes whenever the layer's pixels do */
 static int bg_see;                  /* palette index that shows the water (-1: none) */
 static const uint8_t *water;        /* the water: a tile of palette indices, repeating from world (0, 0) */
+static const uint16_t *water_cols;  /* or of 4-bit indices into these colours */
 static int water_w, water_h;
 static const uint8_t *bglut;        /* RGB444 -> palette index, to blend into the layer */
 /* the see-through entries of the layer's palette: a pixel partly over the
@@ -212,6 +226,7 @@ void bg_setup(uint8_t *mem, int w, int h, uint8_t sheet, BgPaint paint) {
   bg_valid = false;
   bg_see = -1;
   water = NULL;
+  water_cols = NULL;
   bglut = NULL;
   bg_gen++;
   const uint8_t *al = palalpha(sheet);
@@ -226,7 +241,8 @@ void bg_off(void) { bgmem = NULL; bg_gen++; }
 void bg_invalidate(void) { bg_valid = false; }
 uint8_t *bg_layer(int *w, int *h) { *w = bgw; *h = bgh; return bgmem; }
 static uint32_t water_gen;
-void bg_water(const uint8_t *tile, int w, int h) { water = tile; water_w = w; water_h = h; water_gen++; }
+void bg_water(const uint8_t *tile, int w, int h) { water = tile; water_cols = NULL; water_w = w; water_h = h; water_gen++; }
+void bg_water4(const uint8_t *tile, int w, int h, const uint16_t *cols) { bg_water(tile, w, h); water_cols = cols; }
 void bg_redraw_water(void) { water_gen++; }
 void bg_blend_lut(const uint8_t *lut) { bglut = lut; }
 int bg_clear_index(void) { return bg_see; }
@@ -253,10 +269,12 @@ void bg_camera(int cx, int cy) {
   if (!bgmem) return;
   bg_cx = cx;
   bg_cy = cy;
+  cy += view_top;                     /* the top row on screen */
+  int vh = view_bottom - view_top;
   if (!bg_valid || cx < bgx - bgw || cx > bgx + 2 * bgw || cy < bgy - bgh || cy > bgy + 2 * bgh) {
     /* center the spare margin around the view */
     bgx = cx - (bgw - VIEW_W) / 2;
-    bgy = cy - (bgh - VIEW_H) / 2;
+    bgy = cy - (bgh - vh) / 2;
     bg_paint_rect(bgx, bgy, bgx + bgw, bgy + bgh);
     bg_valid = true;
     return;
@@ -269,8 +287,8 @@ void bg_camera(int cx, int cy) {
     else bg_paint_rect(nx, bgy, bgx < nx + bgw ? bgx : nx + bgw, bgy + bgh);
     bgx = nx;
   }
-  if (cy < bgy || cy + VIEW_H > bgy + bgh) {
-    int ny = cy < bgy ? cy + VIEW_H - bgh : cy;
+  if (cy < bgy || cy + vh > bgy + bgh) {
+    int ny = cy < bgy ? cy + vh - bgh : cy;
     if (ny > bgy) bg_paint_rect(bgx, bgy + bgh > ny ? bgy + bgh : ny, bgx + bgw, ny + bgh);
     else bg_paint_rect(bgx, ny, bgx + bgw, bgy < ny + bgh ? bgy : ny + bgh);
     bgy = ny;
@@ -378,6 +396,38 @@ static void bg_draw_banded(uint16_t sp, const Sprite *s, int x, int y, uint8_t f
   }
 }
 
+/* bg_draw from the decoder's rows (the sprite is not in the cache) */
+static void bg_draw_rows(uint16_t sp, const Sprite *s, int x, int y, uint8_t flags, uint8_t alpha) {
+#ifdef HOST
+  if (getenv("CI_SPR_MISS")) fprintf(stderr, "paintrows %u %dx%d rle %u\n", sp, s->w, s->h, (unsigned)s->rle);
+#endif
+  if (!spr_rows_open(sp, s)) return;
+  const uint16_t *spal = pal565(s->sheet);
+  const uint8_t *sal = palalpha(s->sheet);
+  bool tr = flags & BD_TRANSPOSE, fx = flags & BD_FLIPX, fy = flags & BD_FLIPY;
+  int dw = tr ? s->h : s->w, dh = tr ? s->w : s->h;
+  for (int v = 0; v < s->h; v++) {
+    /* the row's place across the painted strip (a column when transposed) */
+    int rv = tr ? (fx ? dw - 1 - v : v) : (fy ? dh - 1 - v : v);
+    int at = tr ? x + rv : y + rv, lo = tr ? clip_x0 : clip_y0, hi = tr ? clip_x1 : clip_y1;
+    bool back = tr ? fx : fy;                       /* rows go the other way */
+    if ((at >= hi && !back) || (at < lo && back)) return;   /* the rest is past the strip */
+    bool skip = at < lo || at >= hi;
+    if (!z_get(skip ? NULL : stream_buf, s->w)) return;
+    if (skip) continue;
+    for (int u = 0; u < s->w; u++) {
+      uint8_t c = stream_buf[u];
+      if (!sal[c]) continue;
+      int di = tr ? v : u, dj = tr ? u : v;
+      if (fx) di = dw - 1 - di;
+      if (fy) dj = dh - 1 - dj;
+      int wx = x + di, wy = y + dj;
+      if (wx < clip_x0 || wx >= clip_x1 || wy < clip_y0 || wy >= clip_y1) continue;
+      bg_put(bg_at(wx, wy), c, spal, sal, s->sheet, alpha);
+    }
+  }
+}
+
 void bg_draw(uint16_t sp, int x, int y, uint8_t flags, uint8_t alpha) {
   if (sp >= SPRITE_COUNT || !bgmem) return;
   Sprite s;
@@ -387,7 +437,11 @@ void bg_draw(uint16_t sp, int x, int y, uint8_t flags, uint8_t alpha) {
   if (x >= clip_x1 || y >= clip_y1 || x + dw <= clip_x0 || y + dh <= clip_y0 || !alpha) return;
   if (s.kind == 2) { if (!tr) bg_draw_banded(sp, &s, x, y, flags, alpha); return; }
   if (s.kind == 1 && !flags) { bg_blit_stream(sp, x, y); return; }
-  const uint8_t *r = spr_get(sp);
+  const uint8_t *r = spr_peek(sp);
+  /* big scenery the cache has no room for (without dropping what the
+   * frames draw) goes straight from the decoder into the layer */
+  if (!r && !spr_room(s.rle ? s.rle : (uint32_t)s.w * s.h)) { bg_draw_rows(sp, &s, x, y, flags, alpha); return; }
+  if (!r) r = spr_get(sp);
   if (!r) return;
   const uint16_t *spal = pal565(s.sheet);
   const uint8_t *sal = palalpha(s.sheet);
@@ -472,16 +526,31 @@ static void band_bg(int by, int rows) {
       /* where the layer is clear, the water shows */
       int ty = wy % water_h;
       if (ty < 0) ty += water_h;
-      const uint8_t *wrow = water + ty * water_w;
       int tx = bg_cx % water_w;
       if (tx < 0) tx += water_w;
       const uint8_t *al = palalpha(bgsheet);
-      for (int x = 0; x < VIEW_W; x++) {
-        uint8_t c = row[lx];
-        unsigned a = al[c];
-        d[x] = a == 255 ? pal[c] : !a ? pal[wrow[tx]] : blend(pal[c], pal[wrow[tx]], (a + 4) >> 3);
-        if (++lx == bgw) lx = 0;
-        if (++tx == water_w) tx = 0;
+      if (water_cols) {
+        const uint8_t *wrow = water + ty * (water_w >> 1);
+        for (int x = 0; x < VIEW_W; x++) {
+          uint8_t c = row[lx];
+          unsigned a = al[c];
+          if (a == 255) d[x] = pal[c];
+          else {
+            uint16_t wc = water_cols[wrow[tx >> 1] >> ((tx & 1) << 2) & 15];
+            d[x] = !a ? wc : blend(pal[c], wc, (a + 4) >> 3);
+          }
+          if (++lx == bgw) lx = 0;
+          if (++tx == water_w) tx = 0;
+        }
+      } else {
+        const uint8_t *wrow = water + ty * water_w;
+        for (int x = 0; x < VIEW_W; x++) {
+          uint8_t c = row[lx];
+          unsigned a = al[c];
+          d[x] = a == 255 ? pal[c] : !a ? pal[wrow[tx]] : blend(pal[c], pal[wrow[tx]], (a + 4) >> 3);
+          if (++lx == bgw) lx = 0;
+          if (++tx == water_w) tx = 0;
+        }
       }
     } else {
       for (int x = 0; x < VIEW_W; x++) {
@@ -578,10 +647,9 @@ static void line_decode(const uint8_t *r, int v, int w) {
 }
 
 static void stream_begin(const Item *it) {
-  streaming = it;
-  const uint8_t *st = spr_stream(it->ref);
-  if (!st) { streaming = NULL; return; }
-  z_open(rd32(st + 2), rd32(st + 6), rd32(st + 10));
+  Sprite s;
+  sprite_info(it->ref, &s);
+  streaming = spr_rows_open(it->ref, &s) ? it : NULL;
   stream_row = 0;
 }
 
@@ -612,17 +680,18 @@ static void draw_stream(const Item *it, int y0, int y1, int by, unsigned ga) {
 
 /* A sprite the cache let go before its band (a frame needing more than the
  * cache holds, such as a menu over the island): decoded now, unless a stream
- * holds the decoder (then it comes next frame). */
-static const uint8_t *band_sprite(uint16_t sp) {
+ * holds the decoder or the menu comes first (then it comes next frame). */
+static bool scene_later;   /* a menu's frame too big for the cache: the scene's sprites that do not fit wait */
+static const uint8_t *band_sprite(uint16_t sp, uint8_t flags) {
   const uint8_t *r = spr_peek(sp);
-  if (r || streaming) return r;
+  if (r || streaming || (scene_later && !(flags & DF_OVERLAY))) return r;
   r = spr_get(sp);
   line_spr = NULL;   /* the cache may have moved */
   return r;
 }
 
 static __attribute__((noinline)) void draw_sprite_item(const Item *it, int y0, int y1, int by, int rows, unsigned ga) {
-  const uint8_t *r = band_sprite(it->ref);
+  const uint8_t *r = band_sprite(it->ref, it->flags);
   if (!r) return;
   Sprite s;
   sprite_info(it->ref, &s);
@@ -642,7 +711,7 @@ static __attribute__((noinline)) void draw_sprite_item(const Item *it, int y0, i
 }
 
 static __attribute__((noinline)) void draw_affine_item(const Item *it, int y0, int y1, int by, int rows, unsigned ga) {
-  const uint8_t *r = band_sprite(it->color);
+  const uint8_t *r = band_sprite(it->color, it->flags);
   if (!r) return;
   Sprite s;
   sprite_info(it->color, &s);
@@ -857,7 +926,7 @@ static void draw_item(const Item *it, int by, int rows) {
 
 /* Bands whose content is the same as last frame's are not drawn again: the
  * screen keeps them. A band's content is summed up as a hash of its items. */
-#define NBANDS ((VIEW_H + BAND - 1) / BAND)
+#define NBANDS ((SCREEN_H + BAND - 1) / BAND)
 static uint32_t band_hash[NBANDS];
 static bool redraw_all = true;
 void gfx_redraw_all(void) { redraw_all = true; }
@@ -868,8 +937,11 @@ static uint32_t mixf(uint32_t h, float f) {
   memcpy(&v, &f, 4);
   return mix(h, v);
 }
-static uint32_t item_hash(uint32_t h, const Item *it) {
-  h = mix(h, (uint32_t)it->kind | (uint32_t)it->alpha << 8 | (uint32_t)it->flags << 16);
+/* missing: whether DF_MISSING counts (the band drawn has it: when the sprite
+ * comes, the band is drawn again) */
+static uint32_t item_hash(uint32_t h, const Item *it, bool missing) {
+  unsigned kind = it->kind == DI_STREAM ? DI_SPRITE : it->kind, flags = missing ? it->flags : it->flags & ~DF_MISSING;
+  h = mix(h, (uint32_t)kind | (uint32_t)it->alpha << 8 | (uint32_t)flags << 16);
   h = mix(h, (uint32_t)(uint16_t)it->x0 | (uint32_t)(uint16_t)it->y0 << 16);
   h = mix(h, (uint32_t)(uint16_t)it->x1 | (uint32_t)(uint16_t)it->y1 << 16);
   h = mix(h, (uint32_t)it->ref | (uint32_t)it->color << 16);
@@ -893,6 +965,15 @@ void gfx_letterbox(uint16_t c) {
   letter_color = c;
 }
 
+void gfx_view(int top, int bottom) {
+  if (top == view_top && bottom == view_bottom) return;
+  view_top = top;
+  view_bottom = bottom;
+  letter_dirty = redraw_all = true;
+}
+int gfx_view_top(void) { return view_top; }
+int gfx_view_bottom(void) { return view_bottom; }
+
 /* sprites whose items all end above y: the cache may let them go first */
 static void release_done(int y) {
   for (int i = 0; i < nitems; i++) {
@@ -903,10 +984,17 @@ static void release_done(int y) {
   }
 }
 
+#ifdef HOST
+int gfx_peak_items, gfx_peak_affs;   /* tests: the most a frame used */
+#endif
 void gfx_end(void) {
+#ifdef HOST
+  if (nitems > gfx_peak_items) gfx_peak_items = nitems;
+  if (naffs > gfx_peak_affs) gfx_peak_affs = naffs;
+#endif
   if (letter_dirty) {
-    plat_fill(0, 0, SCREEN_W, VIEW_Y, letter_color);
-    plat_fill(0, VIEW_Y + VIEW_H, SCREEN_W, SCREEN_H - VIEW_Y - VIEW_H, letter_color);
+    if (VIEW_Y + view_top > 0) plat_fill(0, 0, SCREEN_W, VIEW_Y + view_top, letter_color);
+    if (VIEW_Y + view_bottom < SCREEN_H) plat_fill(0, VIEW_Y + view_bottom, SCREEN_W, SCREEN_H - VIEW_Y - view_bottom, letter_color);
     letter_dirty = false;
   }
 #ifdef HOST
@@ -916,7 +1004,7 @@ void gfx_end(void) {
     for (int i = 0; i < nitems; i++) {
       const Item *it = &items[i];
       int x0 = it->x0 < 0 ? 0 : it->x0, x1 = it->x1 > VIEW_W ? VIEW_W : it->x1;
-      int y0 = it->y0 < 0 ? 0 : it->y0, y1 = it->y1 > VIEW_H ? VIEW_H : it->y1;
+      int y0 = it->y0 < view_top ? view_top : it->y0, y1 = it->y1 > view_bottom ? view_bottom : it->y1;
       if (x1 > x0 && y1 > y0) area[it->kind] += (long)(x1 - x0) * (y1 - y0);
       cnt[it->kind]++;
     }
@@ -936,34 +1024,128 @@ void gfx_end(void) {
    * once its last band is drawn (release_done) */
   streaming = NULL;
   line_spr = NULL;
+  /* what a menu's opaque panel hides is not drawn (nor decoded) */
+  for (int j = 0; j < nitems; j++) {
+    const Item *o = &items[j];
+    if (o->kind != DI_SPRITE || !(o->flags & DF_OVERLAY) || o->alpha != 255 || (o->flags & (DF_FLIPX | DF_FLIPY | DF_OPAQUE)) ||
+        (o->x1 - o->x0) * (o->y1 - o->y0) < VIEW_W * VIEW_H / 4)
+      continue;
+    int16_t b[4];
+    if (!spr_opaque_box(o->ref, b)) continue;
+    int bx0 = o->x0 + b[0], by0 = o->y0 + b[1], bx1 = o->x0 + b[2], by1 = o->y0 + b[3];
+    for (int i = 0; i < j; i++) {
+      Item *it = &items[i];
+      if (it->x0 >= bx0 && it->y0 >= by0 && it->x1 <= bx1 && it->y1 <= by1) it->kind = DI_HIDDEN;
+    }
+  }
+  /* the bands to draw: those whose items changed since they were drawn (the
+   * others keep their pixels); only what they show is decoded */
+  uint32_t base = bgmem ? mix(mix(mix(mix(2166136261u, (uint32_t)bg_cx), (uint32_t)bg_cy), bg_gen), water_gen)
+                        : mix(1, clear_color);
+  bool dirty[NBANDS];
+  for (int by = view_top; by < view_bottom; by += BAND) {
+    int rows = view_bottom - by < BAND ? view_bottom - by : BAND;
+    uint32_t h = base;
+    for (int i = 0; i < nitems; i++) {
+      const Item *it = &items[i];
+      if (it->y1 > by && it->y0 < by + rows && it->kind != DI_HIDDEN) h = item_hash(h, it, false);
+    }
+    dirty[(by - view_top) / BAND] = redraw_all || h != band_hash[(by - view_top) / BAND];
+  }
+  bool shown[MAX_ITEMS];
+  for (int i = 0; i < nitems; i++) {
+    const Item *it = &items[i];
+    int y0 = it->y0 > view_top ? it->y0 : view_top, y1 = it->y1 < view_bottom ? it->y1 : view_bottom;
+    shown[i] = false;
+    for (int b = (y0 - view_top) / BAND; y0 < y1 && b <= (y1 - 1 - view_top) / BAND && !shown[i]; b++) shown[i] = dirty[b];
+  }
   uint8_t seen[(SPRITE_COUNT + 7) / 8];
   memset(seen, 0, sizeof seen);
   uint32_t need = 0;   /* cache the frame's sprites take */
   for (int i = 0; i < nitems; i++) {
     Item *it = &items[i];
-    if (it->kind != DI_SPRITE && it->kind != DI_AFFINE) continue;
+    if ((it->kind != DI_SPRITE && it->kind != DI_AFFINE) || !shown[i]) continue;
     uint16_t sp = it->kind == DI_SPRITE ? it->ref : it->color;
-    if (!(seen[sp >> 3] & (1 << (sp & 7)))) {
+    if (!(seen[sp >> 3] & (1 << (sp & 7))) && !spr_pinned(sp)) {   /* pinned ones take no room */
       Sprite t;
       sprite_info(sp, &t);
       need += (t.rle + 3) & ~3u;
       seen[sp >> 3] |= (uint8_t)(1 << (sp & 7));
+#ifdef HOST
+      if (getenv("CI_NEED") && atoi(getenv("CI_NEED")) > 1) fprintf(stderr, "  counts %u (%u B) item %d kind %d box %d %d %d %d\n", sp, (unsigned)t.rle, i, it->kind, it->x0, it->y0, it->x1, it->y1);
+#endif
     }
   }
   bool over = need + 1024 > spr_capacity();
-#ifdef HOST
-  if (getenv("CI_NEED")) fprintf(stderr, "need %u of %u%s\n", (unsigned)need, (unsigned)spr_capacity(), over ? " (by band)" : "");
-#endif
-  for (int i = 0; i < nitems && !over; i++) {
-    Item *it = &items[i];
-    if (it->kind == DI_SPRITE || it->kind == DI_AFFINE) spr_get(it->kind == DI_SPRITE ? it->ref : it->color);
-    else if (it->kind == DI_MASK) spr_mask(it->ref);
+  /* more than the cache holds: the biggest sprite drawn as it decodes (top
+   * down, once) may leave room for the others; with a menu, the menu's
+   * biggest, and the scene's sprites that do not fit then come in the next
+   * frames (only their bands are drawn again) */
+  scene_later = false;
+  if (over) {
+    uint32_t need_menu = 0;   /* the menu's part of need */
+    memset(seen, 0, sizeof seen);
+    for (int i = 0; i < nitems; i++) {
+      const Item *it = &items[i];
+      if ((it->kind != DI_SPRITE && it->kind != DI_AFFINE) || !shown[i] || !(it->flags & DF_OVERLAY)) continue;
+      uint16_t sp = it->kind == DI_SPRITE ? it->ref : it->color;
+      if (!(seen[sp >> 3] & (1 << (sp & 7))) && !spr_pinned(sp)) {
+        Sprite t;
+        sprite_info(sp, &t);
+        need_menu += (t.rle + 3) & ~3u;
+        seen[sp >> 3] |= (uint8_t)(1 << (sp & 7));
+      }
+    }
+    for (int menu = 0; menu < 2 && over; menu++) {
+      if (menu && !need_menu) break;
+      int big = -1;
+      uint32_t bigsz = 0;
+      bool stream_already = false;
+      for (int i = 0; i < nitems; i++) {
+        const Item *it = &items[i];
+        if (it->kind == DI_STREAM && shown[i]) stream_already = true;
+        if (it->kind != DI_SPRITE || !shown[i] || (it->flags & (DF_FLIPY | DF_OPAQUE)) || spr_pinned(it->ref) ||
+            (menu && !(it->flags & DF_OVERLAY)))
+          continue;
+        Sprite t;
+        sprite_info(it->ref, &t);
+        if (t.kind <= 1 && t.rle > bigsz) { big = i; bigsz = t.rle; }
+      }
+      for (int i = 0; big >= 0 && i < nitems; i++)   /* one item: a stream is read once */
+        if (i != big && (items[i].kind == DI_SPRITE || items[i].kind == DI_AFFINE) &&
+            (items[i].kind == DI_SPRITE ? items[i].ref : items[i].color) == items[big].ref)
+          big = -1;
+      uint32_t bs = big >= 0 && !stream_already && !spr_peek(items[big].ref) ? (bigsz + 3) & ~3u : 0;
+      /* (a little too much: the last small ones come next frame) */
+      if (menu ? need_menu - bs <= spr_capacity() : bs && need - bs <= spr_capacity() + 1024) {
+        if (bs) { items[big].kind = DI_STREAM; need -= bs; }
+        over = false;
+        scene_later = menu;
+      }
+    }
   }
+#ifdef HOST
+  if (getenv("CI_NEED")) fprintf(stderr, "need %u of %u%s%s\n", (unsigned)need, (unsigned)spr_capacity(), over ? " (by band)" : "",
+                                 scene_later ? " (scene later)" : "");
+#endif
+  /* the menus' first; then the scene's, as long as the menus' can stay (too
+   * many: some of the scene's come next frame) */
+  for (int pass = 0; pass < 2; pass++)
+    for (int i = 0; i < nitems && !over; i++) {
+      Item *it = &items[i];
+      if ((it->kind != DI_SPRITE && it->kind != DI_AFFINE) || !shown[i] || !(it->flags & DF_OVERLAY) != pass) continue;
+      uint16_t sp = it->kind == DI_SPRITE ? it->ref : it->color;
+      if (pass) spr_get_soft(sp);
+      else spr_get(sp);
+    }
+  /* then the masks, which may take the place of what this frame does not draw */
+  for (int i = 0; i < nitems && !over; i++)
+    if (items[i].kind == DI_MASK && shown[i]) spr_mask(items[i].ref);
   /* big sprites are cached too while everything fits; otherwise the first
    * one keeps the decoder while the bands go down */
   for (int i = 0; i < nitems; i++) {
     Item *it = &items[i];
-    if (it->kind != DI_STREAM) continue;
+    if (it->kind != DI_STREAM || !shown[i]) continue;
     Sprite t;
     sprite_info(it->ref, &t);
     uint32_t sz = (t.rle + 3) & ~3u;
@@ -976,22 +1158,24 @@ void gfx_end(void) {
    * down: what is not cached is drawn next frame */
   for (int i = 0; i < nitems && (streaming || !over); i++) {
     Item *it = &items[i];
+    if (!shown[i]) continue;
     if ((it->kind == DI_SPRITE || it->kind == DI_AFFINE || (it->kind == DI_STREAM && it != streaming)) &&
         !spr_peek(it->kind == DI_AFFINE ? it->color : it->ref))
       it->flags |= DF_MISSING;
     if (it->kind == DI_MASK && !spr_peek_mask(it->ref)) it->flags |= DF_MISSING;
   }
-  uint32_t base = bgmem ? mix(mix(mix(mix(2166136261u, (uint32_t)bg_cx), (uint32_t)bg_cy), bg_gen), water_gen)
-                        : mix(1, clear_color);
-  for (int by = 0; by < VIEW_H; by += BAND) {
-    int rows = VIEW_H - by < BAND ? VIEW_H - by : BAND;
+  for (int by = view_top; by < view_bottom; by += BAND) {
+    int rows = view_bottom - by < BAND ? view_bottom - by : BAND;
+    if (!dirty[(by - view_top) / BAND]) { if (over) release_done(by + rows); continue; }
     uint32_t h = base;
     for (int i = 0; i < nitems; i++) {
       const Item *it = &items[i];
-      if (it->y1 > by && it->y0 < by + rows) h = item_hash(h, it);
+      if (it->y1 > by && it->y0 < by + rows && it->kind != DI_HIDDEN) h = item_hash(h, it, true);
     }
-    if (!redraw_all && h == band_hash[by / BAND]) { if (over) release_done(by + rows); continue; }
-    band_hash[by / BAND] = h;
+    band_hash[(by - view_top) / BAND] = h;
+#ifdef HOST
+    if (getenv("CI_BANDS")) fprintf(stderr, "band %d\n", by);
+#endif
     band_bg(by, rows);
     for (int i = 0; i < nitems; i++) {
       const Item *it = &items[i];

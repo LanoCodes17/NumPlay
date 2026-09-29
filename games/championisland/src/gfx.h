@@ -28,6 +28,13 @@ void gfx_end(void);                                       /* rasterise and push 
 void gfx_redraw_all(void);                                /* next frame: every band */
 void gfx_clear_color(uint16_t c);                        /* what shows where nothing is drawn */
 void gfx_letterbox(uint16_t c);                          /* fills the bands above and below the view */
+/* the stage rows the screen shows: 0 to VIEW_H (bands above and below), or
+ * more (-VIEW_Y to VIEW_H + VIEW_Y: the whole screen); a scene's own choice,
+ * back to the stage at each new scene */
+void gfx_view(int top, int bottom);
+int gfx_view_top(void);
+int gfx_view_bottom(void);
+void gfx_overlay(bool on);                               /* menus: a shape over the whole stage covers the whole view */
 
 /* The background layer: an 8-bit image of the scene's static backdrop in
  * world coordinates, redrawn only where the camera uncovers something. */
@@ -43,6 +50,7 @@ enum { BD_FLIPX = 1, BD_FLIPY = 2, BD_TRANSPOSE = 4 };
 void bg_draw(uint16_t sprite, int x, int y, uint8_t flags, uint8_t alpha);
 void bg_blend_lut(const uint8_t *lut444);                 /* RGB444 -> palette index (pack.py) */
 void bg_water(const uint8_t *tile, int w, int h);         /* shown where the layer is clear (NULL: none) */
+void bg_water4(const uint8_t *tile, int w, int h, const uint16_t *colours);   /* the same, 4 bits a pixel (low first) */
 void bg_redraw_water(void);                               /* the water tile's pixels changed */
 int bg_clear_index(void);                                 /* the palette's clear index, -1 if none */
 void bg_blit_stream(uint16_t sprite, int x, int y);

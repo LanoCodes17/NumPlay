@@ -528,18 +528,21 @@ static void start(void) {
   if (!root) return;
   node_add(game.root, root);
   S->root = root;
-  /* the variant's map, whole (the root was made with just what its frame shows) */
+  /* the variant's map, whole (the root was made with just what its frame
+   * shows): the partial one goes first, the nodes have room for one map */
   for (NodeId c = nodes[root].first; c; c = nodes[c].next) {
     if (!has(c, C_map) || !(nodes[c].flags & NF_ONSTAGE)) continue;
-    NodeId m = node_new_sym(nodes[c].sym);
-    if (!m) break;
-    Node *o = &nodes[c], *q = &nodes[m];
-    q->x = o->x; q->y = o->y; q->rx4 = o->rx4; q->ry4 = o->ry4; q->mat = o->mat; q->alpha = o->alpha;
-    q->flags = o->flags; q->flags2 = o->flags2; q->name = o->name; q->key = o->key;
-    uint16_t slot = o->slot;
-    node_add_at(root, m, c);
+    Node o = nodes[c];
+    NodeId after = o.next;
     node_free(c);
-    nodes[m].slot = slot;
+    NodeId m = node_new_sym(o.sym);
+    if (!m) break;
+    Node *q = &nodes[m];
+    q->x = o.x; q->y = o.y; q->rx4 = o.rx4; q->ry4 = o.ry4; q->mat = o.mat; q->alpha = o.alpha;
+    q->flags = o.flags; q->flags2 = o.flags2 & (uint8_t)~NF2_PARTIAL;   /* whole: no children to make later */
+    q->name = o.name; q->key = o.key;
+    node_add_at(root, m, after);
+    nodes[m].slot = o.slot;
     S->map = m;
     break;
   }

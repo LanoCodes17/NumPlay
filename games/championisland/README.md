@@ -25,6 +25,7 @@
 * **The whole island:** every path, house and cave of the original, with its 57 rooms, its people, their stories and side quests, and the four teams.
 * **All seven sports:** Table Tennis, Skateboarding, Archery, Rugby, Artistic Swimming, Marathon and Climbing, with the same rules, champions and harder versions as the original.
 * **The original's look:** every picture and animation comes from the doodle itself, down to the rain over the Table Tennis village and the island's opening scene.
+* **Full screen:** the island fills the calculator's whole screen, so you see more of it around Lucky than the original's wide frame shows. The sports and the insides of houses keep the original's frame.
 * **Medals and the map:** Back opens the island map with your scores and stars, and your team.
 * **Saved as you go:** quit at any time and you come back where you were. Your progress is also copied into `champion_saves.py`, so installing the app again doesn't erase it.
 

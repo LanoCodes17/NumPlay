@@ -18,7 +18,7 @@ typedef struct {
   bool used, active;
   uint16_t user;           /* the entity (NodeId) */
   uint8_t ncontacts;
-  int16_t contacts[6];     /* bodies touched in the last step (-1 = the ground) */
+  int8_t contacts[6];      /* bodies touched in the last step (-1 = the ground) */
 } Body;
 extern Body bodies[BODY_MAX];
 

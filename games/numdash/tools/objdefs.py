@@ -14,10 +14,11 @@ SP = ['NONE', 'PAD_Y', 'PAD_P', 'PAD_B', 'ORB_Y', 'ORB_P', 'ORB_B', 'GRAV_N', 'G
       'PORTAL_WAVE', 'PORTAL_ROBOT', 'SPEED_0', 'SPEED_1', 'SPEED_2', 'SPEED_3', 'DUAL_ON', 'DUAL_OFF',
       'TELEPORT', 'ORB_G', 'KEY', 'TOUCH']
 # Colour types for draw parts
-CT = ['OBJ', 'BLACK', 'WHITE', 'P1ADD', 'P2ADD', 'LBG', 'GLOW', 'GLOW_Y', 'GLOW_B', 'GLOW_P', 'BASE', 'DETAIL']
+CT = ['OBJ', 'BLACK', 'WHITE', 'P1ADD', 'P2ADD', 'LBG', 'GLOW', 'GLOW_Y', 'GLOW_B', 'GLOW_P', 'BASE', 'DETAIL', 'BASE_D',
+      'BASE_L', 'DETAIL_D', 'RAIN0', 'RAIN1', 'RAIN2', 'RAIN3', 'RAIN4', 'RAIN5']
 # Layer ranks (drawing order); the player is drawn at LAYER_PLAYER.
 LAYERS = ['B4', 'DECO_BACK', 'RODS', 'ROD_BALLS', 'DETAIL', 'SPECIAL_GLOW', 'SPECIAL', 'PORTAL_BACK',
-          'BLOCK_GLOW', 'PLAYER', 'COIN', 'PORTAL_FRONT', 'FILL', 'BLOCK', 'T2']
+          'BLOCK_GLOW', 'PLAYER', 'COIN', 'PORTAL_FRONT', 'FILL', 'BLOCK', 'T2', 'T3']
 # Object animations (ObjDef.anim)
 ANIM = {'NONE': 0, 'SAW': 1, 'SPIN': 2, 'INVIS': 3}
 # Part flags
@@ -208,10 +209,29 @@ def edges(letters, w=2, h=15):
     return out
 
 
+def P(pts, ct='OBJ', a=1.0):
+    """Convex polygon (units, y up)."""
+    return ('poly', pts, ct, a)
+
+
 def encode_prog(ops):
     out = bytearray()
     for op in ops:
         kind = op[0]
+        if kind == 'poly':
+            pts = op[1]
+            assert 3 <= len(pts) <= 8, op
+            big = max(max(abs(x), abs(y)) for x, y in pts) > 63
+            out.append(3 | (0x80 if big else 0))
+            out.append(len(pts))
+            for x, y in pts:
+                for v in (x, y):
+                    c = int(round(v / 2 if big else v * 2))
+                    assert -128 <= c <= 127, op
+                    out.append(c & 255)
+            out.append(CT_INDEX[op[2]])
+            out.append(int(round(op[3] * 255)))
+            continue
         big = max(abs(v) for v in op[1:5]) > 63
         coords = [int(round(v / 2 if big else v * 2)) for v in op[1:5]]
         assert all(-128 <= c <= 127 for c in coords), op

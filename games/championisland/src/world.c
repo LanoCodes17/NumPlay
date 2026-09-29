@@ -707,6 +707,15 @@ static void tick_overworld(void) {
     Ent *e = ent_get(W->player);
     Rect r;
     bool hb = ent_bounds(W->player, &r);
+    for (int i = 0; i < ent_count(); i++) {
+      NodeId n = ent_at(i);
+      if (!n || !comp_has(nodes[n].T, C_scenePortal)) continue;
+      float x, y;
+      ent_pos(n, &x, &y);
+      Ent *pe = ent_get(n);
+      if (fabsf(x - px) < 150 && fabsf(y - py) < 150)
+        fprintf(stderr, "  portal %s at %.0f,%.0f trig %d vis %d\n", str(comp_str(nodes[n].T, C_scenePortal, F_name)), x, y, pe ? pe->ntrig : -1, node_visible(n));
+    }
     fprintf(stderr, "t%u in %.1f,%.1f p %.1f,%.1f v %.2f,%.2f body %d bounds %d (%.0f %.0f %.0f %.0f) solids %d label %s\n", W->tick, in.jx, in.jy,
             px, py, e ? e->vx : 0, e ? e->vy : 0, e ? e->body : -9, hb, r.x, r.y, r.w, r.h, W->nsolid, node_label(W->player));
   }
@@ -730,10 +739,59 @@ static void draw_under_overworld(void) {
 const SceneDef scene_overworld = {"overworld", start_overworld, tick_overworld, end_overworld, draw_under_overworld, NULL, NULL};
 
 /* ---------------------------------------------------------------- interiors */
+/* Ir: a room is a frame of the interior library's root (its label is the
+ * scene's variant), a small map drawn at the middle of the screen */
+static uint16_t room_label = NONE16;
+
 static void start_interior(void) {
-  NodeId n = node_new_sym(S_interior_mbb);
-  node_add(game.root, n);
-  ent_register_tree(n);
+  W = scene_state(sizeof(World));
+  W->region_rain = -1;
+  W->water_look = -1;
+  Clip c;
+  int frame = 0;
+  if (clip_get(S_interior_mbb, &c) && game.variant[0]) {
+    int f = clip_label(&c, game.variant);
+    if (f >= 0) frame = f;
+  }
+  NodeId root = node_new_sym_frame(S_interior_mbb, frame);
+  if (!root) return;
+  node_add(game.root, root);
+  ent_register_tree(root);
+  translate_tree(root);
+  W->map = ent_map;
+  for (int i = 0; i < ent_count(); i++) {
+    NodeId n = ent_at(i);
+    if (n && comp_has(nodes[n].T, C_overworldPlayer)) W->player = n;
+    /* sr: places are markers */
+    if (n && comp_has(nodes[n].T, C_location) && !comp_has(nodes[n].T, C_boundable)) nodes[n].alpha = 0;
+  }
+  ent_on_trigger(on_trigger);
+  phys_steps(1, 20);
+  (void)room_label;
 }
-static void tick_interior(void) {}
-const SceneDef scene_interior = {"interior", start_interior, tick_interior, NULL, NULL, NULL, NULL};
+
+static void tick_interior(void) {
+  if (!W || !W->map) return;
+  sys_back_map();
+  sys_on_action();
+  sys_sort_draw();
+  sys_triggers();
+  sys_player_movement();
+  sys_player_dir();
+  sys_jump_to_frame();
+  sys_walk_idle();
+  sys_storage_sprites();
+  sys_sprite_dirs();
+  sys_physics();
+  sys_ground_height();
+  sys_portals();
+  sys_npcs();
+  W->tick++;
+}
+
+static void end_interior(void) {
+  ent_on_trigger(NULL);
+  W = NULL;
+}
+
+const SceneDef scene_interior = {"interior", start_interior, tick_interior, end_interior, NULL, NULL, NULL};

@@ -468,21 +468,21 @@ static void draw_rle_row(const uint8_t *p, int x, int w, bool flipx, uint16_t *d
     int start = cx;
     cx += len;
     int i0 = 0, i1 = len;
-    uint16_t *dd;
-    int step;
+    uint16_t *dd = d;
+    int step, o;                      /* dd[o + i * step]: no negative index (UBSan's object-size check) */
     if (!flipx) {
       int sx = x + start;               /* screen x of the run's first pixel */
       if (sx >= VIEW_W) break;
       if (sx < 0) i0 = -sx;
       if (sx + len > VIEW_W) i1 = VIEW_W - sx;
-      dd = d + sx;
+      o = sx;
       step = 1;
     } else {
       int base = x + w - 1 - start;     /* screen x of the run's first pixel; the run goes left */
       if (base < 0) break;
       if (base >= VIEW_W) i0 = base - VIEW_W + 1;
       if (base - (len - 1) < 0) i1 = base + 1;
-      dd = d + base;
+      o = base;
       step = -1;
     }
     if (i0 >= i1) continue;
@@ -491,20 +491,20 @@ static void draw_rle_row(const uint8_t *p, int x, int w, bool flipx, uint16_t *d
       if (!a) continue;
       uint16_t col = pal[c];
       if (a == 255 && galpha == 32) {
-        for (int i = i0; i < i1; i++) dd[i * step] = col;
+        for (int i = i0; i < i1; i++) dd[o + i * step] = col;
       } else {
         unsigned aa = (a * galpha + 128) >> 8;
-        for (int i = i0; i < i1; i++) dd[i * step] = blend(col, dd[i * step], aa);
+        for (int i = i0; i < i1; i++) dd[o + i * step] = blend(col, dd[o + i * step], aa);
       }
     } else if (galpha == 32) {
       for (int i = i0; i < i1; i++) {
         unsigned c = src[i], a = al[c];
-        dd[i * step] = a == 255 ? pal[c] : blend(pal[c], dd[i * step], (a + 4) >> 3);
+        dd[o + i * step] = a == 255 ? pal[c] : blend(pal[c], dd[o + i * step], (a + 4) >> 3);
       }
     } else {
       for (int i = i0; i < i1; i++) {
         unsigned c = src[i];
-        dd[i * step] = blend(pal[c], dd[i * step], (al[c] * galpha + 128) >> 8);
+        dd[o + i * step] = blend(pal[c], dd[o + i * step], (al[c] * galpha + 128) >> 8);
       }
     }
   }

@@ -105,6 +105,13 @@ static float closest_rotation(float rot) {
   s = fmodf(s, 360);
   return s < 0 ? s + 360 : s;
 }
+/* Nearest of base + k * 90 degrees. */
+static float closest_rotation_to(float rot, float base) {
+  float r = fmodf((float)(int)rot, 360.0f);
+  if (r < 0) r += 360;
+  float s = fmodf(roundf((r - base) / 90) * 90 + base, 360);
+  return s < 0 ? s + 360 : s;
+}
 static float slerp_angle(float from, float to, float t) {
   float fx = cosf(from * .5f), fy = sinf(from * .5f), tx = cosf(to * .5f), ty = sinf(to * .5f);
   float dot = fx * tx + fy * ty;
@@ -138,6 +145,7 @@ void game_start(Game *g, const Level *L, bool first_attempt) {
   p->ceiling_y = 999999;
   p->coyote = 1 << 30;
   p->on_ground = true;
+  p->sl_o = p->co_o = -1;
   if (L->start_mode == MODE_SHIP) {
     p->mode = MODE_SHIP;
     set_bounds_for_portal(g, 150, 300);
@@ -186,7 +194,7 @@ static bool box_circle(float px, float py, float h, float cx, float cy, float r)
 }
 
 static bool overlap(float ax, float ay, float ahw, float ahh, float bx, float by, float bhw, float bhh) {
-  return fabsf(ax - bx) < ahw + bhw && fabsf(ay - by) < ahh + bhh;
+  return fabsf(ax - bx) <= ahw + bhw && fabsf(ay - by) <= ahh + bhh;   /* cocos rects touch inclusively */
 }
 
 /* Separating axis test of two boxes turned by a and b radians (clockwise). */
@@ -225,8 +233,318 @@ static void snap_to(Game *g, float ox, float oy) {
   p->snap_diff = p->x - ox;
 }
 
+/* ------------------------------------------------------------ slopes
+   Ported from gd3ds (its slope.c): a slope is a right triangle in its box;
+   orientation 0 rises to the right with the solid below, 1 falls to the
+   right, 2 and 3 are the same hanging from above. */
+typedef struct { float x, y, w, h; int o; } Slope;
+enum { OR_NU, OR_ND, OR_UDD, OR_UDU };
+#define SLOPE_EPS 0.01f
+#define SLOPE_HEAD_TOL 2.0f
+static const float SLOPE_FALL[4] = {226.044054f, 280.422108f, 348.678108f, 421.200108f};
+
+static Slope slope_of(const Level *L, const RObj *o, float x, float y) {
+  const ObjDef *d = &objdefs[o->type];
+  float sx, sy;
+  obj_scale_xy(L, o, &sx, &sy);
+  Slope s = {x, y, d->w10 * 0.1f * fabsf(sx), d->h10 * 0.1f * fabsf(sy), 0};
+  int xf = obj_xf(o);
+  if (xf < 0) xf = 0;
+  int o4 = xf & 3, fh = (xf >> 2) & 1, fv = (xf >> 3) & 1;
+  if (o4 & 1) { float t = s.w; s.w = s.h; s.h = t; }
+  o4 += fh && fv ? 2 : fh ? 1 : fv ? 3 : 0;
+  s.o = o4 & 3;
+  return s;
+}
+static void slope_get(const float *a, int o, Slope *s) { *s = (Slope){a[0], a[1], a[2], a[3], o}; }
+static float sl_left(const Slope *s) { return s->x - s->w / 2; }
+static float sl_right(const Slope *s) { return s->x + s->w / 2; }
+static float sl_top(const Slope *s) { return s->y + s->h / 2; }
+static float sl_bottom(const Slope *s) { return s->y - s->h / 2; }
+static float sl_gtop(const Player *p, const Slope *s) { return p->upside ? -sl_bottom(s) : sl_top(s); }
+static float sl_gbottom(const Player *p, const Slope *s) { return p->upside ? -sl_top(s) : sl_bottom(s); }
+static int sl_orient(const Player *p, const Slope *s) {
+  int o = s->o;
+  if (p->upside) o = o == OR_UDU ? OR_NU : o == OR_UDD ? OR_ND : o == OR_NU ? OR_UDU : OR_UDD;
+  return o;
+}
+static float sl_angle(const Player *p, const Slope *s) {
+  float a = atanf(s->h / s->w);
+  int o = sl_orient(p, s);
+  return o == OR_ND || o == OR_UDD ? -a : a;
+}
+static float sl_snap_angle(const Player *p, const Slope *s) {
+  float a = sl_angle(p, s);
+  if (s->o == OR_NU) a = -fabsf(a);
+  if (s->o == OR_ND) a = fabsf(a);
+  return a;
+}
+static float sl_expected_y(const Player *p, const Slope *s) {
+  bool flipping = sl_orient(p, s) >= OR_UDD;
+  float mult = (p->upside ^ flipping) ? -1 : 1, a = sl_angle(p, s), ph = phalf(p);
+  float ydist = mult * ph / cosf(a), rel = s->h / s->w * (p->x - sl_left(s));
+  if ((a > 0) ^ p->upside ^ flipping) return sl_bottom(s) + fminf(rel + ydist, s->h + ph);
+  return sl_top(s) - fminf(rel - ydist, s->h + ph);
+}
+static void sl_clear(Player *p) { p->sl_o = -1; p->sl_t = 0; p->sl_down = false; }
+
+static bool sl_touching(const Player *p, const Player *old, const Slope *s) {
+  bool has = old->sl_o >= 0;
+  if (has) {
+    Slope os;
+    slope_get(old->sl, old->sl_o, &os);
+    float mult = sl_orient(p, &os) >= OR_UDD ? -1 : 1;
+    has = p->vy * mult <= 0;
+  }
+  float deg = fabsf(sl_angle(p, s)) / DEG, snap_h = 20 * (deg / 45), mn = has ? -3 : 0;
+  if (sl_right(s) < p->x - phalf(p)) return false;
+  float diff = sl_orient(p, s) < OR_UDD ? grav(p, sl_expected_y(p, s)) - grav(p, p->y) : grav(p, p->y) - grav(p, sl_expected_y(p, s));
+  return diff >= mn && diff <= snap_h;
+}
+
+static void sl_snap_y(Player *p, const Slope *s) {
+  float ph = phalf(p), e = sl_expected_y(p, s);
+  switch (sl_orient(p, s)) {
+    case OR_NU:
+      p->y = p->upside ? fmaxf(sl_bottom(s) - ph, e) : fminf(sl_top(s) + ph, e);
+      p->time_since_ground = 0; p->on_ground = true;
+      if (p->vy < 0) p->vy = 0;
+      break;
+    case OR_ND:
+      p->y = p->upside ? fminf(e, sl_top(s) + ph) : fmaxf(e, sl_bottom(s) - ph);
+      p->time_since_ground = 0; p->on_ground = true;
+      if (p->vy < 0) p->vy = 0;
+      break;
+    case OR_UDD:
+      p->y = p->upside ? fmaxf(e, sl_bottom(s) - ph) : fminf(e, sl_top(s) + ph);
+      p->time_since_ground = 0; p->on_ceiling = true;
+      if (p->vy > 0) p->vy = 0;
+      break;
+    default:
+      p->y = p->upside ? fminf(sl_top(s) + ph, e) : fmaxf(sl_bottom(s) - ph, e);
+      p->time_since_ground = 0; p->on_ceiling = true;
+      if (p->vy > 0) p->vy = 0;
+      break;
+  }
+}
+
+/* How many of the nearby slopes the player touches (only the one it rides
+   and the next one of the same kind count while on a slope). */
+typedef struct { Slope s[8]; int n; } SlopeSet;
+static int sl_count(const Player *p, const Player *old, const SlopeSet *ss) {
+  int count = 0;
+  Slope cur;
+  bool have = p->sl_o >= 0;
+  if (have) slope_get(p->sl, p->sl_o, &cur);
+  float ph = phalf(p);
+  for (int k = 0; k < ss->n; k++) {
+    const Slope *s = &ss->s[k];
+    if (!overlap(p->x, p->y, ph + .5f, ph + .5f, s->x, s->y, s->w / 2, s->h / 2) || !sl_touching(p, old, s)) continue;
+    if (have) {
+      float diff = s->y - cur.y;
+      bool next = (cur.o == OR_NU || cur.o == OR_UDD) ? diff > 0 : diff < 0;
+      bool same = s->x == cur.x && s->y == cur.y;
+      if ((cur.o == sl_orient(p, s) && sl_angle(p, &cur) == sl_angle(p, s) && next) || same) count++;
+    } else {
+      count++;
+    }
+  }
+  return count;
+}
+
+#define SHIP_UFO_EXIT_VY (508.248f / 4)
+static void sl_calc(Game *g, const Player *old, const Slope *s, const SlopeSet *ss, bool hold) {
+  Player *p = &g->p;
+  float spd = SPEEDS[p->speed];
+  switch (sl_orient(p, s)) {
+    case OR_NU:
+      if ((p->mode == MODE_UFO || p->mode == MODE_SHIP) && p->vy < SHIP_UFO_EXIT_VY && hold) p->vy = SHIP_UFO_EXIT_VY;
+      if (!sl_touching(p, old, s)) { p->pend_clear = true; return; }
+      if (grav_bottom(p) != sl_gtop(p, s)) sl_snap_y(p, s);
+      if (grav_bottom(p) >= sl_gtop(p, s) - SLOPE_EPS && sl_count(p, old, ss) < 2) {
+        /* sliding off the top: launched along the slope */
+        float v = 0.9f * fminf(1.12f / sl_angle(p, s), 1.54f) * (s->h * spd / s->w);
+        float t = clampf(10 * (p->t_elapsed - p->sl_t), 0.4f, 1.0f);
+        if (p->mode == MODE_BALL || p->mode == MODE_SHIP) v *= 0.75f;
+        if (p->mode == MODE_UFO) v *= 0.7499f;
+        v *= t;
+        p->inverse_rot = true;
+        memcpy(p->co, p->sl, sizeof(p->co)); p->co_o = p->sl_o; p->co_t = p->sl_t; p->co_down = p->sl_down;
+        p->co_ticks = 2;
+        p->new_vy = v; p->has_new_vy = true;
+        p->jumped = true;
+        p->pend_clear = true;
+      }
+      break;
+    case OR_ND:
+      if (p->vy > 0) { p->pend_clear = true; return; }
+      if (grav_bottom(p) != sl_gtop(p, s) || p->sl_down) sl_snap_y(p, s);
+      if ((sl_gtop(p, s) <= grav(p, p->y) + SLOPE_EPS || (p->x - phalf(p)) - sl_right(s) > 0) && sl_count(p, old, ss) < 2) {
+        p->new_vy = -SLOPE_FALL[p->speed] * (s->h / s->w); p->has_new_vy = true;
+        memcpy(p->co, p->sl, sizeof(p->co)); p->co_o = p->sl_o; p->co_t = p->sl_t; p->co_down = p->sl_down;
+        p->co_ticks = 2;
+        p->pend_clear = true;
+      }
+      break;
+    case OR_UDU: {
+      if ((p->mode == MODE_UFO || p->mode == MODE_SHIP) && p->vy > -SHIP_UFO_EXIT_VY && !hold) p->vy = -SHIP_UFO_EXIT_VY;
+      if (!sl_touching(p, old, s)) { p->pend_clear = true; return; }
+      if ((p->mode == MODE_CUBE || p->mode == MODE_ROBOT) && p->ceil_inv <= 0) {
+        if (grav(p, p->y - SLOPE_HEAD_TOL) > grav(p, sl_expected_y(p, s))) kill(g, -1);
+        return;
+      }
+      if (grav_bottom(p) != sl_gtop(p, s)) sl_snap_y(p, s);
+      if (grav_top(p) <= sl_gbottom(p, s) + SLOPE_EPS && sl_count(p, old, ss) < 2) {
+        float v = 0.9f * fminf(1.12f / sl_angle(p, s), 1.54f) * (s->h * spd / s->w);
+        float t = clampf(10 * (p->t_elapsed - p->sl_t), 0.4f, 1.0f);
+        if (p->mode == MODE_BALL || p->mode == MODE_SHIP) v *= 0.75f;
+        if (p->mode == MODE_UFO) v *= 0.7499f;
+        v *= t;
+        p->inverse_rot = true;
+        memcpy(p->co, p->sl, sizeof(p->co)); p->co_o = p->sl_o; p->co_t = p->sl_t; p->co_down = p->sl_down;
+        p->co_ticks = 2;
+        p->pend_clear = true;
+        p->new_vy = -v; p->has_new_vy = true;
+      }
+      break;
+    }
+    default:
+      if (p->vy < 0) { p->pend_clear = true; return; }
+      if ((p->mode == MODE_CUBE || p->mode == MODE_ROBOT) && p->ceil_inv <= 0) {
+        if (grav(p, p->y - SLOPE_HEAD_TOL) > grav(p, sl_expected_y(p, s))) kill(g, -1);
+        return;
+      }
+      if (grav_bottom(p) != sl_gtop(p, s) || p->sl_down) sl_snap_y(p, s);
+      if ((sl_gtop(p, s) <= grav(p, p->y) - SLOPE_EPS || (p->x - phalf(p)) - sl_right(s) > 0) && sl_count(p, old, ss) < 2) {
+        p->new_vy = SLOPE_FALL[p->speed] * (s->h / s->w); p->has_new_vy = true;
+        memcpy(p->co, p->sl, sizeof(p->co)); p->co_o = p->sl_o; p->co_t = p->sl_t; p->co_down = p->sl_down;
+        p->co_ticks = 2;
+        p->pend_clear = true;
+      }
+      break;
+  }
+}
+
+/* Distance from a point to a segment <= r? */
+static bool seg_circle(float cx, float cy, float r, float x1, float y1, float x2, float y2) {
+  float dx = x2 - x1, dy = y2 - y1, fx_ = cx - x1, fy = cy - y1, l2 = dx * dx + dy * dy;
+  float t = l2 > 0 ? (fx_ * dx + fy * dy) / l2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  float ex = cx - (x1 + t * dx), ey = cy - (y1 + t * dy);
+  return ex * ex + ey * ey <= r * r;
+}
+static bool sl_circle_touch(const Player *p, const Slope *s) {
+  float hw = s->w / 2, hh = s->h / 2, r = (phalf(p) * 2 - 4) / 2, x = s->x, y = s->y;
+  bool nu = s->o == OR_NU || s->o == OR_UDD, up = s->o == OR_NU || s->o == OR_UDU, normal = s->o < OR_UDD;
+  bool hyp = nu ? seg_circle(p->x, p->y, r, x - hw, y - hh, x + hw, y + hh) : seg_circle(p->x, p->y, r, x + hw, y - hh, x - hw, y + hh);
+  bool ver = up ? seg_circle(p->x, p->y, r, x + hw, y - hh, x + hw, y + hh) : seg_circle(p->x, p->y, r, x - hw, y - hh, x - hw, y + hh);
+  bool hor = normal ? seg_circle(p->x, p->y, r, x + hw, y - hh, x - hw, y - hh) : seg_circle(p->x, p->y, r, x + hw, y + hh, x - hw, y + hh);
+  return hyp || ver || hor;
+}
+
+static void sl_collide(Game *g, const Player *old, const Slope *s, const SlopeSet *ss, bool hold) {
+  Player *p = &g->p;
+  if (p->npot < 4) { p->pot[p->npot][0] = sl_top(s); p->pot[p->npot][1] = sl_bottom(s); p->pot_o[p->npot++] = (int8_t)s->o; }
+  bool has = old->sl_o >= 0;
+  float e = sl_expected_y(p, s), ph = phalf(p), in = p->mode == MODE_WAVE ? 1.5f : 4.5f;
+  if (s->o < 2 && e + (has ? 3 : 0) <= p->y) return;
+  if (s->o >= 2 && e - (has ? 3 : 0) >= p->y) return;
+  float clip = p->mode == MODE_SHIP || p->mode == MODE_UFO ? 7 : 10;
+  int orient = sl_orient(p, s);
+  float mult = orient >= OR_UDD ? -1 : 1;
+  bool gsnap = p->ceil_inv > 0, cube = p->mode == MODE_CUBE || p->mode == MODE_ROBOT;
+  if (orient == OR_NU || orient == OR_UDU) {
+    /* inside the slope's tall side */
+    if (overlap(p->x, p->y, in, in, sl_right(s), s->y, 0.5f, s->h / 2)) { kill(g, -1); return; }
+  }
+  if (!has && orient < OR_UDD && grav_top(p) - sl_gbottom(p, s) <= clip + 5 * !p->mini) {
+    /* under a floor slope: its flat bottom is a ceiling */
+    if (p->mode != MODE_WAVE && ((!cube && p->vy >= 0) || gsnap)) {
+      p->vy = 0;
+      if (!gsnap) p->on_ceiling = true;
+      p->time_since_ground = 0;
+      p->y = grav(p, sl_gbottom(p, s)) - grav(p, ph);
+    } else if (overlap(p->x, p->y, in, in, s->x, s->y, s->w / 2, s->h / 2)) kill(g, -1);
+    return;
+  }
+  if (!has && orient >= OR_UDD && sl_gtop(p, s) - grav_bottom(p) <= clip + 5 * !p->mini) {
+    /* on top of a hanging slope: its flat top is a floor */
+    if (p->mode != MODE_WAVE && p->vy <= 0) {
+      p->vy = 0;
+      if (!gsnap) p->on_ground = true;
+      p->time_since_ground = 0;
+      p->y = grav(p, sl_gtop(p, s)) + grav(p, ph);
+    } else if (overlap(p->x, p->y, in, in, s->x, s->y, s->w / 2, s->h / 2)) kill(g, -1);
+    return;
+  }
+  if (!has && (orient == OR_ND || orient == OR_UDD) && p->x - sl_left(s) < 0) {
+    /* coming from the left onto a falling slope's top corner */
+    if (sl_gtop(p, s) - grav_bottom(p) > clip) {
+      if (overlap(p->x, p->y, in, in, s->x, s->y, s->w / 2, s->h / 2)) kill(g, -1);
+      return;
+    }
+    if (p->mode != MODE_WAVE && p->vy * mult <= 0) {
+      p->y = orient == OR_ND ? grav(p, sl_gtop(p, s)) + grav(p, ph) : grav(p, sl_gbottom(p, s)) - grav(p, ph);
+      p->on_ground = true;
+      p->inverse_rot = false;
+      return;
+    }
+  }
+  if (!gsnap && cube && orient >= 2 && !sl_circle_touch(p, s)) return;
+  bool colliding = overlap(p->x, p->y, ph, ph, s->x, s->y, s->w / 2, s->h / 2);
+  bool riding = p->sl_o >= 0;
+  Slope cur;
+  if (riding) slope_get(p->sl, p->sl_o, &cur);
+  bool next = true;
+  if (riding) {
+    float diff = s->y - cur.y;
+    next = (cur.o == OR_NU || cur.o == OR_UDD) ? diff > 0 : diff < 0;
+  }
+  int co = riding ? sl_orient(p, &cur) : -1;
+  bool up_to_down = riding && co != orient && ((co == OR_ND && orient == OR_NU) || (co == OR_UDD && orient == OR_UDU));
+  if ((!riding || co == orient || up_to_down) && sl_touching(p, old, s) && colliding && sl_gtop(p, s) - grav_bottom(p) > 2 &&
+      (up_to_down || next)) {
+    if (riding && sl_angle(p, s) < sl_angle(p, &cur)) return;
+    float old_vel = (orient == OR_ND || orient == OR_UDD) ? grav(p, old->delta_y) : old->vy * ND_DT;
+    float ang = atanf(old_vel / (SPEEDS[p->speed] * ND_DT));
+    if (orient >= OR_UDD) ang = -ang;
+    bool had = old->sl_o >= 0;
+    if (had && riding) had = old->sl_o == p->sl_o;
+    bool hit = (orient == OR_ND || orient == OR_UDD) ? ang * 5 <= sl_angle(p, s) : ang <= sl_angle(p, s);
+    bool snap_down = (orient == OR_ND || orient == OR_UDD) && p->vy * mult > 0 && p->x - sl_left(s) > 0;
+    if (hit || snap_down) {
+      if (p->mode == MODE_WAVE) { kill(g, -1); return; }   /* the wave does not ride slopes */
+      if (orient >= OR_UDD) p->on_ceiling = true;
+      else { p->on_ground = true; landing(p); }
+      p->inverse_rot = false;
+      float t_prev = p->sl_t;
+      p->sl[0] = s->x; p->sl[1] = s->y; p->sl[2] = s->w; p->sl[3] = s->h; p->sl_o = (int8_t)s->o;
+      p->sl_t = t_prev;
+      if (snap_down && !had) {
+        if (orient == OR_ND && p->vy <= 0) { p->y = grav(p, sl_gtop(p, s)) + grav(p, ph); p->sl_down = true; p->vy = 0; }
+        else if (orient == OR_UDD && p->vy >= 0) { p->y = grav(p, sl_gbottom(p, s)) - grav(p, ph); p->sl_down = true; p->vy = 0; }
+      }
+      if (!p->sl_t) p->sl_t = old->t_elapsed;
+      sl_calc(g, old, s, ss, hold);
+    }
+  }
+}
+
 static void solid(Game *g, unsigned i, float ox, float oy, float hw, float hh) {
   Player *p = &g->p;
+  if (p->sl_o >= 0 && p->mode != MODE_WAVE) {
+    /* riding a slope: only a falling one gives way to a block */
+    Slope cur;
+    slope_get(p->sl, p->sl_o, &cur);
+    int o = sl_orient(p, &cur);
+    if (o != OR_ND && o != OR_UDD) return;
+    if (ox + hw >= p->x) { sl_clear(p); p->co_o = -1; p->co_ticks = 0; p->on_ground = true; }
+  }
+  /* a block level with the foot of a slope touched last tick must not catch it */
+  for (int k = 0; k < p->npot; k++) {
+    float bc = p->pot_o[k] < 2 ? oy + hh : oy - hh, sc = p->pot_o[k] < 2 ? p->pot[k][1] : p->pot[k][0];
+    if (bc - sc < 2) return;
+  }
   float clip = (p->mode == MODE_SHIP || p->mode == MODE_UFO ? 7.0f : 10.0f) + fabsf(p->vy) * ND_DT;
   float o_bottom = p->upside ? -(oy + hh) : oy - hh, o_top = p->upside ? -(oy - hh) : oy + hh;
   float in = p->mode == MODE_WAVE ? 1.5f : 4.5f;
@@ -247,7 +565,7 @@ static void solid(Game *g, unsigned i, float ox, float oy, float hw, float hh) {
     p->inverse_rot = false;
     p->time_since_ground = 0;
     landing(p);
-  } else if (p->mode != MODE_CUBE || grav_snap) {
+  } else if ((p->mode != MODE_CUBE && p->mode != MODE_ROBOT) || grav_snap) {
     if ((grav_top(p) - o_bottom <= clip && p->vy >= 0) || grav_snap) {
       if (!grav_snap) p->on_ceiling = true; else p->vy = 0;
       p->inverse_rot = false;
@@ -489,8 +807,7 @@ static void special(Game *g, unsigned i, const RObj *o, bool hold, float ox, flo
       set_used(g, i);
       if (g->dual) {
         g->dual = false;
-        if (p->second) { bool sec = p->second; *p = g->p2; p->second = sec; }  /* the first body goes on */
-        g->p2.second = true;
+        if (p->second) g->dual_swap = true;
         if (p->mode == MODE_CUBE || p->mode == MODE_ROBOT) { p->ground_y = 0; p->ceiling_y = 999999; }
         else set_bounds_for_portal(g, g->dual_y, p->mode == MODE_BALL ? BALL_HEIGHT : 300);
         fx(g, FX_PORTAL, 7, (int)i, ox, oy);
@@ -549,8 +866,11 @@ static void hit_box(const Level *L, const RObj *o, float x, float y, float *cx, 
   }
 }
 
+static SlopeSet near_slopes;   /* this tick's slopes around the player */
+
 static void collide(Game *g, const Player *old, bool hold) {
   Player *p = &g->p;
+  near_slopes.n = 0;
   /* objects around the player, in level order, where their groups put them */
   Near near[MAX_NEAR];
   unsigned n = 0;
@@ -561,11 +881,22 @@ static void collide(Game *g, const Player *old, bool hold) {
     float x, y;
     if (!obj_where(g, o, &x, &y) || x < p->x - 60 || x >= p->x + 60) continue;
     near[n++] = (Near){o, it.gi, x, y};
+    if (objdefs[o->type].shape == SHAPE_SLOPE && near_slopes.n < 8) near_slopes.s[near_slopes.n++] = slope_of(g->L, o, x, y);
   }
   bool touching_orb = false;
   float snap_x = p->x;   /* contacts are judged before any nudge */
-  /* GD resolves special objects, then solids, then hazards. */
+  /* GD resolves special objects, then solids, then slopes, then hazards. */
   for (int pass = 0; pass < 3 && !g->dead; pass++) {
+    if (pass == 1 && p->left_ground) sl_clear(p);
+    if (pass == 2) {
+      p->npot = 0;
+      for (int k = 0; k < near_slopes.n && !g->dead; k++) {
+        const Slope *sl = &near_slopes.s[k];
+        float ph = phalf(p);
+        if (overlap(p->x, p->y, ph, ph, sl->x, sl->y, sl->w / 2, sl->h / 2)) sl_collide(g, old, sl, &near_slopes, hold);
+      }
+      if (g->dead) break;
+    }
     if (pass == 2 && (p->mode == MODE_CUBE || p->mode == MODE_ROBOT) && p->on_ground) {
       /* stair snap against every solid under the cube, in GD's order: by
          100 unit section, right to left then top to bottom, then newest */
@@ -645,9 +976,23 @@ static void cube_mode(Game *g, bool hold, bool pressed) {
     else p->target_rot += spin * ND_DT * mult;
   }
   if (p->on_ground) update_rot_dir(p);
-  bool coyote = p->upside && hold && p->coyote < 10;
-  if ((p->on_ground || coyote) && hold) {
-    set_velocity(p, CUBE_JUMP[p->speed], g->hold_prev);
+  bool coyote = (p->upside || g->dual) && hold && p->coyote < 10;
+  /* the slope under the cube, or the one it just slid off */
+  Slope sl;
+  int so = p->sl_o >= 0 ? p->sl_o : p->co_ticks ? p->co_o : -1;
+  if (so >= 0) slope_get(p->sl_o >= 0 ? p->sl : p->co, so, &sl);
+  bool on_slope = so >= 0 && sl_orient(p, &sl) < OR_UDD;
+  if ((on_slope || p->on_ground || coyote) && hold) {
+    if (on_slope && sl_orient(p, &sl) == OR_NU) {
+      /* a jump off a rising slope gets some of its speed */
+      float t = clampf(10 * (p->t_elapsed - (p->sl_o >= 0 ? p->sl_t : p->co_t)), 0.4f, 1.0f);
+      float v = 0.9f * fminf(1.12f / sl_angle(p, &sl), 1.54f) * (sl.h * SPEEDS[p->speed] / sl.w);
+      set_velocity(p, 0.25f * t * v + CUBE_JUMP[p->speed], false);
+      p->co_ticks = 0;
+      p->co_o = -1;
+    } else {
+      set_velocity(p, CUBE_JUMP[p->speed], g->hold_prev);
+    }
     p->inverse_rot = false;
     p->buffer = BUF_END;
     p->on_ground = false;
@@ -656,7 +1001,8 @@ static void cube_mode(Game *g, bool hold, bool pressed) {
     if (!pressed) p->time_since_ground = DRAG_TIME;
     fx(g, FX_JUMP, 0, -1, p->x, p->y);
   }
-  if (p->on_ground) p->target_rot = closest_rotation(p->rot);
+  if (so >= 0) p->target_rot = closest_rotation_to(p->rot, sl_snap_angle(p, &sl) / DEG);
+  else if (p->on_ground) p->target_rot = closest_rotation(p->rot);
 }
 
 static void ship_mode(Game *g, bool hold) {
@@ -733,7 +1079,7 @@ static void ball_mode(Game *g, const Player *old) {
   Player *p = &g->p;
   p->gravity = BALL_GRAV;
   if (p->on_ground || p->on_ceiling) p->spin = 1;
-  bool coyote = p->upside && p->coyote < 16;
+  bool coyote = (p->upside || g->dual) && p->coyote < 16;
   if ((p->on_ground || p->on_ceiling || coyote) && p->buffer == BUF_READY) {
     p->upside = !p->upside;
     set_velocity(p, BALL_JUMP[p->speed], old->buffer == BUF_READY);
@@ -793,9 +1139,15 @@ static void run_player(Game *g, const Player *old, bool hold, bool pressed) {
   p->left_ground = false;
   if (p->ceil_inv > 0) p->ceil_inv -= ND_DT; else p->ceil_inv = 0;
   clamp_ground(g);
+  if (p->co_ticks && !--p->co_ticks) p->co_o = -1;
+  if (p->sl_o >= 0) {
+    Slope cur;
+    slope_get(p->sl, p->sl_o, &cur);
+    sl_calc(g, old, &cur, &near_slopes, hold);
+  }
   if (p->mode == MODE_CUBE) {
     float lerp = SPEED_MULT[p->speed] * 0.175f;
-    if (p->on_ground) {
+    if (p->on_ground || p->sl_o >= 0) {
       lerp *= 3;
       float t = fminf(ND_DT, ND_DT * lerp) * 60;
       p->rot = slerp_angle(p->rot * DEG, p->target_rot * DEG, t) / DEG;
@@ -818,7 +1170,13 @@ static void run_player(Game *g, const Player *old, bool hold, bool pressed) {
       float k = 0.15f;
       if (p->mode == MODE_UFO) {  /* the UFO only tilts a little */
         k = 0.07f;
-        ang = p->on_ground ? 0 : p->upside ? fminf(ang * -0.4f, 0.1f) : fmaxf(ang * -0.4f, -0.1f);
+        if (p->sl_o >= 0) {
+          Slope cur;
+          slope_get(p->sl, p->sl_o, &cur);
+          ang = sl_snap_angle(p, &cur);
+        } else {
+          ang = p->on_ground ? 0 : p->upside ? fminf(ang * -0.4f, 0.1f) : fmaxf(ang * -0.4f, -0.1f);
+        }
       }
       p->rot = slerp_angle(p->rot * DEG, ang, ND_DT * 60 * k) / DEG;
     }
@@ -925,51 +1283,83 @@ static void camera(Game *g) {
   if (moved > 0) { g->ground_x += moved; g->bg_x += moved; }
 }
 
-void game_step(Game *g, bool hold) {
-  if (g->dead || g->complete) return;
+/* One tick of the body held in g->p. */
+static void step_body(Game *g, bool hold, bool pressed) {
   Player *p = &g->p;
   Player old = *p;
-  bool pressed = hold && !g->hold_prev;
   p->old_on_ground = p->on_ground;
   if (hold) { if (p->buffer == BUF_NONE) p->buffer = BUF_READY; }
   else p->buffer = BUF_NONE;
   p->on_ground = p->on_ceiling = false;
   p->vel_override = false;
+  p->t_elapsed += ND_DT;
   p->x += SPEEDS[p->speed] * ND_DT;
   p->y += grav(p, p->vy) * ND_DT;
   clamp_ground(g);
   p->frame++;
-  g->tick++;
+  /* what a slope left for this tick: a launch speed and letting go of it */
+  if (p->has_new_vy) { p->vy = p->new_vy; p->has_new_vy = false; }
+  if (p->pend_clear) { sl_clear(p); p->pend_clear = false; }
   if (!g->dead && !g->ending) collide(g, &old, hold);
-  if (!g->dead) {
-    const Level *L = g->L;
-    if (p->x >= L->wall_x - END_START) {
-      if (!g->ending) {
-        g->ending = true;
-        g->end_x0 = p->x;
-        g->end_y0 = p->y;
-        if (g->wall_y == 0) g->wall_y = g->end_y0 > 60 ? g->end_y0 : 60;
-      }
-      float t = clampf(powf(g->end_t, 1.2f), 0, 1), u = 1 - t;
-      float mx = g->end_x0 + 40, my = g->wall_y + 150, ex = L->wall_x + 50, ey = g->wall_y - 20;
-      p->x = u * u * u * g->end_x0 + 3 * u * u * t * g->end_x0 + 3 * u * t * t * mx + t * t * t * ex;
-      p->y = u * u * u * g->end_y0 + 3 * u * u * t * g->end_y0 + 3 * u * t * t * my + t * t * t * ey;
-      float e = g->end_t / 0.5f;
-      p->rot += (e > 1 ? 1 : e * e) * ROT_SPEED * ND_DT;
-      g->end_t += ND_DT;
-      if (p->x > L->wall_x && !g->complete) {
-        g->complete = true;
-        fx(g, FX_WALL, 0, -1, (float)L->wall_x, g->wall_y);
-      }
+  if (g->dead) return;
+  const Level *L = g->L;
+  if (p->x >= L->wall_x - END_START && !p->second) {
+    if (!g->ending) {
+      g->ending = true;
+      g->end_x0 = p->x;
+      g->end_y0 = p->y;
+      if (g->wall_y == 0) g->wall_y = g->end_y0 > 60 ? g->end_y0 : 60;
     }
-    run_player(g, &old, hold, pressed);
+    float t = clampf(powf(g->end_t, 1.2f), 0, 1), u = 1 - t;
+    float mx = g->end_x0 + 40, my = g->wall_y + 150, ex = L->wall_x + 50, ey = g->wall_y - 20;
+    p->x = u * u * u * g->end_x0 + 3 * u * u * t * g->end_x0 + 3 * u * t * t * mx + t * t * t * ex;
+    p->y = u * u * u * g->end_y0 + 3 * u * u * t * g->end_y0 + 3 * u * t * t * my + t * t * t * ey;
+    float e = g->end_t / 0.5f;
+    p->rot += (e > 1 ? 1 : e * e) * ROT_SPEED * ND_DT;
+    g->end_t += ND_DT;
+    if (p->x > L->wall_x && !g->complete) {
+      g->complete = true;
+      fx(g, FX_WALL, 0, -1, (float)L->wall_x, g->wall_y);
+    }
   }
+  run_player(g, &old, hold, pressed);
+  p->delta_y = p->y - old.y;
+}
+
+/* The ship and the UFO read the button one tick later than the other modes
+   (GD's tick order, measured by gdsolver). */
+static bool reads_late(const Player *p) { (void)p; return false; }
+
+void game_step(Game *g, bool hold) {
+  if (g->dead || g->complete) return;
+  bool pressed = hold && !g->hold_prev, pressed_late = g->hold_prev && !g->hold_prev2;
+  float x0 = g->p.x;
+  g->tick++;
+  bool late = reads_late(&g->p);
+  step_body(g, late ? g->hold_prev : hold, late ? pressed_late : pressed);
+  if (g->dual && !g->dead && !g->complete) {
+    Player t = g->p;
+    g->p = g->p2;
+    g->p2 = t;
+    late = reads_late(&g->p);
+    step_body(g, late ? g->hold_prev : hold, late ? pressed_late : pressed);
+    if (g->dual_swap) {
+      /* the second body left dual mode first: it goes on alone */
+      g->dual_swap = false;
+      g->p.second = false;
+    } else {
+      t = g->p;
+      g->p = g->p2;
+      g->p2 = t;
+    }
+  }
+  g->hold_prev2 = g->hold_prev;
   g->hold_prev = hold;
   g->pressed_prev = pressed;
   if (!g->dead) {
     camera(g);
     triggers(g);
-    trig_step(g, p->x - old.x);
+    trig_step(g, g->p.x - x0);
   }
 }
 

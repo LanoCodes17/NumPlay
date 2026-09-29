@@ -136,7 +136,7 @@ void fx_burst_screen(float x, float y, int def, color_t c, int count) {
   for (int i = 0; i < count; i++) spawn(def, x, y, c, true, c, true, PF_SCREEN, 1e9f);
 }
 
-static float ease(int e, float t) {
+static float fx_ease(int e, float t) {
   if (t < 0) t = 0;
   if (t > 1) t = 1;
   switch (e) {
@@ -387,17 +387,17 @@ static void draw_circles(bool screen_pass) {
     if (c->t >= d->dur) continue;
     float t = c->t / d->dur, a, r;
     if (d->tri) {
-      a = t < .5f ? d->a0 + (d->a1 - d->a0) * ease(d->ea0, t * 2) : d->a1 + (d->a0 - d->a1) * ease(d->ea1, (t - .5f) * 2);
+      a = t < .5f ? d->a0 + (d->a1 - d->a0) * fx_ease(d->ea0, t * 2) : d->a1 + (d->a0 - d->a1) * fx_ease(d->ea1, (t - .5f) * 2);
     } else if (d->ea0 == d->ea1) {
-      a = d->a0 + (d->a1 - d->a0) * ease(d->ea0, t);
+      a = d->a0 + (d->a1 - d->a0) * fx_ease(d->ea0, t);
     } else {
       float mid = (d->a0 + d->a1) / 2;
-      a = t < .5f ? d->a0 + (mid - d->a0) * ease(d->ea0, t * 2) : mid + (d->a1 - mid) * ease(d->ea1, (t - .5f) * 2);
+      a = t < .5f ? d->a0 + (mid - d->a0) * fx_ease(d->ea0, t * 2) : mid + (d->a1 - mid) * fx_ease(d->ea1, (t - .5f) * 2);
     }
-    if (d->er0 == d->er1) r = d->r0 + (d->r1 - d->r0) * ease(d->er0, t);
+    if (d->er0 == d->er1) r = d->r0 + (d->r1 - d->r0) * fx_ease(d->er0, t);
     else {
       float mid = (d->r0 + d->r1) / 2;
-      r = t < .5f ? d->r0 + (mid - d->r0) * ease(d->er0, t * 2) : mid + (d->r1 - mid) * ease(d->er1, (t - .5f) * 2);
+      r = t < .5f ? d->r0 + (mid - d->r0) * fx_ease(d->er0, t * 2) : mid + (d->r1 - mid) * fx_ease(d->er1, (t - .5f) * 2);
     }
     float sx, sy;
     to_screen(c->x, c->y, c->screen, &sx, &sy);

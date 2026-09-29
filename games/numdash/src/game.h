@@ -26,6 +26,13 @@ typedef struct {
   bool second;          /* the dual mode's second body */
   bool old_on_ground, orb_touching;
   uint8_t hover;        /* robot: hover ticks left while the button stays held */
+  /* slopes (as gd3ds): the slope ridden, the one just left (coyote) and the
+     ones touched last tick; orientation -1 = none */
+  float sl[4], sl_t, co[4], co_t, pot[4][2];
+  int8_t sl_o, co_o, pot_o[4];
+  uint8_t co_ticks, npot;
+  bool sl_down, co_down, pend_clear, has_new_vy;
+  float t_elapsed, new_vy, delta_y;
 } Player;
 
 /* A colour channel: an RGB fade (t, dur in steps) plus, for 2.0+ levels,
@@ -64,7 +71,7 @@ typedef struct {
   PulseAction pu[MAX_PULSES];
   uint8_t nmv, npu, touch_bits[16];
   uint8_t fade_effect, coins, attempt_camera, touch_done[8];
-  bool trail, dead, complete, ending, hold_prev, pressed_prev, dual;
+  bool trail, dead, complete, ending, hold_prev, hold_prev2, pressed_prev, dual, dual_swap;
   float dual_y;
   bool menu_camera;   /* fixed camera, ground scrolling on its own (main menu) */
   float used_below;   /* objects left of this x count as used (practice) */

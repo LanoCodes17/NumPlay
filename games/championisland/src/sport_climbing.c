@@ -11,6 +11,7 @@
 #include <math.h>
 #include <stdio.h>
 #include "ent.h"
+#include "spr.h"
 
 enum { M_GROUND, M_JUMP, M_GRAB, M_HANG, M_FALL };
 enum { H_STATIC, H_MOVING, H_CIRCLING };
@@ -18,6 +19,7 @@ enum { H_STATIC, H_MOVING, H_CIRCLING };
 #define GROUND_MAX 16
 #define CHECK_MAX 10
 #define NEVER 1e30f   /* Number.MAX_SAFE_INTEGER */
+#define SKY_MAX 8
 
 typedef struct {
   NodeId n;
@@ -61,6 +63,13 @@ typedef struct {
   /* parallax (Aq) */
   bool par_init;
   float par_dx, par_dy, par_hx, par_hy, par_fx, par_fy;
+  /* the sky (Iba's copies of one big picture, drawn by code) */
+  uint16_t sky_sprite;
+  int nsky;
+  float sky_x[SKY_MAX], sky_y[SKY_MAX];
+  float sky_ref;               /* the copy whose rows the forest texture matches */
+  bool tex;                    /* the forest texture is ready */
+  int tex_cx, tex_cy;
   Countdown cd;
   bool counting;
   /* the end (zq) */
@@ -364,12 +373,6 @@ static void start(void) {
       k->lantern = node_child(c, "lantern");
     }
   }
-#ifdef HOST
-  for (int i = 0; i < S->ngrounds; i++) printf("ground %d: %.1f %.1f %.1f %.1f\n", S->grounds[i].n, S->grounds[i].r.x, S->grounds[i].r.y, S->grounds[i].r.w, S->grounds[i].r.h);
-  printf("goal %.1f %.1f %.1f %.1f\n", S->goal.x, S->goal.y, S->goal.w, S->goal.h);
-  for (int i = 0; i < S->nchecks; i++) printf("check %.1f %.1f %.1f %.1f  pos %.1f %.1f\n", S->checks[i].r.x, S->checks[i].r.y, S->checks[i].r.w, S->checks[i].r.h, S->checks[i].px, S->checks[i].py);
-  printf("holds %d climber %.1f %.1f\n", S->nholds, rawx(S->climber), rawy(S->climber));
-#endif
   S->mode = M_GROUND;
   S->DY = S->kC = S->D_ = -1;
   S->EL = NEVER;
@@ -685,14 +688,6 @@ static void sys_parallax(void) {
   float cx = S->par_hx - nodes[S->map].x, cy = S->par_hy - nodes[S->map].y;
   nodes[p].x = S->par_dx - S->par_fx * cx;
   nodes[p].y = S->par_dy - S->par_fy * cy;
-#ifdef SKYDBG
-  if (game.ticks % 10 == 0) {
-    float v0 = -nodes[p].y / 3, v1 = v0 + 180;
-    printf("t %u map %.0f sky rows %.0f..%.0f :", game.ticks, rawy(S->map), v0, v1);
-    for (NodeId c = nodes[p].first; c; c = nodes[c].next) printf(" %.0f", nodes[c].y);
-    printf("\n");
-  }
-#endif
 }
 
 /* Zo: the end, with the doodle's rating */
@@ -729,13 +724,7 @@ static void sys_end(void) {
   }
 }
 
-#ifdef SKYTEST
-#include "spr.h"
-#endif
 static void tick(void) {
-#ifdef SKYTEST
-  { const uint8_t *st = spr_stream(426); if (st) { z_open(rd32(st + 2), rd32(st + 6), rd32(st + 10)); z_get(NULL, 432 * SKYTEST); } }
-#endif
   sys_back_pauses();
   if (menus_active()) return;
   sys_tutorial_once();

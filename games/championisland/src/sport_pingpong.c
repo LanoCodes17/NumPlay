@@ -478,7 +478,7 @@ static void paddle_swing(int side) {   /* gt */
 
 /* ft: the power shot */
 static bool power_shot(void) {
-  if (!in.held[A_ACTION]) return false;
+  if (!in.pressed[A_ACTION]) return false;          /* ak.Ca: pressed this tick */
   if (S->pstate == 2 || S->pstate == 3 || S->my < 1) return false;
   SOUND(power);
   S->pstate = 2;
@@ -934,7 +934,7 @@ static void autopilot(void) {
     float dx = gx - (r.x + r.w / 2), dy = gy - (r.y + r.h / 2), d = sqrtf(dx * dx + dy * dy);
     if (d > 2) { in.jx = dx / d; in.jy = dy / d; }
   }
-  in.held[A_ACTION] = S->my >= 1 && S->nballs >= 2;
+  in.pressed[A_ACTION] = S->my >= 1 && S->nballs >= 2;
 }
 #else
 static void autopilot(void) {}

@@ -29,18 +29,21 @@ void progress_defaults(Progress *p) {
   p->options = OPT_PERCENT | OPT_BAR;
 }
 
+/* Layout version 1 used 12 bytes per level; version 2 drops the spare byte
+   so that twelve levels and the custom slots fit the same 192 bytes. */
 void progress_encode(const Progress *p, uint8_t out[PROGRESS_BYTES]) {
+  _Static_assert(12 + LEVEL_SLOTS * 11 + 12 <= PROGRESS_BYTES, "progress record too small");
   memset(out, 0, PROGRESS_BYTES);
   memcpy(out, "NDS1", 4);
-  out[8] = 1;
+  out[8] = 2;
   out[9] = LEVEL_COUNT;
   out[10] = CUSTOM_SLOTS;
   uint8_t *q = out + 12;
-  for (int i = 0; i < LEVEL_SLOTS; i++, q += 12) {
+  for (int i = 0; i < LEVEL_SLOTS; i++, q += 11) {
     const LevelStat *s = &p->lv[i];
     q[0] = s->normal; q[1] = s->practice; q[2] = s->coins;
-    wr32(q + 4, s->attempts);
-    wr32(q + 8, s->jumps);
+    wr32(q + 3, s->attempts);
+    wr32(q + 7, s->jumps);
   }
   wr32(q, p->attempts); wr32(q + 4, p->jumps);
   q[8] = p->color1; q[9] = p->color2; q[10] = p->options; q[11] = p->last_level;
@@ -51,18 +54,19 @@ bool progress_decode(Progress *p, const uint8_t *in, size_t len) {
   if (len < PROGRESS_BYTES || memcmp(in, "NDS1", 4) || rd32(in + 4) != nd_crc32(in + 8, PROGRESS_BYTES - 8)) return false;
   /* A save from a release with fewer levels keeps its stats: the custom
      slots follow the built-in levels, so they move up. */
-  int levels = in[9];
-  if (in[8] != 1 || levels == 0 || levels > LEVEL_COUNT || in[10] != CUSTOM_SLOTS) return false;
+  int levels = in[9], stride = in[8] == 1 ? 12 : 11, a = stride - 8;
+  if (in[8] < 1 || in[8] > 2 || levels == 0 || levels > LEVEL_COUNT || in[10] != CUSTOM_SLOTS ||
+      12 + (levels + CUSTOM_SLOTS) * stride + 12 > PROGRESS_BYTES) return false;
   const uint8_t *q = in + 12;
-  for (int i = 0; i < levels + CUSTOM_SLOTS; i++, q += 12)
+  for (int i = 0; i < levels + CUSTOM_SLOTS; i++, q += stride)
     if (q[0] > 100 || q[1] > 100 || q[2] > 7) return false;
   progress_defaults(p);
   q = in + 12;
-  for (int i = 0; i < levels + CUSTOM_SLOTS; i++, q += 12) {
+  for (int i = 0; i < levels + CUSTOM_SLOTS; i++, q += stride) {
     LevelStat *s = &p->lv[i < levels ? i : i - levels + LEVEL_COUNT];
     s->normal = q[0]; s->practice = q[1]; s->coins = q[2];
-    s->attempts = rd32(q + 4);
-    s->jumps = rd32(q + 8);
+    s->attempts = rd32(q + a);
+    s->jumps = rd32(q + a + 4);
   }
   p->attempts = rd32(q); p->jumps = rd32(q + 4);
   p->color1 = q[8] < 42 ? q[8] : 0;
@@ -133,7 +137,7 @@ bool custom_decode(const uint8_t *in, size_t len, LObj *objs, unsigned cap, Cust
     x += (int)dx;
     y += (zy & 1) ? -(int)((zy + 1) / 2) : (int)(zy / 2);
     uint8_t type = in[pos++], xf = in[pos++];
-    if (x > 0xffff || y < -600 || y > 3000 || !type || type >= OT_COUNT || (xf & 0xf0)) return false;
+    if (x > 0xffff || y < -600 || y > 3000 || !type || type >= OT_LOBJ || (xf & 0xf0)) return false;
     objs[i] = (LObj){(uint16_t)x, (int16_t)y, type, xf};
   }
   if (pos != n) return false;
@@ -148,7 +152,7 @@ bool custom_decode(const uint8_t *in, size_t len, LObj *objs, unsigned cap, Cust
 /* ------------------------------------------------------------ legacy saves */
 
 static uint8_t type_for_gd(unsigned id) {
-  for (unsigned t = 1; t < OT_COUNT; t++) if (objdefs[t].gd_id == id) return (uint8_t)t;
+  for (unsigned t = 1; t < OT_LOBJ; t++) if (objdefs[t].gd_id == id) return (uint8_t)t;
   return 0;
 }
 
@@ -291,13 +295,12 @@ bool save_write_progress(const Progress *p) {
   return true;
 }
 
-static uint8_t level_buf[16 + CUSTOM_MAX * 8];
 
 bool save_write_custom(int slot, const LObj *objs, unsigned count, const CustomMeta *m) {
   size_t size;
   uint8_t *a = platform_storage(&size);
-  size_t n = custom_encode(objs, count, m, level_buf, sizeof(level_buf));
-  if (!a || !n || !storage_put(a, size, slot_name(slot), level_buf, n, 512)) return false;
+  size_t n = custom_encode(objs, count, m, level_scratch, sizeof(level_scratch));
+  if (!a || !n || !storage_put(a, size, slot_name(slot), level_scratch, n, 512)) return false;
   platform_storage_commit();
   return true;
 }
@@ -320,25 +323,26 @@ bool save_load_all(Progress *p, CustomMeta metas[CUSTOM_SLOTS]) {
     bool ok = progress_decode(p, d, len);
     for (int s = 0; s < CUSTOM_SLOTS; s++) {
       CustomMeta m;
-      if (save_read_custom(s, level_objs, MAX_OBJECTS, &m)) metas[s] = m;
+      if (save_read_custom(s, level_objs, CUSTOM_MAX, &m)) metas[s] = m;
     }
     return ok;
   }
   d = storage_read(a, size, "numdash.ndd", &len);
   if (!d) return true;   /* first run */
-  unsigned counts[CUSTOM_SLOTS];
-  if (!legacy_decode(d, len, p, level_objs, MAX_OBJECTS, counts, metas)) { progress_defaults(p); return false; }
+  unsigned counts[CUSTOM_SLOTS], cap;
+  LObj *objs = level_big_scratch(&cap);
+  if (!legacy_decode(d, len, p, objs, cap, counts, metas)) { progress_defaults(p); return false; }
   /* Everything is decoded: drop the old record if nothing follows it. */
   storage_remove_last(a, size, "numdash.ndd");
   unsigned first = 0;
   for (int s = 0; s < CUSTOM_SLOTS; s++) {
     if (counts[s]) {
       CustomMeta m = metas[s];
-      unsigned last_x = level_objs[first + counts[s] - 1].x;
+      unsigned last_x = objs[first + counts[s] - 1].x;
       if (m.end_x < last_x + 300) m.end_x = (uint16_t)(last_x + 300 > 0xfff0 ? 0xfff0 : last_x + 300);
       m.theme %= 6;
       metas[s] = m;
-      if (!save_write_custom(s, level_objs + first, counts[s], &m)) metas[s].exists = false;
+      if (counts[s] > CUSTOM_MAX || !save_write_custom(s, objs + first, counts[s], &m)) metas[s].exists = false;
     } else {
       metas[s].exists = false;
     }

@@ -7,6 +7,9 @@ const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "
 const uint32_t eadk_api_level __attribute__((section(".rodata.eadk_api_level"))) = 0;
 #endif
 
+/* Frames drawn so far, read by tools/emu.py to measure frame rates. */
+__attribute__((used)) volatile uint32_t perf_frames;
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -46,6 +49,7 @@ int main(int argc, char **argv) {
     platform_frame_end();
     render_ms = (render_ms * 3 + (platform_millis() - t0)) / 4;
     frames++;
+    perf_frames++;
     if (now - fps_start >= 1000) {
       app.fps = frames * 1000 / (now - fps_start);
       frames = 0;

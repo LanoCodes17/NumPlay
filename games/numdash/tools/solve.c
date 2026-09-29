@@ -6,9 +6,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef WIDTH
 #define WIDTH 3000
-#define LAYERS 9000
+#endif
+#ifndef STEP
 #define STEP 4
+#endif
+#define LAYERS (36000 / STEP)
 #define HASH 65536
 typedef struct { uint16_t parent; uint8_t down; } Edge;
 static Game *cur, *next;
@@ -20,9 +24,16 @@ static uint64_t key(const Game *g) {
   uint64_t y = (uint64_t)(int64_t)(p->y * 4), v = (uint64_t)(int64_t)(p->vy * 2);
   uint64_t k = (y & 0xffff) | ((v & 0xffff) << 16) | ((uint64_t)p->mode << 32) | ((uint64_t)p->upside << 34) |
                ((uint64_t)p->on_ground << 35) | ((uint64_t)g->hold_prev << 36) | ((uint64_t)p->buffer << 37) |
-               ((uint64_t)p->on_ceiling << 40);
-  unsigned first = level_lower_bound(g->L, (int)p->x - 120) / 8;
-  for (unsigned i = first; i < first + 6 && i < MAX_OBJECTS / 8; i++) k = (k ^ g->used[i]) * 1099511628211ull;
+               ((uint64_t)p->on_ceiling << 40) | ((uint64_t)p->mini << 41) | ((uint64_t)g->frame << 42) |
+               ((uint64_t)p->dash << 44) | ((uint64_t)(p->hover != 0) << 45) | ((uint64_t)g->dual << 46);
+  if (g->dual) k ^= (uint64_t)(int64_t)(g->p2.y * 4) * 0x9E3779B97F4A7C15ull;
+  /* the used bits of the objects around the player */
+  LIter it;
+  float wx, wy;
+  to_world(g, p->x, p->y, &wx, &wy);
+  level_iter(g->L, wx - 120, wx + 120, &it);
+  for (const RObj *o; (o = level_next(&it));)
+    if (objdefs[o->type].hit == HIT_SPECIAL && game_used(g, o, it.gi)) k = (k ^ it.gi) * 1099511628211ull;
   return k;
 }
 static int insert(uint64_t k) {
@@ -38,6 +49,16 @@ int main(int argc, char **argv) {
   parents = calloc((size_t)LAYERS * WIDTH, sizeof(Edge));
   Edge *pending = calloc(WIDTH * 2, sizeof(Edge));
   if (!cur || !next || !parents || !pending) return 2;
+  /* states far above everything the level has are escapes, not routes */
+  float top = 0;
+  if (L.def)
+    for (unsigned ci = 0; ci < L.def->nchunks; ci++) {
+      level_stream(&L, L.def->chunks[ci].x0, L.def->chunks[ci].x1);
+      LIter it;
+      level_iter(&L, L.def->chunks[ci].x0, L.def->chunks[ci].x1, &it);
+      for (const RObj *o; (o = level_next(&it));) if (obj_y(o) > top) top = obj_y(o);
+    }
+  top += 150;
   game_start(&cur[0], &L, false);
   int count = 1, finish = -1, layer = 0;
   for (; layer < LAYERS; layer++) {
@@ -48,13 +69,26 @@ int main(int argc, char **argv) {
         Game *g = &next[n];
         *g = cur[i];
         for (int t = 0; t < STEP; t++) { g->fx_count = 0; game_step(g, down != 0); }
-        if (g->dead || !insert(key(g))) continue;
+        float wx, wy;
+        to_world(g, g->p.x, g->p.y, &wx, &wy);
+        if (g->dead || (L.def && wy > top) || !insert(key(g))) continue;
         pending[n] = (Edge){(uint16_t)i, (uint8_t)down};
         if (g->complete) { finish = n; n++; break; }
         n++;
       }
     if (!n) {
       fprintf(stderr, "NO PATH: %s at x=%.1f layer=%d\n", L.name, cur[0].p.x, layer);
+      /* the route to the first state left, for a look at where it ends */
+      if (argc > 3 && layer > 0) {
+        static uint8_t in[LAYERS];
+        int node = 0;
+        for (int j = layer - 1; j >= 0; j--) { Edge e = parents[(size_t)j * WIDTH + node]; in[j] = e.down; node = e.parent; }
+        FILE *f = fopen(argv[3], "w");
+        int prev = 0;
+        for (int j = 0; f && j < layer; j++)
+          if (in[j] != prev) { fprintf(f, "input=%d,%d\n", j * STEP + 1, in[j]); prev = in[j]; }
+        if (f) fclose(f);
+      }
       return 1;
     }
     if (finish >= 0) { parents[(size_t)layer * WIDTH] = pending[finish]; finish = 0; break; }

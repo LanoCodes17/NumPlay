@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "assets.h"
+#include "assets_lv.h"
 
 /* The screen is rendered in horizontal strips: every primitive clips to the
  * current strip, so a full frame needs only one strip of RGB565 memory. */
@@ -42,7 +43,7 @@ static inline uint16_t px_add(uint16_t d, uint16_t s, unsigned a32) {
 enum { BLEND_NORMAL = 0, BLEND_ADD = 1 };
 /* Transform bits: rotation in 90 degree clockwise steps, then flips (applied
  * to the source first, as in cocos2d). */
-enum { XF_ROT = 3, XF_FLIPX = 4, XF_FLIPY = 8 };
+enum { XF_ROT = 3, XF_FLIPX = 4, XF_FLIPY = 8, XF_ANCHOR = 16 /* gfx_sprite_ex: mirror about the anchor */ };
 
 void gfx_fill(int x, int y, int w, int h, color_t c);
 void gfx_blend(int x, int y, int w, int h, color_t c, unsigned alpha256);
@@ -62,6 +63,14 @@ void gfx_sprite(int spr, int x, int y, int xform, color_t tint, unsigned alpha25
  * 1/16 px, scale in 1/256. */
 void gfx_sprite_ex(int spr, int x16, int y16, int angle_deg16, int scale256, int flips, color_t tint, unsigned alpha256, int mode);
 int gfx_sprite_w(int spr, int xform);
+/* Rows [y0, y1) that gfx_sprite and gfx_sprite_ex can draw on (before
+   clipping), so callers can skip strips they would not touch. */
+void gfx_sprite_rows(int spr, int y, int xform, int *y0, int *y1);
+void gfx_sprite_ex_rows(int spr, int x16, int y16, int angle_deg16, int scale256, int *y0, int *y1);
+/* Sprites of both sets (assets.h, then assets_lv.h). */
+static inline const Sprite *sprite_def(int spr) { return spr < SPR_COUNT ? &sprites[spr] : &sprites_lv[spr - SPR_COUNT]; }
+/* Filled rectangle with anti-aliased edges (pixel coordinates). */
+void gfx_rectf(float x0, float y0, float x1, float y1, color_t c, unsigned alpha256, int mode);
 int gfx_sprite_h(int spr, int xform);
 
 int gfx_text_width(int font, const char *s);

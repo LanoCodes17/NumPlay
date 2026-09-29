@@ -1,76 +1,83 @@
 {
-  "source": "https://github.com/AleFunky/gd3ds/tree/cdea1c2fad3d67fa17d2cfa781013b0ee58bb280/romfs/main_levels",
   "levels": [
     {
       "name": "STEREO MADNESS",
       "file": "levels/reference/StereoMadness.gmd",
+      "source": "https://github.com/AleFunky/gd3ds/tree/cdea1c2fad3d67fa17d2cfa781013b0ee58bb280/romfs/main_levels",
       "sha256": "e42799a8d482d3a99d6f91f715de89258c2f95d4ea863151fe617bdb7c661ed3",
       "objects": 2272,
       "events": 19,
-      "compressed_bytes": 2247,
+      "compressed_bytes": 2474,
       "skipped_ids": {}
     },
     {
       "name": "BACK ON TRACK",
       "file": "levels/reference/BackOnTrack.gmd",
+      "source": "https://github.com/AleFunky/gd3ds/tree/cdea1c2fad3d67fa17d2cfa781013b0ee58bb280/romfs/main_levels",
       "sha256": "6e77d5d126da52f8010cc775030e2376c685bd2dd930f7bc7f7eddc13da85f75",
       "objects": 1530,
       "events": 15,
-      "compressed_bytes": 1486,
+      "compressed_bytes": 1589,
       "skipped_ids": {}
     },
     {
       "name": "POLARGEIST",
       "file": "levels/reference/Polargeist.gmd",
+      "source": "https://github.com/AleFunky/gd3ds/tree/cdea1c2fad3d67fa17d2cfa781013b0ee58bb280/romfs/main_levels",
       "sha256": "bb75d5f0ab577c7586c1143202f54dd39ba9237ed49a20cab3132092161b8e02",
       "objects": 1509,
       "events": 22,
-      "compressed_bytes": 1934,
+      "compressed_bytes": 2107,
       "skipped_ids": {}
     },
     {
       "name": "DRY OUT",
       "file": "levels/reference/DryOut.gmd",
+      "source": "https://github.com/AleFunky/gd3ds/tree/cdea1c2fad3d67fa17d2cfa781013b0ee58bb280/romfs/main_levels",
       "sha256": "29349b1d9a72cf832a7236674e0360834203c35a16d90ebe2152bbbe72b3b0e3",
       "objects": 1402,
       "events": 42,
-      "compressed_bytes": 1823,
+      "compressed_bytes": 1965,
       "skipped_ids": {}
     },
     {
       "name": "BASE AFTER BASE",
       "file": "levels/reference/BaseAfterBase.gmd",
+      "source": "https://github.com/AleFunky/gd3ds/tree/cdea1c2fad3d67fa17d2cfa781013b0ee58bb280/romfs/main_levels",
       "sha256": "f43634e6b4f5e0d02ff903f7890e478a1b61ba714b960d684aed0e85fa3ae94f",
       "objects": 2126,
       "events": 20,
-      "compressed_bytes": 2332,
+      "compressed_bytes": 2478,
       "skipped_ids": {}
     },
     {
       "name": "CAN'T LET GO",
       "file": "levels/reference/CantLetGo.gmd",
+      "source": "https://github.com/AleFunky/gd3ds/tree/cdea1c2fad3d67fa17d2cfa781013b0ee58bb280/romfs/main_levels",
       "sha256": "0e081466ff06567cf8eddbcb2a0b6580867838be30bcff74954d7f1bc9b0aa4d",
       "objects": 1691,
       "events": 13,
-      "compressed_bytes": 2049,
+      "compressed_bytes": 2152,
       "skipped_ids": {}
     },
     {
       "name": "JUMPER",
       "file": "levels/reference/Jumper.gmd",
+      "source": "https://github.com/AleFunky/gd3ds/tree/cdea1c2fad3d67fa17d2cfa781013b0ee58bb280/romfs/main_levels",
       "sha256": "20918d084e122190dff545fc20a2a91037bd82e0dce5db002486fdf6563c862a",
       "objects": 2767,
       "events": 46,
-      "compressed_bytes": 2498,
+      "compressed_bytes": 2792,
       "skipped_ids": {}
     },
     {
       "name": "TIME MACHINE",
       "file": "levels/reference/TimeMachine.gmd",
+      "source": "https://github.com/AleFunky/gd3ds/tree/cdea1c2fad3d67fa17d2cfa781013b0ee58bb280/romfs/main_levels",
       "sha256": "9892fedc491a190403b109f6561edcc8085f0ad802773cab076ac70eea9fb369",
       "objects": 3563,
       "events": 30,
-      "compressed_bytes": 4541,
+      "compressed_bytes": 4988,
       "skipped_ids": {
         "45": 3,
         "46": 3
@@ -79,13 +86,85 @@
     {
       "name": "CYCLES",
       "file": "levels/reference/Cycles.gmd",
+      "source": "https://github.com/AleFunky/gd3ds/tree/cdea1c2fad3d67fa17d2cfa781013b0ee58bb280/romfs/main_levels",
       "sha256": "7da96eba59a34ca99d20081838c35468bf29312051fbe8bd178c62ff1edbd9e5",
       "objects": 3852,
       "events": 66,
-      "compressed_bytes": 4313,
+      "compressed_bytes": 4641,
       "skipped_ids": {
         "45": 2,
         "46": 1
+      }
+    },
+    {
+      "name": "CLUBSTEP",
+      "file": "levels/reference/Clubstep.gmd",
+      "source": "https://github.com/UHDanke/gmdkit/tree/ec79468588c6beb46712fbdc142bb06fa9a1d9c5/data/txt/object_string/official/main/14.txt",
+      "sha256": "e5e8ef91c0fb788bb0352ff759c85115e01f849257e36b85de028761772a8953",
+      "objects": 7506,
+      "events": 0,
+      "compressed_bytes": 13338,
+      "skipped_ids": {}
+    },
+    {
+      "name": "DEADLOCKED",
+      "file": "levels/reference/Deadlocked.gmd",
+      "source": "https://github.com/UHDanke/gmdkit/tree/ec79468588c6beb46712fbdc142bb06fa9a1d9c5/data/txt/object_string/official/main/20.txt",
+      "sha256": "9f3b0893b3aef222b9031920a3f938817655978619da74099debb60fe8742cf2",
+      "objects": 19006,
+      "events": 0,
+      "compressed_bytes": 43969,
+      "skipped_ids": {
+        "115": 3,
+        "914": 16
+      }
+    },
+    {
+      "name": "DASH",
+      "file": "levels/reference/Dash.gmd",
+      "source": "https://github.com/UHDanke/gmdkit/tree/ec79468588c6beb46712fbdc142bb06fa9a1d9c5/data/txt/object_string/official/main/22.txt",
+      "sha256": "b6303210b41ed372c2234648c1482be8df501b5e98460805f2c4a46305d497f3",
+      "objects": 16771,
+      "events": 0,
+      "compressed_bytes": 53732,
+      "skipped_ids": {
+        "31": 10,
+        "914": 4,
+        "1585": 25,
+        "1915": 4,
+        "1964": 14,
+        "2015": 20,
+        "2016": 17,
+        "2062": 4,
+        "2065": 427,
+        "2067": 6,
+        "2899": 10,
+        "2903": 18,
+        "2904": 14,
+        "2905": 2,
+        "2907": 1,
+        "2910": 4,
+        "2911": 8,
+        "2913": 9,
+        "2914": 4,
+        "2916": 2,
+        "2919": 7,
+        "2920": 8,
+        "2921": 2,
+        "2922": 8,
+        "2923": 23,
+        "2999": 5,
+        "3006": 3,
+        "3010": 2,
+        "3011": 1,
+        "3016": 1,
+        "3020": 1,
+        "3021": 1,
+        "3029": 3,
+        "3032": 10,
+        "3033": 1,
+        "3608": 2,
+        "3662": 3
       }
     }
   ]

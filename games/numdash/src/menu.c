@@ -15,6 +15,11 @@ static color_t page_color(int i) {
   return rgb(page_colors[i][0], page_colors[i][1], page_colors[i][2]);
 }
 static int wrap(int v, int n) { v %= n; return v < 0 ? v + n : v; }
+/* GD colours a level's page by its place among all the official levels */
+static color_t level_color(int i) {
+  static const uint8_t gd_index[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 19, 21};
+  return page_color(i < (int)sizeof(gd_index) ? gd_index[i] : i);
+}
 
 enum { POP_NONE, POP_SETTINGS, POP_STATS, POP_HELP };
 static int popup, popup_sel, help_page;
@@ -215,7 +220,9 @@ static void level_page(int page, int dx) {
   float sc = app.press_id == 100 && page == app.select_page ? 1 + 0.12f * ui_ease_bounce_out(fminf(app.press_t / 0.12f, 1)) : 1;
   int w = (int)(242 * sc), h = (int)(84 * sc);
   ui_window_dark(cx - w / 2, 80 - h / 2, w, h, 90);
-  gfx_sprite(SPR_FACE1 + (d->difficulty > 0 ? d->difficulty - 1 : 0), cx - 97, 82, 0, 0xffff, 256, BLEND_NORMAL);
+  /* difficulty 1-5: easy .. insane, 6: demon */
+  int face = d->difficulty >= 6 ? SPR_FACE_DEMON : SPR_FACE1 + (d->difficulty > 0 ? d->difficulty - 1 : 0);
+  gfx_sprite(face, cx - 97, 82, 0, 0xffff, 256, BLEND_NORMAL);
   gfx_text_center(FONT_BIG, cx + 17, 87, d->name, 0xffff, 0xffff, 256);
   char buf[8];
   gfx_format_uint(buf, d->stars);
@@ -233,7 +240,7 @@ static void select_draw(void) {
   float sc = app.select_scroll;
   int base = (int)floorf(sc);
   float fr = sc - base;
-  color_t c = c_mix(page_color(wrap(base, LEVEL_COUNT)), page_color(wrap(base + 1, LEVEL_COUNT)), (unsigned)(fr * 256));
+  color_t c = c_mix(level_color(wrap(base, LEVEL_COUNT)), level_color(wrap(base + 1, LEVEL_COUNT)), (unsigned)(fr * 256));
   ui_gradient_bg(c);
   scene_ground(c, 0xffff, 0, 212, false, true);
   ui_side_art();
@@ -349,7 +356,7 @@ void menu_enter(Screen s) {
   } else if (s == SCR_MENU) {
     memset(&menu_level, 0, sizeof(menu_level));
     menu_level.name = "";
-    menu_level.objs = level_objs;
+    level_load_flat(&menu_level, level_objs, 0);
     menu_level.end_x = menu_level.wall_x = 65000;
     for (int c = 0; c < CH_COUNT; c++) memset(menu_level.colors[c], 255, 3);
     app.g.L = NULL;

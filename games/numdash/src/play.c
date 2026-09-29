@@ -180,8 +180,7 @@ static void on_complete(void) {
   phase2 = false;
   rings_a = rings_b = fireworks = 0;
   coins_run = coins_new = 0;
-  for (unsigned k = 0; k < app.L.coin_count; k++)
-    if (game_used(&app.g, app.L.coin_obj[k])) coins_run |= (uint8_t)(1u << k);
+  coins_run = app.g.coins & (uint8_t)((1u << app.L.coin_count) - 1);
   stars_new = false;
   if (!app.testing) {
     LevelStat *s = &progress.lv[app.level];
@@ -276,7 +275,7 @@ void play_tick(void) {
     on_complete();
   } else if (app.practice && (progress.options & OPT_AUTOCHECK)) {
     app.auto_check_t += ND_DT;
-    if (app.auto_check_t >= 2.0f && !g->ending && (g->p.mode == MODE_SHIP || (g->p.on_ground && !g->old_on_ground))) place_checkpoint();
+    if (app.auto_check_t >= 2.0f && !g->ending && (g->p.mode == MODE_SHIP || (g->p.on_ground && !g->p.old_on_ground))) place_checkpoint();
   }
 }
 

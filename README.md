@@ -6,7 +6,8 @@
 
 <p align="center">
   <b>17 free games for your NumWorks calculator, in one app.</b><br>
-  NumDash, Crossy Road, NumDrive, Balatro, Buckshot Roulette, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, NumDance, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.
+  NumDash, Crossy Road, NumDrive, Balatro, Buckshot Roulette, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, NumDance, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.<br>
+  And <b>Champion Island</b>, the Doodle Champion Island Games, as an app of its own.
 </p>
 
 <p align="center">
@@ -65,6 +66,10 @@ Click a file to download it. Not sure which one? Take the first.
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_buckshot.png" width="112" alt="Buckshot Roulette"></td>
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/BuckshotRoulette.nwa">BuckshotRoulette.nwa</a><br>Only Buckshot Roulette: you, the Dealer, one shotgun</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_championisland.png" width="112" alt="Champion Island"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/ChampionIsland.nwa">ChampionIsland.nwa</a><br>Champion Island: the whole island and its seven sports. It fills the calculator's app space, so it comes on its own, not inside NumPlay (<a href="games/championisland/README.md">more</a>)</td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_portal.png" width="112" alt="Portal Returns"></td>
@@ -156,6 +161,10 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
     <td><img src="docs/media/portal.gif" alt="Portal Returns: falling through a portal and flying across a test chamber"></td>
   </tr>
   <tr>
+    <td><img src="docs/media/championisland.gif" alt="Champion Island: Lucky crossing the island, then the island map"></td>
+    <td><img src="docs/media/championisland_sports.gif" alt="Champion Island: its seven sports"></td>
+  </tr>
+  <tr>
     <td><img src="docs/media/tetris.gif" alt="Tetris gameplay"></td>
     <td><img src="docs/media/chess.gif" alt="Chess against a bot"></td>
   </tr>
@@ -192,7 +201,8 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
 - **[gd3ds](https://github.com/AleFunky/gd3ds)** by AleFunky and friends, whose research into Geometry Dash made NumDash possible.
 - **Balatro** by LocalThunk inspired NumPlay's Balatro, which uses art adapted from the game and the **m6x11** font by Daniel Linssen.
 - **Buckshot Roulette** by Mike Klubnika inspired NumPlay's Buckshot Roulette, whose scenes are rendered from the game through the Open Buckshot Roulette project (1503Dev). Fonts: Fake Receipt by Ray Larabie and Dot Matrix by Dionaea.
+- The **Doodle Champion Island Games** (2021) inspired Champion Island, which uses the doodle's own pictures, maps and texts from the [Google-Doodle-Champion-Island](https://github.com/potherca-blog/Google-Doodle-Champion-Island) archive by potherca-blog, and the **PixelMplus** font by Itou Hiroki ([license](LICENSES/PixelMplus.txt)).
 - **[Portal Returns](https://www.cemetech.net/downloads/files/1313/x1313)** by MateoConLechuga for the TI-84 Plus CE, with sprites by CKH4 and Portal Prelude chambers ported by Unicorn from BuilderBoy's original.
 - The **Nunito** and **Rammetto One** fonts, under the SIL Open Font License ([LICENSES](LICENSES)).
 
-<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, LocalThunk or Playstack (Balatro), Mike Klubnika or Critical Reflex (Buckshot Roulette), MateoConLechuga (Portal Returns), Valve (Portal), .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Google (Snake, Solitaire, Block Breaker, Doodle Champion Island Games) or Microsoft (Minesweeper). Tetris is a trademark of The Tetris Company, Pac-Man of Bandai Namco and Connect Four of Hasbro.</sub>
+<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, LocalThunk or Playstack (Balatro), Mike Klubnika or Critical Reflex (Buckshot Roulette), MateoConLechuga (Portal Returns), Valve (Portal), .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Google (Snake, Solitaire, Block Breaker, Doodle Champion Island Games), STUDIO4°C or Microsoft (Minesweeper). Tetris is a trademark of The Tetris Company, Pac-Man of Bandai Namco and Connect Four of Hasbro.</sub>

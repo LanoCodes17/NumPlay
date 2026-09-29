@@ -98,6 +98,33 @@ Shooting yourself with a blank keeps your turn.
 
 <br clear="right">
 
+## Champion Island
+
+<img src="media/championisland.gif" width="320" align="right" alt="Champion Island: Lucky crossing the island, then the island map">
+
+Champion Island comes as its own app, `ChampionIsland.nwa`: it is too big to share the calculator with NumPlay.
+
+| Key | What it does |
+| --- | --- |
+| **Arrows** (or 4, 6, 8, 2) | Walk, and play |
+| **OK**, **EXE** or 5 | Talk, go through doors, and each sport's action |
+| **Back** | On the island: the map. In a sport: pause |
+| **Home** | Save and quit |
+
+| Sport | Arrows | OK |
+| --- | --- | --- |
+| Table Tennis | Move to the ball | Power shot |
+| Skateboarding | Move and do tricks | Jump and do tricks |
+| Archery | Move | Shoot |
+| Rugby | Move | Pass |
+| Artistic Swimming | Hit the arrow beats | |
+| Marathon | Move | Dodge |
+| Climbing | Move | Jump |
+
+Every sport shows its rules and keys before it starts. Your progress is also copied into `champion_saves.py`, so installing the app again doesn't erase it.
+
+<br clear="right">
+
 ## Portal Returns
 
 <img src="media/portal.gif" width="320" align="right" alt="Portal Returns: falling through a portal and flying across a test chamber">

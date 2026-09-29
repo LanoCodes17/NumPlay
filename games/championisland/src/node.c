@@ -241,6 +241,7 @@ NodeId node_new_sym_frame(uint16_t sym, int frame) {
 static void instantiate_children(NodeId n) {
   Clip c;
   if (!clip_get(nodes[n].sym, &c)) return;
+  bool map_kids = c.T != NONE16 && comp_has(c.T, C_map);
   const uint8_t *p = c.slots;
   NodeId last = 0;
   for (unsigned s = 0; s < c.nslots; s++) {
@@ -256,7 +257,8 @@ static void instantiate_children(NodeId n) {
       if (k.start <= nodes[n].frame) { cur = k; has_cur = true; cur_idx = (uint16_t)i; }
     }
     p = q;
-    if (!has || !needs_node(&first_present)) continue;
+    /* a map's children are all nodes: the map sorts them by depth */
+    if (!has || !(needs_node(&first_present) || map_kids)) continue;
     if (only_current && (!has_cur || (cur.flags & K_ABSENT))) continue;
     if (only_current) first_present = cur;
     NodeId ch = new_child_for(&first_present);
@@ -890,6 +892,7 @@ void node_stream(NodeId n, float x0, float y0, float x1, float y1) {
   }
   const uint8_t *q = c.slots;
   int hi = 0;
+  bool map_kids = c.T != NONE16 && comp_has(c.T, C_map);
   for (unsigned s = 0; s < c.nslots; s++) {
     Key k;
     uint16_t idx;
@@ -898,7 +901,7 @@ void node_stream(NodeId n, float x0, float y0, float x1, float y1) {
     NodeId got = hi < nh && nodes[have[hi]].slot == s ? have[hi] : 0;
     bool present = idx != NONE16 && !(k.flags & K_ABSENT);
     float bx, by, bw, bh;
-    bool near = present && needs_node(&k) && key_bounds(&k, &bx, &by, &bw, &bh) && bx < x1 && by < y1 && bx + bw > x0 && by + bh > y0;
+    bool near = present && (needs_node(&k) || map_kids) && key_bounds(&k, &bx, &by, &bw, &bh) && bx < x1 && by < y1 && bx + bw > x0 && by + bh > y0;
     if (near && !got) {
       if (nh >= HAVE_MAX) continue;
       NodeId nc = new_child_for(&k);

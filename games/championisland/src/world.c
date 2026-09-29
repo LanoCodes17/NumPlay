@@ -20,8 +20,8 @@
 
 /* ---------------------------------------------------------------- the world table (pack.py) */
 typedef struct {
-  const uint8_t *cells, *list, *stoffs, *regions, *lut;
-  uint16_t map_sym, nstatic, nregions, sheet, gw, gh, cell;
+  const uint8_t *cells, *list, *wcells, *wlist, *stoffs, *stbase, *walls, *regions, *lut;
+  uint16_t map_sym, nstatic, nwalls, nregions, sheet, cell, gw, gh;
   int16_t gx0, gy0;
 } WorldData;
 static WorldData wd;
@@ -36,29 +36,28 @@ static bool world_load(uint16_t map_sym) {
     if (rd16(w) != map_sym) continue;
     wd.map_sym = map_sym;
     wd.nstatic = rd16(w + 2);
-    wd.nregions = rd16(w + 4);
-    wd.sheet = rd16(w + 6);
-    wd.gx0 = rds16(w + 8);
-    wd.gy0 = rds16(w + 10);
-    wd.gw = rd16(w + 12);
-    wd.gh = rd16(w + 14);
-    wd.cell = rd16(w + 16);
-    wd.cells = ci_data + rd32(w + 20);
-    wd.list = ci_data + rd32(w + 24);
-    wd.stoffs = ci_data + rd32(w + 28);
-    wd.regions = ci_data + rd32(w + 32);
-    wd.lut = ci_data + rd32(w + 36);
+    wd.nwalls = rd16(w + 4);
+    wd.nregions = rd16(w + 6);
+    wd.sheet = rd16(w + 8);
+    wd.cell = rd16(w + 10);
+    wd.gx0 = rds16(w + 12);
+    wd.gy0 = rds16(w + 14);
+    wd.gw = rd16(w + 16);
+    wd.gh = rd16(w + 18);
+    const uint8_t **ptrs[] = {&wd.cells, &wd.list, &wd.wcells, &wd.wlist, &wd.stoffs, &wd.stbase, &wd.walls, &wd.regions, &wd.lut};
+    for (int k = 0; k < 9; k++) *ptrs[k] = ci_data + rd32(w + 20 + 4 * k);
     return true;
   }
   return false;
 }
 
-/* a static: f32 key, i16 box x0 y0 x1 y1, u8 draws, u8 flags (1: solid), [i16 solid box], draws */
+/* a static: f32 key, i16 x0 y0, u16 w h (its box), u8 draws, u8 flags (1: solid), [i16 solid box], draws */
 typedef struct { float key; int16_t x0, y0, x1, y1; uint8_t ndraws, flags; int16_t c[4]; const uint8_t *draws; } Static;
 static void static_get(unsigned i, Static *s) {
-  const uint8_t *p = ci_data + rd32(wd.stoffs + 4 * i);
+  const uint8_t *p = wd.stbase + 4u * rd16(wd.stoffs + 2 * i);
   s->key = rdf(p);
-  s->x0 = rds16(p + 4); s->y0 = rds16(p + 6); s->x1 = rds16(p + 8); s->y1 = rds16(p + 10);
+  s->x0 = rds16(p + 4); s->y0 = rds16(p + 6);
+  s->x1 = (int16_t)(s->x0 + rd16(p + 8)); s->y1 = (int16_t)(s->y0 + rd16(p + 10));
   s->ndraws = p[12];
   s->flags = p[13];
   p += 14;
@@ -69,9 +68,27 @@ static void static_get(unsigned i, Static *s) {
   s->draws = p;
 }
 
+/* a draw of a static: u16 sprite, u8 flags (0-2 BD_*, 8: alpha follows, 16: 16-bit offsets), offsets from the box, [alpha] */
+typedef struct { uint16_t sp; int16_t x, y; uint8_t flags, alpha; } Draw;
+static const uint8_t *draw_next(const uint8_t *p, const Static *s, Draw *d) {
+  d->sp = rd16(p);
+  uint8_t f = p[2];
+  p += 3;
+  if (f & 16) { d->x = (int16_t)(s->x0 + rd16(p)); d->y = (int16_t)(s->y0 + rd16(p + 2)); p += 4; }
+  else { d->x = (int16_t)(s->x0 + p[0]); d->y = (int16_t)(s->y0 + p[1]); p += 2; }
+  d->alpha = 255;
+  if (f & 8) d->alpha = *p++;
+  d->flags = f & 7;
+  return p;
+}
+
+static void wall_get(unsigned i, int16_t c[4]) {
+  for (int k = 0; k < 4; k++) c[k] = rds16(wd.walls + 8 * i + 2 * k);
+}
+
 #define STATIC_BITS 2048
-/* marks the statics whose cells meet the world rect (ids are in draw order) */
-static int statics_in(float x0, float y0, float x1, float y1, uint8_t *bits, int *lo, int *hi) {
+/* marks the ids of a grid (statics or walls) whose cells meet the world rect */
+static int grid_in(const uint8_t *cells, const uint8_t *list, float x0, float y0, float x1, float y1, uint8_t *bits, int *lo, int *hi) {
   int cx0 = (int)floorf((x0 - wd.gx0) / wd.cell), cy0 = (int)floorf((y0 - wd.gy0) / wd.cell);
   int cx1 = (int)floorf((x1 - wd.gx0) / wd.cell), cy1 = (int)floorf((y1 - wd.gy0) / wd.cell);
   if (cx0 < 0) cx0 = 0;
@@ -81,11 +98,12 @@ static int statics_in(float x0, float y0, float x1, float y1, uint8_t *bits, int
   int n = 0;
   *lo = STATIC_BITS;
   *hi = -1;
+  if (!wd.cell) return 0;
   for (int cy = cy0; cy <= cy1; cy++)
     for (int cx = cx0; cx <= cx1; cx++) {
       unsigned c = (unsigned)(cy * wd.gw + cx);
-      for (uint32_t k = rd32(wd.cells + 4 * c); k < rd32(wd.cells + 4 * c + 4); k++) {
-        int id = rd16(wd.list + 2 * k);
+      for (unsigned k = rd16(cells + 2 * c); k < rd16(cells + 2 * c + 2); k++) {
+        int id = rd16(list + 2 * k);
         if (id >= STATIC_BITS || (bits[id >> 3] & (1 << (id & 7)))) continue;
         bits[id >> 3] |= (uint8_t)(1 << (id & 7));
         if (id < *lo) *lo = id;
@@ -96,10 +114,14 @@ static int statics_in(float x0, float y0, float x1, float y1, uint8_t *bits, int
   return n;
 }
 
+static int statics_in(float x0, float y0, float x1, float y1, uint8_t *bits, int *lo, int *hi) {
+  return grid_in(wd.cells, wd.list, x0, y0, x1, y1, bits, lo, hi);
+}
+
 /* ---------------------------------------------------------------- scene state */
 #define WATER 48
 #define FRONT_MAX 40
-#define SOLID_MAX 36
+#define SOLID_MAX 40
 typedef struct {
   uint8_t water[WATER * WATER];        /* the sea's tile now (w9a: frames 0-15, 16-31) */
   int water_look;                      /* which, -1 before the first */
@@ -132,9 +154,11 @@ static void paint(int x0, int y0, int w, int h) {
     Static s;
     static_get((unsigned)id, &s);
     if (s.x1 <= x0 || s.y1 <= y0 || s.x0 >= x0 + w || s.y0 >= y0 + h) continue;
+    const uint8_t *p = s.draws;
     for (int d = 0; d < s.ndraws; d++) {
-      const uint8_t *p = s.draws + 8 * d;
-      bg_draw(rd16(p), rds16(p + 2), rds16(p + 4), p[6], p[7]);
+      Draw dr;
+      p = draw_next(p, &s, &dr);
+      bg_draw(dr.sp, dr.x, dr.y, dr.flags, dr.alpha);
     }
   }
 }
@@ -159,15 +183,16 @@ static float draw_key(NodeId c) {
 static void draw_static_over(unsigned id, Mat m, uint8_t alpha) {
   Static s;
   static_get(id, &s);
+  const uint8_t *p = s.draws;
   for (int d = 0; d < s.ndraws; d++) {
-    const uint8_t *p = s.draws + 8 * d;
-    if (p[7] != 255) continue;          /* see-through parts (shadows) are already in the layer */
-    uint16_t sp = rd16(p);
+    Draw dr;
+    p = draw_next(p, &s, &dr);
+    if (dr.alpha != 255) continue;      /* see-through parts (shadows) are already in the layer */
     Sprite si;
-    sprite_info(sp, &si);
+    sprite_info(dr.sp, &si);
     if (si.kind > 1) continue;          /* big ground images never stand in front */
-    int x = rds16(p + 2), y = rds16(p + 4);
-    uint8_t f = p[6];
+    int x = dr.x, y = dr.y;
+    uint8_t f = dr.flags;
     /* the drawn rectangle's corner, back to a matrix */
     Mat dm;
     if (f & BD_TRANSPOSE) {
@@ -177,7 +202,7 @@ static void draw_static_over(unsigned id, Mat m, uint8_t alpha) {
       float a = f & BD_FLIPX ? -1.f : 1.f, dd = f & BD_FLIPY ? -1.f : 1.f;
       dm = (Mat){a, 0, 0, dd, a < 0 ? x + si.w : x, dd < 0 ? y + si.h : y};
     }
-    gfx_sprite_ex(sp, mat_mul(m, dm), alpha, true);
+    gfx_sprite_ex(dr.sp, mat_mul(m, dm), alpha, true);
   }
 }
 
@@ -312,46 +337,61 @@ void overworld_teleport(const char *location) {
 }
 
 /* ---------------------------------------------------------------- physics near the player */
+/* the walls and solid statics near the player are bodies (ids: statics as is, walls + 0x8000) */
+static bool solid_box(uint16_t id, int16_t c[4]) {
+  if (id & 0x8000) { wall_get(id & 0x7FFF, c); return true; }
+  Static s;
+  static_get(id, &s);
+  memcpy(c, s.c, sizeof s.c);
+  return s.flags & 1;
+}
+
+static void solid_add(uint16_t id, int type) {
+  for (int i = 0; i < W->nsolid; i++) if (W->solid_id[i] == id) return;
+  if (W->nsolid >= SOLID_MAX) return;
+  int16_t c[4];
+  if (!solid_box(id, c)) return;
+  float hw = (c[2] - c[0]) * .5f, hh = (c[3] - c[1]) * .5f;
+  int b = phys_add(type, SH_BOX, c[0] + hw, c[1] + hh, 50, hw, hh, 50);
+  if (b < 0) return;
+  bodies[b].user = 0;
+  W->solid_id[W->nsolid] = id;
+  W->solid_body[W->nsolid++] = (int16_t)b;
+}
+
 static void solids_update(void) {
   if (!W->player) return;
   float px, py;
   ent_pos(W->player, &px, &py);
-  if (W->solid_valid && fabsf(px - W->solid_x) < 32 && fabsf(py - W->solid_y) < 32) return;
+  if (W->solid_valid && fabsf(px - W->solid_x) < 16 && fabsf(py - W->solid_y) < 16) return;
   W->solid_valid = true;
   W->solid_x = px;
   W->solid_y = py;
-  const float R = 112;
+  const float R = 56;
   /* drop the far ones */
   for (int i = 0; i < W->nsolid; i++) {
-    Static s;
-    static_get(W->solid_id[i], &s);
-    float cx = (s.c[0] + s.c[2]) * .5f, cy = (s.c[1] + s.c[3]) * .5f;
-    if (fabsf(cx - px) > R + 48 + (s.c[2] - s.c[0]) * .5f || fabsf(cy - py) > R + 48 + (s.c[3] - s.c[1]) * .5f) {
+    int16_t c[4];
+    solid_box(W->solid_id[i], c);
+    if (c[2] < px - R - 32 || c[0] > px + R + 32 || c[3] < py - R - 32 || c[1] > py + R + 32) {
       phys_remove(W->solid_body[i]);
       W->solid_id[i] = W->solid_id[--W->nsolid];
       W->solid_body[i] = W->solid_body[W->nsolid];
       i--;
     }
   }
-  uint8_t bits[STATIC_BITS / 8];
-  memset(bits, 0, sizeof bits);
-  int lo, hi;
-  if (!statics_in(px - R, py - R, px + R, py + R, bits, &lo, &hi)) return;
   int type = phys_type("prop");
-  for (int id = lo; id <= hi && W->nsolid < SOLID_MAX; id++) {
-    if (!(bits[id >> 3] & (1 << (id & 7)))) continue;
-    Static s;
-    static_get((unsigned)id, &s);
-    if (!(s.flags & 1) || s.c[2] <= px - R || s.c[0] >= px + R || s.c[3] <= py - R || s.c[1] >= py + R) continue;
-    bool have = false;
-    for (int i = 0; i < W->nsolid; i++) if (W->solid_id[i] == id) have = true;
-    if (have) continue;
-    float hw = (s.c[2] - s.c[0]) * .5f, hh = (s.c[3] - s.c[1]) * .5f;
-    int b = phys_add(type, SH_BOX, s.c[0] + hw, s.c[1] + hh, 50, hw, hh, 50);
-    if (b < 0) break;
-    bodies[b].user = 0;
-    W->solid_id[W->nsolid] = (uint16_t)id;
-    W->solid_body[W->nsolid++] = (int16_t)b;
+  uint8_t bits[STATIC_BITS / 8];
+  int lo, hi;
+  for (int pass = 0; pass < 2; pass++) {
+    memset(bits, 0, sizeof bits);
+    if (!grid_in(pass ? wd.wcells : wd.cells, pass ? wd.wlist : wd.list, px - R, py - R, px + R, py + R, bits, &lo, &hi)) continue;
+    for (int id = lo; id <= hi; id++) {
+      if (!(bits[id >> 3] & (1 << (id & 7)))) continue;
+      uint16_t sid = (uint16_t)(pass ? id | 0x8000 : id);
+      int16_t c[4];
+      if (!solid_box(sid, c) || c[2] <= px - R || c[0] >= px + R || c[3] <= py - R || c[1] >= py + R) continue;
+      solid_add(sid, type);
+    }
   }
 }
 
@@ -759,6 +799,7 @@ static void start_interior(void) {
   ent_register_tree(root);
   translate_tree(root);
   W->map = ent_map;
+  if (W->map) world_load(nodes[W->map].sym);
   for (int i = 0; i < ent_count(); i++) {
     NodeId n = ent_at(i);
     if (n && comp_has(nodes[n].T, C_overworldPlayer)) W->player = n;
@@ -782,6 +823,7 @@ static void tick_interior(void) {
   sys_walk_idle();
   sys_storage_sprites();
   sys_sprite_dirs();
+  solids_update();
   sys_physics();
   sys_ground_height();
   sys_portals();

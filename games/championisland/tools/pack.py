@@ -459,6 +459,48 @@ def tr_of(M, tr):
     return out
 
 
+def classify(lib, g, Mg, statics, kids, order_i, walls_only=False):
+    """A child of a map (or of one of its regions) placed by Mg: baked scenery, or kept live.
+    In rooms only invisible walls are taken out (the rest is small and drawn from the clip)."""
+    L = LIB[lib]['syms']
+    gs = L.get(g.get('sym'), {}) if g.get('sym') else {}
+    T = gs.get('T') or {}
+    dro = (T.get('drawOrderOverride') or {}).get('drawOrder')
+    ground = 'tileBackground' in T or (dro is not None and dro <= -1000)
+    bake = g['t'] == 'b' or ground or (g['t'] == 'm' and set(T) <= BAKE_COMPS and content_static(lib, g['sym']))
+    if g['t'] in ('s', 'x') or g.get('tr', {}).get('nm'):
+        bake = False
+    if not bake:
+        d = dict(g)
+        d['tr'] = tr_of(Mg, g.get('tr', {}))
+        kids.append(d)
+        return order_i
+    draws = []
+    flatten_draws(lib, g['sym'], Mg, g.get('tr', {}).get('a', 1), 0, draws)
+    if walls_only and (draws or 'collidable' not in T):
+        d = dict(g)
+        d['tr'] = tr_of(Mg, g.get('tr', {}))
+        kids.append(d)
+        return order_i
+    coll = None
+    if 'collidable' in T and 'boundable' in T:
+        for bc in gs['frames'][0]:
+            bs = L.get(bc.get('sym'), {}) if bc.get('sym') else {}
+            if 'bounds' in (bs.get('T') or {}):
+                r = sym_bounds(lib, bc['sym'])
+                if r:
+                    coll = aabb(mat_mul(Mg, matrix(bc.get('tr', {}))), r)
+                break
+    key = float(dro) if dro is not None else Mg[5]
+    statics.append({'key': key, 'order': order_i, 'draws': draws, 'coll': coll, 'sym': g.get('sym')})
+    return order_i + 1
+
+
+# the rooms: each frame of the interior library's root shows one room's map
+for c in [c for fr in LIB['interior']['syms']['mbb']['frames'] for c in fr if c.get('sym')]:
+    if 'map' in (LIB['interior']['syms'][c['sym']].get('T') or {}) and ('interior', c['sym']) not in WORLDS:
+        WORLDS.append(('interior', c['sym']))
+
 for lib, mapsym in WORLDS:
     L = LIB[lib]['syms']
     m = L[mapsym]
@@ -468,42 +510,15 @@ for lib, mapsym in WORLDS:
     for c in m['frames'][0]:
         rs = L.get(c.get('sym'), {}) if c.get('sym') else {}
         if 'region' not in (rs.get('T') or {}):
-            kids.append(dict(c))
+            order_i = classify(lib, c, matrix(c.get('tr', {})), statics, kids, order_i, lib == 'interior')
             continue
         Mr = matrix(c['tr'])
         nb = rs.get('nb')
         regions.append((SYM_ID[(lib, c['sym'])], aabb(Mr, nb) if nb else (0, 0, 0, 0)))
         world_drop.add((lib, c['sym']))
         for g in rs['frames'][0]:
-            Mg = mat_mul(Mr, matrix(g.get('tr', {})))
-            gs = L.get(g.get('sym'), {}) if g.get('sym') else {}
-            T = gs.get('T') or {}
-            dro = (T.get('drawOrderOverride') or {}).get('drawOrder')
-            ground = 'tileBackground' in T or (dro is not None and dro <= -1000)
-            bake = g['t'] == 'b' or ground or (g['t'] == 'm' and set(T) <= BAKE_COMPS and content_static(lib, g['sym']))
-            if g['t'] in ('s', 'x'):
-                world_warn['shape/text in region'] += 1
-                bake = False
-            if not bake:
-                d = dict(g)
-                d['tr'] = tr_of(Mg, g.get('tr', {}))
-                kids.append(d)
-                continue
-            draws = []
-            flatten_draws(lib, g['sym'], Mg, g.get('tr', {}).get('a', 1), 0, draws)
-            coll = None
-            if 'collidable' in T and 'boundable' in T:
-                for bc in gs['frames'][0]:
-                    bs = L.get(bc.get('sym'), {}) if bc.get('sym') else {}
-                    if 'bounds' in (bs.get('T') or {}):
-                        r = sym_bounds(lib, bc['sym'])
-                        if r:
-                            coll = aabb(mat_mul(Mg, matrix(bc.get('tr', {}))), r)
-                        break
-            key = float(dro) if dro is not None else Mg[5]
-            statics.append({'key': key, 'order': order_i, 'draws': draws, 'coll': coll, 'sym': g.get('sym')})
-            order_i += 1
-    # the map keeps its own children and gets the regions' live ones
+            order_i = classify(lib, g, mat_mul(Mr, matrix(g.get('tr', {}))), statics, kids, order_i)
+    # the map keeps its live children
     for i, c in enumerate(kids):
         c['i'] = i
     m['frames'] = [kids]
@@ -1175,68 +1190,93 @@ def lut444(sheet):
 
 
 world_offs = []
-for w in WORLD:
-    sts = w['statics']
-    recs = []
-    boxes = []
-    sheets = Counter()
-    for st in sts:
-        draws = []
-        bx0 = by0 = 1e9
-        bx1 = by1 = -1e9
-        for sp, M, a in st['draws']:
-            sh, _, _, sw, shh = SPR[sp]['key']
-            sheets[sh] += 1
-            fl = orientation(M)
-            if fl is None:
-                continue
-            x0_, y0_, x1_, y1_ = aabb(M, (0, 0, sw, shh))
-            x = int(math.floor(x0_ + 0.5))
-            y = int(math.floor(y0_ + 0.5))
-            dw, dh = (shh, sw) if fl & 4 else (sw, shh)
-            draws.append(struct.pack('<HhhBB', sp, x, y, fl, int(round(min(1, a) * 255))))
-            bx0, by0, bx1, by1 = min(bx0, x), min(by0, y), max(bx1, x + dw), max(by1, y + dh)
-        coll = st['coll']
-        if coll:   # invisible walls are found by their solid box
-            cx0, cy0, cx1, cy1 = (int(math.floor(coll[0])), int(math.floor(coll[1])), int(math.ceil(coll[2])), int(math.ceil(coll[3])))
-            bx0, by0, bx1, by1 = min(bx0, cx0), min(by0, cy0), max(bx1, cx1), max(by1, cy1)
-        if bx0 > bx1:
-            bx0 = by0 = bx1 = by1 = 0
-        rec = struct.pack('<fhhhhBB', st['key'], int(bx0), int(by0), int(bx1), int(by1), len(draws), 1 if coll else 0)
-        if coll:
-            rec += struct.pack('<hhhh', *(int(round(v)) for v in coll))
-        rec += b''.join(draws)
-        recs.append(rec)
-        boxes.append((bx0, by0, bx1, by1) if draws or coll else None)
-    gx0 = int(min(b[0] for b in boxes if b)) // WORLD_CELL * WORLD_CELL
-    gy0 = int(min(b[1] for b in boxes if b)) // WORLD_CELL * WORLD_CELL
-    gw = (int(max(b[2] for b in boxes if b)) - gx0) // WORLD_CELL + 1
-    gh = (int(max(b[3] for b in boxes if b)) - gy0) // WORLD_CELL + 1
+LUT_OFF = {}
+
+
+def grid_of(boxes, gx0, gy0, gw, gh):
     cells = [[] for _ in range(gw * gh)]
     for i, b in enumerate(boxes):
-        if not b:
-            continue
-        for cy in range((int(b[1]) - gy0) // WORLD_CELL, (int(b[3]) - 1 - gy0) // WORLD_CELL + 1):
-            for cx in range((int(b[0]) - gx0) // WORLD_CELL, (int(b[2]) - 1 - gx0) // WORLD_CELL + 1):
+        for cy in range((b[1] - gy0) // WORLD_CELL, (b[3] - 1 - gy0) // WORLD_CELL + 1):
+            for cx in range((b[0] - gx0) // WORLD_CELL, (b[2] - 1 - gx0) // WORLD_CELL + 1):
                 cells[cy * gw + cx].append(i)
     starts, lst = [], []
     for c in cells:
         starts.append(len(lst))
         lst += c
     starts.append(len(lst))
-    off_cells = blob.add(b''.join(struct.pack('<I', v) for v in starts), cat='world')
-    off_list = blob.add(b''.join(struct.pack('<H', v) for v in lst), cat='world')
-    st_offs = [blob.add(r, 4, cat='world') for r in recs]
-    off_st = blob.add(b''.join(struct.pack('<I', o) for o in st_offs), cat='world')
-    off_reg = blob.add(b''.join(struct.pack('<Hhhhh', sym, *(int(round(v)) for v in r)) for sym, r in w['regions']), cat='world')
-    sheet = sheets.most_common(1)[0][0]
+    assert len(lst) < 65536
+    return (blob.add(b''.join(struct.pack('<H', v) for v in starts), 2, cat='world'),
+            blob.add(b''.join(struct.pack('<H', v) for v in lst), 2, cat='world'), len(lst))
+
+
+for w in WORLD:
+    recs, boxes, walls = [], [], []
+    sheets = Counter()
+    for st in w['statics']:
+        draws = []
+        coll = st['coll']
+        cb = (int(math.floor(coll[0])), int(math.floor(coll[1])), int(math.ceil(coll[2])), int(math.ceil(coll[3]))) if coll else None
+        for sp, M, a in st['draws']:
+            fl = orientation(M)
+            if fl is None:
+                continue
+            sh, _, _, sw, shh = SPR[sp]['key']
+            sheets[sh] += 1
+            x0_, y0_, _, _ = aabb(M, (0, 0, sw, shh))
+            dw, dh = (shh, sw) if fl & 4 else (sw, shh)
+            draws.append((sp, int(math.floor(x0_ + 0.5)), int(math.floor(y0_ + 0.5)), dw, dh, fl, int(round(min(1, a) * 255))))
+        if not draws:
+            if cb:
+                walls.append(cb)
+            continue
+        bx0, by0 = min(d[1] for d in draws), min(d[2] for d in draws)
+        bx1, by1 = max(d[1] + d[3] for d in draws), max(d[2] + d[4] for d in draws)
+        if cb:
+            bx0, by0, bx1, by1 = min(bx0, cb[0]), min(by0, cb[1]), max(bx1, cb[2]), max(by1, cb[3])
+        rec = struct.pack('<fhhHHBB', st['key'], bx0, by0, bx1 - bx0, by1 - by0, len(draws), 1 if cb else 0)
+        if cb:
+            rec += struct.pack('<hhhh', *cb)
+        for sp, x, y, dw, dh, fl, al in draws:
+            dx, dy = x - bx0, y - by0
+            wide = dx > 255 or dy > 255
+            rec += struct.pack('<HB', sp, fl | (8 if al != 255 else 0) | (16 if wide else 0))
+            rec += struct.pack('<HH', dx, dy) if wide else struct.pack('<BB', dx, dy)
+            if al != 255:
+                rec += bytes([al])
+        while len(rec) % 4:
+            rec += b'\0'
+        recs.append(rec)
+        boxes.append((bx0, by0, bx1, by1))
+    allb = boxes + walls
+    if allb:
+        gx0 = min(b[0] for b in allb) // WORLD_CELL * WORLD_CELL
+        gy0 = min(b[1] for b in allb) // WORLD_CELL * WORLD_CELL
+        gw = (max(b[2] for b in allb) - gx0) // WORLD_CELL + 1
+        gh = (max(b[3] for b in allb) - gy0) // WORLD_CELL + 1
+    else:
+        gx0 = gy0 = 0
+        gw = gh = 1
+    off_cells, off_list, nrefs = grid_of(boxes, gx0, gy0, gw, gh)
+    off_wcells, off_wlist, nwrefs = grid_of(walls, gx0, gy0, gw, gh)
+    base = blob.add(b'', 4, cat='world')
+    rel = []
+    for r in recs:
+        rel.append((blob.add(r, 4, cat='world') - base) // 4)
+    assert not rel or max(rel) < 65536
+    off_stoffs = blob.add(b''.join(struct.pack('<H', v) for v in rel), 2, cat='world')
+    off_walls = blob.add(b''.join(struct.pack('<hhhh', *b) for b in walls), 2, cat='world')
+    off_reg = blob.add(b''.join(struct.pack('<Hhhhh', sym, *(int(round(v)) for v in r)) for sym, r in w['regions']), 2, cat='world')
+    sheet = sheets.most_common(1)[0][0] if sheets else SHEETS.index('overworld-sprite.png')
     if len(sheets) > 1:
         print('world %s: images from sheets %s' % (w['map'], dict(sheets)))
-    off_lut = blob.add(lut444(sheet), cat='world')
-    world_offs.append(blob.add(struct.pack('<HHHHhhHHHHIIIII', SYM_ID[(w['lib'], w['map'])], len(sts), len(w['regions']), sheet,
-                                           gx0, gy0, gw, gh, WORLD_CELL, 0, off_cells, off_list, off_st, off_reg, off_lut)))
-    print('world %s: %d statics, grid %dx%d, %d refs, %d KB' % (w['map'], len(sts), gw, gh, len(lst),
-          (sum(len(r) for r in recs) + 2 * len(lst) + 4 * len(starts) + 4096) // 1024))
+    if sheet not in LUT_OFF:
+        LUT_OFF[sheet] = blob.add(lut444(sheet), cat='world')
+    world_offs.append(blob.add(struct.pack('<HHHHHHhhHHIIIIIIIII', SYM_ID[(w['lib'], w['map'])], len(recs), len(walls), len(w['regions']),
+                                           sheet, WORLD_CELL, gx0, gy0, gw, gh, off_cells, off_list, off_wcells, off_wlist,
+                                           off_stoffs, base, off_walls, off_reg, LUT_OFF[sheet])))
+    if w['lib'] == 'overworld' or os.environ.get('WORLD_DEBUG'):
+        print('world %s: %d statics, %d walls, grid %dx%d, %d+%d refs, %d KB' % (w['map'], len(recs), len(walls), gw, gh, nrefs, nwrefs,
+              (sum(len(r) for r in recs) + 2 * (nrefs + nwrefs + 2 * gw * gh + len(recs)) + 8 * len(walls)) // 1024))
 off_worlds = blob.add(struct.pack('<I', len(world_offs)) + b''.join(struct.pack('<I', o) for o in world_offs))
 
 # strings last (everything above may have added some)

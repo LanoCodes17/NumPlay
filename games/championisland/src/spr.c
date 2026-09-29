@@ -226,7 +226,8 @@ static bool add_from_decoder(uint16_t sp, const Sprite *s, bool force) {
   top -= (bound + 3) & ~3u;          /* give back what the runs did not need */
   if (!r.ok) return false;
   top += (used + 3) & ~3u;
-  ent[nent++] = (Entry){sp, 0, (uint32_t)(p - mem), used, tick};
+  /* sprites decoded on the way (bank neighbours) count as older than any in use */
+  ent[nent++] = (Entry){sp, 0, (uint32_t)(p - mem), used, force || !tick ? tick : tick - 1};
   return true;
 }
 

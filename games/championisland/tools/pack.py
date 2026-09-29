@@ -734,6 +734,54 @@ def child_name(c):
     return nm or pk
 
 
+SLOT_CONFLICTS = []
+
+
+def slot_order(slots, frames):
+    """The children's stacking order over all frames: each frame's own order
+    (a child that shows up later, such as a button's focus background, still
+    goes under the ones it is drawn under), as a topological sort; where two
+    frames disagree the first one wins. Ties: where a child first stands."""
+    first = {i: min((v[0], fi) for fi, v in enumerate(slots[i]) if v is not None) for i in slots}
+    succ = {i: set() for i in slots}
+
+    def reaches(a, b):
+        todo, seen = [a], set()
+        while todo:
+            x = todo.pop()
+            if x == b:
+                return True
+            if x not in seen:
+                seen.add(x)
+                todo.extend(succ[x])
+        return False
+
+    for fr in frames:
+        order = [c['i'] for c in fr]
+        for a, b in zip(order, order[1:]):
+            if a == b or b in succ[a]:
+                continue
+            if reaches(b, a):
+                SLOT_CONFLICTS.append((a, b))
+                continue
+            succ[a].add(b)
+    indeg = {i: 0 for i in slots}
+    for a in slots:
+        for b in succ[a]:
+            indeg[b] += 1
+    ready = sorted((first[i], i) for i in slots if not indeg[i])
+    out = []
+    while ready:
+        _, x = ready.pop(0)
+        out.append(x)
+        for b in succ[x]:
+            indeg[b] -= 1
+            if not indeg[b]:
+                ready.append((first[b], b))
+                ready.sort()
+    return out
+
+
 def child_state(lib, c):
     """What a child slot shows at a frame, as a hashable tuple."""
     tr = c['tr']
@@ -890,8 +938,7 @@ for (lib, k) in SYMS:
         for fi, fr in enumerate(frames):
             for depth, c in enumerate(fr):
                 slots[c['i']][fi] = (depth, child_state(lib, c))
-        # children keep the stacking order they first appear in (Animate keeps layer order)
-        slot_ids = sorted(slots, key=lambda i: min((v[0], fi) for fi, v in enumerate(slots[i]) if v is not None))
+        slot_ids = slot_order(slots, frames)
         body = bytearray()
         for i in slot_ids:
             keys, prev = [], 'x'
@@ -1467,6 +1514,8 @@ tot_streams = sum(v[1] for v in stream_off.values())
 print('symbols %d, sprites %d (%d banks %d KB, %d streams %d KB), mats %d, strings %d, exprs %d, dialog nodes %d, vars %d' % (
     len(SYMS), len(SPR), len(banks), tot_banks // 1024, len(streams), tot_streams // 1024, len(MATS), len(strings), len(EXPRS), len(dlg_index), len(VARS)))
 print({k: v // 1024 for k, v in STATS.items()})
+if SLOT_CONFLICTS:
+    print('clips whose frames disagree on stacking: %d pairs' % len(SLOT_CONFLICTS))
 print('data.bin: %d KB (strings %d KB)' % (len(final) // 1024, len(str_data) // 1024))
 
 if os.environ.get('PACK_STATS'):

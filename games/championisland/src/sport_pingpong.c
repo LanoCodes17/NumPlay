@@ -54,15 +54,6 @@ typedef struct {
 typedef struct { float x, y; uint8_t kind, age; } Part;
 
 typedef struct {
-  const char *text;
-  int t, hold;
-  uint8_t k;
-  float dy;
-  uint16_t shadow, outline;
-  bool on;
-} Banner;
-
-typedef struct {
   NodeId root, map, ui, player, enemy, table, court, ptarget, etarget, ebounds, superbg;
   NodeId t_wp, t_eu, t_score, meter, pprog, eprog, plabel;
   NodeId walls[WALL_MAX];
@@ -93,7 +84,6 @@ typedef struct {
   int last_meter, last_pprog, last_eprog, meter_f;
   Part parts[PART_MAX];
   int nparts;
-  Banner banner;
   char s_wp[16], s_eu[16], s_score[16];
 } State;
 
@@ -307,47 +297,6 @@ static NodeId spawn(uint16_t sym, float x, float y) {
   set_pos(e, x, y);
   init_frame0(e, 0);
   return e;
-}
-
-/* ---------------------------------------------------------------- the banner (To) */
-static void banner(const char *text, int size, uint16_t shadow, uint16_t outline) {
-  Banner *b = &S->banner;
-  b->text = text;
-  b->t = 0;
-  b->hold = 60;                      /* 2000 ms */
-  b->k = size >= 26 * 3 ? 3 : 2;
-  b->dy = size / 3.0f / 12;          /* the shadow sits c/12 lower */
-  b->shadow = shadow;
-  b->outline = outline;
-  b->on = true;
-}
-
-static void banner_draw(void) {
-  Banner *b = &S->banner;
-  if (!b->on || !b->text) return;
-  /* in from the right in 400 ms (cubicOut), out to the left in 300 ms (cubicIn) */
-  float off;
-  int t = b->t;
-  if (t < 12) { float u = 1 - t / 12.0f; off = 1000 / 3.0f * u * u * u; }
-  else if (t < 12 + b->hold) off = 0;
-  else { float u = (t - 12 - b->hold) / 9.0f; off = -1000 / 3.0f * u * u * u; }
-  if (t >= 12 + b->hold + 9) { b->on = false; return; }
-  int h = FONT_HEIGHT * b->k;
-  Mat m = MAT_ID;
-  m.tx = floorf(160 + off);
-  m.ty = floorf(540 * .28f / 3 - h / 2.0f + .5f);
-  Mat s = m;
-  s.ty += floorf(b->dy + .5f);
-  gfx_text_k(b->text, s, b->shadow, 1, 0, 0, 204, b->k);
-  static const int8_t o[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
-  for (int i = 0; i < 4; i++) {
-    Mat q = m;
-    q.tx += o[i][0];
-    q.ty += o[i][1];
-    gfx_text_k(b->text, q, b->outline, 1, 0, 0, 255, b->k);
-  }
-  gfx_text_k(b->text, m, rgb565(255, 255, 255), 1, 0, 0, 255, b->k);
-  b->t++;
 }
 
 /* ---------------------------------------------------------------- balls */
@@ -688,16 +637,16 @@ static void end_of_game(void) {
     return;
   }
   if (S->over || !(S->wp >= S->dJ || S->eu >= S->dJ)) return;
-  uint16_t sh = rgb565(0x11, 0x11, 0x11), ol = rgb565(0x55, 0x55, 0x55);
+  int32_t sh = 0x111111, ol = 0x555555;
   if (S->tutorial) {
-    banner(msg(S->wp > S->eu ? "YOU_WIN" : "YOU_LOSE"), 80, sh, ol);
+    toast_style(msg(S->wp > S->eu ? "YOU_WIN" : "YOU_LOSE"), 80, sh, ol);
     store_set_bool("TUTORIAL_DONE", true);
     S->score = 1;
     S->rating = 3;
   } else {
     S->rating = S->wp >= 30 ? 3 : S->wp >= 20 ? 2 : S->wp >= 10 ? 1 : 0;
     S->score = 100.0f * (S->wp + (S->wp > S->eu ? S->wp - S->eu : 0));
-    banner(msg(S->wp > S->eu ? "YOU_WIN" : "TENGU_WINS"), 80, sh, ol);
+    toast_style(msg(S->wp > S->eu ? "YOU_WIN" : "TENGU_WINS"), 80, sh, ol);
   }
   SOUND(end);
   S->over = true;
@@ -902,11 +851,11 @@ static void start(void) {
 /* ---------------------------------------------------------------- the systems */
 static void countdown(void) {   /* Wo */
   if (!S->counting) return;
-  uint16_t sh = rgb565(0x22, 0x22, 0x22), ol = rgb565(0xaa, 0xaa, 0xaa);
-  if (S->cd == 90) { banner("3", 100, sh, ol); SOUND(beep); }
-  else if (S->cd == 60) { banner("2", 100, sh, ol); SOUND(beep); }
-  else if (S->cd == 30) { banner("1", 100, sh, ol); SOUND(beep); }
-  else if (S->cd == 0) { banner(msg("GO"), 100, sh, ol); SOUND(go); S->counting = false; }
+  int32_t sh = 0x222222, ol = 0xaaaaaa;
+  if (S->cd == 90) { toast_style("3", 100, sh, ol); SOUND(beep); }
+  else if (S->cd == 60) { toast_style("2", 100, sh, ol); SOUND(beep); }
+  else if (S->cd == 30) { toast_style("1", 100, sh, ol); SOUND(beep); }
+  else if (S->cd == 0) { toast_style(msg("GO"), 100, sh, ol); SOUND(go); S->counting = false; }
   if (S->cd > 0) S->cd--;
 }
 
@@ -1036,13 +985,8 @@ static void draw_popup(NodeId f, Mat parent) {
     for (NodeId t = nodes[a].first; t; t = nodes[t].next) {
       if (nodes[t].kind != NK_TEXT || !node_visible(t) || nodes[t].ref == NONE16) continue;
       Mat mt = mat_mul(ma, node_local(t));
-      const uint8_t *pl = payload(nodes[t].ref);
       const char *s = node_text(t);
-      float scale = sqrtf(mt.a * mt.a + mt.b * mt.b), px = pl[2] * scale;
-      int k = px >= 26 ? 3 : px >= 16 ? 2 : 1;
-      int lw = (int)(rds16(pl + 8) * .25f * scale);
-      uint16_t col = s[0] == '-' ? rgb565(0xff, 0x33, 0x33) : rgb565(0xff, 0xff, 0xff);
-      gfx_text_k(s, mt, col, pl[6], (int16_t)lw, 0, (uint8_t)(al * nodes[t].alpha / 255), k);
+      node_text_draw(t, mt, s, s[0] == '-' ? 0xF986 : 0xFFFF, (uint8_t)(al * nodes[t].alpha / 255));   /* #ff3333, #fff */
     }
   }
 }
@@ -1092,7 +1036,6 @@ static void draw_over(void) {
   if (!S) return;
   if (S->map) nodes[S->map].flags |= NF_VISIBLE;
   if (S->map) draw_meter();
-  banner_draw();
 }
 
 static void end(void) {

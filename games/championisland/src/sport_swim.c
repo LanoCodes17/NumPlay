@@ -488,10 +488,10 @@ static void draw_over(void) {
   float alpha = ms <= 700 ? 1 : ms >= 1000 ? 0 : 1 - (ms - 700) / 300;
   if (alpha <= 0) return;
   const char *s = msg(keys[S->judge]);
-  int k = 40.0f / 3 * sc >= 17 ? 2 : 1;
+  int k3 = (int)(40 * sc / 10 + .5f);   /* 40 px on the stage, scaled: in thirds of the font's 10 px */
   Mat m = MAT_ID;
   m.tx = VIEW_W / 2;
-  m.ty = 540 * .28f / 3 - 5.5f * k;
+  m.ty = floorf((540 * .28f - 20 * sc) / 3 + .5f) - k3 / 3;
   uint8_t a = (uint8_t)(alpha * 255);
   uint16_t fg = rgb565(col[S->judge][0], col[S->judge][1], col[S->judge][2]);
   uint16_t ol = rgb565(col[S->judge][3], col[S->judge][4], col[S->judge][5]);
@@ -500,9 +500,9 @@ static void draw_over(void) {
     Mat o = m;
     o.tx += off[i][0];
     o.ty += off[i][1];
-    gfx_text_k(s, o, ol, 1, 0, 0, a, k);
+    gfx_text_k3(s, o, ol, 1, 0, 0, a, k3);
   }
-  gfx_text_k(s, m, fg, 1, 0, 0, a, k);
+  gfx_text_k3(s, m, fg, 1, 0, 0, a, k3);
 }
 
 const SceneDef scene_swim = {"swim", start, tick, end, NULL, draw_over, NULL};

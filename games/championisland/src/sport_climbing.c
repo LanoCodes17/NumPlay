@@ -943,12 +943,12 @@ static void sys_end(void) {
   if (!g) return;
   Ent *v = cl_vel();
   if (S->has_goal && inside(S->goal, rawx(g), rawy(g))) {
-    toast(msg("YOU_WIN"));
+    toast_style(msg("YOU_WIN"), 80, 0x222222, -1);
     finish(altitude_of(rawy(g)), 3);
     S->moving = false;
     if (v) v->vx = v->vy = 0;
   } else if (S->KY < 0) {
-    toast(msg("TIMES_UP"));
+    toast_style(msg("TIMES_UP"), 80, 0x222222, -1);
     int b = altitude_of(rawy(g));
     finish(b, b > 60 ? 2 : b > 30 ? 1 : 0);
     S->moving = false;

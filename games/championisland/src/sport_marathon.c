@@ -70,9 +70,7 @@ typedef struct {
   /* flow */
   Countdown cd;
   bool started, ended, finish_shown;
-  int end_t, rating, banner_t;
-  const char *banner;
-  uint16_t banner_color, banner_outline;
+  int end_t, rating;
   uint32_t score;
   char time_buf[16], speed_buf[32], dist_buf[24], place_buf[OPP_MAX + 1][12];
   uint16_t place_color[OPP_MAX + 1];
@@ -644,13 +642,6 @@ static void hud(void) {
 }
 
 /* ---------------------------------------------------------------- the finish (as) */
-static void banner(const char *s, uint16_t color, uint16_t outline) {   /* To */
-  S->banner = s;
-  S->banner_color = color;
-  S->banner_outline = outline;
-  S->banner_t = 1;
-}
-
 static void finish(void) {
   if (S->ended) {
     if (S->end_t > 0 && --S->end_t == 0) menus_game_over_rated((float)S->score, S->rating);
@@ -670,10 +661,10 @@ static void finish(void) {
     o->vy = 0;
     if (pos_x(o->n) > bx) m++;
   }
-  if (m == 0) banner(msg("FIRST_PLACE"), rgb565(0xff, 0xde, 0x38), rgb565(0xa1, 0x87, 0x22));
-  else if (m == 1) banner(msg("SECOND_PLACE"), rgb565(0xa1, 0xa4, 0xa6), rgb565(0x5f, 0x62, 0x63));
-  else if (m == 2) banner(msg("THIRD_PLACE"), rgb565(0xb5, 0x86, 0x57), rgb565(0x6b, 0x4a, 0x29));
-  else banner(msg("FINISH"), rgb565(0xff, 0xff, 0xff), rgb565(0x55, 0x55, 0x55));
+  if (m == 0) toast_full(msg("FIRST_PLACE"), 80, 0x111111, 0xa18722, 0xffde38);
+  else if (m == 1) toast_full(msg("SECOND_PLACE"), 80, 0x111111, 0x5f6263, 0xa1a4a6);
+  else if (m == 2) toast_full(msg("THIRD_PLACE"), 80, 0x111111, 0x6b4a29, 0xb58657);
+  else toast(msg("FINISH"));
   S->ended = true;
   S->end_t = END_DELAY;
   S->score = S->tick;
@@ -709,7 +700,6 @@ static void tick(void) {
   ephemeral_in(S->map);                  /* Vp */
   if (S->player) ephemeral_in(S->player);
   sort_draw();                           /* Pp */
-  if (S->banner_t > 0) S->banner_t++;
 }
 
 /* ---------------------------------------------------------------- drawing */
@@ -747,46 +737,14 @@ static void draw_text_as(NodeId t, const char *s, uint16_t color) {
   uint8_t alpha = 255;
   for (NodeId p = t; p; p = nodes[p].parent) alpha = (uint8_t)((alpha * nodes[p].alpha + 127) / 255);
   if (!alpha) return;
-  Mat m = mat_mul((Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0}, node_global(t));
-  const uint8_t *p = payload(nodes[t].ref);
-  float scale = sqrtf(m.a * m.a + m.b * m.b), px = p[2] * scale;
-  int k = px >= 26 ? 3 : px >= 16 ? 2 : 1;
-  int lh = (int)(rds16(p + 10) * 0.25f * scale);
-  /* one word: CreateJS only wraps at spaces */
-  gfx_text_k(s, m, color, p[6], 0, (int16_t)lh, alpha, k);
+  node_text_draw(t, mat_mul((Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0}, node_global(t)), s, color, alpha);
 }
-
-static float cubic_out(float t) { return 1 - (1 - t) * (1 - t) * (1 - t); }
 
 static void draw_over(void) {
   if (!S || !S->map) return;
   /* the placement bar's texts */
   if (S->placement && nodes[S->placement].alpha) {
     for (int f = 0; f < S->nplace; f++) draw_text_as(S->place_text[f], S->place_buf[f], S->place_color[f]);
-  }
-  /* To: the banner slides in from the right, stays two seconds, leaves to the left */
-  if (S->banner_t > 0 && S->banner) {
-    int t = S->banner_t - 1;
-    float dx;
-    if (t < 12) dx = 1000 * (1 - cubic_out(t / 12.0f));
-    else if (t < 72) dx = 0;
-    else if (t < 81) { float q = (t - 72) / 9.0f; dx = -1000 * q * q * q; }
-    else return;
-    Mat m = MAT_ID;
-    m.tx = (480 + dx) / 3;
-    m.ty = (151.2f - 40) / 3;
-    Mat s = m;
-    s.ty += 80.0f / 12 / 3;
-    gfx_text_k(S->banner, s, rgb565(0x11, 0x11, 0x11), 1, 0, 0, 204, 3);
-    for (int oy = -1; oy <= 1; oy++)
-      for (int ox = -1; ox <= 1; ox++) {
-        if (!ox && !oy) continue;
-        Mat o = m;
-        o.tx += ox;
-        o.ty += oy;
-        gfx_text_k(S->banner, o, S->banner_outline, 1, 0, 0, 255, 3);
-      }
-    gfx_text_k(S->banner, m, S->banner_color, 1, 0, 0, 255, 3);
   }
 }
 

@@ -25,16 +25,19 @@ static int glyph(uint32_t c) {
   return c == 0x2014 ? 104 : -1;    /* em dash as en dash */
 }
 
-static int K = 1;
-void font_scale(int k) { K = k < 1 ? 1 : k; }
+/* the scale in thirds: 3 is the font's 10 px, 8 is 26.7 px (a doodle text of
+ * 80 px on the 960 x 540 stage); a font pixel covers 1 to K3 / 3 + 1 pixels */
+static int K3 = 3;
+void font_scale(int k) { K3 = k < 1 ? 3 : 3 * k; }
+void font_scale3(int k3) { K3 = k3 < 1 ? 1 : k3; }
 
 int font_width(const char *s, const char *end) {
   int w = 0;
   while (s < end && *s) {
     int g = glyph(utf8(&s));
-    w += (g < 0 ? 5 : font_adv[g]) * K;
+    w += g < 0 ? 5 : font_adv[g];
   }
-  return w;
+  return (w * K3 + 2) / 3;
 }
 
 /* Calls fn for each line of s wrapped at lw pixels (lw <= 0: no wrapping). */
@@ -83,8 +86,8 @@ static void measure_line(const char *a, const char *b, int w, int index, void *c
 void font_measure(const char *s, int lw, int lh, int *w, int *h) {
   *w = 0;
   int n = lines(s, lw, measure_line, w);
-  int l = lh > 0 ? lh : FONT_LINE * K;
-  *h = n * l - l + FONT_HEIGHT * K;
+  int l = lh > 0 ? lh : FONT_LINE * K3 / 3;
+  *h = n * l - l + FONT_HEIGHT * K3 / 3;
 }
 
 typedef struct {
@@ -103,30 +106,28 @@ static inline uint16_t blend(uint16_t fg, uint16_t bg, unsigned a) {
 static void draw_line(const char *a, const char *b, int w, int index, void *vctx) {
   DrawCtx *c = vctx;
   int y = c->oy + index * c->lh;
-  if (y + FONT_HEIGHT * K <= c->by || y >= c->by + c->rows) return;
-  int x = c->ox - (c->align == 1 ? w / 2 : c->align == 2 ? w : 0);
+  if (y + FONT_HEIGHT * K3 / 3 <= c->by || y >= c->by + c->rows) return;
+  int x3 = 3 * (c->ox - (c->align == 1 ? w / 2 : c->align == 2 ? w : 0));   /* in thirds of a pixel */
   while (a < b) {
     int g = glyph(utf8(&a));
-    if (g < 0) { x += 5 * K; continue; }
-    for (int r = 0; r < FONT_HEIGHT * K; r++) {
+    if (g < 0) { x3 += 5 * K3; continue; }
+    for (int r = 0; r < FONT_HEIGHT * K3 / 3; r++) {
       int sy = y + r - c->by;
       if (sy < 0 || sy >= c->rows) continue;
-      uint16_t bits = font_bits[g][r / K];
+      uint16_t bits = font_bits[g][r * 3 / K3];
       uint16_t *d = c->band + sy * c->stride;
       for (int i = 0; bits; i++, bits >>= 1)
         if (bits & 1)
-          for (int q = 0; q < K; q++) {
-            int sx = x + i * K + q;
+          for (int sx = (x3 + i * K3) / 3; sx < (x3 + (i + 1) * K3) / 3; sx++)
             if ((unsigned)sx < (unsigned)c->stride) d[sx] = c->ga >= 32 ? c->color : blend(c->color, d[sx], c->ga);
-          }
     }
-    x += font_adv[g] * K;
+    x3 += font_adv[g] * K3;
   }
 }
 
 void font_draw(const char *s, uint8_t align, int lw, int lh, int ox, int oy, uint16_t *band, int by, int rows, int stride,
                uint16_t color, unsigned ga) {
-  DrawCtx c = {ox, oy, lh > 0 ? lh : FONT_LINE * K, by, rows, stride, align, band, color, ga};
+  DrawCtx c = {ox, oy, lh > 0 ? lh : FONT_LINE * K3 / 3, by, rows, stride, align, band, color, ga};
   lines(s, lw, draw_line, &c);
 }
 

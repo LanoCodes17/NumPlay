@@ -155,9 +155,13 @@ void gfx_shape(const uint8_t *shape, Mat m, uint8_t alpha) {
 void gfx_text(const char *s, Mat m, uint16_t color, uint8_t align, int16_t lw, int16_t lh, uint8_t alpha) { gfx_text_k(s, m, color, align, lw, lh, alpha, 1); }
 
 void gfx_text_k(const char *s, Mat m, uint16_t color, uint8_t align, int16_t lw, int16_t lh, uint8_t alpha, int k) {
+  gfx_text_k3(s, m, color, align, lw, lh, alpha, 3 * k);
+}
+
+void gfx_text_k3(const char *s, Mat m, uint16_t color, uint8_t align, int16_t lw, int16_t lh, uint8_t alpha, int k3) {
   if (!s || !*s || !alpha) return;
   int w, h;
-  font_scale(k);
+  font_scale3(k3);
   font_measure(s, lw, lh, &w, &h);
   font_scale(1);
   int ox = align == 1 ? -w / 2 : align == 2 ? -w : 0;
@@ -172,7 +176,7 @@ void gfx_text_k(const char *s, Mat m, uint16_t color, uint8_t align, int16_t lw,
     affs[naffs].lw = lw;
     affs[naffs].lh = lh;
     affs[naffs].m = m;
-    affs[naffs].scale = (uint8_t)k;
+    affs[naffs].scale = (uint8_t)k3;
     it->ref = (uint16_t)naffs++;
   } else nitems--;
 }
@@ -792,7 +796,7 @@ static __attribute__((noinline)) void draw_tiles_item(int y0, int y1, int by, un
 
 static __attribute__((noinline)) void draw_text_item(const Item *it, int y0, int y1, int by, int rows, unsigned ga) {
   const Aff *f = &affs[it->ref];
-  font_scale(f->scale);
+  font_scale3(f->scale);
   font_draw(item_ptr[it->ref], f->align, f->lw, f->lh, (int)floorf(f->m.tx), (int)floorf(f->m.ty), band, by, rows, VIEW_W, it->color, ga);
   font_scale(1);
 }
@@ -882,6 +886,12 @@ void gfx_end(void) {
     fprintf(stderr, "items %d: sprite %d/%ld affine %d/%ld rect %d/%ld shape %d/%ld text %d/%ld stream %d/%ld\n", nitems,
             cnt[0], area[0], cnt[1], area[1], cnt[2], area[2], cnt[3], area[3], cnt[4], area[4], cnt[5], area[5]);
   }
+#endif
+#ifdef HOST
+  if (getenv("CI_ITEMS"))
+    for (int i = 0; i < nitems; i++)
+      fprintf(stderr, "item %d kind %d a %d f %d box %d %d %d %d ref %u col %u\n", i, items[i].kind, items[i].alpha, items[i].flags,
+              items[i].x0, items[i].y0, items[i].x1, items[i].y1, items[i].ref, items[i].color);
 #endif
   /* decode what the frame needs before drawing, so bands only read the cache */
   streaming = NULL;

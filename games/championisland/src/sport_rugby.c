@@ -96,9 +96,8 @@ typedef struct {
   /* flow */
   Countdown cd;
   bool started, ended;
-  int tile_t, end_t, win_t, rating, toast_t;
+  int tile_t, end_t, win_t, rating;
   uint32_t vis_t;
-  const char *toast_s;
   char score_buf[16], dist_buf[32];
 } State;
 
@@ -1272,11 +1271,6 @@ static bool in_end_zone(void) {
   return false;
 }
 
-static void big_toast(const char *s) {   /* To(..., {size: 100, shadow: "#222", outline: "#aaa"}) */
-  S->toast_s = s;
-  S->toast_t = 1;
-}
-
 static void finish(int rating) {
   S->ended = true;
   S->end_t = END_DELAY;
@@ -1285,7 +1279,6 @@ static void finish(int rating) {
 }
 
 static void the_end(bool zone) {
-  if (S->toast_t > 0) S->toast_t++;
   if (S->ended) {
     if (S->win_t > 0 && --S->win_t == 0 && S->pl >= 0) act_label(&S->act[S->pl], "win");
     if (S->end_t > 0 && --S->end_t == 0) menus_game_over_rated((float)S->score, S->rating);
@@ -1294,7 +1287,7 @@ static void the_end(bool zone) {
   if (S->pl < 0) return;
   Actor *g = &S->act[S->pl];
   if (S->tackled) {
-    big_toast(msg("ONIS_WIN"));
+    toast_countdown(msg("ONIS_WIN"));
     finish(-1);
     for (int i = 0; i < S->nact; i++) {
       Actor *a = &S->act[i];
@@ -1315,7 +1308,7 @@ static void the_end(bool zone) {
       if (S->act[i].kind == A_CHAR && (S->act[i].flags & AF_ALLY)) act_label(&S->act[i], "idle");
     finish(3);
     SOUND(e_a);
-    big_toast(msg("YOU_WIN"));
+    toast_countdown(msg("YOU_WIN"));
   }
 }
 
@@ -1441,34 +1434,6 @@ static void draw_under(void) {
   }
 }
 
-/* To: the banner slides in from the right (400 ms), stays 2 s, leaves to the left (300 ms) */
-static float cubic_out(float t) { return 1 - (1 - t) * (1 - t) * (1 - t); }
-
-static void draw_over(void) {
-  if (!S || S->toast_t <= 0 || !S->toast_s) return;
-  int t = S->toast_t - 1;
-  float dx;
-  if (t < 12) dx = 1000 * (1 - cubic_out(t / 12.0f));
-  else if (t < 72) dx = 0;
-  else if (t < 81) { float q = (t - 72) / 9.0f; dx = -1000 * q * q * q; }
-  else return;
-  Mat m = MAT_ID;
-  m.tx = (480 + dx) / 3;
-  m.ty = (151.2f - 50) / 3;
-  Mat sh = m;
-  sh.ty += 100.0f / 12 / 3;
-  gfx_text_k(S->toast_s, sh, rgb565(0x22, 0x22, 0x22), 1, 0, 0, 204, 3);
-  for (int oy = -1; oy <= 1; oy++)
-    for (int ox = -1; ox <= 1; ox++) {
-      if (!ox && !oy) continue;
-      Mat o = m;
-      o.tx += ox;
-      o.ty += oy;
-      gfx_text_k(S->toast_s, o, rgb565(0xaa, 0xaa, 0xaa), 1, 0, 0, 255, 3);
-    }
-  gfx_text_k(S->toast_s, m, rgb565(0xff, 0xff, 0xff), 1, 0, 0, 255, 3);
-}
-
 static void end(void) {
   if (S)
     for (int i = 0; i < S->nproto; i++) node_free(S->proto[i]);   /* not in the scene's tree */
@@ -1476,4 +1441,4 @@ static void end(void) {
   S = NULL;
 }
 
-const SceneDef scene_rugby = {"rugby", start, tick, end, draw_under, draw_over, NULL};
+const SceneDef scene_rugby = {"rugby", start, tick, end, draw_under, NULL, NULL};

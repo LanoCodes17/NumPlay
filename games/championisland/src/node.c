@@ -146,6 +146,8 @@ static void apply_key(NodeId c, const Key *k, uint16_t idx) {
   n->ry4 = k->ry4;
   n->mat = k->mat;
   n->alpha = k->alpha;
+  /* a text or shape keyframe can change its look (a button's label turns white on focus) */
+  if ((n->kind == NK_TEXT && k->kind == CK_TEXT) || (n->kind == NK_SHAPE && k->kind == CK_SHAPE)) n->ref = k->ref;
   if (k->flags & K_HIDDEN) n->flags &= (uint8_t)~NF_VISIBLE;
   else n->flags |= NF_VISIBLE;
   /* setting a transform from the timeline drops the code's */
@@ -1010,6 +1012,24 @@ static void draw_virtual(uint16_t sym, unsigned frame, Mat m, uint8_t alpha, int
 static const char *text_of(NodeId n);
 static int32_t text_color(NodeId n);
 
+/* a text node's text s (NULL: its own), placed by m (the view's), as the
+ * doodle's canvas sets it: the size on screen picks the font's scale (in
+ * thirds; small texts keep the crisp 10 px), the baseline its offset (the
+ * canvas puts PixelMplus a font pixel higher than its rows), colour -1: the
+ * node's own */
+void node_text_draw(NodeId id, Mat m, const char *s, int32_t color, uint8_t alpha) {
+  const Node *n = &nodes[id];
+  if (n->kind != NK_TEXT || n->ref == NONE16 || !alpha) return;
+  const uint8_t *t = payload(n->ref);
+  if (!s) s = text_of(id);
+  float scale = sqrtf(m.a * m.a + m.b * m.b), px = t[2] * scale;
+  int k3 = px >= 11.5f ? (int)(px * 0.3f + .5f) : 3;
+  int lw = (int)(rds16(t + 8) * 0.25f * scale), lh = (int)(rds16(t + 10) * 0.25f * scale);
+  if (lh > 0 && lh < FONT_LINE * k3 / 3) lh = FONT_LINE * k3 / 3;
+  m.ty += (t[7] == 1 ? -6 : t[7] >= 2 ? -10 : -1) * k3 / 3;   /* top, middle, alphabetic */
+  gfx_text_k3(s, m, color >= 0 ? (uint16_t)color : rgb565(t[3], t[4], t[5]), t[6], (int16_t)lw, (int16_t)lh, alpha, k3);
+}
+
 static void draw_rec(NodeId id, Mat parent, uint8_t alpha) {
   const Node *n = &nodes[id];
   if ((n->flags & (NF_VISIBLE | NF_ONSTAGE)) != (NF_VISIBLE | NF_ONSTAGE) || !n->alpha) return;
@@ -1021,20 +1041,8 @@ static void draw_rec(NodeId id, Mat parent, uint8_t alpha) {
     case NK_SHAPE: if (n->ref != NONE16) gfx_shape(payload(n->ref), m, al); return;
     case NK_TEXT: {
       if (n->ref == NONE16) return;
-      const uint8_t *t = payload(n->ref);
-      /* sid, size, r, g, b, align, baseline, lineWidth*4, lineHeight*4 */
-      const char *s = text_of(id);
-      float scale = sqrtf(m.a * m.a + m.b * m.b);
-      /* the text's size on screen picks the font's scale: 10 px, 20 or 30 */
-      float px = t[2] * scale;
-      int k = px >= 26 ? 3 : px >= 16 ? 2 : 1;
-      int lw = (int)(rds16(t + 8) * 0.25f * scale), lh = (int)(rds16(t + 10) * 0.25f * scale);
-      if (lh > 0 && lh < FONT_LINE * k) lh = FONT_LINE * k;
-      int yoff = t[7] == 1 ? -5 * k : t[7] >= 2 ? -9 * k : 0;   /* middle / alphabetic baselines */
-      Mat tm = m;
-      tm.ty += yoff;
       int32_t tc = text_color(id);
-      gfx_text_k(s, tm, tc >= 0 ? (uint16_t)tc : rgb565(t[3], t[4], t[5]), t[6], (int16_t)lw, (int16_t)lh, al, k);
+      node_text_draw(id, m, text_of(id), tc, al);
       return;
     }
     default: break;

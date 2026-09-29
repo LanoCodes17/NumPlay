@@ -42,15 +42,6 @@ typedef struct {
 typedef struct { uint8_t side; uint8_t type; int16_t ymin, ymax; int wait, every; bool on; } Spawner;   /* bp */
 
 typedef struct {
-  const char *text;
-  int t, hold;
-  uint8_t k;
-  float dy;
-  uint16_t shadow, outline;
-  bool on;
-} Banner;
-
-typedef struct {
   NodeId root, map, hud, player, champ, overlay;
   NodeId back, sky;   /* the background clip, its gradient (drawn as bands) */
   NodeId walls[2];
@@ -79,7 +70,6 @@ typedef struct {
   bool counting, uo;
   bool over, reported;
   int end_t, rating;
-  Banner banner;
   int last[6];
   int arrow_f, carrow_f;   /* the arrow meters' frames */
   char s_score[12], s_cscore[12], s_time[12];
@@ -292,46 +282,6 @@ static void goto_frame(NodeId n, int f, int *last) {   /* gotoAndStop(frame), on
   if (!n || f == *last) return;
   node_goto(n, NULL, f, false);
   *last = f;
-}
-
-/* ---------------------------------------------------------------- the banner (To) */
-static void banner(const char *text, int size, uint16_t shadow, uint16_t outline) {
-  Banner *b = &S->banner;
-  b->text = text;
-  b->t = 0;
-  b->hold = 60;
-  b->k = size >= 26 * 3 ? 3 : 2;
-  b->dy = size / 3.0f / 12;
-  b->shadow = shadow;
-  b->outline = outline;
-  b->on = true;
-}
-
-static void banner_draw(void) {
-  Banner *b = &S->banner;
-  if (!b->on || !b->text) return;
-  float off;
-  int t = b->t;
-  if (t < 12) { float u = 1 - t / 12.0f; off = 1000 / 3.0f * u * u * u; }
-  else if (t < 12 + b->hold) off = 0;
-  else { float u = (t - 12 - b->hold) / 9.0f; off = -1000 / 3.0f * u * u * u; }
-  if (t >= 12 + b->hold + 9) { b->on = false; return; }
-  int h = FONT_HEIGHT * b->k;
-  Mat m = MAT_ID;
-  m.tx = floorf(160 + off);
-  m.ty = floorf(540 * .28f / 3 - h / 2.0f + .5f) - 1;
-  Mat s = m;
-  s.ty += floorf(b->dy + .5f);
-  gfx_text_k(b->text, s, b->shadow, 1, 0, 0, 204, b->k);
-  static const int8_t o[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
-  for (int i = 0; i < 4; i++) {
-    Mat q = m;
-    q.tx += o[i][0];
-    q.ty += o[i][1];
-    gfx_text_k(b->text, q, b->outline, 1, 0, 0, 255, b->k);
-  }
-  gfx_text_k(b->text, m, rgb565(255, 255, 255), 1, 0, 0, 255, b->k);
-  b->t++;
 }
 
 /* ---------------------------------------------------------------- records */
@@ -706,7 +656,7 @@ static void clock_end(void) {
   S->over = true;
   S->end_t = 80;
   SOUND(end);
-  banner(msg(0 < g ? "YOU_WIN" : "YOICHI_WINS"), 80, rgb565(0x11, 0x11, 0x11), rgb565(0x55, 0x55, 0x55));
+  toast_style(msg(0 < g ? "YOU_WIN" : "YOICHI_WINS"), 80, 0x111111, 0x555555);
 }
 
 /* ---------------------------------------------------------------- Pp: draw order */
@@ -799,11 +749,11 @@ static void start(void) {
 /* ---------------------------------------------------------------- the systems */
 static void countdown(void) {   /* Wo */
   if (!S->counting) return;
-  uint16_t sh = rgb565(0x22, 0x22, 0x22), ol = rgb565(0xaa, 0xaa, 0xaa);
-  if (S->cd == 90) { banner("3", 100, sh, ol); SOUND(beep); }
-  else if (S->cd == 60) { banner("2", 100, sh, ol); SOUND(beep); }
-  else if (S->cd == 30) { banner("1", 100, sh, ol); SOUND(beep); }
-  else if (S->cd == 0) { banner(msg("GO"), 100, sh, ol); SOUND(go); S->counting = false; }
+  int32_t sh = 0x222222, ol = 0xaaaaaa;
+  if (S->cd == 90) { toast_style("3", 100, sh, ol); SOUND(beep); }
+  else if (S->cd == 60) { toast_style("2", 100, sh, ol); SOUND(beep); }
+  else if (S->cd == 30) { toast_style("1", 100, sh, ol); SOUND(beep); }
+  else if (S->cd == 0) { toast_style(msg("GO"), 100, sh, ol); SOUND(go); S->counting = false; }
   if (S->cd > 0) S->cd--;
 }
 
@@ -914,12 +864,8 @@ static void draw_popup(NodeId f, Mat parent) {
     for (NodeId t = nodes[a].first; t; t = nodes[t].next) {
       if (nodes[t].kind != NK_TEXT || !node_visible(t) || nodes[t].ref == NONE16) continue;
       Mat mt = mat_mul(ma, node_local(t));
-      const uint8_t *pl = payload(nodes[t].ref);
       const char *s = node_text(t);
-      float scale = sqrtf(mt.a * mt.a + mt.b * mt.b), px = pl[2] * scale;
-      int k = px >= 26 ? 3 : px >= 16 ? 2 : 1;
-      int lw = (int)(rds16(pl + 8) * .25f * scale);
-      gfx_text_k(s, mt, popup_color(s), pl[6], (int16_t)lw, 0, (uint8_t)(al * nodes[t].alpha / 255), k);
+      node_text_draw(t, mt, s, popup_color(s), (uint8_t)(al * nodes[t].alpha / 255));
     }
   }
 }
@@ -944,13 +890,7 @@ static void draw_under(void) {
 /* a text node drawn as the engine does, in another colour */
 static void draw_text(NodeId t, uint16_t color) {
   if (!t || nodes[t].kind != NK_TEXT || nodes[t].ref == NONE16 || !node_visible_chain(t)) return;
-  Mat mt = mat_mul((Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0}, node_global(t));
-  const uint8_t *pl = payload(nodes[t].ref);
-  float scale = sqrtf(mt.a * mt.a + mt.b * mt.b), px = pl[2] * scale;
-  int k = px >= 26 ? 3 : px >= 16 ? 2 : 1;
-  int lw = (int)(rds16(pl + 8) * .25f * scale), lh = (int)(rds16(pl + 10) * .25f * scale);
-  if (lh > 0 && lh < FONT_LINE * k) lh = FONT_LINE * k;
-  gfx_text_k(node_text(t), mt, color, pl[6], (int16_t)lw, (int16_t)lh, nodes[t].alpha, k);
+  node_text_draw(t, mat_mul((Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0}, node_global(t)), NULL, color, nodes[t].alpha);
 }
 
 /* Cba (the arrow meters): the white arrow (13 x 3 at (-6, -6)) under a mask
@@ -988,7 +928,6 @@ static void draw_over(void) {
   }
   draw_arrow_ui(S->arrow_ui, S->arrow_f);
   draw_arrow_ui(S->carrow_ui, S->carrow_f);
-  banner_draw();
 }
 
 /* the engine's pass draws the HUD without the two time texts (drawn above) */

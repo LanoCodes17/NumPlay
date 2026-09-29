@@ -11,6 +11,7 @@
 //   big name        save OUT/name.png (960x540)
 //   eval js         run JavaScript in the page
 //   store K V       set the game's saved value K (JSON V) before it starts
+//   click X Y       click the page at stage pixel (X, Y) of 960 x 540
 const http = require('http');
 const fs = require('fs');
 const path = require('path');

@@ -111,6 +111,7 @@ bool node_slot_bounds(NodeId n, unsigned slot, float *x, float *y, float *w, flo
 
 /* drawing */
 void node_draw(NodeId root, Mat m);
+void node_text_draw(NodeId text, Mat m, const char *s, int32_t color, uint8_t alpha);   /* s NULL: its own, colour -1: its own */
 void node_draw_in(NodeId n, Mat parent, uint8_t alpha);   /* n in a parent drawn with `parent` */
 void node_draw_sym(uint16_t sym, unsigned frame, Mat m, uint8_t alpha);   /* a symbol's frame, without nodes */
 /* one node drawn by code instead (its matrix and alpha computed): the island's map */

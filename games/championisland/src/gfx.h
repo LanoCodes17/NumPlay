@@ -22,6 +22,7 @@ void gfx_tiles(const uint8_t *px, int w, int h, const uint16_t *pal, const uint8
 /* text: font size in px of the doodle's layout, colour RGB565 */
 void gfx_text(const char *s, Mat m, uint16_t color, uint8_t align, int16_t line_w, int16_t line_h, uint8_t alpha);
 void gfx_text_k(const char *s, Mat m, uint16_t color, uint8_t align, int16_t line_w, int16_t line_h, uint8_t alpha, int scale);
+void gfx_text_k3(const char *s, Mat m, uint16_t color, uint8_t align, int16_t line_w, int16_t line_h, uint8_t alpha, int k3);   /* scale in thirds */
 void gfx_end(void);                                       /* rasterise and push the bands that changed */
 void gfx_redraw_all(void);                                /* next frame: every band */
 void gfx_clear_color(uint16_t c);                        /* what shows where nothing is drawn */

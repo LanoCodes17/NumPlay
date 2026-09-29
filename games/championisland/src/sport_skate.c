@@ -1841,14 +1841,7 @@ static void draw_under(void) {
 /* a HUD text in a colour of the code's (the time's red, a fall's red) */
 static void text_in(NodeId n, uint16_t color) {
   if (!n || nodes[n].kind != NK_TEXT || nodes[n].ref == NONE16 || !nodes[n].alpha) return;
-  Mat m = mat_mul((Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0}, node_global(n));
-  const uint8_t *t = payload(nodes[n].ref);
-  float scale = sqrtf(m.a * m.a + m.b * m.b), px = t[2] * scale;
-  int k = px >= 26 ? 3 : px >= 16 ? 2 : 1;
-  int lw = (int)(rds16(t + 8) * 0.25f * scale), lh = (int)(rds16(t + 10) * 0.25f * scale);
-  if (lh > 0 && lh < FONT_LINE * k) lh = FONT_LINE * k;
-  m.ty += t[7] == 1 ? -5 * k : t[7] >= 2 ? -9 * k : 0;
-  gfx_text_k(node_text(n), m, color, t[6], (int16_t)lw, (int16_t)lh, nodes[n].alpha, k);
+  node_text_draw(n, mat_mul((Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0}, node_global(n)), NULL, color, nodes[n].alpha);
 }
 
 /* a sprite as a shape of one colour (the icons tinted green): a rectangle per run of pixels, built in

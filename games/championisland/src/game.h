@@ -85,8 +85,10 @@ void hud_init(void);
 void hud_tick(void);
 void hud_draw(void);
 
-void toast(const char *text);               /* the doodle's centred message */
-void toast_countdown(const char *text);     /* 3, 2, 1, GO */
+void toast(const char *text);               /* the doodle's banner (To): 80 px, dark shadow and outline */
+void toast_countdown(const char *text);     /* 3, 2, 1, GO: 100 px */
+void toast_style(const char *text, int size, int32_t shadow, int32_t outline);   /* colours 0xRRGGBB, -1: none */
+void toast_full(const char *text, int size, int32_t shadow, int32_t outline, int32_t color);
 
 /* sounds are not played (the calculator has no speaker) */
 #define SOUND(x) ((void)0)

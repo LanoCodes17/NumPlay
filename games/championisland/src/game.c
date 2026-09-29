@@ -160,6 +160,7 @@ static void switch_scene(void) {
   if (!def) return;
   if (game.def && game.def->end) game.def->end();
   if (game.root) node_free(game.root);
+  toast_style("", 0, -1, -1);          /* Hq: a new scene takes the banner away */
   state_bytes = 0;
   mem_layout(0, 0, 0, NULL);
   memset(&in.pressed, 0, sizeof in.pressed);
@@ -199,19 +200,53 @@ void game_tick(void) {
   }
 }
 
-/* ---------------------------------------------------------------- toast */
-static char toast_text[64];
-static int toast_t;
-static bool toast_big;
-void toast(const char *t) {
-  snprintf(toast_text, sizeof toast_text, "%s", t);
-  toast_t = 75;
-  toast_big = false;
+/* ---------------------------------------------------------------- the banner */
+/* To(): one message at a time at (480, 151) on the stage, in PixelMplus at
+ * `size` px over a shadow (alpha .8, size / 12 lower) and an outline, in from
+ * the right in 400 ms (cubicOut), still for 2 s, out to the left in 300 ms
+ * (cubicIn); a new one takes the place of the last */
+static struct { char text[64]; int t, size; int32_t shadow, outline, color; } ban = {"", -1, 0, -1, -1, 0xffffff};
+void toast_full(const char *t, int size, int32_t shadow, int32_t outline, int32_t color) {
+  snprintf(ban.text, sizeof ban.text, "%s", t ? t : "");
+  ban.t = ban.text[0] ? 0 : -1;
+  ban.size = size;
+  ban.shadow = shadow;
+  ban.outline = outline;
+  ban.color = color;
 }
-void toast_countdown(const char *t) {
-  toast(t);
-  toast_big = true;
-  toast_t = 45;
+void toast_style(const char *t, int size, int32_t shadow, int32_t outline) { toast_full(t, size, shadow, outline, 0xffffff); }
+void toast(const char *t) { toast_style(t, 80, 0x111111, 0x555555); }
+void toast_countdown(const char *t) { toast_style(t, 100, 0x222222, 0xaaaaaa); }
+
+static uint16_t hex565(int32_t c) { return rgb565((uint8_t)(c >> 16), (uint8_t)(c >> 8), (uint8_t)c); }
+
+static void banner_draw(void) {
+  if (ban.t < 0) return;
+  enum { IN = 12, HOLD = 60, OUT = 9 };
+  int t = ban.t++;
+  float off = 0;
+  if (t < IN) { float u = 1 - t / (float)IN; off = 1000 * u * u * u; }
+  else if (t >= IN + HOLD) { float u = (t - IN - HOLD) / (float)OUT; off = -1000 * u * u * u; }
+  if (t >= IN + HOLD + OUT) { ban.t = -1; return; }
+  int k3 = (ban.size + 5) / 10;
+  Mat m = MAT_ID;
+  m.tx = floorf((480 + off) / 3 + .5f);
+  m.ty = floorf((540 * .28f - ban.size / 2.0f) / 3 + .5f) - k3 / 3;   /* the canvas sets the font a pixel higher */
+  if (ban.shadow >= 0) {
+    Mat s = m;
+    s.ty += floorf(ban.size / 12.0f / 3 + .5f);
+    gfx_text_k3(ban.text, s, hex565(ban.shadow), 1, 0, 0, 204, k3);
+  }
+  if (ban.outline >= 0) {
+    static const int8_t o[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
+    for (int i = 0; i < 4; i++) {
+      Mat q = m;
+      q.tx += o[i][0];
+      q.ty += o[i][1];
+      gfx_text_k3(ban.text, q, hex565(ban.outline), 1, 0, 0, 255, k3);
+    }
+  }
+  gfx_text_k3(ban.text, m, hex565(ban.color), 1, 0, 0, 255, k3);
 }
 
 void game_draw(void) {
@@ -222,18 +257,7 @@ void game_draw(void) {
   hud_draw();
   dialog_draw();
   menus_draw();
-  if (toast_t > 0) {
-    toast_t--;
-    Mat m = MAT_ID;
-    m.tx = VIEW_W / 2;
-    m.ty = 50;
-    uint8_t a = toast_t < 10 ? (uint8_t)(toast_t * 25) : 255;
-    Mat s = m;
-    s.tx += 1; s.ty += 1;
-    int k = toast_big ? 3 : 2;
-    gfx_text_k(toast_text, s, rgb565(0x22, 0x22, 0x22), 1, 0, 0, a, k);
-    gfx_text_k(toast_text, m, rgb565(0xff, 0xff, 0xff), 1, 0, 0, a, k);
-  }
+  banner_draw();
   if (game.fade > 0 && game.fade <= 8) gfx_rect(0, 0, VIEW_W, VIEW_H, 0, (uint8_t)(game.fade * 255 / 8));
   else if (game.fade > 8) gfx_rect(0, 0, VIEW_W, VIEW_H, 0, 255);
   gfx_end();

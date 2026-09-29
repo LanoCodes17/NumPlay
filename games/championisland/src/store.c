@@ -2,27 +2,47 @@
 #include "store.h"
 
 #define SAVE_NAME "champion.sav"
-#define MAX_KEYS 96
-#define KEY_LEN 26
-typedef struct { char key[KEY_LEN]; Value v; } Slot;
+/* a value's name is a string id of data.bin (pack.py adds every name the game
+ * saves); a name not there takes one of a few spare slots */
+#define MAX_KEYS 128
+#define SPARE 8
+#define SPARE_LEN 24
+typedef struct { uint16_t key; uint8_t type; bool b; uint16_t s, pad; float num; } Slot;
 static Slot slots[MAX_KEYS];
+static char spare[SPARE][SPARE_LEN];
 static int nslots;
 static bool dirty;
 
+static const char *key_name(uint16_t k) { return k >= 0xFF00 ? spare[k - 0xFF00] : str(k); }
+
+static int key_of(const char *key, bool make) {
+  int id = str_find(key);
+  if (id >= 0) return id;
+  for (int i = 0; i < SPARE; i++) if (spare[i][0] && !strcmp(spare[i], key)) return 0xFF00 + i;
+  if (!make || strlen(key) >= SPARE_LEN) return -1;
+  for (int i = 0; i < SPARE; i++)
+    if (!spare[i][0]) { strcpy(spare[i], key); return 0xFF00 + i; }
+  return -1;
+}
+
 static Slot *find(const char *key, bool make) {
+  int k = key_of(key, make);
+  if (k < 0) return NULL;
   for (int i = 0; i < nslots; i++)
-    if (!strcmp(slots[i].key, key)) return &slots[i];
-  if (!make || nslots >= MAX_KEYS || strlen(key) >= KEY_LEN) return NULL;
+    if (slots[i].key == k) return &slots[i];
+  if (!make || nslots >= MAX_KEYS) return NULL;
   Slot *s = &slots[nslots++];
   memset(s, 0, sizeof *s);
-  strcpy(s->key, key);
+  s->key = (uint16_t)k;
   return s;
 }
+
+static Value value_of_slot(const Slot *s) { return (Value){s->type, s->b, s->num, s->s}; }
 
 Value store_get(const char *key) {
   Slot *s = find(key, false);
   Value none = {SV_NONE, false, 0, NONE16};
-  return s ? s->v : none;
+  return s ? value_of_slot(s) : none;
 }
 
 bool store_bool(const char *key, bool def) {
@@ -65,8 +85,11 @@ static bool same(Value a, Value b) {
 void store_set(const char *key, Value v) {
   Slot *s = find(key, true);
   if (!s) return;
-  if (same(s->v, v)) return;
-  s->v = v;
+  if (same(value_of_slot(s), v)) return;
+  s->type = v.type;
+  s->b = v.b;
+  s->num = v.num;
+  s->s = v.s;
   dirty = true;
 }
 
@@ -80,6 +103,7 @@ void store_set_str(const char *key, const char *s) {
 
 void store_clear(void) {
   nslots = 0;
+  memset(spare, 0, sizeof spare);
   dirty = true;
 }
 
@@ -96,19 +120,21 @@ bool store_save(void) {
   n = 3;
   for (int i = 0; i < nslots; i++) {
     const Slot *s = &slots[i];
-    if (s->v.type == SV_NONE) continue;
-    size_t kl = strlen(s->key);
-    const char *t = s->v.type == SV_STR ? str(s->v.s) : NULL;
+    if (s->type == SV_NONE) continue;
+    const char *kn = key_name(s->key);
+    size_t kl = strlen(kn);
+    if (kl > 255) continue;
+    const char *t = s->type == SV_STR ? str(s->s) : NULL;
     size_t tl = t ? strlen(t) : 0;
     if (tl > 255) tl = 255;
     if (n + 2 + kl + 6 + tl > cap) break;
     buf[n++] = (uint8_t)kl;
-    memcpy(buf + n, s->key, kl);
+    memcpy(buf + n, kn, kl);
     n += (uint32_t)kl;
-    buf[n++] = s->v.type;
-    if (s->v.type == SV_BOOL) buf[n++] = s->v.b;
-    else if (s->v.type == SV_NUM) { memcpy(buf + n, &s->v.num, 4); n += 4; }
-    else if (s->v.type == SV_STR) { buf[n++] = (uint8_t)tl; memcpy(buf + n, t, tl); n += (uint32_t)tl; }
+    buf[n++] = s->type;
+    if (s->type == SV_BOOL) buf[n++] = s->b;
+    else if (s->type == SV_NUM) { memcpy(buf + n, &s->num, 4); n += 4; }
+    else if (s->type == SV_STR) { buf[n++] = (uint8_t)tl; memcpy(buf + n, t, tl); n += (uint32_t)tl; }
   }
   if (!plat_save(SAVE_NAME, buf, n)) return false;
   dirty = false;
@@ -119,12 +145,13 @@ void store_load(void) {
   uint32_t len;
   const uint8_t *d = plat_load(SAVE_NAME, &len);
   nslots = 0;
+  memset(spare, 0, sizeof spare);
   if (!d || len < 3 || memcmp(d, "CI1", 3)) return;
   uint32_t i = 3;
   while (i < len) {
-    char key[KEY_LEN];
+    char key[64];
     uint8_t kl = d[i++];
-    if (kl >= KEY_LEN || i + kl + 1 > len) break;
+    if (kl >= sizeof key || i + kl + 1 > len) break;
     memcpy(key, d + i, kl);
     key[kl] = 0;
     i += kl;
@@ -145,7 +172,7 @@ void store_load(void) {
       v.s = (uint16_t)id;
     } else if (t != SV_NULL) break;
     Slot *s = find(key, true);
-    if (s) s->v = v;
+    if (s) { s->type = v.type; s->b = v.b; s->num = v.num; s->s = v.s; }
   }
   dirty = false;
 }

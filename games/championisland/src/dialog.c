@@ -79,6 +79,7 @@ static bool single_next(const DNode *d) {   /* bl: one option with no text */
 }
 
 static int text_lw;
+static char shown_buf[400];
 static void show(uint16_t npc, uint16_t name) {
   if (!dnode_find(npc, name, &cur)) { active = false; return; }
   cur_npc = npc;
@@ -95,7 +96,8 @@ static void show(uint16_t npc, uint16_t name) {
     text_lw = 217;
   }
   /* the text, broken into lines as the box shows it */
-  const char *t = text(cur.text);
+  dtext(cur.text, shown_buf, sizeof shown_buf);   /* shown_buf is free until the text types */
+  const char *t = shown_buf;
   int k = 0;
   const char *s = t;
   int lw_px = (int)(text_lw * 4.0f / 3);
@@ -157,7 +159,7 @@ void dialog_start(uint16_t npc, uint16_t node) {
   show(npc, node);
 }
 
-static char shown_buf[400], opt_buf[3][96];
+static char opt_buf[3][96];
 
 static void next(int opt) {
   int len = (int)strlen(wrapped);
@@ -193,7 +195,8 @@ void dialog_tick(void) {
         NodeId o = options[a];
         nodes[o].y = m - 8 + 12 * a;
         c = nodes[o].y;
-        const char *ot = text(rd16(cur.opts + 4 * a + 2));
+        char ot[96];
+        dtext(rd16(cur.opts + 4 * a + 2), ot, sizeof ot);
         if (node_visible(o)) {
           if (opt_shown[a] < (int)strlen(ot)) {
             opt_shown[a]++;
@@ -204,7 +207,8 @@ void dialog_tick(void) {
             if (ttx) node_set_text(ttx, opt_buf[a]);
           }
         } else {
-          if (a == 0 || opt_shown[a - 1] >= (int)strlen(text(rd16(cur.opts + 4 * (a - 1) + 2)))) {
+          char pt[96];
+          if (a == 0 || opt_shown[a - 1] >= dtext(rd16(cur.opts + 4 * (a - 1) + 2), pt, sizeof pt)) {
             node_set_visible(o, true);
             opt_shown[a] = 0;
             NodeId ttx = node_child(o, "text");
@@ -215,7 +219,8 @@ void dialog_tick(void) {
       }
       m = c + 8;
       int last = cur.nopts - 1;
-      can_go = last >= 0 && last < no && node_visible(options[last]) && opt_shown[last] >= (int)strlen(text(rd16(cur.opts + 4 * last + 2)));
+      char lt[96];
+      can_go = last >= 0 && last < no && node_visible(options[last]) && opt_shown[last] >= dtext(rd16(cur.opts + 4 * last + 2), lt, sizeof lt);
     }
   }
   /* the box grows to the text (qK: base) */

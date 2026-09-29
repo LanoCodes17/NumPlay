@@ -30,7 +30,7 @@ static inline float rdf(const uint8_t *p) { uint32_t v = rd32(p); float f; memcp
 #define NONE16 0xFFFF
 
 const char *str(uint16_t id);                   /* identifiers and short strings */
-const char *text(uint16_t id);                  /* same table; kept apart for dialogue */
+int dtext(uint16_t id, char *buf, int size);    /* a dialogue line (decompressed into buf), its length */
 int str_find(const char *s);                    /* id of a string, or -1 */
 uint16_t str_id(const char *s);                 /* id of a string that must exist */
 

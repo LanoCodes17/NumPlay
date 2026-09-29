@@ -1,5 +1,6 @@
 /* Entities and the doodle's shared systems (see ent.h). */
 #include "ent.h"
+#include "spr.h"
 #include <math.h>
 #include <stdio.h>
 #include "phys.h"
@@ -444,7 +445,9 @@ void sys_move_direct(void) {
 /* insertion sort of the map's children by a key (stable, like Array.sort in V8 for small arrays) */
 static void sort_children(NodeId m, float (*key)(NodeId)) {
   NodeId sorted = 0;
-  static float keys[NODE_MAX];
+  /* the keys live in the decoder's ring, idle between frames */
+  uint32_t cap;
+  float *keys = (float *)(void *)z_scratch(&cap);
   NodeId c = nodes[m].first;
   while (c) {
     NodeId nx = nodes[c].next;

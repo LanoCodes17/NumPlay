@@ -85,7 +85,7 @@ for _k in ('PRESS_SPACE', 'ARIA_BILLBOARD_DOCK', 'SPACEBAR', 'BACKSPACE', 'quest
         MESSAGES[_k] = MESSAGES[_k].replace(a_, b_)
 
 # ------------------------------------------------------------------ blob helpers
-HEADER_WORDS = 28
+HEADER_WORDS = 30
 STATS = {}
 
 
@@ -1035,20 +1035,35 @@ def storage_value(v):
     return struct.pack('<BI', 3, sid(v))
 
 
+# the dialogue's lines are kept apart, compressed (see dtext below): only the
+# dialogue box reads them, one at a time
+DTEXT = OrderedDict()
+DLG_KEYS = set()
+
+
+def dtext_id(t):
+    if t is None:
+        return 0xFFFF
+    return DTEXT.setdefault(t, len(DTEXT))
+
+
 dialog_groups = []
 for g in DIALOG:
     nodes = []
     for n in g:
         # texts come from the translations (npc + node name), else the tree's own
         base = n['V'] + n['nodeName']
+        DLG_KEYS.add(base)
         n['text'] = MESSAGES.get(base, n.get('text'))
-        opts = [(sid(o.get('next')), sid(MESSAGES.get(base + 'opt' + str(k), o.get('text')) if o.get('text') else None))
-                for k, o in enumerate(n.get('U', []))]
+        opts = []
+        for k, o in enumerate(n.get('U', [])):
+            DLG_KEYS.add(base + 'opt' + str(k))
+            opts.append((sid(o.get('next')), dtext_id(MESSAGES.get(base + 'opt' + str(k), o.get('text')) if o.get('text') else None)))
         tags = n.get('tags', {})
         avatar = (tags.get('W') or [''])[0]
         zd = tags.get('zd')
         setv = (var_id(zd[0]), storage_value(zd[1])) if zd else None
-        nodes.append((sid(n['nodeName']), sid(n['V']), sid(avatar), sid(n.get('text')), opts, setv))
+        nodes.append((sid(n['nodeName']), sid(n['V']), sid(avatar), dtext_id(n.get('text')), opts, setv))
     dialog_groups.append(nodes)
 
 dlg = bytearray()
@@ -1067,8 +1082,59 @@ for nodes in dialog_groups:
 off_dlg = blob.add(bytes(dlg))
 off_dlg_index = blob.add(b''.join(struct.pack('<I', off_dlg + o) for o in dlg_index))
 
+def bpe(texts):
+    """Byte-pair encoding: bytes the texts never use stand for frequent pairs."""
+    data = [list(t.encode('utf-8')) for t in texts]
+    used = set(b for t in data for b in t) | {0}
+    pairs = {}
+    for code in [b for b in range(1, 256) if b not in used]:
+        cnt = Counter()
+        for t in data:
+            cnt.update(zip(t, t[1:]))
+        if not cnt:
+            break
+        (a, b), n = cnt.most_common(1)[0]
+        if n < 3:
+            break
+        pairs[code] = (a, b)
+        for i, t in enumerate(data):
+            out, j = [], 0
+            while j < len(t):
+                if j + 1 < len(t) and t[j] == a and t[j + 1] == b:
+                    out.append(code)
+                    j += 2
+                else:
+                    out.append(t[j])
+                    j += 1
+            data[i] = out
+    return data, pairs
+
+
+_dt, _pairs = bpe(list(DTEXT))
+_tab = bytearray(512)
+for c, (a, b) in _pairs.items():
+    _tab[2 * c], _tab[2 * c + 1] = a, b
+_codes = bytearray(32)
+for c in _pairs:
+    _codes[c >> 3] |= 1 << (c & 7)
+_offs, _blob = [], bytearray()
+for t in _dt:
+    _offs.append(len(_blob))
+    _blob += bytes(t)
+_offs.append(len(_blob))
+off_dtext = blob.add(struct.pack('<H', len(_dt)) + b'\0\0' + bytes(_codes) + bytes(_tab) +
+                     b''.join(struct.pack('<I', o) for o in _offs) + bytes(_blob), cat='dtext')
+print('dialogue texts: %d lines, %d KB -> %d KB with %d pairs' % (len(_dt), sum(len(t.encode()) for t in DTEXT) // 1024,
+      len(_blob) // 1024, len(_pairs)))
+
 # messages (translatable UI texts), sorted by key for binary search
-msg_keys = sorted(MESSAGES)
+_named = set(re.findall(r'"([A-Za-z0-9_]+)"', KITSUNE))
+for _lib in LIB.values():
+    for _s in _lib['syms'].values():
+        for _c in (_s.get('T') or {}).values():
+            if isinstance(_c, dict):
+                _named.update(v for v in _c.values() if isinstance(v, str))
+msg_keys = sorted(k for k in MESSAGES if k not in DLG_KEYS or k in _named)
 off_msgs = blob.add(b''.join(struct.pack('<HH', sid(k), sid(MESSAGES[k])) for k in msg_keys))
 
 # compiled expressions
@@ -1281,12 +1347,29 @@ for w in WORLD:
               (sum(len(r) for r in recs) + 2 * (nrefs + nwrefs + 2 * gw * gh + len(recs)) + 8 * len(walls)) // 1024))
 off_worlds = blob.add(struct.pack('<I', len(world_offs)) + b''.join(struct.pack('<I', o) for o in world_offs))
 
+# the saved values' names (store.c keeps a name as its string id)
+_SPORTS = ['archery', 'climbing', 'marathon', 'pingpong', 'rugby', 'skate', 'swim']
+for _k in ['PLAYER_LOC', 'PLAYER_POS_X', 'PLAYER_POS_Y', 'PLAYER_TEAM', 'SUBMITTED_SCORES', 'TUTORIAL_DONE', 'TUTORIAL_BEGIN', 'FIRST_PLACE']:
+    sid(_k)
+for _r in re.findall(r'"?([a-z]+(?::[a-z0-9]+)?)"?: \{type: "(?:points|time)"', KITSUNE):
+    sid(_r + '_score')
+    sid(_r + '_rating')
+for _v in ['intro', 'outro'] + [x + 'intro' for x in _SPORTS] + [x + 'outro' for x in _SPORTS]:
+    sid(_v + '_VIDEO_SEEN')
+for _x in _SPORTS:
+    sid(_x + '_TUTORIAL_SEEN')
+for _v in VARS:
+    sid(_v)
+
 # strings last (everything above may have added some)
 str_offs, str_data = [], bytearray()
 for s in strings:
     str_offs.append(len(str_data))
     str_data += s.encode('utf-8') + b'\0'
 off_strtab = blob.add(b''.join(struct.pack('<I', o) for o in str_offs))
+# string ids in byte order, for str_find's binary search
+_sl = list(strings)
+off_strsort = blob.add(b''.join(struct.pack('<H', i) for i in sorted(range(len(_sl)), key=lambda i: _sl[i].encode('utf-8'))), 2)
 off_strdata = blob.add(bytes(str_data), 1)
 
 HEADER = [
@@ -1295,7 +1378,7 @@ HEADER = [
     ('nsyms', len(SYMS)), ('syms', off_syms), ('nmats', len(MATS)), ('mats', off_mats),
     ('nstrings', len(strings)), ('strtab', off_strtab), ('strdata', off_strdata),
     ('nexprs', len(EXPRS)), ('exprs', off_exprs), ('ndlg', len(dlg_index)), ('dlg', off_dlg_index),
-    ('nmsgs', len(msg_keys)), ('msgs', off_msgs), ('nvars', len(VARS)), ('payloads', off_payloads), ('ttab', off_ttab), ('bankspr', off_bankspr), ('worlds', off_worlds), ('reserved2', 0)]
+    ('nmsgs', len(msg_keys)), ('msgs', off_msgs), ('nvars', len(VARS)), ('payloads', off_payloads), ('ttab', off_ttab), ('bankspr', off_bankspr), ('worlds', off_worlds), ('dtext', off_dtext), ('strsort', off_strsort), ('reserved3', 0)]
 assert len(HEADER) == HEADER_WORDS
 final = bytearray(blob.b)
 final[:4 * HEADER_WORDS] = b''.join(struct.pack('<I', v) for _, v in HEADER)

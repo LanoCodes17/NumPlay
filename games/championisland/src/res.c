@@ -5,12 +5,46 @@ const char *str(uint16_t id) {
   if (id >= HDR(H_NSTRINGS)) return "";
   return (const char *)ci_data + HDR(H_STRDATA) + rd32(ci_data + HDR(H_STRTAB) + 4u * id);
 }
-const char *text(uint16_t id) { return str(id); }
+/* the dialogue's lines: byte-pair encoded (pack.py: bpe); a code byte stands
+ * for two bytes, each a code or a character */
+int dtext(uint16_t id, char *buf, int size) {
+  const uint8_t *t = ci_data + HDR(H_DTEXT);
+  if (!size) return 0;
+  buf[0] = 0;
+  if (id >= rd16(t)) return 0;
+  const uint8_t *codes = t + 4, *pairs = t + 36, *offs = t + 36 + 512;
+  unsigned n = rd16(t);
+  const uint8_t *data = offs + 4 * (n + 1);
+  const uint8_t *p = data + rd32(offs + 4 * id), *end = data + rd32(offs + 4 * id + 4);
+  uint8_t stack[32];
+  int len = 0;
+  while (p < end) {
+    int sp = 0;
+    stack[sp++] = *p++;
+    while (sp) {
+      uint8_t c = stack[--sp];
+      if (codes[c >> 3] & (1 << (c & 7))) {
+        if (sp + 2 > (int)sizeof stack) break;
+        stack[sp++] = pairs[2 * c + 1];
+        stack[sp++] = pairs[2 * c];
+      } else if (len < size - 1) buf[len++] = (char)c;
+    }
+  }
+  buf[len] = 0;
+  return len;
+}
 
+/* binary search in the ids sorted by their bytes */
 int str_find(const char *s) {
-  uint32_t n = HDR(H_NSTRINGS);
-  for (uint32_t i = 0; i < n; i++)
-    if (!strcmp(str((uint16_t)i), s)) return (int)i;
+  const uint8_t *sorted = ci_data + HDR(H_STRSORT);
+  int lo = 0, hi = (int)HDR(H_NSTRINGS) - 1;
+  while (lo <= hi) {
+    int mid = (lo + hi) / 2;
+    uint16_t id = rd16(sorted + 2 * mid);
+    int c = strcmp(str(id), s);
+    if (!c) return id;
+    if (c < 0) lo = mid + 1; else hi = mid - 1;
+  }
   return -1;
 }
 

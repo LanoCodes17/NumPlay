@@ -11,7 +11,7 @@
 
 /* ---------------------------------------------------------------- LZMA */
 static CLzmaProb probs[1984 + 0x300];
-static uint8_t ring[LZMA_DICT];
+static uint8_t ring[LZMA_DICT] __attribute__((aligned(4)));
 static CLzmaDec dec;
 static const uint8_t *z_src;
 static uint32_t z_in, z_len, z_out, z_total;
@@ -76,7 +76,8 @@ uint8_t *z_scratch(uint32_t *size) { *size = sizeof ring; return ring; }
 
 /* ---------------------------------------------------------------- the cache */
 #define ENTRIES 160
-typedef struct { uint16_t spr; uint16_t pad; uint32_t off, size, used; } Entry;
+/* off in 4-byte units, used: the tick it was last drawn (16 bits, compared as ages) */
+typedef struct { uint16_t spr, off4, size, used; } Entry;
 static uint8_t *mem;
 static uint32_t cache_bytes;
 static Entry ent[ENTRIES];
@@ -112,22 +113,24 @@ static void compact(void) {
   for (int i = 1; i < nent; i++) {
     Entry e = ent[i];
     int j = i - 1;
-    while (j >= 0 && ent[j].off > e.off) { ent[j + 1] = ent[j]; j--; }
+    while (j >= 0 && ent[j].off4 > e.off4) { ent[j + 1] = ent[j]; j--; }
     ent[j + 1] = e;
   }
   uint32_t at = 0;
   for (int i = 0; i < nent; i++) {
-    if (ent[i].off != at) memmove(mem + at, mem + ent[i].off, ent[i].size);
-    ent[i].off = at;
+    if (4u * ent[i].off4 != at) memmove(mem + at, mem + 4u * ent[i].off4, ent[i].size);
+    ent[i].off4 = (uint16_t)(at / 4);
     at += (ent[i].size + 3) & ~3u;
   }
   top = at;
 }
 
+static inline uint16_t age(const Entry *e) { return (uint16_t)((uint16_t)tick - e->used); }
+
 static void evict_one(void) {
   int old = 0;
   for (int i = 1; i < nent; i++)
-    if (ent[i].used < ent[old].used) old = i;
+    if (age(&ent[i]) > age(&ent[old])) old = i;
   ent[old] = ent[--nent];
 }
 
@@ -141,8 +144,8 @@ static uint8_t *alloc(uint32_t n, bool force) {
     while (nent && (live + n > cache_bytes || nent >= ENTRIES)) {
       int old = 0;
       for (int i = 1; i < nent; i++)
-        if (ent[i].used < ent[old].used) old = i;
-      if (!force && ent[old].used + 1 >= tick) return NULL;
+        if (age(&ent[i]) > age(&ent[old])) old = i;
+      if (!force && age(&ent[old]) <= 1) return NULL;
       live -= (ent[old].size + 3) & ~3u;
       evict_one();
     }
@@ -207,7 +210,8 @@ static void rle_row(Rle *r, const uint8_t *px, int w, const uint8_t *alpha) {
 }
 /* Worst-case size of a sprite's runs. */
 static uint32_t rle_bound(int w, int h) { return 4 + 2u * h + (uint32_t)h * (2 + 3 * ((uint32_t)w / 2 + 2) + (uint32_t)w); }
-static uint8_t rowbuf[SPRITE_W_MAX];
+uint8_t spr_rowbuf[SPRITE_W_MAX];   /* one decoded row (shared with gfx.c) */
+#define rowbuf spr_rowbuf
 
 /* Adds sprite sp from the decoder, whose next bytes are its pixels. */
 static bool add_from_decoder(uint16_t sp, const Sprite *s, bool force) {
@@ -227,7 +231,8 @@ static bool add_from_decoder(uint16_t sp, const Sprite *s, bool force) {
   if (!r.ok) return false;
   top += (used + 3) & ~3u;
   /* sprites decoded on the way (bank neighbours) count as older than any in use */
-  ent[nent++] = (Entry){sp, 0, (uint32_t)(p - mem), used, force || !tick ? tick : tick - 1};
+  if (used > 0xFFFF) { top -= (used + 3) & ~3u; return false; }
+  ent[nent++] = (Entry){sp, (uint16_t)((p - mem) / 4), (uint16_t)used, (uint16_t)(force ? tick : tick - 1)};
   return true;
 }
 
@@ -236,8 +241,8 @@ const uint8_t *spr_get(uint16_t sp) {
   unsigned f = find(sp);
   if (f) {
     Entry *e = &ent[f - 1];
-    e->used = tick;
-    return mem + e->off;
+    e->used = (uint16_t)tick;
+    return mem + 4u * e->off4;
   }
   Sprite s;
   sprite_info(sp, &s);
@@ -266,7 +271,7 @@ const uint8_t *spr_get(uint16_t sp) {
     }
   }
   unsigned f2 = find(sp);
-  return f2 ? mem + ent[f2 - 1].off : NULL;
+  return f2 ? mem + 4u * ent[f2 - 1].off4 : NULL;
 }
 
 /* the cached runs if the sprite is in the cache now (never decodes) */
@@ -274,8 +279,8 @@ const uint8_t *spr_peek(uint16_t sp) {
   unsigned f = sp < SPRITE_COUNT && mem ? find(sp) : 0;
   if (!f) return NULL;
   Entry *e = &ent[f - 1];
-  e->used = tick;
-  return mem + e->off;
+  e->used = (uint16_t)tick;
+  return mem + 4u * e->off4;
 }
 
 const uint8_t *spr_stream(uint16_t sp) {

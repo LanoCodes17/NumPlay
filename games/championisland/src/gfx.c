@@ -20,9 +20,10 @@ typedef struct {
   uint16_t color;               /* rect/text colour, or the sprite of an affine item */
 } Item;
 static const void *item_ptr[MAX_AFF];   /* shape payload or text, by affine slot */
-typedef struct { float ia, ib, ic, id, itx, ity; Mat m; uint8_t align, scale; int16_t lw, lh; } Aff;
+typedef struct { Mat m; uint8_t align, scale; int16_t lw, lh; } Aff;
 
-static uint8_t stream_buf[SPRITE_W_MAX];   /* a decoded row (streams, affine sprites, scenery) */
+extern uint8_t spr_rowbuf[SPRITE_W_MAX];
+#define stream_buf spr_rowbuf               /* a decoded row (streams, affine sprites, scenery) */
 static Item items[MAX_ITEMS];
 static Aff affs[MAX_AFF];
 static int nitems, naffs;
@@ -70,8 +71,6 @@ static bool set_affine(Item *it, Mat m) {
   float det = m.a * m.d - m.b * m.c;
   if (fabsf(det) < 1e-6f || naffs >= MAX_AFF) return false;
   Aff *f = &affs[naffs];
-  f->ia = m.d / det; f->ib = -m.b / det; f->ic = -m.c / det; f->id = m.a / det;
-  f->itx = -(f->ia * m.tx + f->ic * m.ty); f->ity = -(f->ib * m.tx + f->id * m.ty);
   f->m = m;
   it->ref = (uint16_t)naffs++;
   return true;
@@ -580,7 +579,7 @@ static __attribute__((noinline)) void draw_sprite_item(const Item *it, int y0, i
   const uint16_t *pal = pal565(s.sheet);
   const uint8_t *al = palalpha(s.sheet);
   int h = rd16(r + 2), w = rd16(r);
-  static uint8_t al_opaque[256];      /* for DF_OPAQUE: 255 stays, the rest are skipped */
+  uint8_t al_opaque[256];             /* for DF_OPAQUE: 255 stays, the rest are skipped */
   if (it->flags & DF_OPAQUE) {
     for (int i = 0; i < 256; i++) al_opaque[i] = al[i] == 255 ? 255 : 0;
     al = al_opaque;
@@ -599,13 +598,16 @@ static __attribute__((noinline)) void draw_affine_item(const Item *it, int y0, i
   sprite_info(it->color, &s);
   const uint16_t *pal = pal565(s.sheet);
   const uint8_t *al = palalpha(s.sheet);
-  const Aff *f = &affs[it->ref];
+  const Mat *m = &affs[it->ref].m;
+  float det = m->a * m->d - m->b * m->c;
+  float ia = m->d / det, ib = -m->b / det, ic = -m->c / det, id = m->a / det;
+  float itx = -(ia * m->tx + ic * m->ty), ity = -(ib * m->tx + id * m->ty);
   int w = rd16(r), h = rd16(r + 2);
   int x0 = it->x0 < 0 ? 0 : it->x0, x1 = it->x1 > VIEW_W ? VIEW_W : it->x1;
   for (int y = y0; y < y1; y++) {
     uint16_t *d = band + (y - by) * VIEW_W;
-    float fu = f->ia * (x0 + 0.5f) + f->ic * (y + 0.5f) + f->itx, fv = f->ib * (x0 + 0.5f) + f->id * (y + 0.5f) + f->ity;
-    for (int x = x0; x < x1; x++, fu += f->ia, fv += f->ib) {
+    float fu = ia * (x0 + 0.5f) + ic * (y + 0.5f) + itx, fv = ib * (x0 + 0.5f) + id * (y + 0.5f) + ity;
+    for (int x = x0; x < x1; x++, fu += ia, fv += ib) {
       if (fu < 0 || fv < 0 || fu >= w || fv >= h) continue;
       int v = (int)fv, u = (int)fu;
       if (r != line_spr || v != line_v) line_decode(r, v, w);

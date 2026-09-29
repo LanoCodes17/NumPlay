@@ -25,6 +25,13 @@ void ci_init(void) {
   hud_init();
   /* the doodle opens on its intro film the first time, then on the island */
 #ifdef START_SCENE
+#ifdef START_TUTORIAL_DONE
+  store_set_bool("TUTORIAL_DONE", true);   /* recordings of the island after the tutorial */
+  store_set_bool("intro_VIDEO_SEEN", true);
+#endif
+#ifdef START_ENDING
+  store_set_bool("outro_VIDEO_SEEN", true);   /* the island after the ending */
+#endif
   game_go(START_SCENE);   /* test builds: make EXTRA='-DSTART_SCENE=\"pingpong:hard\"' */
 #else
   game_go(store_bool("intro_VIDEO_SEEN", false) ? "overworld" : "video:intro:skippable");

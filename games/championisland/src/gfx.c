@@ -110,13 +110,18 @@ void gfx_rect(int x, int y, int w, int h, uint16_t c, uint8_t alpha) {
 }
 
 /* one pattern a frame: a small 4-bit image at n places (gfx_tiles) */
-static struct { const uint8_t *px; const uint16_t *pal; const uint8_t *al; const int16_t *pos; int n, w, h, ox, oy; } tl;
+static struct { const uint8_t *px, *pts; const uint16_t *pal; const uint8_t *al; const int16_t *pos; int n, w, h, ox, oy; } tl;
 void gfx_tiles(const uint8_t *px, int w, int h, const uint16_t *pal, const uint8_t *al, const int16_t *pos, int n, int ox, int oy, uint8_t alpha) {
   if (!alpha || n <= 0 || w <= 0 || h <= 0) return;
   Item *it = add();
   if (!it) return;
-  tl.px = px; tl.pal = pal; tl.al = al; tl.pos = pos; tl.n = n; tl.w = w; tl.h = h; tl.ox = ox; tl.oy = oy;
+  tl.px = px; tl.pts = NULL; tl.pal = pal; tl.al = al; tl.pos = pos; tl.n = n; tl.w = w; tl.h = h; tl.ox = ox; tl.oy = oy;
   *it = (Item){DI_TILES, alpha, 0, 0, 0, 0, VIEW_W, VIEW_H, (uint16_t)(uintptr_t)px, (uint16_t)((ox & 0xFF) | (oy & 0xFF) << 8)};
+}
+
+void gfx_points(const uint8_t *pts, int w, int h, const uint16_t *pal, const uint8_t *al, const int16_t *pos, int n, int ox, int oy, uint8_t alpha) {
+  gfx_tiles(pts, w, h, pal, al, pos, n, ox, oy, alpha);
+  if (nitems && items[nitems - 1].kind == DI_TILES) { tl.px = NULL; tl.pts = pts; }
 }
 
 void gfx_shape(const uint8_t *shape, Mat m, uint8_t alpha) {
@@ -605,8 +610,19 @@ static void draw_stream(const Item *it, int y0, int y1, int by, unsigned ga) {
   }
 }
 
+/* A sprite the cache let go before its band (a frame needing more than the
+ * cache holds, such as a menu over the island): decoded now, unless a stream
+ * holds the decoder (then it comes next frame). */
+static const uint8_t *band_sprite(uint16_t sp) {
+  const uint8_t *r = spr_peek(sp);
+  if (r || streaming) return r;
+  r = spr_get(sp);
+  line_spr = NULL;   /* the cache may have moved */
+  return r;
+}
+
 static __attribute__((noinline)) void draw_sprite_item(const Item *it, int y0, int y1, int by, int rows, unsigned ga) {
-  const uint8_t *r = spr_peek(it->ref);
+  const uint8_t *r = band_sprite(it->ref);
   if (!r) return;
   Sprite s;
   sprite_info(it->ref, &s);
@@ -626,7 +642,7 @@ static __attribute__((noinline)) void draw_sprite_item(const Item *it, int y0, i
 }
 
 static __attribute__((noinline)) void draw_affine_item(const Item *it, int y0, int y1, int by, int rows, unsigned ga) {
-  const uint8_t *r = spr_peek(it->color);
+  const uint8_t *r = band_sprite(it->color);
   if (!r) return;
   Sprite s;
   sprite_info(it->color, &s);
@@ -737,6 +753,7 @@ static __attribute__((noinline)) void draw_shape_item(const Item *it, int y0, in
 
 static __attribute__((noinline)) void draw_mask_item(const Item *it, int y0, int y1, int by) {
   const uint8_t *m = spr_peek_mask(it->ref);
+  if (!m && !streaming) { m = spr_mask(it->ref); line_spr = NULL; }
   if (!m || !bgmem) return;
   const uint16_t *pal = pal565(bgsheet);
   const uint8_t *al = palalpha(bgsheet);
@@ -777,6 +794,16 @@ static __attribute__((noinline)) void draw_tiles_item(int y0, int y1, int by, un
     int tx = tl.ox + tl.pos[2 * i], ty = tl.oy + tl.pos[2 * i + 1];
     int a = ty > y0 ? ty : y0, b = ty + tl.h < y1 ? ty + tl.h : y1;
     if (a >= b || tx >= VIEW_W || tx + tl.w <= 0) continue;
+    if (tl.pts) {   /* a few pixels: u16 count, then (x, y, colour) */
+      int np = rd16(tl.pts);
+      for (const uint8_t *q = tl.pts + 2; np--; q += 3) {
+        int x = tx + q[0], y = ty + q[1];
+        if (y < a || y >= b || x < 0 || x >= VIEW_W) continue;
+        uint16_t *d = band + (y - by) * VIEW_W + x;
+        *d = blend(tl.pal[q[2]], *d, (tl.al[q[2]] * ga + 16) >> 5);
+      }
+      continue;
+    }
     int x0 = tx < 0 ? -tx : 0, x1 = tx + tl.w > VIEW_W ? VIEW_W - tx : tl.w;
     for (int y = a; y < b; y++) {
       const uint8_t *row = tl.px + (y - ty) * (tl.w >> 1);
@@ -866,6 +893,16 @@ void gfx_letterbox(uint16_t c) {
   letter_color = c;
 }
 
+/* sprites whose items all end above y: the cache may let them go first */
+static void release_done(int y) {
+  for (int i = 0; i < nitems; i++) {
+    const Item *it = &items[i];
+    if (it->y1 <= y - BAND || it->y1 > y) continue;
+    if (it->kind == DI_SPRITE || it->kind == DI_MASK || it->kind == DI_STREAM) spr_release(it->ref);
+    else if (it->kind == DI_AFFINE) spr_release(it->color);
+  }
+}
+
 void gfx_end(void) {
   if (letter_dirty) {
     plat_fill(0, 0, SCREEN_W, VIEW_Y, letter_color);
@@ -893,7 +930,10 @@ void gfx_end(void) {
       fprintf(stderr, "item %d kind %d a %d f %d box %d %d %d %d ref %u col %u\n", i, items[i].kind, items[i].alpha, items[i].flags,
               items[i].x0, items[i].y0, items[i].x1, items[i].y1, items[i].ref, items[i].color);
 #endif
-  /* decode what the frame needs before drawing, so bands only read the cache */
+  /* decode what the frame needs before drawing, so bands only read the cache;
+   * a frame needing more than the cache holds (a menu over the island, a busy
+   * street) is decoded band by band instead, from the top, each sprite let go
+   * once its last band is drawn (release_done) */
   streaming = NULL;
   line_spr = NULL;
   uint8_t seen[(SPRITE_COUNT + 7) / 8];
@@ -909,11 +949,16 @@ void gfx_end(void) {
       need += (t.rle + 3) & ~3u;
       seen[sp >> 3] |= (uint8_t)(1 << (sp & 7));
     }
-    spr_get(sp);
   }
+  bool over = need + 1024 > spr_capacity();
 #ifdef HOST
-  if (getenv("CI_NEED")) fprintf(stderr, "need %u of %u\n", (unsigned)need, (unsigned)spr_capacity());
+  if (getenv("CI_NEED")) fprintf(stderr, "need %u of %u%s\n", (unsigned)need, (unsigned)spr_capacity(), over ? " (by band)" : "");
 #endif
+  for (int i = 0; i < nitems && !over; i++) {
+    Item *it = &items[i];
+    if (it->kind == DI_SPRITE || it->kind == DI_AFFINE) spr_get(it->kind == DI_SPRITE ? it->ref : it->color);
+    else if (it->kind == DI_MASK) spr_mask(it->ref);
+  }
   /* big sprites are cached too while everything fits; otherwise the first
    * one keeps the decoder while the bands go down */
   for (int i = 0; i < nitems; i++) {
@@ -922,15 +967,14 @@ void gfx_end(void) {
     Sprite t;
     sprite_info(it->ref, &t);
     uint32_t sz = (t.rle + 3) & ~3u;
-    if (need + sz + 1024 <= spr_capacity() && spr_get(it->ref)) {
+    if (!over && need + sz + 1024 <= spr_capacity() && spr_get(it->ref)) {
       it->kind = DI_SPRITE;
       need += sz;
     } else if (!streaming) stream_begin(it);
   }
-  for (int i = 0; i < nitems; i++)
-    if (items[i].kind == DI_MASK) spr_mask(items[i].ref);
-  /* a sprite pushed out of the cache by a later one is drawn next frame */
-  for (int i = 0; i < nitems; i++) {
+  /* with a stream holding the decoder nothing is decoded while the bands go
+   * down: what is not cached is drawn next frame */
+  for (int i = 0; i < nitems && (streaming || !over); i++) {
     Item *it = &items[i];
     if ((it->kind == DI_SPRITE || it->kind == DI_AFFINE || (it->kind == DI_STREAM && it != streaming)) &&
         !spr_peek(it->kind == DI_AFFINE ? it->color : it->ref))
@@ -946,7 +990,7 @@ void gfx_end(void) {
       const Item *it = &items[i];
       if (it->y1 > by && it->y0 < by + rows) h = item_hash(h, it);
     }
-    if (!redraw_all && h == band_hash[by / BAND]) continue;
+    if (!redraw_all && h == band_hash[by / BAND]) { if (over) release_done(by + rows); continue; }
     band_hash[by / BAND] = h;
     band_bg(by, rows);
     for (int i = 0; i < nitems; i++) {
@@ -954,6 +998,7 @@ void gfx_end(void) {
       if (it->y1 > by && it->y0 < by + rows) draw_item(it, by, rows);
     }
     plat_push(0, VIEW_Y + by, VIEW_W, rows, band);
+    if (over) release_done(by + rows);
   }
   redraw_all = false;
   spr_tick();

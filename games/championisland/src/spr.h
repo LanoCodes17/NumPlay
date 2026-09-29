@@ -16,6 +16,8 @@ const uint8_t *spr_peek(uint16_t sprite);    /* only if cached */
 const uint8_t *spr_stream(uint16_t sprite);   /* 14-byte stream record or NULL */
 const uint8_t *spr_mask(uint16_t sprite);     /* its opaque pixels as spans (decodes it if needed), or NULL */
 const uint8_t *spr_peek_mask(uint16_t sprite);
+void spr_pin(uint16_t sprite, const uint8_t *rle);
+void spr_release(uint16_t sprite);                    /* not needed again this frame */   /* its runs kept elsewhere by the scene (NULL: no more) */
 void spr_setup(uint8_t *mem, uint32_t size);   /* where the cache lives (game.c's arena) */
 void spr_reset(void);
 uint8_t *z_scratch(uint32_t *size);             /* the decoder's ring when it is idle */

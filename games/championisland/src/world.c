@@ -127,6 +127,7 @@ static int statics_in(float x0, float y0, float x1, float y1, uint8_t *bits, int
 #define FRONT_MAX 40
 #define SOLID_MAX 40
 #define RAIN_MAX 48
+#define PETAL_MAX 80
 typedef struct {
   uint8_t water[WATER * WATER];        /* the sea's tile now (w9a: frames 0-15, 16-31) */
   int water_look;                      /* which, -1 before the first */
@@ -135,6 +136,9 @@ typedef struct {
   uint16_t rain_cond;                  /* its conditionallyVisible */
   int16_t rain_pos[2 * RAIN_MAX];      /* its tiles */
   int rain_n;
+  bool ending;                         /* the outro was seen: the petals and the glow */
+  int16_t petal_pos[2 * PETAL_MAX];
+  int npetal;
   uint32_t tick;
   int roll;                            /* Bi.Jaa: ticks left in a roll */
   float stream_x, stream_y;            /* camera when the live children were last streamed */
@@ -684,13 +688,52 @@ static bool rain_slot(unsigned slot, const SlotInfo *si, void *ctx) {
   W->rain_n++;
   return true;
 }
+static uint16_t glow_sprite(void) {
+  SymInfo glow;
+  sym_info(S_overworld_nAa, &glow);
+  return glow.type == SYM_BITMAP ? (uint16_t)glow.v : NONE16;
+}
+
+/* a pattern set of the data (pack.py: rain, petals) */
+static const uint8_t *pattern(unsigned i) {
+  if (!HDR(H_TILES)) return NULL;
+  const uint8_t *blk = ci_data + HDR(H_TILES);
+  return i < rd16(blk) ? blk + rd32(blk + 4 + 4 * i) : NULL;
+}
+
+/* oAa, mAa: after the ending (outro seen), a glow over the top of the view and
+ * the petals falling over the island (repeatable tiles of 144 x 62, the 20
+ * looks of a petal taking turns every 3 ticks) */
+static bool petal_slot(unsigned slot, const SlotInfo *si, void *ctx) {
+  if (W->npetal >= PETAL_MAX) return false;
+  W->petal_pos[2 * W->npetal] = (int16_t)floorf(si->x + .5f);
+  W->petal_pos[2 * W->npetal + 1] = (int16_t)floorf(si->y + .5f);
+  W->npetal++;
+  return true;
+}
+static void draw_ending(float mx, float my) {
+  uint16_t gs = glow_sprite();
+  if (gs != NONE16) gfx_sprite(gs, MAT_ID, 255);
+  const uint8_t *t = pattern(1);
+  if (!t || !W->npetal) return;
+  unsigned looks = rd16(t + 2), look = W->tick / 3 % (looks ? looks : 1);
+  const uint8_t *offs = t + 56;
+  int ox = (int)floorf((fmodf(fmodf(mx, 432) + 432, 432) - 432) / 3 + .5f);
+  int oy = (int)floorf((fmodf(fmodf(my, 186) + 186, 186) - 186) / 3 + .5f);
+  gfx_points(t + rd32(offs + 4 * look), rd16(t + 4), rd16(t + 6), (const uint16_t *)(t + 8), t + 40, W->petal_pos, W->npetal,
+             ox, oy, 255);
+}
+
 static void draw_over_overworld(void) {
-  if (!W || !W->map || W->rain < .01f || !W->rain_n || !HDR(H_TILES)) return;
-  if (W->rain_cond != NONE16 && str(W->rain_cond)[0] && !cond_eval(W->rain_cond)) return;
-  const uint8_t *t = ci_data + HDR(H_TILES);
-  int w = rd16(t), h = rd16(t + 2), looks = rd16(t + 4);
-  unsigned look = (W->tick / 3) % 2 % (unsigned)(looks ? looks : 1);
+  if (!W || !W->map) return;
   float mx = nodes[W->map].x, my = nodes[W->map].y;
+  if (W->ending) draw_ending(mx, my);
+  if (W->rain < .01f || !W->rain_n) return;
+  if (W->rain_cond != NONE16 && str(W->rain_cond)[0] && !cond_eval(W->rain_cond)) return;
+  const uint8_t *t = pattern(0);
+  if (!t) return;
+  int looks = rd16(t + 2), w = rd16(t + 4), h = rd16(t + 6);
+  unsigned look = (W->tick / 3) % 2 % (unsigned)(looks ? looks : 1);
   int ox = (int)floorf((fmodf(fmodf(mx, 144) + 144, 144) - 144) / 3 + .5f);
   int oy = (int)floorf((fmodf(fmodf(my, 144) + 144, 144) - 144) / 3 + .5f);
   gfx_tiles(t + 56 + look * (unsigned)(w * h / 2), w, h, (const uint16_t *)(t + 8), t + 40, W->rain_pos, W->rain_n, ox, oy,
@@ -749,6 +792,7 @@ static NodeId child_of_sym(NodeId n, uint16_t sym) {
 }
 
 static void start_overworld(void) {
+  bool ending = store_bool("outro_VIDEO_SEEN", false);
   W = scene_state(sizeof(World));
   W->region_rain = -1;
   world_load(S_overworld_jqa);
@@ -765,10 +809,16 @@ static void start_overworld(void) {
   W->rain_cond = rain && nodes[rain].T != NONE16 ? comp_str(nodes[rain].T, C_conditionallyVisible, F_condition) : NONE16;
   if (rain) { node_remove(rain); node_free(rain); }
   clip_each_slot(S_overworld_bca, 0, rain_slot, NULL);
-  NodeId sky = child_of_sym(root, S_overworld_mAa);
-  if (sky) node_free(sky);
+  /* the ending's glow and petals are drawn by code too (draw_over) */
+  node_free(child_of_sym(root, S_overworld_oAa));
+  node_free(child_of_sym(root, S_overworld_mAa));
+  W->ending = ending;
+  if (W->ending) clip_each_slot(S_overworld_mAa, 0, petal_slot, NULL);
   if (!W->map) return;
   mem_layout(VIEW_W + 8, VIEW_H + 8, SHEET_OVERWORLD, paint);
+  /* after the ending, the glow is read from its runs in the data (pack.py) */
+  const uint8_t *glow = pattern(2);
+  if (ending && glow && rd16(glow + 2) == glow_sprite()) spr_pin(glow_sprite(), glow + 4);
   bg_blend_lut(wd.lut);
   ent_register_tree(root);
   node_stream_hook = streamed_in;
@@ -795,6 +845,7 @@ static void start_overworld(void) {
 }
 
 static void end_overworld(void) {
+  spr_pin(glow_sprite(), NULL);
   node_stream_hook = NULL;
   node_draw_hook = NULL;
   node_draw_hook_id = 0;

@@ -459,6 +459,71 @@ def tr_of(M, tr):
     return out
 
 
+# property names the game code reads (b.title, b.Jw.zK...): Closure renamed most
+# of Animate's instance properties, so only those the code uses are kept
+_code = KITSUNE.split('\n')
+USED_PROPS = set(re.findall(r'\.([A-Za-z_$][\w$]*)', '\n'.join(_code[2780:4830] + _code[24600:]))) - {'shape'}
+
+
+def child_name(c):
+    """The names code can find a child by: its instance name and/or the property
+    it is kept in, as "name|property" when both."""
+    nm, pk = c['tr'].get('nm'), c.get('pk')
+    if nm == 'hitArea':   # touch areas: the calculator has keys
+        nm = None
+    if pk not in USED_PROPS or pk == nm or pk == 'hitArea':
+        pk = None
+    if nm and pk:
+        return nm + '|' + pk
+    return nm or pk
+
+
+# live children whose first pictures never change (a house under its door):
+# those pictures are baked into the layer, and the symbol loses them
+LEAD_COMPS = {'boundable', 'collidable', 'jumpToFrameOnTrigger', 'trigger', 'scenePortal', 'untraversable'}
+LEAD_BAKED = {}
+
+
+def _world_only_uses():
+    """(lib, sym) used as a child only by maps and their regions."""
+    ok = {}
+    for lib_, _ in LIBS:
+        L = LIB[lib_]['syms']
+        for k, s_ in L.items():
+            T = s_.get('T') or {}
+            is_world = 'map' in T or 'region' in T
+            for fr in s_.get('frames') or []:
+                for c in fr:
+                    if c.get('sym'):
+                        key = (lib_, c['sym'])
+                        ok[key] = ok.get(key, True) and is_world
+    return ok
+
+
+WORLD_ONLY = _world_only_uses()
+
+
+def static_lead(lib, g):
+    """How many of a live child's first children are pictures that never change."""
+    L = LIB[lib]['syms']
+    s_ = L.get(g.get('sym'), {})
+    T = s_.get('T') or {}
+    tr = g.get('tr', {})
+    if not T or not set(T) <= LEAD_COMPS or not WORLD_ONLY.get((lib, g['sym'])) or tr.get('a', 1) < 1 or tr.get('v', 1) == 0:
+        return 0
+    frames = s_.get('frames') or []
+    if not frames:
+        return 0
+    n = 0
+    for i, c in enumerate(frames[0]):
+        if not c.get('sym') or c['t'] not in ('b', 'm') or child_name(c) or not content_static(lib, c['sym']):
+            break
+        if c['tr'].get('v', 1) == 0 or any(i >= len(f) or f[i] != c for f in frames):
+            break
+        n += 1
+    return n
+
+
 def classify(lib, g, Mg, statics, kids, order_i, walls_only=False):
     """A child of a map (or of one of its regions) placed by Mg: baked scenery, or kept live.
     In rooms only invisible walls are taken out (the rest is small and drawn from the clip)."""
@@ -474,6 +539,17 @@ def classify(lib, g, Mg, statics, kids, order_i, walls_only=False):
         d = dict(g)
         d['tr'] = tr_of(Mg, g.get('tr', {}))
         kids.append(d)
+        n = static_lead(lib, g) if not walls_only else 0
+        if n:
+            # the pictures under a door (the house itself) never change: they go into
+            # the layer at the door's depth, and the door keeps the rest
+            draws = []
+            for c in gs['frames'][0][:n]:
+                flatten_draws(lib, c['sym'], mat_mul(Mg, matrix(c.get('tr', {}))), c.get('tr', {}).get('a', 1), 0, draws)
+            key = float(dro) if dro is not None else Mg[5]
+            statics.append({'key': key, 'order': order_i, 'draws': draws, 'coll': None, 'sym': g.get('sym')})
+            LEAD_BAKED[(lib, g['sym'])] = n
+            return order_i + 1
         return order_i
     draws = []
     flatten_draws(lib, g['sym'], Mg, g.get('tr', {}).get('a', 1), 0, draws)
@@ -715,23 +791,6 @@ CK_SYM, CK_SHAPE, CK_TEXT = 0, 1, 2
 anon_shapes = {}
 
 
-# property names the game code reads (b.title, b.Jw.zK...): Closure renamed most
-# of Animate's instance properties, so only those the code uses are kept
-_code = KITSUNE.split('\n')
-USED_PROPS = set(re.findall(r'\.([A-Za-z_$][\w$]*)', '\n'.join(_code[2780:4830] + _code[24600:]))) - {'shape'}
-
-
-def child_name(c):
-    """The names code can find a child by: its instance name and/or the property
-    it is kept in, as "name|property" when both."""
-    nm, pk = c['tr'].get('nm'), c.get('pk')
-    if nm == 'hitArea':   # touch areas: the calculator has keys
-        nm = None
-    if pk not in USED_PROPS or pk == nm or pk == 'hitArea':
-        pk = None
-    if nm and pk:
-        return nm + '|' + pk
-    return nm or pk
 
 
 SLOT_CONFLICTS = []
@@ -933,6 +992,8 @@ for (lib, k) in SYMS:
         sym_table.append((SYM_SHAPE, PAYLOADS.setdefault(enc_shape(s.get('g') or []), len(PAYLOADS))))
     elif t == 'm':
         frames = s['frames']
+        if (lib, k) in LEAD_BAKED:
+            frames = [f[LEAD_BAKED[(lib, k)]:] for f in frames]
         nf = len(frames)
         slots = defaultdict(lambda: [None] * nf)
         for fi, fr in enumerate(frames):
@@ -1281,37 +1342,128 @@ for i in range(len(SHEETS)):
     pal_bin += bytes(sheet_alpha[i])
 off_pal = blob.add(bytes(pal_bin))
 
-# the island's rain (bca): its two looks (Yi shows u_a, then v_a) drawn as a
-# pattern over the view straight from here, 4 bits a pixel with their own 15
-# colours (u16 w, h, looks, colours; u16 rgb565[16]; u8 alpha 0..32 [16]; pixels)
-def tiles4(lib, names):
-    looks = [LIB[lib]['syms'][n]['sheet'] for n in names]
-    sh, _, _, w, h = looks[0]
-    assert all(l[0] == sh and l[3:] == (w, h) for l in looks) and w % 2 == 0
-    cols, px = [], bytearray()
-    for _, x, y, _, _ in looks:
-        a = sheet_px[sh][y:y + h, x:x + w]
-        for row in a:
-            nib = []
-            for v in row.tolist():
-                if sheet_alpha[sh][v] == 0:
-                    nib.append(0)
-                    continue
-                if v not in cols:
-                    cols.append(v)
-                nib.append(cols.index(v) + 1)
-            px += bytes(nib[i] | nib[i + 1] << 4 for i in range(0, w, 2))
+# Patterns drawn over the island straight from here, with their own colours
+# (u16 rgb565[16], u8 alpha 0..32 [16], index 0 clear):
+# - the rain (bca): its two looks (Yi shows u_a, then v_a), 4 bits a pixel;
+# - the petals after the ending (mAa): the 20 looks of a petal (Ue), each as
+#   its few pixels (x, y, colour), where Ue shows it.
+# Block: u16 sets, u16 0, u32 set offsets; a set: u16 kind (0 pixels, 1 points),
+# u16 looks, u16 w, u16 h, colours, then the pixels, or u32 look offsets and per
+# look u16 points, then (x, y, colour) bytes.
+def pattern_colours(sh, vals):
+    cols = []
+    for v in vals:
+        if sheet_alpha[sh][v] and v not in cols:
+            cols.append(v)
     assert len(cols) <= 15, cols
-    pal = [0] * 16
-    al = [0] * 16
+    pal, al = [0] * 16, [0] * 16
     for i, v in enumerate(cols):
         r, g, b = pal_rgb[sh][v]
         pal[i + 1] = (r >> 3) << 11 | (g >> 2) << 5 | (b >> 3)
         al[i + 1] = (int(sheet_alpha[sh][v]) * 32 + 127) // 255
-    return struct.pack('<HHHH', w, h, len(looks), len(cols)) + struct.pack('<16H', *pal) + bytes(al) + bytes(px)
+    return cols, struct.pack('<16H', *pal) + bytes(al)
 
 
-off_tiles = blob.add(tiles4('overworld', ['u_a', 'v_a']), 2)
+def tiles4(lib, names):
+    looks = [LIB[lib]['syms'][n]['sheet'] for n in names]
+    sh, _, _, w, h = looks[0]
+    assert all(l[0] == sh and l[3:] == (w, h) for l in looks) and w % 2 == 0
+    cols, colours = pattern_colours(sh, [v for _, x, y, _, _ in looks for v in sheet_px[sh][y:y + h, x:x + w].flatten().tolist()])
+    px = bytearray()
+    for _, x, y, _, _ in looks:
+        for row in sheet_px[sh][y:y + h, x:x + w]:
+            nib = [cols.index(v) + 1 if sheet_alpha[sh][v] else 0 for v in row.tolist()]
+            px += bytes(nib[i] | nib[i + 1] << 4 for i in range(0, w, 2))
+    return struct.pack('<HHHH', 0, len(looks), w, h) + colours + bytes(px)
+
+
+def points(lib, clip):
+    """Each frame of `clip` (one bitmap child) as its visible pixels, where it stands."""
+    L = LIB[lib]['syms']
+    frames = L[clip]['frames']
+    step = 3
+    shots = []
+    for f in range(0, len(frames), step):
+        c = frames[f][0]
+        sh, x, y, w, h = L[c['sym']]['sheet']
+        dx, dy = int(round(c['tr'].get('x', 0))), int(round(c['tr'].get('y', 0)))
+        shots.append((sh, x, y, w, h, dx, dy))
+    sh = shots[0][0]
+    cols, colours = pattern_colours(sh, [v for s_, x, y, w, h, _, _ in shots for v in sheet_px[s_][y:y + h, x:x + w].flatten().tolist()])
+    bodies = []
+    for s_, x, y, w, h, dx, dy in shots:
+        pts = [(dx + i, dy + j, cols.index(v) + 1) for j, row in enumerate(sheet_px[s_][y:y + h, x:x + w].tolist())
+               for i, v in enumerate(row) if sheet_alpha[s_][v]]
+        assert all(0 <= a < 256 and 0 <= b < 256 for a, b, _ in pts)
+        bodies.append(struct.pack('<H', len(pts)) + b''.join(bytes(p) for p in pts))
+    mw = max(dx + w for _, _, _, w, h, dx, dy in shots)
+    mh = max(dy + h for _, _, _, w, h, dx, dy in shots)
+    head = struct.pack('<HHHH', 1, len(bodies), mw, mh) + colours
+    offs, at = [], len(head) + 4 * len(bodies)
+    for b_ in bodies:
+        offs.append(at)
+        at += len(b_)
+    return head + b''.join(struct.pack('<I', o) for o in offs) + b''.join(bodies)
+
+
+def rle_bytes(sp):
+    """The cache's run-length form of a sprite (spr.c: rle_row), to be read from here."""
+    sh, x, y, w, h = SPR[sp]['key']
+    al = sheet_alpha[sh]
+    rows = []
+    for row in sprite_pixels(sp).tolist():
+        out, n, xx = bytearray(), 0, 0
+        while xx < w:
+            skip = 0
+            while xx < w and not al[row[xx]]:
+                xx += 1
+                skip += 1
+            if xx >= w:
+                break
+            while skip > 255:
+                out += bytes([255, 0])
+                skip -= 255
+                n += 1
+            run = 1
+            while xx + run < w and run < 128 and row[xx + run] == row[xx]:
+                run += 1
+            if run >= 3:
+                out += bytes([skip, 0x80 | (run - 1), row[xx]])
+                xx += run
+            else:
+                ln = 0
+                while xx + ln < w and ln < 127 and al[row[xx + ln]] and not (
+                        xx + ln + 2 < w and row[xx + ln] == row[xx + ln + 1] and row[xx + ln] == row[xx + ln + 2]):
+                    ln += 1
+                ln = max(ln, 1)
+                out += bytes([skip, ln]) + bytes(row[xx:xx + ln])
+                xx += ln
+            n += 1
+        rows.append(struct.pack('<H', n) + out)
+    offs, at = [], 4 + 2 * h
+    for r in rows:
+        offs.append(at)
+        at += len(r)
+    data = struct.pack('<HH', w, h) + b''.join(struct.pack('<H', o) for o in offs) + b''.join(rows)
+    assert len(data) == rle_size(sp), (len(data), rle_size(sp))
+    return data
+
+
+# the ending's glow (nAa): a whole screen, but little once in runs
+_glow = sym_sprite[('overworld', 'nAa')]
+_sets = [tiles4('overworld', ['u_a', 'v_a']), points('overworld', 'Ue'), struct.pack('<HH', 2, _glow) + rle_bytes(_glow)]
+_blk = bytearray(struct.pack('<HH', len(_sets), 0))
+_at = 4 + 4 * len(_sets)
+for _s in _sets:
+    _at = (_at + 3) & ~3
+    _blk += struct.pack('<I', _at)
+    _at += len(_s)
+for _s in _sets:
+    while len(_blk) % 4:
+        _blk += b'\0'
+    _blk += _s
+off_tiles = blob.add(bytes(_blk), 4)
+print('patterns: %d bytes' % len(_blk))
 
 pay_offs = [blob.add(p_, 2, cat='payload') for p_ in PAYLOADS]
 off_payloads = blob.add(b''.join(struct.pack('<I', o) for o in pay_offs))

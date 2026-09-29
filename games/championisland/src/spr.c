@@ -239,8 +239,26 @@ static bool add_from_decoder(uint16_t sp, const Sprite *s, bool force) {
   return true;
 }
 
+/* sprites kept outside the cache by a scene (the ending's glow: small runs,
+ * but a whole screen to decode again each time the cache lets it go) */
+#define PINS 2
+static struct { uint16_t sp; const uint8_t *rle; } pins[PINS];
+void spr_pin(uint16_t sp, const uint8_t *rle) {
+  for (int i = 0; i < PINS; i++)
+    if (pins[i].rle && pins[i].sp == sp) pins[i].rle = NULL;
+  for (int i = 0; rle && i < PINS; i++)
+    if (!pins[i].rle) { pins[i].sp = sp; pins[i].rle = rle; return; }
+}
+static const uint8_t *pinned(uint16_t sp) {
+  for (int i = 0; i < PINS; i++)
+    if (pins[i].rle && pins[i].sp == sp) return pins[i].rle;
+  return NULL;
+}
+
 const uint8_t *spr_get(uint16_t sp) {
   if (sp >= SPRITE_COUNT || !mem) return NULL;
+  const uint8_t *pn = pinned(sp);
+  if (pn) return pn;
   unsigned f = find(sp);
   if (f) {
     Entry *e = &ent[f - 1];
@@ -282,6 +300,8 @@ const uint8_t *spr_get(uint16_t sp) {
 
 /* the cached runs if the sprite is in the cache now (never decodes) */
 const uint8_t *spr_peek(uint16_t sp) {
+  const uint8_t *pn = pinned(sp);
+  if (pn) return pn;
   unsigned f = sp < SPRITE_COUNT && mem ? find(sp) : 0;
   if (!f) return NULL;
   Entry *e = &ent[f - 1];
@@ -377,6 +397,14 @@ const uint8_t *spr_mask(uint16_t sp) {
 const uint8_t *spr_peek_mask(uint16_t sp) {
   unsigned f = sp < SPRITE_COUNT && mem ? find((uint16_t)(sp | MASK)) : 0;
   return f ? mem + 4u * ent[f - 1].off4 : NULL;
+}
+
+/* a sprite this frame needs no more (its last band is drawn): the first to go */
+void spr_release(uint16_t sp) {
+  unsigned f = sp < SPRITE_COUNT && mem ? find(sp) : 0;
+  if (f) ent[f - 1].used = (uint16_t)(tick - 2);
+  f = sp < SPRITE_COUNT && mem ? find((uint16_t)(sp | MASK)) : 0;
+  if (f) ent[f - 1].used = (uint16_t)(tick - 2);
 }
 
 uint32_t spr_cache_used(void) { return top; }

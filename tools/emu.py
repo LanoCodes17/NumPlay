@@ -568,6 +568,8 @@ def main():
               f"{(c.now_ms - c.slept_ms) / max(n, 1):.1f} ms of work per frame", end="")
         if "perf_max" in c.symbols:
             print(f", slowest {struct.unpack('<I', bytes(c.uc.mem_read(c.symbols['perf_max'], 4)))[0]} ms", end="")
+        if "perf_slow" in c.symbols:
+            print(f", {struct.unpack('<I', bytes(c.uc.mem_read(c.symbols['perf_slow'], 4)))[0]} over 33 ms", end="")
         print()
     if a.profile and c.samples:
         import bisect

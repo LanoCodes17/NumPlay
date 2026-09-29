@@ -513,7 +513,7 @@ for lib, mapsym in WORLDS:
             order_i = classify(lib, c, matrix(c.get('tr', {})), statics, kids, order_i, lib == 'interior')
             continue
         Mr = matrix(c['tr'])
-        nb = rs.get('nb')
+        nb = sym_bounds(lib, c['sym']) or rs.get('nb')     # Gj: getBounds, the union of its children
         regions.append((SYM_ID[(lib, c['sym'])], aabb(Mr, nb) if nb else (0, 0, 0, 0)))
         world_drop.add((lib, c['sym']))
         for g in rs['frames'][0]:
@@ -1234,6 +1234,38 @@ for i in range(len(SHEETS)):
     pal_bin += bytes(sheet_alpha[i])
 off_pal = blob.add(bytes(pal_bin))
 
+# the island's rain (bca): its two looks (Yi shows u_a, then v_a) drawn as a
+# pattern over the view straight from here, 4 bits a pixel with their own 15
+# colours (u16 w, h, looks, colours; u16 rgb565[16]; u8 alpha 0..32 [16]; pixels)
+def tiles4(lib, names):
+    looks = [LIB[lib]['syms'][n]['sheet'] for n in names]
+    sh, _, _, w, h = looks[0]
+    assert all(l[0] == sh and l[3:] == (w, h) for l in looks) and w % 2 == 0
+    cols, px = [], bytearray()
+    for _, x, y, _, _ in looks:
+        a = sheet_px[sh][y:y + h, x:x + w]
+        for row in a:
+            nib = []
+            for v in row.tolist():
+                if sheet_alpha[sh][v] == 0:
+                    nib.append(0)
+                    continue
+                if v not in cols:
+                    cols.append(v)
+                nib.append(cols.index(v) + 1)
+            px += bytes(nib[i] | nib[i + 1] << 4 for i in range(0, w, 2))
+    assert len(cols) <= 15, cols
+    pal = [0] * 16
+    al = [0] * 16
+    for i, v in enumerate(cols):
+        r, g, b = pal_rgb[sh][v]
+        pal[i + 1] = (r >> 3) << 11 | (g >> 2) << 5 | (b >> 3)
+        al[i + 1] = (int(sheet_alpha[sh][v]) * 32 + 127) // 255
+    return struct.pack('<HHHH', w, h, len(looks), len(cols)) + struct.pack('<16H', *pal) + bytes(al) + bytes(px)
+
+
+off_tiles = blob.add(tiles4('overworld', ['u_a', 'v_a']), 2)
+
 pay_offs = [blob.add(p_, 2, cat='payload') for p_ in PAYLOADS]
 off_payloads = blob.add(b''.join(struct.pack('<I', o) for o in pay_offs))
 t_offs = [blob.add(t_, 1, cat='T') for t_ in T_TABLE]
@@ -1378,7 +1410,7 @@ HEADER = [
     ('nsyms', len(SYMS)), ('syms', off_syms), ('nmats', len(MATS)), ('mats', off_mats),
     ('nstrings', len(strings)), ('strtab', off_strtab), ('strdata', off_strdata),
     ('nexprs', len(EXPRS)), ('exprs', off_exprs), ('ndlg', len(dlg_index)), ('dlg', off_dlg_index),
-    ('nmsgs', len(msg_keys)), ('msgs', off_msgs), ('nvars', len(VARS)), ('payloads', off_payloads), ('ttab', off_ttab), ('bankspr', off_bankspr), ('worlds', off_worlds), ('dtext', off_dtext), ('strsort', off_strsort), ('reserved3', 0)]
+    ('nmsgs', len(msg_keys)), ('msgs', off_msgs), ('nvars', len(VARS)), ('payloads', off_payloads), ('ttab', off_ttab), ('bankspr', off_bankspr), ('worlds', off_worlds), ('dtext', off_dtext), ('strsort', off_strsort), ('tiles', off_tiles)]
 assert len(HEADER) == HEADER_WORDS
 final = bytearray(blob.b)
 final[:4 * HEADER_WORDS] = b''.join(struct.pack('<I', v) for _, v in HEADER)

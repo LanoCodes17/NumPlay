@@ -9,10 +9,15 @@ NWLINK ?= npx --yes -- nwlink@1.0.0
 STRIP ?= arm-none-eabi-strip --strip-unneeded   # STRIP=true keeps symbols (tools/emu.py --profile)
 BUILD_DIR = output
 DOODLE ?= ../../../potherca-blog/google-doodle-champion-island
-GAME = src/res.c src/spr.c src/gfx.c src/font.c src/font_data.c src/node.c src/ent.c src/phys.c src/store.c src/game.c \
-  src/menus.c src/dialog.c src/hud.c src/world.c src/film.c src/names.c src/lzma/LzmaDec.c $(SPORTS)
+GAME = $(HOT) $(COLD)
+# the drawing and the island run every frame at -O2; menus, dialogue and the
+# sports' rules are small at -Os (the app has to fit in the calculator)
+HOT = src/res.c src/spr.c src/gfx.c src/font.c src/font_data.c src/node.c src/ent.c src/phys.c src/game.c \
+  src/world.c src/lzma/LzmaDec.c
+COLD = src/store.c src/menus.c src/dialog.c src/hud.c src/film.c src/names.c $(SPORTS)
 SPORTS ?= $(wildcard src/sport_*.c)
 SRC = $(GAME) src/plat_eadk.c src/main.c
+COLD_OBJ = $(patsubst src/%.c,$(BUILD_DIR)/cold/%.o,$(COLD))
 HEADERS = $(wildcard src/*.h) ../common/epsilon_app.h ../common/epsilon_files.h
 
 CFLAGS = -std=gnu11 $(shell $(NWLINK) eadk-cflags-device) -DDATA_BIN='"src/data.bin"'
@@ -34,9 +39,13 @@ check: $(BUILD_DIR)/championisland.nwa
 $(BUILD_DIR)/data.o: src/data.S src/data.bin | $(BUILD_DIR)
 	$(Q) $(CC) -c -DDATA_BIN='"src/data.bin"' $< -o $@
 
-$(BUILD_DIR)/championisland.nwa: $(SRC) $(HEADERS) $(BUILD_DIR)/icon.o $(BUILD_DIR)/data.o
+$(BUILD_DIR)/cold/%.o: src/%.c $(HEADERS)
+	@mkdir -p $(@D)
+	$(Q) $(CC) $(CFLAGS) -Os -c $< -o $@
+
+$(BUILD_DIR)/championisland.nwa: $(HOT) src/plat_eadk.c src/main.c $(COLD_OBJ) $(HEADERS) $(BUILD_DIR)/icon.o $(BUILD_DIR)/data.o
 	@echo "LD      $@"
-	$(Q) $(CC) $(CFLAGS) $(LDFLAGS) $(SRC) $(BUILD_DIR)/data.o $(BUILD_DIR)/icon.o -lm -o $@
+	$(Q) $(CC) $(CFLAGS) $(LDFLAGS) $(HOT) src/plat_eadk.c src/main.c $(COLD_OBJ) $(BUILD_DIR)/data.o $(BUILD_DIR)/icon.o -lm -o $@
 	$(Q) $(STRIP) $@
 	$(Q) arm-none-eabi-size $@
 

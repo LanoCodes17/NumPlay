@@ -15,11 +15,12 @@
 
 enum { M_GROUND, M_JUMP, M_GRAB, M_HANG, M_FALL };
 enum { H_STATIC, H_MOVING, H_CIRCLING };
-#define HOLD_MAX 64
+#define HOLD_MAX 50
 #define GROUND_MAX 16
 #define CHECK_MAX 10
 #define NEVER 1e30f   /* Number.MAX_SAFE_INTEGER */
 #define SKY_MAX 8
+#define BG_MAX 768
 
 typedef struct {
   NodeId n;
@@ -36,7 +37,12 @@ typedef struct { NodeId n; Rect r; } Area;
 typedef struct { NodeId n, lantern; Rect r; float px, py; bool mY; float delay; } Check;
 
 typedef struct {
-  NodeId root, map, climber, target, meter_text, clock_text, meter, clock, iba;
+  NodeId root, map, climber, target, meter_text, clock_text, meter, clock, iba, bg;
+  /* the cliff's tiles: where their keys are, their boxes */
+  uint16_t bg_off[BG_MAX];
+  uint8_t bg_box[BG_MAX][4];
+  int nbg;
+  uint32_t bg_ticks;
   Hold holds[HOLD_MAX];
   int nholds;
   Area grounds[GROUND_MAX];
@@ -68,7 +74,9 @@ typedef struct {
   int nsky;
   float sky_x[SKY_MAX], sky_y[SKY_MAX];
   float sky_ref;               /* the copy whose rows the forest texture matches */
-  bool tex;                    /* the forest texture is ready */
+  bool tex, tex_on;            /* the forest texture is ready, shown */
+  uint8_t *tex_mem;
+  uint8_t tex_sheet;
   int tex_cx, tex_cy;
   Countdown cd;
   bool counting;
@@ -304,6 +312,214 @@ static void materialize(NodeId m) {
   }
 }
 
+/* ---------------------------------------------------------------- the cliff
+ * The cliff behind everything (f1 / Jba: 400 to 740 tiles, some of them the
+ * sea's animated water) is drawn by code from a table of where each tile is,
+ * so a frame only reads the tiles in view, and it needs no nodes: the water
+ * tiles show the frame all of them are at (they started together). */
+#define BG_UNIT 16
+#define BG_ORG (-512)
+
+static void bg_hook(NodeId n, Mat m, uint8_t al) {
+  Clip c;
+  if (n != S->bg || !clip_get(nodes[n].sym, &c)) return;
+  float det = m.a * m.d - m.b * m.c;
+  if (fabsf(det) < 1e-9f) return;
+  /* the view in the cliff's space, in table units */
+  float lx = 1e9f, ly = 1e9f, hx = -1e9f, hy = -1e9f;
+  for (int i = 0; i < 4; i++) {
+    float X = (i & 1) ? VIEW_W : 0, Y = (i & 2) ? VIEW_H : 0, dx = X - m.tx, dy = Y - m.ty;
+    float u = (m.d * dx - m.c * dy) / det, v = (-m.b * dx + m.a * dy) / det;
+    lx = fminf(lx, u); hx = fmaxf(hx, u); ly = fminf(ly, v); hy = fmaxf(hy, v);
+  }
+  int x0 = (int)floorf((lx - BG_ORG) / BG_UNIT), x1 = (int)floorf((hx - BG_ORG) / BG_UNIT);
+  int y0 = (int)floorf((ly - BG_ORG) / BG_UNIT), y1 = (int)floorf((hy - BG_ORG) / BG_UNIT);
+  for (int i = 0; i < S->nbg; i++) {
+    const uint8_t *b = S->bg_box[i];
+    if (b[0] > x1 || b[2] < x0 || b[1] > y1 || b[3] < y0) continue;
+    unsigned nk;
+    const uint8_t *p = varint(c.slots + S->bg_off[i], &nk);
+    TKey cur = {0}, k;
+    int idx = -1;
+    for (unsigned j = 0; j < nk; j++) {
+      p = tkey(p, &k);
+      if (k.start <= nodes[n].frame) { cur = k; idx = (int)j; }
+    }
+    if (idx < 0 || (cur.flags & (K_ABSENT | K_HIDDEN)) || !cur.alpha || cur.kind != CK_SYM) continue;
+    float a = 1, bb = 0, cc = 0, d = 1;
+    if (cur.mat) { const float *mm = mat(cur.mat); a = mm[0]; bb = mm[1]; cc = mm[2]; d = mm[3]; }
+    Mat km = mat_mul(m, (Mat){a, bb, cc, d, cur.x - (cur.rx4 * .25f * a + cur.ry4 * .25f * cc), cur.y - (cur.rx4 * .25f * bb + cur.ry4 * .25f * d)});
+    node_draw_sym(cur.ref, S->bg_ticks, km, (uint8_t)((al * cur.alpha + 127) / 255));
+  }
+}
+
+static uint8_t bg_unit(float v) {
+  int u = (int)floorf((v - BG_ORG) / BG_UNIT);
+  return (uint8_t)(u < 0 ? 0 : u > 255 ? 255 : u);
+}
+
+/* the map's biggest clip child becomes an empty (lazy) node drawn by bg_hook */
+static void bg_setup_cliff(void) {
+  NodeId old = 0;
+  unsigned most = 0;
+  Clip c;
+  for (NodeId ch = nodes[S->map].first; ch; ch = nodes[ch].next)
+    if (nodes[ch].kind == NK_CLIP && clip_get(nodes[ch].sym, &c) && c.nslots > most) { most = c.nslots; old = ch; }
+  if (!old || most < 64 || !clip_get(nodes[old].sym, &c)) return;
+  NodeId bg = node_new_sym_lazy(nodes[old].sym);
+  if (!bg) return;
+  Node *o = &nodes[old], *q = &nodes[bg];
+  q->x = o->x; q->y = o->y; q->rx4 = o->rx4; q->ry4 = o->ry4; q->mat = o->mat; q->alpha = o->alpha;
+  q->flags = o->flags; q->name = o->name; q->key = o->key; q->frame = o->frame;
+  uint16_t slot = o->slot;
+  node_add_at(S->map, bg, old);
+  node_free(old);
+  nodes[bg].slot = slot;
+  S->bg = bg;
+  const uint8_t *p = c.slots;
+  for (unsigned s = 0; s < c.nslots && S->nbg < BG_MAX; s++) {
+    uint16_t off = (uint16_t)(p - c.slots);
+    unsigned nk;
+    p = varint(p, &nk);
+    TKey cur = {0}, k;
+    int idx = -1;
+    for (unsigned j = 0; j < nk; j++) {
+      p = tkey(p, &k);
+      if (k.start <= nodes[bg].frame) { cur = k; idx = (int)j; }
+    }
+    float x, y, w, h;
+    if (idx < 0 || (cur.flags & K_ABSENT) || cur.kind != CK_SYM || !sym_bounds(cur.ref, 0, 0, &x, &y, &w, &h)) continue;
+    float a = 1, bb = 0, cc = 0, d = 1;
+    if (cur.mat) { const float *mm = mat(cur.mat); a = mm[0]; bb = mm[1]; cc = mm[2]; d = mm[3]; }
+    float tx = cur.x - (cur.rx4 * .25f * a + cur.ry4 * .25f * cc), ty = cur.y - (cur.rx4 * .25f * bb + cur.ry4 * .25f * d);
+    float xs[4] = {x, x + w, x, x + w}, ys[4] = {y, y, y + h, y + h};
+    float lx = 1e9f, ly = 1e9f, hx = -1e9f, hy = -1e9f;
+    for (int i = 0; i < 4; i++) {
+      float X = a * xs[i] + cc * ys[i] + tx, Y = bb * xs[i] + d * ys[i] + ty;
+      lx = fminf(lx, X); hx = fmaxf(hx, X); ly = fminf(ly, Y); hy = fmaxf(hy, Y);
+    }
+    uint8_t *b = S->bg_box[S->nbg];
+    b[0] = bg_unit(lx); b[1] = bg_unit(ly); b[2] = bg_unit(hx); b[3] = bg_unit(hy);
+    S->bg_off[S->nbg++] = off;
+  }
+  node_draw_hook_id = bg;
+  node_draw_hook = bg_hook;
+}
+
+static void end(void) {
+  node_draw_hook = NULL;
+  node_draw_hook_id = 0;
+}
+
+/* ---------------------------------------------------------------- the sky
+ * Iba (the parallax backdrop) holds copies of one 432 x 1007 picture (sky,
+ * sea, then forest), stacked with overlaps, the last one on top. The picture
+ * is a single LZMA stream: drawing a row decodes every row above it, and the
+ * forest's rows are dear (some 0.13 ms each on the calculator). So the sky is
+ * drawn here: the copy that shows, as a sprite, while its rows are cheap (the
+ * sky and the sea); lower down, a texture of the picture's forest decoded
+ * once (the background layer's "water"), under the sea's colour where the
+ * sea still shows. */
+#define TEX_W 384        /* the picture's columns 32..415: all the parallax ever shows */
+#define TEX_X0 32
+#define TEX_H 128
+#define TEX_ROW0 879     /* its rows 879..1006 */
+#define SKY_CHEAP 400    /* the deepest row the sprite may be drawn down to */
+#define SEA_END 520      /* the sea's last row, about */
+
+static bool sky_slot(unsigned slot, const SlotInfo *si, void *ctx) {
+  (void)slot; (void)ctx;
+  SymInfo t;
+  sym_info(si->sym, &t);
+  if (t.type != SYM_BITMAP || S->nsky >= SKY_MAX) return true;
+  if (S->nsky && (uint16_t)t.v != S->sky_sprite) return true;
+  S->sky_sprite = (uint16_t)t.v;
+  S->sky_x[S->nsky] = si->x;
+  S->sky_y[S->nsky] = si->y;
+  S->nsky++;
+  return true;
+}
+
+static void sky_paint(int x0, int y0, int w, int h) { (void)x0; (void)y0; (void)w; (void)h; }
+
+static void sky_setup(void) {
+  if (!S->iba) return;
+  clip_each_slot(nodes[S->iba].sym, nodes[S->iba].frame, sky_slot, NULL);
+  if (!S->nsky) return;
+  node_set_visible(S->iba, false);
+  S->sky_ref = S->sky_y[S->nsky - 1];
+  Sprite sp;
+  sprite_info(S->sky_sprite, &sp);
+  const uint8_t *st = spr_stream(S->sky_sprite);
+  if (!st || sp.w < TEX_X0 + TEX_W || sp.h < TEX_ROW0 + TEX_H) return;
+  /* the layer's memory: one clear pixel (the layer), then the texture */
+  mem_layout(TEX_W, TEX_H + 1, sp.sheet, sky_paint);
+  int w, h;
+  uint8_t *mem = bg_layer(&w, &h);
+  if (!mem || w != TEX_W || h != TEX_H + 1) { bg_off(); return; }
+  uint8_t *tex = mem + TEX_W;
+  z_open(rd32(st + 2), rd32(st + 6), rd32(st + 10));
+  bool ok = z_get(NULL, (uint32_t)TEX_ROW0 * sp.w);
+  for (int r = 0; ok && r < TEX_H; r++)
+    ok = z_get(NULL, TEX_X0) && z_get(tex + r * TEX_W, TEX_W) && z_get(NULL, (uint32_t)(sp.w - TEX_X0 - TEX_W));
+  if (!ok) { bg_off(); return; }
+  S->tex = true;
+  S->tex_mem = mem;
+  S->tex_sheet = sp.sheet;
+  bg_off();
+}
+
+/* the texture under everything, or nothing (the sky sprite covers the view) */
+static void texture_on(bool on) {
+  if (!S->tex || on == S->tex_on) return;
+  S->tex_on = on;
+  if (on) {
+    bg_setup(S->tex_mem, 1, 1, S->tex_sheet, sky_paint);
+    bg_water(S->tex_mem + TEX_W, TEX_W, TEX_H);
+    S->tex_cx = S->tex_cy = 0x7fffffff;
+  } else bg_off();
+}
+
+/* the copy on top at row l of Iba, -1 if none */
+static int sky_top(float l) {
+  Sprite sp;
+  sprite_info(S->sky_sprite, &sp);
+  for (int k = S->nsky - 1; k >= 0; k--)
+    if (l >= S->sky_y[k] && l < S->sky_y[k] + sp.h) return k;
+  return -1;
+}
+
+static void draw_under(void) {
+  if (!S || !S->iba || !S->nsky) return;
+  Mat M = mat_mul((Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0}, node_global(S->iba));
+  if (M.d < 1e-3f || M.a < 1e-3f) return;
+  float v0 = -M.ty / M.d, v1 = v0 + VIEW_H / M.d;
+  int k0 = sky_top(v0), k1 = sky_top(v1 - 1);
+  if (k0 >= 0 && k0 == k1 && v1 - S->sky_y[k0] <= SKY_CHEAP) {
+    Mat t = M;
+    t.tx += M.a * S->sky_x[k0] + M.c * S->sky_y[k0];
+    t.ty += M.b * S->sky_x[k0] + M.d * S->sky_y[k0];
+    texture_on(false);
+    gfx_sprite(S->sky_sprite, t, 255);
+    return;
+  }
+  texture_on(true);
+  if (!S->tex) return;
+  /* the texture: the picture's columns from TEX_X0, the rows of copy sky_ref from TEX_ROW0 */
+  int x0 = (int)floorf(M.tx + M.a * S->sky_x[0] + .5f), y0 = (int)floorf(M.ty + M.d * S->sky_ref + .5f);
+  int cx = -x0 + TEX_X0, cy = -y0 + TEX_ROW0;
+  if (cx != S->tex_cx || cy != S->tex_cy) {
+    bg_camera(cx, cy);
+    S->tex_cx = cx;
+    S->tex_cy = cy;
+  }
+  /* where the sea still shows */
+  if (k0 >= 0 && v0 - S->sky_y[k0] < SEA_END) {
+    int ye = (int)floorf(M.ty + M.d * (S->sky_y[k0] + SEA_END) + .5f);
+    if (ye > 0) gfx_rect(0, 0, VIEW_W, ye < VIEW_H ? ye : VIEW_H, rgb565(52, 212, 180), 255);
+  }
+}
+
 /* ---------------------------------------------------------------- start */
 static void start(void) {
   S = scene_state(sizeof(State));
@@ -328,9 +544,11 @@ static void start(void) {
     break;
   }
   if (!S->map) return;
+  bg_setup_cliff();
   materialize(S->map);
   ent_register_tree(root);
   S->iba = ent_first(C_parallax);
+  sky_setup();
   S->meter = ent_first(C_altitudeMeter);
   S->clock = ent_first(C_clock);
   S->climber = ent_first(C_climber);
@@ -684,6 +902,20 @@ static void sys_parallax(void) {
     S->par_hx = nodes[S->map].x; S->par_hy = nodes[S->map].y;
     S->par_fx = S->par_fy = 0;
     comp_vec(nodes[p].T, C_parallax, F_factor, &S->par_fx, &S->par_fy);
+    /* the forest texture matches the copy of the sky seen from where the climber starts */
+    if (S->nsky && S->climber) {
+      float gx, gy;
+      NodeId t = S->target;
+      float tx, ty, cx, cy;
+      ent_pos(t, &tx, &ty);
+      ent_pos(S->climber, &cx, &cy);
+      ent_set_pos(t, cx, cy);
+      camera_goal(&gx, &gy);
+      ent_set_pos(t, tx, ty);
+      float iy = S->par_dy - S->par_fy * (S->par_hy - gy);
+      int k = sky_top(-iy / 3);
+      if (k >= 0) S->sky_ref = S->sky_y[k];
+    }
   }
   float cx = S->par_hx - nodes[S->map].x, cy = S->par_hy - nodes[S->map].y;
   nodes[p].x = S->par_dx - S->par_fx * cx;
@@ -729,6 +961,7 @@ static void tick(void) {
   if (menus_active()) return;
   sys_tutorial_once();
   if (menus_active() || !S || !S->map) return;
+  S->bg_ticks++;
   tweens();
   camera_tween();
   sys_sort_draw();
@@ -748,10 +981,9 @@ static void tick(void) {
     S->qq_on = S->oq_on = false;
     if (sys_countdown(&S->cd)) {
       S->counting = false;
-      if (!S->ended) { S->qq_on = S->oq_on = true; }
-      else S->oq_on = true;
+      S->qq_on = S->oq_on = true;
     }
   }
 }
 
-const SceneDef scene_climbing = {"climbing", start, tick, NULL, NULL, NULL, NULL};
+const SceneDef scene_climbing = {"climbing", start, tick, end, draw_under, NULL, NULL};

@@ -88,9 +88,13 @@ static void wall_get(unsigned i, int16_t c[4]) {
 
 #define STATIC_BITS 2048
 /* marks the ids of a grid (statics or walls) whose cells meet the world rect */
+static int cell_at(float v, float o) {
+  float c = floorf((v - o) / wd.cell);
+  return !(c >= -1) ? -1 : c > 4096 ? 4096 : (int)c;   /* NaN and far away too */
+}
 static int grid_in(const uint8_t *cells, const uint8_t *list, float x0, float y0, float x1, float y1, uint8_t *bits, int *lo, int *hi) {
-  int cx0 = (int)floorf((x0 - wd.gx0) / wd.cell), cy0 = (int)floorf((y0 - wd.gy0) / wd.cell);
-  int cx1 = (int)floorf((x1 - wd.gx0) / wd.cell), cy1 = (int)floorf((y1 - wd.gy0) / wd.cell);
+  int cx0 = cell_at(x0, wd.gx0), cy0 = cell_at(y0, wd.gy0);
+  int cx1 = cell_at(x1, wd.gx0), cy1 = cell_at(y1, wd.gy0);
   if (cx0 < 0) cx0 = 0;
   if (cy0 < 0) cy0 = 0;
   if (cx1 >= wd.gw) cx1 = wd.gw - 1;
@@ -122,10 +126,15 @@ static int statics_in(float x0, float y0, float x1, float y1, uint8_t *bits, int
 #define WATER 48
 #define FRONT_MAX 40
 #define SOLID_MAX 40
+#define RAIN_MAX 48
 typedef struct {
   uint8_t water[WATER * WATER];        /* the sea's tile now (w9a: frames 0-15, 16-31) */
   int water_look;                      /* which, -1 before the first */
-  NodeId map, player, rain, water_clip;
+  NodeId map, player, water_clip;
+  float rain;                          /* bca's alpha (drawn by code, draw_over) */
+  uint16_t rain_cond;                  /* its conditionallyVisible */
+  int16_t rain_pos[2 * RAIN_MAX];      /* its tiles */
+  int rain_n;
   uint32_t tick;
   int roll;                            /* Bi.Jaa: ticks left in a roll */
   float stream_x, stream_y;            /* camera when the live children were last streamed */
@@ -193,6 +202,7 @@ static void draw_static_over(unsigned id, Mat m, uint8_t alpha) {
     if (si.kind > 1) continue;          /* big ground images never stand in front */
     int x = dr.x, y = dr.y;
     uint8_t f = dr.flags;
+    if (!(f & BD_TRANSPOSE) && alpha == 255) { bg_redraw(dr.sp, x, y, f); continue; }
     /* the drawn rectangle's corner, back to a matrix */
     Mat dm;
     if (f & BD_TRANSPOSE) {
@@ -238,6 +248,27 @@ static void draw_map(NodeId map, Mat m, uint8_t alpha) {
       front[j] = (uint16_t)id;
     }
   }
+  /* and what is in front of those (a bamboo before a house before the player) */
+#ifndef NO_CLOSURE
+  for (int i = 0; i < nfront && nfront < FRONT_MAX; i++) {
+    Static fs;
+    static_get(front[i], &fs);
+    uint8_t cb[STATIC_BITS / 8];
+    memset(cb, 0, sizeof cb);
+    int lo, hi;
+    if (!statics_in(fs.x0, fs.y0, fs.x1, fs.y1, cb, &lo, &hi)) continue;
+    for (int id = front[i] + 1; id <= hi && nfront < FRONT_MAX; id++) {
+      if (!(cb[id >> 3] & (1 << (id & 7))) || (bits[id >> 3] & (1 << (id & 7)))) continue;
+      Static s;
+      static_get((unsigned)id, &s);
+      if (s.x1 <= fs.x0 || s.y1 <= fs.y0 || s.x0 >= fs.x1 || s.y0 >= fs.y1 || s.x0 >= vx1 || s.y0 >= vy1 || s.x1 <= vx || s.y1 <= vy) continue;
+      bits[id >> 3] |= (uint8_t)(1 << (id & 7));
+      int j = nfront++;
+      while (j > i + 1 && front[j - 1] > id) { front[j] = front[j - 1]; j--; }
+      front[j] = (uint16_t)id;
+    }
+  }
+#endif
   int f = 0;
   for (NodeId c = nodes[map].first; c; c = nodes[c].next) {
     if (f < nfront && node_visible(c)) {
@@ -634,14 +665,36 @@ static void on_trigger(NodeId t, NodeId other, bool entered) {
 
 /* rr: the rain over the mountain fades in near it (until the RAIN quest is done) */
 static void sys_rain(void) {
-  if (!W->rain || W->region_rain < 0 || !W->player) return;
+  if (W->region_rain < 0 || !W->player) return;
   const uint8_t *r = wd.regions + 10 * (unsigned)W->region_rain;
   float rx = rds16(r + 2), rb = rds16(r + 8);
   float px, py;
   ent_pos(W->player, &px, &py);
   float a = fminf(clampf((px - rx - 250) / 300, 0, 1), clampf((rb - py) / 400, 0, 1));
-  float al = nodes[W->rain].alpha / 255.f * .8f + .2f * a;
-  nodes[W->rain].alpha = (uint8_t)(al * 255 + .5f);
+  W->rain = W->rain * .8f + .2f * a;
+}
+
+/* bca: 48 px rain tiles over the view, moved with the camera (qr, repeatable
+ * tiles), its two looks (Yi: u_a, v_a) taking turns every 3 ticks (Os), at
+ * half alpha; drawn as one pattern from the data (pack.py's tiles4) */
+static bool rain_slot(unsigned slot, const SlotInfo *si, void *ctx) {
+  if (W->rain_n >= RAIN_MAX) return false;
+  W->rain_pos[2 * W->rain_n] = (int16_t)floorf(si->x + .5f);
+  W->rain_pos[2 * W->rain_n + 1] = (int16_t)floorf(si->y + .5f);
+  W->rain_n++;
+  return true;
+}
+static void draw_over_overworld(void) {
+  if (!W || !W->map || W->rain < .01f || !W->rain_n || !HDR(H_TILES)) return;
+  if (W->rain_cond != NONE16 && str(W->rain_cond)[0] && !cond_eval(W->rain_cond)) return;
+  const uint8_t *t = ci_data + HDR(H_TILES);
+  int w = rd16(t), h = rd16(t + 2), looks = rd16(t + 4);
+  unsigned look = (W->tick / 3) % 2 % (unsigned)(looks ? looks : 1);
+  float mx = nodes[W->map].x, my = nodes[W->map].y;
+  int ox = (int)floorf((fmodf(fmodf(mx, 144) + 144, 144) - 144) / 3 + .5f);
+  int oy = (int)floorf((fmodf(fmodf(my, 144) + 144, 144) - 144) / 3 + .5f);
+  gfx_tiles(t + 56 + look * (unsigned)(w * h / 2), w, h, (const uint16_t *)(t + 8), t + 40, W->rain_pos, W->rain_n, ox, oy,
+            (uint8_t)(W->rain * 128 + .5f));
 }
 
 /* mr: the place is saved every two seconds */
@@ -708,8 +761,10 @@ static void start_overworld(void) {
   W->map = child_of_sym(root, S_overworld_jqa);
   /* the sea and the rain are drawn by code (the layer's water, draw_over) */
   node_free(child_of_sym(root, S_overworld_w9a));
-  W->rain = child_of_sym(root, S_overworld_bca);
-  if (W->rain) { node_remove(W->rain); node_free(W->rain); W->rain = 0; }
+  NodeId rain = child_of_sym(root, S_overworld_bca);
+  W->rain_cond = rain && nodes[rain].T != NONE16 ? comp_str(nodes[rain].T, C_conditionallyVisible, F_condition) : NONE16;
+  if (rain) { node_remove(rain); node_free(rain); }
+  clip_each_slot(S_overworld_bca, 0, rain_slot, NULL);
   NodeId sky = child_of_sym(root, S_overworld_mAa);
   if (sky) node_free(sky);
   if (!W->map) return;
@@ -820,7 +875,7 @@ static void draw_under_overworld(void) {
   bg_camera((int)floorf(vx + .5f), (int)floorf(vy + .5f));
 }
 
-const SceneDef scene_overworld = {"overworld", start_overworld, tick_overworld, end_overworld, draw_under_overworld, NULL, NULL};
+const SceneDef scene_overworld = {"overworld", start_overworld, tick_overworld, end_overworld, draw_under_overworld, draw_over_overworld, NULL};
 
 /* ---------------------------------------------------------------- interiors */
 /* Ir: a room is a frame of the interior library's root (its label is the

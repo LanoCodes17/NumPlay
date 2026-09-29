@@ -46,7 +46,7 @@ typedef struct {
 } Game;
 extern Game game;
 
-#define ARENA_BYTES (84 * 1024)
+#define ARENA_BYTES (85 * 1024)
 /* a scene with a background layer of bg_w x bg_h (0: none) calls this in start() */
 void mem_layout(int bg_w, int bg_h, uint8_t sheet, BgPaint paint);
 /* the scene's own state (zeroed), taken from the arena until the next scene:

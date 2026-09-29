@@ -29,12 +29,14 @@
 #include <stdlib.h>
 #include "../src/ent.h"
 #include "../src/font.h"
+#include "../src/spr.h"
 
 #define SYM_MAX 64
 #define PROTO_RESERVE 72        /* nodes kept free for menus, prompt icons, champions */
-#define BANDS_MAX 120
+#define MENU_RESERVE 40         /* nodes always kept free for the pause and results menus */
+#define STARTS_MAX 480
 #define ENT_CAP 2300
-#define VIS_MAX 160
+#define VIS_MAX 128
 #define CH_MAX 24
 #define KK_MAX 40
 #define ACT_KEEP 6
@@ -43,6 +45,7 @@
 #define TIME_START 2700         /* CN */
 #define END_DELAY 80            /* Yo */
 #define PI_F 3.14159265f
+#define GRAD_STRIPS 12
 
 /* ---------------------------------------------------------------- the data's timeline keys (as node.c reads them) */
 typedef struct {
@@ -128,6 +131,10 @@ static bool mat_inv_apply(Mat m, float x, float y, float *ox, float *oy) {
 
 /* the axis-aligned box of rect r placed by m */
 static Rect mat_rect(Mat m, Rect r) {
+  if (m.b == 0 && m.c == 0) {
+    float x0 = m.a * r.x + m.tx, x1 = m.a * (r.x + r.w) + m.tx, y0 = m.d * r.y + m.ty, y1 = m.d * (r.y + r.h) + m.ty;
+    return (Rect){fminf(x0, x1), fminf(y0, y1), fabsf(x1 - x0), fabsf(y1 - y0)};
+  }
   float xs[4] = {r.x, r.x + r.w, r.x, r.x + r.w}, ys[4] = {r.y, r.y, r.y + r.h, r.y + r.h};
   float lx = 1e9f, ly = 1e9f, hx = -1e9f, hy = -1e9f;
   for (int i = 0; i < 4; i++) {
@@ -136,6 +143,12 @@ static Rect mat_rect(Mat m, Rect r) {
     lx = X < lx ? X : lx; hx = X > hx ? X : hx; ly = Y < ly ? Y : ly; hy = Y > hy ? Y : hy;
   }
   return (Rect){lx, ly, hx - lx, hy - ly};
+}
+
+/* CreateJS runs the frame scripts (this.T = {...}) of independent clips only:
+ * a synched or single-frame child never gets its components */
+static bool has_comp(NodeId n, int comp) {
+  return nodes[n].T != NONE16 && node_mode(&nodes[n]) == MODE_INDEPENDENT && comp_has(nodes[n].T, comp);
 }
 
 /* ---------------------------------------------------------------- vectors and directions, as kitsune has them */
@@ -208,12 +221,13 @@ static const char *const player_labels[6] = {"stop", "slow", "fast", "jump", "gr
 enum {
   SF_COLL = 1, SF_ZOBJ = 2, SF_ZB = 4, SF_DORD = 8, SF_RAIL = 16, SF_CHAMP = 32, SF_BOOST = 64, SF_PLAYER = 128,
   SF_GROUND = 256, SF_BG = 512, SF_NODRAW = 1024, SF_TILEANIM = 2048, SF_BOUNDS = 4096, SF_MARKERS = 8192,
-  SF_KEYB = 16384            /* draw order from the bounds (zObject, boundable, zBoundable) */
+  SF_KEYB = 16384,           /* draw order from the bounds (zObject, boundable, zBoundable) */
+  SF_SCREENS = 32768         /* has billboard screens (a colour filter the renderer lacks) */
 };
 typedef struct {
   uint16_t sym, T, fl, stamp;
   NodeId proto;
-  uint8_t shape, fc;          /* body shape (0 box, 1 left ramp, 2 right ramp); tile frameCount */
+  uint8_t shape, fc;          /* body shape (0 box, 1 left ramp, 2 right ramp; | SH_BITMAP: one bitmap); tile frameCount */
   int8_t bdir;                /* speed boost direction */
   uint8_t bspeed;
   float z, h, dord;           /* zObject z, zBoundable height (for the draw order), drawOrderOverride */
@@ -222,10 +236,12 @@ typedef struct {
   int16_t b[4];               /* bounds child rect x0 y0 x1 y1, 1/8 px */
   int16_t r[6];               /* rail markers: x y (1/8 px), z; twice */
 } Sym;
+#define SH_BITMAP 0x80              /* a static clip showing one bitmap: drawn straight */
+#define SH_OPAQUE 0x40              /* ... fully opaque: hides what is under it */
 #define Q8(v) ((int16_t)lrintf((v) * 8))
 #define F8(v) ((v) * 0.125f)
 
-typedef struct { float y0, maxh; uint16_t nb, s0; uint16_t bh; } Index;
+typedef struct { float x0, y0, maxw, maxh; uint16_t nx, ny, s0, cell; } Index;
 typedef struct { float key; uint16_t off; uint16_t what; } Vis;   /* what: 0 static, 1 player, 2 + champion */
 typedef struct { uint16_t off; NodeId n; uint8_t alpha, active, out; uint16_t out_t; } Champ;
 typedef struct { uint8_t type; int8_t dir; float vx, vy; } Action;
@@ -233,7 +249,7 @@ typedef struct {
   NodeId n;
   float x0, x1, a0, a1;
   uint8_t tx, ta;             /* tween ticks done (5 = over) */
-  bool used, listed, fading;
+  bool used, listed, fading, green;
 } Icon;
 
 typedef struct {
@@ -243,10 +259,11 @@ typedef struct {
   Mat bgm;                          /* the ground entity in map space */
   Index mi, bi;
   uint16_t nent, nstarts;
-  uint16_t starts[BANDS_MAX];
+  uint16_t starts[STARTS_MAX];
   uint16_t ent[ENT_CAP];
   uint16_t nsym, stamp;
   Sym sym[SYM_MAX];
+  uint8_t symh[128];                /* symbol -> index + 1, open addressing */
   uint8_t nkk;
   int16_t kk[KK_MAX][2];            /* park 1: origins of the 288 px ground tiles (Kk) */
   uint16_t kk_sprite;
@@ -292,18 +309,116 @@ typedef struct {
   Countdown cd;
   uint32_t ticks;
   char score_buf[12], time_buf[12], tscore_buf[24], tname_buf[120];
+  uint8_t grad[1 + GRAD_STRIPS * 23];
 } State;
 
 static State *S;
 _Static_assert(sizeof(State) <= SCENE_STATE_MAX, "skate state too big");
 
+/* the box of a shape's polygons */
+static bool shape_rect(const uint8_t *sh, Rect *r) {
+  float lx = 1e9f, ly = 1e9f, hx = -1e9f, hy = -1e9f;
+  const uint8_t *p = sh + 1;
+  for (int s = 0; s < sh[0]; s++) {
+    int np = p[4];
+    p += 5;
+    for (int k = 0; k < np; k++) {
+      int n = rd16(p);
+      p += 2;
+      for (int i = 0; i < n; i++, p += 4) {
+        float x = rds16(p) * .25f, y = rds16(p + 2) * .25f;
+        lx = fminf(lx, x); hx = fmaxf(hx, x); ly = fminf(ly, y); hy = fmaxf(hy, y);
+      }
+    }
+  }
+  if (lx > hx) return false;
+  *r = (Rect){lx, ly, hx - lx, hy - ly};
+  return true;
+}
+
+/* CreateJS's getBounds from the data: what a symbol shows at a frame (visible children), placed by m */
+typedef struct { float lx, ly, hx, hy; bool any; } Acc;
+static void acc_rect(Acc *a, Rect r) {
+  if (!a->any) { a->lx = r.x; a->ly = r.y; a->hx = r.x + r.w; a->hy = r.y + r.h; a->any = true; return; }
+  a->lx = fminf(a->lx, r.x); a->ly = fminf(a->ly, r.y); a->hx = fmaxf(a->hx, r.x + r.w); a->hy = fmaxf(a->hy, r.y + r.h);
+}
+static void content(uint16_t sym, unsigned frame, Mat m, Acc *a, int depth) {
+  if (sym >= SYM_COUNT || depth > 8) return;
+  SymInfo si;
+  sym_info(sym, &si);
+  if (si.type == SYM_BITMAP) {
+    Sprite sp;
+    sprite_info((uint16_t)si.v, &sp);
+    acc_rect(a, mat_rect(m, (Rect){0, 0, sp.w, sp.h}));
+    return;
+  }
+  Rect r;
+  if (si.type == SYM_SHAPE) { if (shape_rect(payload((uint16_t)si.v), &r)) acc_rect(a, mat_rect(m, r)); return; }
+  Clip c;
+  if (si.type != SYM_CLIP || !clip_get(sym, &c) || !c.nframes) return;
+  frame %= c.nframes;
+  const uint8_t *p = c.slots;
+  for (unsigned i = 0; i < c.nslots; i++) {
+    Key k;
+    const uint8_t *nx;
+    bool on = slot_at(p, frame, &k, &nx);
+    p = nx;
+    if (!on || (k.flags & K_HIDDEN)) continue;
+    Mat km = mat_mul(m, key_mat(&k));
+    if (k.kind == CK_SHAPE) { if (shape_rect(payload(k.ref), &r)) acc_rect(a, mat_rect(km, r)); }
+    else if (k.kind == CK_SYM) {
+      unsigned f = k.mode == MODE_SYNCHED ? k.sp + frame - k.start : k.mode == MODE_SINGLE ? k.sp : 0;
+      content(k.ref, f, km, a, depth + 1);
+    }
+  }
+}
+
+/* is every pixel of a sprite opaque? (its cached run-length rows) */
+static bool sprite_opaque(uint16_t sp) {
+  const uint8_t *r = spr_get(sp);
+  if (!r) return false;
+  Sprite si;
+  sprite_info(sp, &si);
+  const uint8_t *al = palalpha(si.sheet);
+  int w = rd16(r), h = rd16(r + 2);
+  for (int y = 0; y < h; y++) {
+    const uint8_t *p = r + rd16(r + 4 + 2 * y);
+    int n = rd16(p), cx = 0;
+    p += 2;
+    for (int k = 0; k < n; k++) {
+      if (*p++) return false;          /* a gap */
+      int code = *p++;
+      bool fill = code & 0x80;
+      int len = fill ? (code & 0x7F) + 1 : code;
+      for (int i = 0; i < (fill ? 1 : len); i++) if (al[p[i]] != 255) return false;
+      p += fill ? 1 : len;
+      cx += len;
+    }
+    if (cx < w) return false;
+  }
+  return true;
+}
+
 /* ---------------------------------------------------------------- symbols */
+/* the billboards' screens: their first child is drawn in one colour (ColorFilter(0, 0, 0, 1, r, g, b)) */
+static const struct { uint16_t sym; uint8_t r, g, b; } screens[6] = {
+  {S_skate_Mla, 109, 101, 223}, {S_skate_Nla, 0, 219, 176}, {S_skate_Ola, 241, 108, 235},
+  {S_skate_Pla, 243, 39, 98}, {S_skate_Qla, 170, 218, 78}, {S_skate_Rla, 55, 190, 236}};
+static int screen_of(uint16_t sym) {
+  for (int i = 0; i < 6; i++) if (screens[i].sym == sym) return i;
+  return -1;
+}
 static void clip_frame0(uint16_t sym, Clip *c) { if (!clip_get(sym, c)) memset(c, 0, sizeof *c); }
 
 static Sym *sym_get(uint16_t ref) {
-  for (int i = 0; i < S->nsym; i++)
-    if (S->sym[i].sym == ref) return &S->sym[i];
+  unsigned h = (ref * 2654435761u) >> 25;
+  while (S->symh[h]) {
+    Sym *o = &S->sym[S->symh[h] - 1];
+    if (o->sym == ref) return o;
+    h = (h + 1) & 127;
+  }
   if (S->nsym >= SYM_MAX) return NULL;
+  S->symh[h] = (uint8_t)(S->nsym + 1);
   SymInfo si;
   if (ref >= SYM_COUNT) return NULL;
   sym_info(ref, &si);
@@ -363,8 +478,11 @@ static Sym *sym_get(uint16_t ref) {
     if (ci.type != SYM_CLIP) continue;
     clip_frame0(k.ref, &cc);
     Mat m = key_mat(&k);
-    if (!(s->fl & SF_BOUNDS) && comp_has(cc.T, C_bounds) && (cc.nb[2] || cc.nb[3])) {
-      Rect r = mat_rect(m, (Rect){cc.nb[0], cc.nb[1], cc.nb[2], cc.nb[3]});
+    if (k.mode != MODE_INDEPENDENT) continue;
+    if (screen_of(k.ref) >= 0) s->fl |= SF_SCREENS;
+    Acc ba = {0, 0, 0, 0, false};
+    if (!(s->fl & SF_BOUNDS) && comp_has(cc.T, C_bounds) && (content(k.ref, 0, m, &ba, 0), ba.any)) {
+      Rect r = {ba.lx, ba.ly, ba.hx - ba.lx, ba.hy - ba.ly};
       s->b[0] = Q8(r.x); s->b[1] = Q8(r.y); s->b[2] = Q8(r.x + r.w); s->b[3] = Q8(r.y + r.h);
       s->fl |= SF_BOUNDS;
     }
@@ -377,12 +495,22 @@ static Sym *sym_get(uint16_t ref) {
     }
   }
   if (nmark < 2) s->fl &= (uint16_t)~(SF_MARKERS | SF_RAIL);
+  if (T == NONE16 && c.nframes == 1 && c.nslots == 1) {
+    Key k;
+    SymInfo ci;
+    if (slot_at(c.slots, 0, &k, NULL) && k.kind == CK_SYM && k.ref < SYM_COUNT && (sym_info(k.ref, &ci), ci.type == SYM_BITMAP)) {
+      s->shape |= SH_BITMAP;
+      if (k.alpha == 255 && !(k.flags & K_HIDDEN) && sprite_opaque((uint16_t)ci.v)) s->shape |= SH_OPAQUE;
+    }
+  }
   if (!draws && c.nframes <= 1) s->fl |= SF_NODRAW;
   if (comp_has(T, C_collidable) && comp_has(T, C_boundable) && (s->fl & SF_BOUNDS)) s->fl |= SF_COLL;
   if ((s->fl & SF_ZOBJ) && (s->fl & SF_ZB) && (s->fl & SF_BOUNDS) && comp_has(T, C_boundable)) s->fl |= SF_KEYB;
   /* what it may draw: nominal bounds, up by its height (dq) and some room for effects */
-  float x0 = c.nb[0], y0 = c.nb[1], x1 = c.nb[0] + c.nb[2], y1 = c.nb[1] + c.nb[3];
-  if (!c.nb[2] && !c.nb[3]) { x0 = -64; y0 = -128; x1 = 64; y1 = 32; }
+  Acc va = {0, 0, 0, 0, false};
+  content(ref, 0, MAT_ID, &va, 0);
+  float x0 = va.lx, y0 = va.ly, x1 = va.hx, y1 = va.hy;
+  if (!va.any) { x0 = -64; y0 = -128; x1 = 64; y1 = 32; }
   if (s->fl & SF_ZOBJ) y0 -= s->z;
   if (s->fl & SF_CHAMP) y0 -= 200;
   s->vis[0] = (int16_t)floorf(x0); s->vis[1] = (int16_t)floorf(y0); s->vis[2] = (int16_t)ceilf(x1); s->vis[3] = (int16_t)ceilf(y1);
@@ -403,6 +531,24 @@ static bool item_at(const uint8_t *slots, uint16_t off, Mat parent, Item *it, fl
   return true;
 }
 
+/* a text or a shape of the map's own timeline (no symbol) */
+static bool loose_at(const uint8_t *slots, uint16_t off, Mat parent, Key *k, Mat *m, Rect *box) {
+  if (!slot_at(slots + off, 0, k, NULL) || (k->kind != CK_TEXT && k->kind != CK_SHAPE)) return false;
+  *m = mat_mul(parent, key_mat(k));
+  Rect r;
+  if (k->kind == CK_SHAPE) {
+    if (!shape_rect(payload(k->ref), &r)) return false;
+  } else {
+    const uint8_t *t = payload(k->ref);
+    float lw = rds16(t + 8) * .25f, lh = rds16(t + 10) * .25f;
+    if (lw <= 0) lw = 600;
+    if (lh <= 0) lh = t[2] * 1.2f;
+    r = (Rect){t[6] == 1 ? -lw / 2 : t[6] == 2 ? -lw : 0, -lh, lw, lh * 6};
+  }
+  *box = mat_rect(*m, r);
+  return true;
+}
+
 static Rect item_bounds(const Item *it) {
   const int16_t *b = it->s->b;
   return mat_rect(it->m, (Rect){F8(b[0]), F8(b[1]), F8(b[2] - b[0]), F8(b[3] - b[1])});
@@ -412,13 +558,16 @@ static Rect item_bounds(const Item *it) {
 static float body_z0(const Sym *s) { return (s->fl & SF_ZOBJ) && (s->fl & SF_ZB) ? s->z : 0; }
 static float body_h(const Sym *s) { return (s->fl & SF_ZOBJ) && (s->fl & SF_ZB) ? fminf(s->h, 20000) : 100; }
 
-/* ---------------------------------------------------------------- band index
- * Each child is listed once, in the band of its top edge, in timeline order;
- * a query looks up to the index's tallest child above. Children taller than
- * TALL are in one more list that every query reads. */
+/* ---------------------------------------------------------------- the index: children by grid cell
+ * Each child is listed once, in the cell of its box's top left corner, in
+ * timeline order; a query also reads the cells up to the index's widest and
+ * tallest child to the left and above. Bigger children are in one more list
+ * that every query reads. Queries merge the lists back into timeline order. */
 #define TALL 160
-static void index_build(Index *ix, const uint8_t *slots, unsigned nslots, Mat parent, uint16_t bh, bool ground) {
-  float lo = 1e9f, hi = -1e9f, maxh = 0;
+#define QMAX 48
+static void index_build(Index *ix, const uint8_t *slots, unsigned nslots, Mat parent, uint16_t cell, bool ground) {
+  float lx = 1e9f, ly = 1e9f, hx = -1e9f, hy = -1e9f, maxw = 0, maxh = 0;
+  ix->nx = ix->ny = 0;
   for (int pass = 0; pass < 3; pass++) {
     const uint8_t *p = slots;
     for (unsigned i = 0; i < nslots; i++) {
@@ -428,11 +577,18 @@ static void index_build(Index *ix, const uint8_t *slots, unsigned nslots, Mat pa
       slot_at(p, 0, &k, &nx);
       p = nx;
       Item it;
-      if (!item_at(slots, off, parent, &it, ground ? 0 : 8)) continue;
-      uint16_t fl = it.s->fl;
+      Rect r;
+      uint16_t fl = 0;
+      if (!item_at(slots, off, parent, &it, ground ? 0 : 8)) {
+        Key lk;
+        Mat lm;
+        if (!loose_at(slots, off, parent, &lk, &lm, &r)) continue;
+      } else {
+        fl = it.s->fl;
+        r = it.box;
+      }
       if (!ground && (fl & (SF_GROUND | SF_BG | SF_PLAYER))) continue;
       if ((fl & SF_NODRAW) && !(fl & (SF_COLL | SF_RAIL | SF_BOOST))) continue;
-      Rect r = it.box;
       if (fl & SF_COLL) {
         Rect c = item_bounds(&it);
         float x0 = fminf(r.x, c.x), y0 = fminf(r.y, c.y);
@@ -445,30 +601,37 @@ static void index_build(Index *ix, const uint8_t *slots, unsigned nslots, Mat pa
         float x0 = fminf(r.x, fminf(ax, bx)), y0 = fminf(r.y, fminf(ay, by));
         r = (Rect){x0, y0, fmaxf(r.x + r.w, fmaxf(ax, bx)) - x0, fmaxf(r.y + r.h, fmaxf(ay, by)) - y0};
       }
-      bool tall = r.h > TALL;
+      bool big = r.w > TALL || r.h > TALL;
       if (pass == 0) {
-        lo = fminf(lo, r.y);
-        hi = fmaxf(hi, r.y);
-        if (!tall) maxh = fmaxf(maxh, r.h);
+        lx = fminf(lx, r.x); ly = fminf(ly, r.y); hx = fmaxf(hx, r.x); hy = fmaxf(hy, r.y);
+        if (!big) { maxw = fmaxf(maxw, r.w); maxh = fmaxf(maxh, r.h); }
         continue;
       }
-      int b = tall ? ix->nb : clampi((int)floorf((r.y - ix->y0) / bh), 0, ix->nb - 1);
-      if (pass == 1) S->starts[ix->s0 + b + 1]++;
-      else if (S->starts[ix->s0 + b] < ENT_CAP) S->ent[S->starts[ix->s0 + b]++] = off;
+      int c = big ? ix->nx * ix->ny
+                  : clampi((int)floorf((r.y - ix->y0) / cell), 0, ix->ny - 1) * ix->nx + clampi((int)floorf((r.x - ix->x0) / cell), 0, ix->nx - 1);
+      if (pass == 1) S->starts[ix->s0 + c + 1]++;
+      else if (S->starts[ix->s0 + c] < ENT_CAP) S->ent[S->starts[ix->s0 + c]++] = off;
     }
     if (pass == 0) {
-      if (lo > hi) { lo = 0; hi = 1; }
-      ix->y0 = floorf(lo);
-      ix->bh = bh;
+      if (lx > hx) { lx = ly = 0; hx = hy = 1; }
+      ix->x0 = floorf(lx);
+      ix->y0 = floorf(ly);
+      ix->cell = cell;
+      ix->maxw = maxw;
       ix->maxh = maxh;
-      int nb = (int)((hi - ix->y0) / bh) + 1;
-      ix->nb = (uint16_t)clampi(nb, 1, BANDS_MAX - 2 - S->nstarts);
+      int nx = (int)((hx - ix->x0) / cell) + 1, ny = (int)((hy - ix->y0) / cell) + 1;
+      int room = STARTS_MAX - 2 - S->nstarts;
+      nx = clampi(nx, 1, room > 1 ? room : 1);
+      ny = clampi(ny, 1, room / nx > 1 ? room / nx : 1);
+      ix->nx = (uint16_t)nx;
+      ix->ny = (uint16_t)ny;
+      int n = nx * ny;
       ix->s0 = S->nstarts;
-      S->nstarts = (uint16_t)(S->nstarts + ix->nb + 2);
+      S->nstarts = (uint16_t)(S->nstarts + n + 2);
       S->starts[ix->s0] = S->nent;
-      for (int b = 1; b <= ix->nb + 1; b++) S->starts[ix->s0 + b] = 0;
+      for (int b = 1; b <= n + 1; b++) S->starts[ix->s0 + b] = 0;
     } else if (pass == 1) {
-      for (int b = 1; b <= ix->nb + 1; b++) {
+      for (int b = 1; b <= ix->nx * ix->ny + 1; b++) {
         uint32_t v = (uint32_t)S->starts[ix->s0 + b] + S->starts[ix->s0 + b - 1];
 #ifdef HOST
         if (v > ENT_CAP) fprintf(stderr, "skate: index needs %u entries\n", v);
@@ -478,36 +641,55 @@ static void index_build(Index *ix, const uint8_t *slots, unsigned nslots, Mat pa
     }
   }
   /* pass 2 left each list's start at the next one's: shift back */
-  for (int b = ix->nb + 1; b >= 1; b--) S->starts[ix->s0 + b] = S->starts[ix->s0 + b - 1];
+  int n = ix->nx * ix->ny;
+  for (int b = n + 1; b >= 1; b--) S->starts[ix->s0 + b] = S->starts[ix->s0 + b - 1];
   S->starts[ix->s0] = S->nent;
-  S->nent = S->starts[ix->s0 + ix->nb + 1];
+  S->nent = S->starts[ix->s0 + n + 1];
+  /* the parks' ground has layers: an opaque tile hides the tiles placed just like it before it */
+  if (!ground) return;
+  for (int c = 0; c < n; c++)
+    for (int i = S->starts[ix->s0 + c]; i < S->starts[ix->s0 + c + 1]; i++) {
+      Item a, b;
+      if (!item_at(slots, S->ent[i], parent, &a, 0) || !(a.s->shape & SH_OPAQUE)) continue;
+      for (int j = S->starts[ix->s0 + c]; j < i; j++)
+        if (S->ent[j] != 0xFFFF && item_at(slots, S->ent[j], parent, &b, 0) && fabsf(a.box.x - b.box.x) < .5f &&
+            fabsf(a.box.y - b.box.y) < .5f && fabsf(a.box.w - b.box.w) < .5f && fabsf(a.box.h - b.box.h) < .5f)
+          S->ent[j] = 0xFFFF;
+    }
 }
 
-/* the children that may reach rows [y0, y1), each once, in timeline order */
+/* the children that may reach the rectangle, each once, in timeline order */
 typedef void (*ItemFn)(uint16_t off, void *ctx);
-static void index_query(const Index *ix, float y0, float y1, ItemFn fn, void *ctx) {
-  if (!ix->nb) return;
-  int b0 = (int)floorf((y0 - ix->maxh - ix->y0) / ix->bh), b1 = (int)floorf((y1 - ix->y0) / ix->bh);
-  uint16_t pos[18], end[18];
+static void index_query(const Index *ix, float x0, float y0, float x1, float y1, ItemFn fn, void *ctx) {
+  if (!ix->nx) return;
+  int cx0 = (int)floorf((x0 - ix->maxw - ix->x0) / ix->cell), cx1 = (int)floorf((x1 - ix->x0) / ix->cell);
+  int cy0 = (int)floorf((y0 - ix->maxh - ix->y0) / ix->cell), cy1 = (int)floorf((y1 - ix->y0) / ix->cell);
+  uint16_t pos[QMAX], end[QMAX];
   int k = 0;
-  if (b1 >= 0 && b0 < ix->nb) {
-    b0 = clampi(b0, 0, ix->nb - 1);
-    b1 = clampi(b1, 0, ix->nb - 1);
-    if (b1 - b0 > 16) b1 = b0 + 16;
-    for (int b = b0; b <= b1; b++, k++) {
-      pos[k] = S->starts[ix->s0 + b];
-      end[k] = S->starts[ix->s0 + b + 1];
-    }
+  if (cx1 >= 0 && cy1 >= 0 && cx0 < ix->nx && cy0 < ix->ny) {
+    cx0 = clampi(cx0, 0, ix->nx - 1); cx1 = clampi(cx1, 0, ix->nx - 1);
+    cy0 = clampi(cy0, 0, ix->ny - 1); cy1 = clampi(cy1, 0, ix->ny - 1);
+    for (int cy = cy0; cy <= cy1; cy++)
+      for (int cx = cx0; cx <= cx1 && k < QMAX - 1; cx++) {
+        int c = ix->s0 + cy * ix->nx + cx;
+        if (S->starts[c] == S->starts[c + 1]) continue;
+        pos[k] = S->starts[c];
+        end[k++] = S->starts[c + 1];
+      }
   }
-  pos[k] = S->starts[ix->s0 + ix->nb];     /* the tall ones */
-  end[k] = S->starts[ix->s0 + ix->nb + 1];
-  k++;
+  int t = ix->s0 + ix->nx * ix->ny;    /* the big ones */
+  pos[k] = S->starts[t];
+  end[k++] = S->starts[t + 1];
   for (;;) {
     int best = -1;
-    for (int i = 0; i < k; i++)
-      if (pos[i] < end[i] && (best < 0 || S->ent[pos[i]] < S->ent[pos[best]])) best = i;
+    uint16_t bo = 0xFFFF;
+    for (int i = 0; i < k; i++) {
+      while (pos[i] < end[i] && S->ent[pos[i]] == 0xFFFF) pos[i]++;   /* hidden ground tiles */
+      if (pos[i] < end[i] && S->ent[pos[i]] < bo) { best = i; bo = S->ent[pos[i]]; }
+    }
     if (best < 0) break;
-    fn(S->ent[pos[best]++], ctx);
+    pos[best]++;
+    fn(bo, ctx);
   }
 }
 
@@ -555,12 +737,11 @@ static void set_local(NodeId n, float x, float y) {
 static void zsprites(NodeId n, NodeId root, float root_z, int depth) {
   if (depth > 10) return;
   for (NodeId c = nodes[n].first; c; c = nodes[c].next) {
-    uint16_t T = nodes[c].T;
-    if (T != NONE16 && comp_has(T, C_zSprite)) {
+    if (has_comp(c, C_zSprite)) {
       NodeId a = n;
       for (int up = 0; up < 3 && a; up++, a = nodes[a].parent) {
         if (a == root) { set_local(c, 0, -root_z); break; }
-        if (nodes[a].T != NONE16 && comp_has(nodes[a].T, C_zObject)) { set_local(c, 0, -comp_float(nodes[a].T, C_zObject, F_z, 0)); break; }
+        if (has_comp(a, C_zObject)) { set_local(c, 0, -comp_float(nodes[a].T, C_zObject, F_z, 0)); break; }
       }
     }
     zsprites(c, root, root_z, depth + 1);
@@ -569,7 +750,7 @@ static void zsprites(NodeId n, NodeId root, float root_z, int depth) {
 
 static void hide_markers(NodeId n) {
   for (NodeId c = nodes[n].first; c; c = nodes[c].next)
-    if (nodes[c].T != NONE16 && comp_has(nodes[c].T, C_skateRailMarker)) nodes[c].alpha = 0;
+    if (has_comp(c, C_skateRailMarker)) nodes[c].alpha = 0;
 }
 
 static void proto_setup(Sym *s) {
@@ -584,20 +765,25 @@ static void proto_setup(Sym *s) {
   if (S->markers_hidden && (s->fl & SF_MARKERS)) hide_markers(p);
 }
 
-static NodeId proto(Sym *s) {
-  s->stamp = S->stamp;
-  if (s->proto) return s->proto;
-  /* room: forget the prototypes not drawn lately */
-  while (node_count() + PROTO_RESERVE >= NODE_MAX) {
+/* make room for `need` more nodes: forget the prototypes not drawn lately */
+static bool room(unsigned need) {
+  while (node_count() + need >= NODE_MAX) {
     Sym *old = NULL;
     for (int i = 0; i < S->nsym; i++) {
       Sym *o = &S->sym[i];
       if (o->proto && o->stamp != S->stamp && (!old || (uint16_t)(S->stamp - o->stamp) > (uint16_t)(S->stamp - old->stamp))) old = o;
     }
-    if (!old) return 0;
+    if (!old) return false;
     node_free(old->proto);
     old->proto = 0;
   }
+  return true;
+}
+
+static NodeId proto(Sym *s) {
+  s->stamp = S->stamp;
+  if (s->proto) return s->proto;
+  if (!room(PROTO_RESERVE)) return 0;
   NodeId n = node_new_sym(s->sym);
   if (!n) return 0;
   node_add(S->map, n);
@@ -627,12 +813,66 @@ static void tile_frames(Sym *s) {
     }
 }
 
+/* a billboard: first without its screens, then each screen: its colour, then the rest of it */
+static void draw_screens(NodeId p, Mat parent) {
+  NodeId sc[6];
+  int n = 0;
+  for (NodeId c = nodes[p].first; c && n < 6; c = nodes[c].next)
+    if (screen_of(nodes[c].sym) >= 0 && node_visible(c)) {
+      sc[n++] = c;
+      nodes[c].flags &= (uint8_t)~NF_VISIBLE;
+    }
+  node_draw(p, parent);
+  Mat pm = mat_mul(parent, node_local(p));
+  for (int i = 0; i < n; i++) {
+    NodeId c = sc[i];
+    nodes[c].flags |= NF_VISIBLE;
+    Mat cm = mat_mul(pm, node_local(c));
+    uint8_t al = (uint8_t)(nodes[p].alpha * nodes[c].alpha / 255);
+    Clip cc;
+    Key k0;
+    if (clip_get(nodes[c].sym, &cc) && cc.nslots && slot_at(cc.slots, nodes[c].frame, &k0, NULL) && k0.kind == CK_SYM) {
+      Acc sa = {0, 0, 0, 0, false};
+      content(k0.ref, 0, mat_mul(cm, key_mat(&k0)), &sa, 0);
+      if (sa.any) {
+        Rect r = {sa.lx, sa.ly, sa.hx - sa.lx, sa.hy - sa.ly};
+        int x0 = (int)floorf(r.x + .5f), y0 = (int)floorf(r.y + .5f), x1 = (int)floorf(r.x + r.w + .5f), y1 = (int)floorf(r.y + r.h + .5f);
+        int k = screen_of(nodes[c].sym);
+        gfx_rect(x0, y0, x1 - x0, y1 - y0, rgb565(screens[k].r, screens[k].g, screens[k].b), al);
+      }
+    }
+    for (NodeId g = nodes[c].first; g; g = nodes[g].next)
+      if (nodes[g].slot != 0) node_draw_in(g, cm, al);
+  }
+}
+
 static void draw_item(const Item *it, Mat parent) {
+  if (it->s->shape & SH_BITMAP) {
+    Clip c;
+    Key k;
+    SymInfo si;
+    if ((it->k.flags & K_HIDDEN) || !clip_get(it->s->sym, &c) || !slot_at(c.slots, 0, &k, NULL) || (k.flags & K_HIDDEN)) return;
+    sym_info(k.ref, &si);
+    gfx_sprite((uint16_t)si.v, mat_mul(mat_mul(parent, key_mat(&it->k)), key_mat(&k)), (uint8_t)(it->k.alpha * k.alpha / 255));
+    return;
+  }
   NodeId p = proto(it->s);
   if (!p) return;
   if (it->s->fl & SF_TILEANIM) tile_frames(it->s);
   place(p, &it->k);
-  node_draw(p, parent);
+  if (it->s->fl & SF_SCREENS) draw_screens(p, parent);
+  else node_draw(p, parent);
+}
+
+static void draw_loose(const Key *k, Mat m) {
+  if ((k->flags & K_HIDDEN) || !k->alpha) return;
+  if (k->kind == CK_SHAPE) { gfx_shape(payload(k->ref), mat_mul(m, key_mat(k)), k->alpha); return; }
+  NodeId t = node_new(NK_TEXT);
+  if (!t) return;
+  nodes[t].ref = k->ref;
+  place(t, k);
+  node_draw(t, m);
+  node_free(t);
 }
 
 /* ---------------------------------------------------------------- the HUD (ck): texts, trick prompt icons, tweens */
@@ -721,13 +961,14 @@ static void pt(uint8_t type) {
   if (type > AC_ACTION || !S->prompt) return;
   int i = icon_new();
   if (i < 0) return;
+  if (!room(MENU_RESERVE + 8)) return;
   NodeId n = node_new_sym(S_skate_Lqa);
   if (!n) return;
   node_add(S->prompt, n);
   node_goto(n, icon_labels[type], 0, false);
   node_update_one(n);
   Icon *ic = &S->icon[i];
-  *ic = (Icon){n, 0, 0, 1, 1, 5, 5, true, true, false};
+  *ic = (Icon){n, 0, 0, 1, 1, 5, 5, true, true, false, false};
   if (S->nlist < ICON_MAX) S->list[S->nlist++] = (uint8_t)i;
   int g = S->nlist;
   bool k = g > 4;
@@ -772,7 +1013,7 @@ static void xt(int t, int nacts) {
       ic->fading = false;
       icon_x(ic, x);
       if (a < c) { icon_fade(ic); ic->listed = false; }
-      /* else: the doodle tints the trick's icons green (ColorFilter), which the renderer cannot */
+      else ic->green = true;   /* ColorFilter(.2, 1, .2): drawn by draw_over */
     }
     if (c > 0) {
       memmove(S->list, S->list + c, (size_t)(m - c));
@@ -799,6 +1040,11 @@ static void tweens(void) {
     S->tr_t++;
     S->tr_alpha = (uint8_t)(255 * lerp(S->tr_a0, S->tr_a1, S->tr_t / 30.0f) + .5f);
   }
+  for (int i = 0; i < ICON_MAX; i++)
+    if (S->icon[i].used && S->icon[i].n) {
+      if (S->icon[i].green) nodes[S->icon[i].n].flags &= (uint8_t)~NF_VISIBLE;
+      else nodes[S->icon[i].n].flags |= NF_VISIBLE;
+    }
   if (S->tname) nodes[S->tname].alpha = S->tr_alpha;
   if (S->tscore) nodes[S->tscore].alpha = S->tr_alpha;
 }
@@ -851,7 +1097,7 @@ static void col_add(uint16_t off, void *ctx) {
   Rect b = item_bounds(&it);
   if (b.x > cs->x1 || b.y > cs->y1 || b.x + b.w < cs->x0 || b.y + b.h < cs->y0) return;
   float z0 = body_z0(it.s);
-  cs->c[cs->n++] = (Col){b.x, b.y, b.x + b.w, b.y + b.h, z0, z0 + body_h(it.s), it.s->shape};
+  cs->c[cs->n++] = (Col){b.x, b.y, b.x + b.w, b.y + b.h, z0, z0 + body_h(it.s), (uint8_t)(it.s->shape & 3)};
 }
 
 /* the top of a collider at x (a ramp's slope) */
@@ -865,54 +1111,77 @@ static float col_top(const Col *c, float x) {
 
 typedef struct { float x, y, z, vx, vy, vz, hx, hy, hz; } Body;
 
-/* pushes the body out of c; 0: no contact, 1: a side, 2: a surface it stands on */
-static int collide(Body *b, const Col *c) {
-  float ox = fminf(b->x + b->hx, c->x1) - fmaxf(b->x - b->hx, c->x0);
-  float oy = fminf(b->y + b->hy, c->y1) - fmaxf(b->y - b->hy, c->y0);
-  float bot = b->z - b->hz, top = b->z + b->hz;
-  if (ox <= 0 || oy <= 0 || top <= c->z0 || bot >= c->z1) return 0;
-  float sy = b->y < (c->y0 + c->y1) / 2 ? -1.0f : 1.0f;
-  if (!c->shape) {
-    float oz = fminf(top, c->z1) - fmaxf(bot, c->z0);
-    if (oz <= ox && oz <= oy) {
-      if (b->z > (c->z0 + c->z1) / 2) { b->z += c->z1 - bot; if (b->vz < 0) b->vz = 0; return 2; }
-      b->z -= top - c->z0;
-      if (b->vz > 0) b->vz = 0;
-      return 1;
+/* a contact of cannon's narrowphase: normal (towards the skater), depth (< 0 inside), points */
+typedef struct { float nx, ny, nz, g; uint8_t np; bool flat; } Contact;
+#define CONTACT_MAX 24
+
+/* SAT between the skater's box and a box or ramp (cannon's convexConvex over the face axes): the
+ * axis of least overlap is the contact's normal */
+static bool contact_with(const Body *b, const Col *c, Contact *o) {
+  float ox = fminf(b->x + b->hx, c->x1) - fmaxf(b->x - b->hx, c->x0), oy = fminf(b->y + b->hy, c->y1) - fmaxf(b->y - b->hy, c->y0);
+  float oz = fminf(b->z + b->hz, c->z1) - fmaxf(b->z - b->hz, c->z0);
+  if (ox < 0 || oy < 0 || oz < 0) return false;
+  float best = ox;
+  *o = (Contact){b->x < (c->x0 + c->x1) / 2 ? -1.0f : 1.0f, 0, 0, 0, 4, false};
+  if (oy < best) { best = oy; *o = (Contact){0, b->y < (c->y0 + c->y1) / 2 ? -1.0f : 1.0f, 0, 0, 4, false}; }
+  if (oz < best) { best = oz; *o = (Contact){0, 0, b->z > (c->z0 + c->z1) / 2 ? 1.0f : -1.0f, 0, 4, true}; }
+  if (c->shape) {
+    /* the slope: the ramp reaches its plane, the box down to its lowest corner */
+    bool left = c->shape == 1;
+    float span = c->x1 - c->x0, s = span > 0 ? (c->z1 - c->z0) / span : 0, l = sqrtf(1 + s * s);
+    float nx = (left ? -s : s) / l, nz = 1 / l;
+    float top = nx * (left ? c->x0 : c->x1) + nz * c->z0, bottom = nx * (left ? c->x1 : c->x0) + nz * c->z0;
+    float ext = fabsf(nx) * b->hx + nz * b->hz, mid = nx * b->x + nz * b->z;
+    float on = fminf(top, mid + ext) - fmaxf(bottom, mid - ext);
+    if (on < 0) return false;   /* a separating axis */
+    if (on < best) { best = on; *o = (Contact){nx, 0, nz, 0, 2, true}; }
+  }
+  o->g = -best;
+  return true;
+}
+
+static int contacts_at(const Body *b, const ColSet *cs, Contact *out) {
+  int n = 0;
+  if (b->z - b->hz <= 0) out[n++] = (Contact){0, 0, 1, b->z - b->hz, 4, true};   /* the ground plane */
+  for (int i = 0; i < cs->n && n < CONTACT_MAX; i++)
+    if (contact_with(b, &cs->c[i], &out[n])) n++;
+  return n;
+}
+
+/* cannon's GSSolver with SPOOK contact equations (stiffness 1e7, relaxation 3), the skater's side only */
+static void solve(Body *b, const Contact *c, int n, float h, float gz) {
+  const float k = 1e7f, d = 3, im = 1.0f / 10;   /* mass 10 */
+  const float sa = 4 / (h * (1 + 4 * d)), sb = 4 * d / (1 + 4 * d), eps = 4 / (h * h * k * (1 + 4 * d));
+  float lam[CONTACT_MAX * 4], rhs[CONTACT_MAX * 4];
+  const Contact *eq[CONTACT_MAX * 4];
+  int m = 0;
+  for (int i = 0; i < n; i++)
+    for (int p = 0; p < c[i].np && m < CONTACT_MAX * 4; p++, m++) {
+      eq[m] = &c[i];
+      lam[m] = 0;
+      float gw = b->vx * c[i].nx + b->vy * c[i].ny + b->vz * c[i].nz;
+      rhs[m] = -c[i].g * sa - gw * sb - gz * c[i].nz * h;
     }
-    if (ox <= oy) {
-      if (b->x < (c->x0 + c->x1) / 2) { b->x -= b->x + b->hx - c->x0; if (b->vx > 0) b->vx = 0; }
-      else { b->x += c->x1 - (b->x - b->hx); if (b->vx < 0) b->vx = 0; }
-      return 1;
+  float wx = 0, wy = 0, wz = 0;
+  const float cc = im + eps;
+  for (int it = 0; it < 40 && m; it++) {
+    float tot = 0;
+    for (int i = 0; i < m; i++) {
+      const Contact *e = eq[i];
+      float gwl = wx * e->nx + wy * e->ny + wz * e->nz;
+      float dl = (rhs[i] - gwl - eps * lam[i]) / cc;
+      if (lam[i] + dl < 0) dl = -lam[i];
+      lam[i] += dl;
+      tot += fabsf(dl);
+      wx += im * dl * e->nx;
+      wy += im * dl * e->ny;
+      wz += im * dl * e->nz;
     }
-    if (sy < 0) { b->y -= b->y + b->hy - c->y0; if (b->vy > 0) b->vy = 0; }
-    else { b->y += c->y1 - (b->y - b->hy); if (b->vy < 0) b->vy = 0; }
-    return 1;
+    if (tot * tot < 1e-14f) break;
   }
-  /* a ramp (cannon's convex leftRamp / rightRamp): the slope, the wall at its high end, its sides */
-  bool left = c->shape == 1;
-  float span = c->x1 - c->x0, hgt = c->z1 - c->z0, s = span > 0 ? hgt / span : 0;
-  float up = left ? fminf(b->x + b->hx, c->x1) : fmaxf(b->x - b->hx, c->x0);
-  float over = col_top(c, up) - bot;
-  if (over <= 0) return 0;
-  float l = sqrtf(1 + s * s), pn = over / l;
-  bool behind = left ? b->x > c->x1 : b->x < c->x0;
-  float wall = left ? c->x1 - (b->x - b->hx) : b->x + b->hx - c->x0;
-  if (behind && wall < pn && wall <= oy) {
-    if (left) { b->x += wall; if (b->vx < 0) b->vx = 0; }
-    else { b->x -= wall; if (b->vx > 0) b->vx = 0; }
-    return 1;
-  }
-  if (oy < pn) {
-    if (sy < 0) { b->y -= oy; if (b->vy > 0) b->vy = 0; }
-    else { b->y += oy; if (b->vy < 0) b->vy = 0; }
-    return 1;
-  }
-  b->z += over;
-  float nx = (left ? -s : s) / l, nz = 1 / l;
-  float vn = b->vx * nx + b->vz * nz;
-  if (vn < 0) { b->vx -= vn * nx; b->vz -= vn * nz; }
-  return 2;
+  b->vx += wx;
+  b->vy += wy;
+  b->vz += wz;
 }
 
 /* yr: one frame of the cannon world (4 substeps), then Ar (the ground under the skater) */
@@ -923,33 +1192,25 @@ static void physics(void) {
   cs.x1 = S->px + S->bcx + S->bhx + 40;
   cs.y0 = S->py + S->bcy - S->bhy - 40;
   cs.y1 = S->py + S->bcy + S->bhy + 40;
-  index_query(&S->mi, cs.y0 - 8, cs.y1 + 8, col_add, &cs);
+  index_query(&S->mi, cs.x0, cs.y0, cs.x1, cs.y1, col_add, &cs);
   Body b = {S->px + S->bcx, S->py + S->bcy, S->z + 10, S->vx * 30, S->vy * 30, S->vz * 30, S->bhx, S->bhy, 10};
   float h = 1.0f / (FPS * 4), damp = powf(1 - .4f, h);
   bool flat = false;
+  Contact ct[CONTACT_MAX];
   for (int st = 0; st < 4; st++) {
-    b.vz += S->gravity * h;
+    int n = contacts_at(&b, &cs, ct);
+    if (st == 3) {
+      flat = false;
+      for (int i = 0; i < n; i++) if (ct[i].flat) flat = true;
+    }
+    solve(&b, ct, n, h, S->gravity);
     b.vx *= damp;
     b.vy *= damp;
     b.vz *= damp;
+    b.vz += S->gravity * h;
     b.x += b.vx * h;
     b.y += b.vy * h;
     b.z += b.vz * h;
-    flat = false;
-    for (int it = 0; it < 4; it++) {
-      bool any = false;
-      if (b.z - b.hz < 0) {       /* the ground plane */
-        b.z = b.hz;
-        if (b.vz < 0) b.vz = 0;
-        flat = any = true;
-      }
-      for (int i = 0; i < cs.n; i++) {
-        int r = collide(&b, &cs.c[i]);
-        if (r) any = true;
-        if (r == 2) flat = true;
-      }
-      if (!any) break;
-    }
   }
   S->vx = b.vx / 30;
   S->vy = b.vy / 30;
@@ -1129,7 +1390,7 @@ static void skater(void) {
   if (!(S->sk > 0 || S->kbt > 0)) {
     if (!S->markers_hidden) markers_hide_all();
     RailCtx rc = {{S->px, S->py, S->z}, {S->vx, S->vy}};
-    index_query(&S->mi, S->py - 48, S->py + 48, rail_check, &rc);
+    index_query(&S->mi, S->px - 48, S->py - 48, S->px + 48, S->py + 48, rail_check, &rc);
     if (S->grinding) {
       float h[3];
       nt(S->rail, S->rail + 3, rc.p, false, h);
@@ -1216,7 +1477,7 @@ static void skater(void) {
   else if (S->bb > 0 || S->ca > 0) {
     if (S->bb == 1 || S->ca == 1)
       for (NodeId c = nodes[P].first; c; c = nodes[c].next)
-        if (node_visible(c) && nodes[c].T != NONE16 && comp_has(nodes[c].T, C_sprite))
+        if (node_visible(c) && has_comp(c, C_sprite))
           for (NodeId g = nodes[c].first; g; g = nodes[g].next)
             if (nodes[g].kind == NK_CLIP) node_goto(g, NULL, 0, true);
     kj(P, player_labels[3]);
@@ -1225,7 +1486,12 @@ static void skater(void) {
     kj(P, player_labels[jl == 0 && v < .3f ? 0 : v < 2 ? 1 : 2]);
   }
   for (NodeId c = nodes[P].first; c; c = nodes[c].next)
-    if (node_visible(c) && nodes[c].T != NONE16 && comp_has(nodes[c].T, C_sprite)) ent_dir_label(c, S->dir);
+    if (node_visible(c) && has_comp(c, C_sprite)) ent_dir_label(c, S->dir);
+#ifdef HOST
+  if (getenv("SKATE_TRACE"))
+    fprintf(stderr, "T %u %g %g %d %.3f %.3f %.3f %.4f %.4f %.4f %d %s %s %d %d %d %d %d\n", game.ticks, in.jx, in.jy, in.held[A_ACTION], S->px, S->py, S->z,
+            S->vx, S->vy, S->vz, S->tb, dir_names[S->dir], node_label(P), (int)S->hf, S->bb, S->ca, S->kbt, S->grinding);
+#endif
 }
 
 /* dq and tt for the skater: its sprites at -z, its shadow on the ground (-KT) */
@@ -1249,7 +1515,7 @@ static void player_place(void) {
 static bool in_trigger(NodeId e, Mat m, int z0, int z1) {
   if (!bh(z0 - .1f, S->z, z1 + .1f)) return false;
   for (NodeId a = nodes[e].first; a; a = nodes[a].next) {
-    if (nodes[a].T == NONE16 || !comp_has(nodes[a].T, C_triggerArea) || !(nodes[a].flags & NF_ONSTAGE)) continue;
+    if (!has_comp(a, C_triggerArea) || !(nodes[a].flags & NF_ONSTAGE)) continue;
     float u, v;
     if (mat_inv_apply(mat_mul(m, node_local(a)), S->px, S->py, &u, &v) && node_hit(a, u, v)) return true;
   }
@@ -1281,7 +1547,7 @@ static void boost_fire(uint16_t off) {
 
 static void triggers(void) {
   HitSet hs = {{0}, 0};
-  index_query(&S->mi, S->py - 64, S->py + 64, boost_check, &hs);
+  index_query(&S->mi, S->px - 64, S->py - 64, S->px + 64, S->py + 64, boost_check, &hs);
   for (int i = 0; i < S->ninside; i++) {
     bool still = false;
     for (int j = 0; j < hs.n; j++) if (hs.hit[j] == S->inside[i]) still = true;
@@ -1312,7 +1578,7 @@ static void champs_sync(Rect view) {
     Item it;
     if (!item_at(S->mslots, c->off, MAT_ID, &it, 0)) continue;
     bool want = rect_intersects(it.box, near);
-    if (want && !c->n && node_count() + 40 < NODE_MAX) {
+    if (want && !c->n && room(MENU_RESERVE + 40)) {
       NodeId n = node_new_sym(it.s->sym);
       if (!n) continue;
       node_add(S->map, n);
@@ -1363,6 +1629,11 @@ static void champion(void) {
     }
   } else if (S->nch) {
     S->champ = (int8_t)champ_pick(false);
+#ifdef HOST
+    Item it;
+    if (getenv("SKATE_DEBUG") && S->champ >= 0 && item_at(S->mslots, S->ch[S->champ].off, MAT_ID, &it, 0))
+      fprintf(stderr, "skate: champion %d of %d at %.1f %.1f z %.0f\n", S->champ, S->nch, it.m.tx, it.m.ty, it.s->z);
+#endif
     for (int i = 0; i < S->nch; i++) {
       S->ch[i].alpha = S->ch[i].active = i == S->champ;
       champ_node_state(i);
@@ -1424,6 +1695,11 @@ static void timer(void) {
 }
 
 static void on_go(void) {
+#ifdef HOST
+  const char *tp = getenv("SKATE_TP");   /* tests: start somewhere else */
+  float x, y, z = 0;
+  if (tp && sscanf(tp, "%f,%f,%f", &x, &y, &z) >= 2) { S->px = x; S->py = y; S->z = z; }
+#endif
   for (int i = 0; i < S->nsym; i++)
     if (S->sym[i].proto) zsprites(S->sym[i].proto, S->sym[i].proto, S->sym[i].z, 0);
   for (int i = 0; i < S->nch; i++)
@@ -1494,7 +1770,14 @@ static void vis_add(float key, uint16_t off, uint16_t what) {
 static void object_item(uint16_t off, void *ctx) {
   DrawCtx *dc = ctx;
   Item it;
-  if (!item_at(S->mslots, off, MAT_ID, &it, 8) || !rect_intersects(it.box, dc->view)) return;
+  if (!item_at(S->mslots, off, MAT_ID, &it, 8)) {
+    Key k;
+    Mat lm;
+    Rect r;
+    if (loose_at(S->mslots, off, MAT_ID, &k, &lm, &r) && rect_intersects(r, dc->view)) vis_add(lm.ty, off, 0);
+    return;
+  }
+  if (!rect_intersects(it.box, dc->view)) return;
   if (it.s->fl & SF_CHAMP) {
     for (int i = 0; i < S->nch; i++)
       if (S->ch[i].off == off) vis_add(it.m.ty, off, (uint16_t)(2 + i));
@@ -1525,11 +1808,11 @@ static void draw_under(void) {
   }
   if (S->bslots) {
     DrawCtx g = {view, mat_mul(m, S->bgm)};
-    index_query(&S->bi, view.y, view.y + view.h, ground_item, &g);
+    index_query(&S->bi, view.x, view.y, view.x + view.w, view.y + view.h, ground_item, &g);
   }
   /* everything else, in draw order */
   S->nvis = 0;
-  index_query(&S->mi, view.y - 8, view.y + view.h + 8, object_item, &dc);
+  index_query(&S->mi, view.x - 8, view.y - 8, view.x + view.w + 8, view.y + view.h + 8, object_item, &dc);
   if (S->player) {
     vis_add(S->py + S->bcy - S->bhy + 20 + S->kt, S->player_off, 1);
   }
@@ -1541,8 +1824,17 @@ static void draw_under(void) {
       if (c < S->nch && S->ch[c].n) node_draw(S->ch[c].n, m);
     } else {
       Item it;
+      Key k;
+      Mat lm;
+      Rect r;
       if (item_at(S->mslots, v->off, MAT_ID, &it, 0)) draw_item(&it, m);
+      else if (loose_at(S->mslots, v->off, MAT_ID, &k, &lm, &r)) draw_loose(&k, m);
     }
+  }
+  /* the prompt's bar is a gradient, which the data does not keep: drawn in strips */
+  if (S->prompt && node_visible_chain(S->prompt)) {
+    Mat g = mat_mul(mat_mul((Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0}, node_global(S->prompt)), (Mat){1.178f, 0, 0, 1, 0, 0});
+    gfx_shape(S->grad, g, nodes[S->prompt].alpha);
   }
 }
 
@@ -1559,7 +1851,79 @@ static void text_in(NodeId n, uint16_t color) {
   gfx_text_k(node_text(n), m, color, t[6], (int16_t)lw, (int16_t)lh, nodes[n].alpha, k);
 }
 
+/* a sprite as a shape of one colour (the icons tinted green): a rectangle per run of pixels, built in
+ * buf; returns its size, 0 if it does not fit */
+static int sprite_shape(uint16_t sp, uint8_t *buf, int room, float fr, float fg, float fb) {
+  const uint8_t *r = spr_get(sp);
+  if (!r || room < 6) return 0;
+  Sprite si;
+  sprite_info(sp, &si);
+  const uint16_t *pal = pal565(si.sheet);
+  int w = rd16(r), h = rd16(r + 2), n = 6;
+  uint16_t col = 0xFFFF;
+  buf[0] = 1;
+  buf[5] = 0;
+  (void)w;
+  for (int y = 0; y < h; y++) {
+    const uint8_t *p = r + rd16(r + 4 + 2 * y);
+    int runs = rd16(p), cx = 0;
+    p += 2;
+    for (int k = 0; k < runs; k++) {
+      cx += *p++;
+      int code = *p++;
+      bool fill = code & 0x80;
+      int len = fill ? (code & 0x7F) + 1 : code;
+      if (col == 0xFFFF) col = pal[p[0]];
+      p += fill ? 1 : len;
+      if (n + 18 > room || buf[5] == 255) return 0;
+      int16_t pts[8] = {(int16_t)(cx * 4), (int16_t)(y * 4), (int16_t)((cx + len) * 4), (int16_t)(y * 4),
+                        (int16_t)((cx + len) * 4), (int16_t)((y + 1) * 4), (int16_t)(cx * 4), (int16_t)((y + 1) * 4)};
+      buf[n++] = 4;
+      buf[n++] = 0;
+      for (int i = 0; i < 8; i++) { buf[n++] = (uint8_t)(pts[i] & 0xFF); buf[n++] = (uint8_t)((uint16_t)pts[i] >> 8); }
+      buf[5]++;
+      cx += len;
+    }
+  }
+  /* RGB565 to 8 bits, times the filter */
+  float cr = (col >> 11) * 255.0f / 31, cg = ((col >> 5) & 63) * 255.0f / 63, cb = (col & 31) * 255.0f / 31;
+  buf[1] = (uint8_t)(cr * fr + .5f);
+  buf[2] = (uint8_t)(cg * fg + .5f);
+  buf[3] = (uint8_t)(cb * fb + .5f);
+  buf[4] = 255;
+  return n;
+}
+
 static void draw_over(void) {
+  /* the green icons of a trick (the vis list is free once draw_under is done) */
+  uint8_t *buf = (uint8_t *)S->vis;
+  int used = 0;
+  uint16_t made[2] = {NONE16, NONE16}, at[2] = {0, 0};
+  for (int i = 0; i < ICON_MAX; i++) {
+    Icon *ic = &S->icon[i];
+    if (!ic->used || !ic->green || !ic->n || !nodes[ic->n].alpha) continue;
+    Clip c;
+    Key k;
+    SymInfo si;
+    if (!clip_get(nodes[ic->n].sym, &c)) continue;
+    const uint8_t *q = c.slots, *nx;
+    bool found = false;
+    for (unsigned sl = 0; sl < c.nslots && !found; sl++, q = nx)
+      if (slot_at(q, nodes[ic->n].frame, &k, &nx) && k.kind == CK_SYM) found = true;
+    if (!found || (sym_info(k.ref, &si), si.type != SYM_BITMAP)) continue;
+    uint16_t sp = (uint16_t)si.v;
+    int m = made[0] == sp ? 0 : made[1] == sp ? 1 : -1;
+    if (m < 0) {
+      m = made[0] == NONE16 ? 0 : made[1] == NONE16 ? 1 : -1;
+      int n = m < 0 ? 0 : sprite_shape(sp, buf + used, (int)sizeof S->vis - used, .2f, 1, .2f);
+      if (!n) continue;
+      made[m] = sp;
+      at[m] = (uint16_t)used;
+      used += (n + 3) & ~3;
+    }
+    Mat g = mat_mul(mat_mul((Mat){1.0f / 3, 0, 0, 1.0f / 3, 0, 0}, node_global(ic->n)), key_mat(&k));
+    gfx_shape(buf + at[m], g, (uint8_t)(nodes[ic->n].alpha * k.alpha / 255));
+  }
   if (S->time_red) text_in(S->time, rgb565(0xff, 0x30, 0x30));
   if (S->trick_red) {
     text_in(S->tscore, rgb565(0xff, 0x11, 0x11));
@@ -1587,6 +1951,19 @@ static void start(void) {
   S->tr_alpha = 0;
   S->tr_t = 255;
   sys_countdown_start(&S->cd);
+  /* iba: lf(["rgba(0,0,0,0)", "rgba(0,0,0,0.427)", "rgba(0,0,0,0)"], [0, .518, 1]) from x -118 to 118, y -24 to 24 */
+  {
+    uint8_t *g = S->grad;
+    *g++ = GRAD_STRIPS;
+    for (int i = 0; i < GRAD_STRIPS; i++) {
+      float x0 = -118 + 236.0f * i / GRAD_STRIPS, x1 = -118 + 236.0f * (i + 1) / GRAD_STRIPS, t = (i + .5f) / GRAD_STRIPS;
+      float a = t < .518f ? .427f * t / .518f : .427f * (1 - t) / (1 - .518f);
+      *g++ = 0; *g++ = 0; *g++ = 0; *g++ = (uint8_t)(a * 255 + .5f); *g++ = 1;
+      *g++ = 4; *g++ = 0;
+      int16_t pts[8] = {(int16_t)(x0 * 4), -96, (int16_t)(x1 * 4), -96, (int16_t)(x1 * 4), 96, (int16_t)(x0 * 4), 96};
+      for (int k = 0; k < 8; k++) { *g++ = (uint8_t)(pts[k] & 0xFF); *g++ = (uint8_t)((uint16_t)pts[k] >> 8); }
+    }
+  }
   /* the root clip ycb: one frame per park, each with its map and the HUD */
   Clip rc;
   clip_frame0(S_skate_ycb, &rc);
@@ -1660,7 +2037,7 @@ static void start(void) {
       S->bg_sym = k.ref;
       S->bslots = bc.slots;
       S->bgm = km;
-      index_build(&S->bi, bc.slots, bc.nslots, km, 48, true);
+      index_build(&S->bi, bc.slots, bc.nslots, km, 96, true);
     } else if ((sy->fl & SF_CHAMP) && S->nch < CH_MAX) {
       S->ch[S->nch++] = (Champ){off, 0, 0, 0, 0, 0};
     }
@@ -1670,10 +2047,11 @@ static void start(void) {
     sym_info(S_skate_eGa, &si);
     S->kk_sprite = (uint16_t)si.v;
   }
-  index_build(&S->mi, mc.slots, mc.nslots, MAT_ID, 64, false);
+  index_build(&S->mi, mc.slots, mc.nslots, MAT_ID, 128, false);
 #ifdef HOST
   if (getenv("SKATE_DEBUG"))
-    fprintf(stderr, "skate: %u slots, %u syms, %u entries, bands %u+%u, nodes %u\n", mc.nslots, S->nsym, S->nent, S->mi.nb, S->bi.nb, node_count());
+    fprintf(stderr, "skate: %u slots, %u syms, %u entries, cells %ux%u+%ux%u (max %.0fx%.0f, %.0fx%.0f), nodes %u, state %u\n", mc.nslots, S->nsym, S->nent,
+            S->mi.nx, S->mi.ny, S->bi.nx, S->bi.ny, S->mi.maxw, S->mi.maxh, S->bi.maxw, S->bi.maxh, node_count(), (unsigned)sizeof(State));
 #endif
   if (S->player) ent_register_tree(S->player);
   /* the HUD */

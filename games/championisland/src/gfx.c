@@ -10,7 +10,7 @@
 #define MAX_ITEMS 320
 #define MAX_AFF 64
 
-enum { DI_SPRITE, DI_AFFINE, DI_RECT, DI_SHAPE, DI_TEXT, DI_STREAM };
+enum { DI_SPRITE, DI_AFFINE, DI_RECT, DI_SHAPE, DI_TEXT, DI_STREAM, DI_TILES, DI_MASK, DI_KINDS };
 #define STREAM_OVER (16 * 1024)   /* sprites bigger than this once cached are decoded as they are drawn */
 enum { DF_FLIPX = 1, DF_FLIPY = 2, DF_MISSING = 4, DF_OPAQUE = 8 };   /* missing: not in the cache this frame; opaque: only fully opaque pixels */
 typedef struct {
@@ -107,6 +107,16 @@ void gfx_rect(int x, int y, int w, int h, uint16_t c, uint8_t alpha) {
   if (!on_view(x, y, x + w, y + h) || !alpha) return;
   Item *it = add();
   if (it) *it = (Item){DI_RECT, alpha, 0, 0, (int16_t)x, (int16_t)y, (int16_t)(x + w), (int16_t)(y + h), 0, c};
+}
+
+/* one pattern a frame: a small 4-bit image at n places (gfx_tiles) */
+static struct { const uint8_t *px; const uint16_t *pal; const uint8_t *al; const int16_t *pos; int n, w, h, ox, oy; } tl;
+void gfx_tiles(const uint8_t *px, int w, int h, const uint16_t *pal, const uint8_t *al, const int16_t *pos, int n, int ox, int oy, uint8_t alpha) {
+  if (!alpha || n <= 0 || w <= 0 || h <= 0) return;
+  Item *it = add();
+  if (!it) return;
+  tl.px = px; tl.pal = pal; tl.al = al; tl.pos = pos; tl.n = n; tl.w = w; tl.h = h; tl.ox = ox; tl.oy = oy;
+  *it = (Item){DI_TILES, alpha, 0, 0, 0, 0, VIEW_W, VIEW_H, (uint16_t)(uintptr_t)px, (uint16_t)((ox & 0xFF) | (oy & 0xFF) << 8)};
 }
 
 void gfx_shape(const uint8_t *shape, Mat m, uint8_t alpha) {
@@ -258,6 +268,20 @@ void bg_camera(int cx, int cy) {
   }
 }
 
+/* scenery standing in front of the actors: the layer's own pixels again where
+ * the sprite drawn at world (x, y) is opaque (its mask), so only the mask needs
+ * to be in the cache, and what the layer has over it stays over it */
+void bg_redraw(uint16_t sp, int x, int y, uint8_t flags) {
+  if (!bgmem || sp >= SPRITE_COUNT) return;
+  Sprite s;
+  sprite_info(sp, &s);
+  int x0 = x - bg_cx, y0 = y - bg_cy;
+  if (!on_view(x0, y0, x0 + s.w, y0 + s.h)) return;
+  Item *it = add();
+  if (it) *it = (Item){DI_MASK, 255, (uint8_t)((flags & BD_FLIPX ? DF_FLIPX : 0) | (flags & BD_FLIPY ? DF_FLIPY : 0)), 0,
+                       (int16_t)x0, (int16_t)y0, (int16_t)(x0 + s.w), (int16_t)(y0 + s.h), sp, 0};
+}
+
 void bg_fill(int x, int y, int w, int h, uint8_t index) {
   int x0 = x > clip_x0 ? x : clip_x0, y0 = y > clip_y0 ? y : clip_y0;
   int x1 = x + w < clip_x1 ? x + w : clip_x1, y1 = y + h < clip_y1 ? y + h : clip_y1;
@@ -361,6 +385,9 @@ void bg_draw(uint16_t sp, int x, int y, uint8_t flags, uint8_t alpha) {
   bool fx = flags & BD_FLIPX, fy = flags & BD_FLIPY;
   int w = rd16(r), h = rd16(r + 2);
   for (int v = 0; v < h; v++) {
+    /* a row out of the painted strip is skipped whole, a run too */
+    int rv = tr ? (fx ? dw - 1 - v : v) : (fy ? dh - 1 - v : v);
+    if (tr ? (x + rv < clip_x0 || x + rv >= clip_x1) : (y + rv < clip_y0 || y + rv >= clip_y1)) continue;
     const uint8_t *p = r + rd16(r + 4 + 2 * v);
     int n = rd16(p), u = 0;
     p += 2;
@@ -368,6 +395,9 @@ void bg_draw(uint16_t sp, int x, int y, uint8_t flags, uint8_t alpha) {
       u += *p++;
       int code = *p++, len = code & 0x80 ? (code & 0x7F) + 1 : code;
       bool fill = code & 0x80;
+      int f = fx && !tr ? dw - u - len : fy && tr ? dh - u - len : u;   /* the run's first cell along the row */
+      int lo = tr ? y + f : x + f, c0 = tr ? clip_y0 : clip_x0, c1 = tr ? clip_y1 : clip_x1;
+      if (lo >= c1 || lo + len <= c0) { u += len; p += fill ? 1 : len; continue; }
       for (int i = 0; i < len; i++, u++) {
         /* source (u, v) -> offset (i, j) in the drawn rectangle */
         int di = tr ? v : u, dj = tr ? u : v;
@@ -606,16 +636,34 @@ static __attribute__((noinline)) void draw_affine_item(const Item *it, int y0, i
   int x0 = it->x0 < 0 ? 0 : it->x0, x1 = it->x1 > VIEW_W ? VIEW_W : it->x1;
   if (fabsf(ib) > fabsf(ia)) {
     /* turned about 90 degrees: a screen column walks one source row, so go
-     * column by column (one row decode per column, not one per pixel) */
+     * column by column; a band needs a few neighbouring pixels of that row,
+     * read from its runs into a small window (no row decode per pixel) */
+    int wv = -1, wu0 = 0;
+    int16_t win[8];
     for (int x = x0; x < x1; x++) {
       float fu = ia * (x + 0.5f) + ic * (y0 + 0.5f) + itx, fv = ib * (x + 0.5f) + id * (y0 + 0.5f) + ity;
       for (int y = y0; y < y1; y++, fu += ic, fv += id) {
         if (fu < 0 || fv < 0 || fu >= w || fv >= h) continue;
         int v = (int)fv, u = (int)fu;
-        if (r != line_spr || v != line_v) line_decode(r, v, w);
-        if (!(line_mask[u >> 3] & (1 << (u & 7)))) continue;
+        if (v != wv || u < wu0 || u >= wu0 + 8) {
+          wv = v;
+          wu0 = ic < 0 ? u - 7 : u;
+          for (int i = 0; i < 8; i++) win[i] = -1;
+          const uint8_t *p = r + rd16(r + 4 + 2 * v);
+          int n = rd16(p), cx = 0;
+          p += 2;
+          for (int k = 0; k < n && cx < wu0 + 8; k++) {
+            cx += *p++;
+            int code = *p++, len = code & 0x80 ? (code & 0x7F) + 1 : code;
+            for (int i = cx > wu0 ? cx : wu0; i < cx + len && i < wu0 + 8; i++) win[i - wu0] = code & 0x80 ? p[0] : p[i - cx];
+            p += code & 0x80 ? 1 : len;
+            cx += len;
+          }
+        }
+        int c = win[u - wu0];
+        if (c < 0) continue;
         uint16_t *d = band + (y - by) * VIEW_W + x;
-        unsigned c = stream_buf[u], a = al[c];
+        unsigned a = al[c];
         *d = (a == 255 && ga == 32) ? pal[c] : blend(pal[c], *d, (a * ga + 128) >> 8);
       }
     }
@@ -683,6 +731,65 @@ static __attribute__((noinline)) void draw_shape_item(const Item *it, int y0, in
   }
 }
 
+static __attribute__((noinline)) void draw_mask_item(const Item *it, int y0, int y1, int by) {
+  const uint8_t *m = spr_peek_mask(it->ref);
+  if (!m || !bgmem) return;
+  const uint16_t *pal = pal565(bgsheet);
+  const uint8_t *al = palalpha(bgsheet);
+  int w = rd16(m), h = rd16(m + 2);
+  bool fx = it->flags & DF_FLIPX;
+  for (int y = y0; y < y1; y++) {
+    int row = y - it->y0;
+    if (it->flags & DF_FLIPY) row = h - 1 - row;
+    const uint8_t *p = m + rd16(m + 4 + 2 * row);
+    int n = rd16(p), x = 0;
+    p += 2;
+    uint16_t *d = band + (y - by) * VIEW_W;
+    int ly = (bg_cy + y) % bgh;
+    if (ly < 0) ly += bgh;
+    const uint8_t *lrow = bgmem + ly * bgw;
+    for (int k = 0; k < n; k++, p += 2) {
+      x += p[0];
+      int a = x, b = x + p[1];
+      x = b;
+      if (fx) { int t = w - b; b = w - a; a = t; }
+      a += it->x0;
+      b += it->x0;
+      if (a < 0) a = 0;
+      if (b > VIEW_W) b = VIEW_W;
+      int lx = (bg_cx + a) % bgw;
+      if (lx < 0) lx += bgw;
+      for (int sx = a; sx < b; sx++) {
+        uint8_t c = lrow[lx];
+        if (al[c] == 255) d[sx] = pal[c];
+        if (++lx == bgw) lx = 0;
+      }
+    }
+  }
+}
+
+static __attribute__((noinline)) void draw_tiles_item(int y0, int y1, int by, unsigned ga) {
+  for (int i = 0; i < tl.n; i++) {
+    int tx = tl.ox + tl.pos[2 * i], ty = tl.oy + tl.pos[2 * i + 1];
+    int a = ty > y0 ? ty : y0, b = ty + tl.h < y1 ? ty + tl.h : y1;
+    if (a >= b || tx >= VIEW_W || tx + tl.w <= 0) continue;
+    int x0 = tx < 0 ? -tx : 0, x1 = tx + tl.w > VIEW_W ? VIEW_W - tx : tl.w;
+    for (int y = a; y < b; y++) {
+      const uint8_t *row = tl.px + (y - ty) * (tl.w >> 1);
+      uint16_t *d = band + (y - by) * VIEW_W;
+      for (int bx = x0 >> 1; bx < (x1 + 1) >> 1; bx++) {   /* two pixels a byte, mostly clear */
+        unsigned v = row[bx];
+        if (!v) continue;
+        int x = 2 * bx;
+        unsigned c = v & 15;
+        if (c && x >= x0) d[tx + x] = blend(tl.pal[c], d[tx + x], (tl.al[c] * ga + 16) >> 5);
+        c = v >> 4;
+        if (c && x + 1 < x1) d[tx + x + 1] = blend(tl.pal[c], d[tx + x + 1], (tl.al[c] * ga + 16) >> 5);
+      }
+    }
+  }
+}
+
 static __attribute__((noinline)) void draw_text_item(const Item *it, int y0, int y1, int by, int rows, unsigned ga) {
   const Aff *f = &affs[it->ref];
   font_scale(f->scale);
@@ -712,6 +819,8 @@ static void draw_item(const Item *it, int by, int rows) {
     case DI_AFFINE: draw_affine_item(it, y0, y1, by, rows, ga); break;
     case DI_SHAPE: draw_shape_item(it, y0, y1, by, rows, ga); break;
     case DI_TEXT: draw_text_item(it, y0, y1, by, rows, ga); break;
+    case DI_TILES: draw_tiles_item(y0, y1, by, ga); break;
+    case DI_MASK: draw_mask_item(it, y0, y1, by); break;
   }
 }
 
@@ -761,8 +870,8 @@ void gfx_end(void) {
   }
 #ifdef HOST
   if (getenv("CI_STATS")) {
-    long area[6] = {0};
-    int cnt[6] = {0};
+    long area[DI_KINDS] = {0};
+    int cnt[DI_KINDS] = {0};
     for (int i = 0; i < nitems; i++) {
       const Item *it = &items[i];
       int x0 = it->x0 < 0 ? 0 : it->x0, x1 = it->x1 > VIEW_W ? VIEW_W : it->x1;
@@ -792,6 +901,9 @@ void gfx_end(void) {
     }
     spr_get(sp);
   }
+#ifdef HOST
+  if (getenv("CI_NEED")) fprintf(stderr, "need %u of %u\n", (unsigned)need, (unsigned)spr_capacity());
+#endif
   /* big sprites are cached too while everything fits; otherwise the first
    * one keeps the decoder while the bands go down */
   for (int i = 0; i < nitems; i++) {
@@ -805,12 +917,15 @@ void gfx_end(void) {
       need += sz;
     } else if (!streaming) stream_begin(it);
   }
+  for (int i = 0; i < nitems; i++)
+    if (items[i].kind == DI_MASK) spr_mask(items[i].ref);
   /* a sprite pushed out of the cache by a later one is drawn next frame */
   for (int i = 0; i < nitems; i++) {
     Item *it = &items[i];
     if ((it->kind == DI_SPRITE || it->kind == DI_AFFINE || (it->kind == DI_STREAM && it != streaming)) &&
         !spr_peek(it->kind == DI_AFFINE ? it->color : it->ref))
       it->flags |= DF_MISSING;
+    if (it->kind == DI_MASK && !spr_peek_mask(it->ref)) it->flags |= DF_MISSING;
   }
   uint32_t base = bgmem ? mix(mix(mix(mix(2166136261u, (uint32_t)bg_cx), (uint32_t)bg_cy), bg_gen), water_gen)
                         : mix(1, clear_color);

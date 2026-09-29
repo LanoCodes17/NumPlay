@@ -16,6 +16,9 @@ void gfx_sprite(uint16_t sprite, Mat m, uint8_t alpha);  /* a sprite placed by m
 void gfx_sprite_ex(uint16_t sprite, Mat m, uint8_t alpha, bool opaque_only);   /* opaque_only: skips see-through pixels */
 void gfx_shape(const uint8_t *shape, Mat m, uint8_t alpha);  /* filled polygons (payload) */
 void gfx_rect(int x, int y, int w, int h, uint16_t c, uint8_t alpha);
+/* one small image at n places (pos: x, y pairs, moved by ox, oy): 4-bit pixels,
+ * index 0 clear, pal/al: RGB565 and alpha (0..32) of each index (the island's rain) */
+void gfx_tiles(const uint8_t *px, int w, int h, const uint16_t *pal, const uint8_t *al, const int16_t *pos, int n, int ox, int oy, uint8_t alpha);
 /* text: font size in px of the doodle's layout, colour RGB565 */
 void gfx_text(const char *s, Mat m, uint16_t color, uint8_t align, int16_t line_w, int16_t line_h, uint8_t alpha);
 void gfx_text_k(const char *s, Mat m, uint16_t color, uint8_t align, int16_t line_w, int16_t line_h, uint8_t alpha, int scale);
@@ -42,6 +45,7 @@ void bg_redraw_water(void);                               /* the water tile's pi
 int bg_clear_index(void);                                 /* the palette's clear index, -1 if none */
 void bg_blit_stream(uint16_t sprite, int x, int y);
 void bg_fill(int x, int y, int w, int h, uint8_t index);
+void bg_redraw(uint16_t sprite, int x, int y, uint8_t flags);   /* the layer again where the sprite at world x, y is opaque */
 uint8_t *bg_layer(int *w, int *h);
 
 uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b);

@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <stdlib.h>
 /* Sprites: LZMA decoding into a cache of run-length rows.
  *
  * data.bin keeps the doodle's images as 8-bit palette indices, compressed
@@ -149,7 +151,8 @@ static uint8_t *alloc(uint32_t n, bool force) {
       live -= (ent[old].size + 3) & ~3u;
       evict_one();
     }
-    compact();
+    /* only when the space is short: a full entry table needs no moving */
+    if (top + n > cache_bytes) compact();
   }
   if (top + n > cache_bytes) return NULL;
   uint8_t *p = mem + top;
@@ -246,6 +249,9 @@ const uint8_t *spr_get(uint16_t sp) {
   }
   Sprite s;
   sprite_info(sp, &s);
+#ifdef HOST
+  if (getenv("CI_SPR_MISS")) fprintf(stderr, "miss %u kind %d %dx%d rle %u bank %u\n", sp, s.kind, s.w, s.h, (unsigned)s.rle, (unsigned)s.bank);
+#endif
   if (s.kind == 1) {
     const uint8_t *st = spr_stream(sp);
     if (!st) return NULL;
@@ -262,7 +268,7 @@ const uint8_t *spr_get(uint16_t sp) {
       sprite_info(o, &t);
       if (t.off > pos) z_get(NULL, t.off - pos);
       pos = t.off + (uint32_t)t.w * t.h;
-      if (find(o) || (o != sp && top + (t.rle ? t.rle : rle_bound(t.w, t.h)) > cache_bytes)) {
+      if (find(o) || (o != sp && (nent >= ENTRIES || top + (t.rle ? t.rle : rle_bound(t.w, t.h)) > cache_bytes))) {
         z_get(NULL, (uint32_t)t.w * t.h);
         continue;
       }
@@ -289,6 +295,88 @@ const uint8_t *spr_stream(uint16_t sp) {
   for (uint32_t i = 0; i < n; i++, t += 14)
     if (rd16(t) == sp) return t;
   return NULL;
+}
+
+/* ---------------------------------------------------------------- masks */
+/* A sprite's fully opaque pixels as spans, kept in the cache as entry
+ * sprite | 0x8000: u16 w, u16 h, u16 row offsets[h], then per row: u16 n,
+ * and n spans of (skip, len) bytes (a skip over 255 goes as (255, 0)).
+ * Scenery in front of the actors is redrawn from the layer through these:
+ * far smaller than the sprite's colours. */
+#define MASK 0x8000u
+typedef struct { uint8_t *out; uint32_t at, n; int last; } MaskOut;
+static void mask_span(MaskOut *o, int a, int b) {
+  int gap = a - o->last, l = b - a;
+  while (gap > 255) {
+    if (o->out) { o->out[o->at] = 255; o->out[o->at + 1] = 0; }
+    o->at += 2; o->n++; gap -= 255;
+  }
+  while (l > 0) {
+    int part = l > 255 ? 255 : l;
+    if (o->out) { o->out[o->at] = (uint8_t)gap; o->out[o->at + 1] = (uint8_t)part; }
+    o->at += 2; o->n++; gap = 0; l -= part;
+  }
+  o->last = b;
+}
+/* the mask of a sprite's runs r into out (NULL: only its size), returns the size */
+static uint32_t mask_build(const uint8_t *r, const uint8_t *al, uint8_t *out) {
+  int w = rd16(r), h = rd16(r + 2);
+  MaskOut o = {out, 4 + 2u * (uint32_t)h, 0, 0};
+  for (int y = 0; y < h; y++) {
+    if (out) { out[4 + 2 * y] = (uint8_t)o.at; out[5 + 2 * y] = (uint8_t)(o.at >> 8); }
+    uint32_t cnt_at = o.at;
+    o.at += 2;
+    o.n = 0;
+    o.last = 0;
+    const uint8_t *p = r + rd16(r + 4 + 2 * y);
+    int runs = rd16(p), x = 0, s0 = -1;
+    p += 2;
+    for (int k = 0; k < runs; k++) {
+      int skip = *p++, code = *p++;
+      bool fill = code & 0x80;
+      int len = fill ? (code & 0x7F) + 1 : code;
+      const uint8_t *px = p;
+      p += fill ? 1 : len;
+      if (skip && s0 >= 0) { mask_span(&o, s0, x); s0 = -1; }
+      x += skip;
+      for (int i = 0; i < len; i++, x++) {
+        bool op = al[fill ? px[0] : px[i]] == 255;
+        if (op && s0 < 0) s0 = x;
+        else if (!op && s0 >= 0) { mask_span(&o, s0, x); s0 = -1; }
+      }
+    }
+    if (s0 >= 0) mask_span(&o, s0, x);
+    if (out) { out[cnt_at] = (uint8_t)o.n; out[cnt_at + 1] = (uint8_t)(o.n >> 8); }
+  }
+  if (out) { out[0] = (uint8_t)w; out[1] = (uint8_t)(w >> 8); out[2] = (uint8_t)h; out[3] = (uint8_t)(h >> 8); }
+  return o.at;
+}
+
+const uint8_t *spr_mask(uint16_t sp) {
+  if (sp >= SPRITE_COUNT || !mem) return NULL;
+  unsigned f = find((uint16_t)(sp | MASK));
+  if (f) {
+    ent[f - 1].used = (uint16_t)tick;
+    return mem + 4u * ent[f - 1].off4;
+  }
+  if (!spr_get(sp)) return NULL;
+  Sprite s;
+  sprite_info(sp, &s);
+  const uint8_t *al = palalpha(s.sheet);
+  uint32_t n = mask_build(mem + 4u * ent[find(sp) - 1].off4, al, NULL);
+  if (n > 0xFFFF || nent >= ENTRIES) return NULL;
+  uint8_t *m = alloc(n, false);        /* may move the sprite (compaction): look it up again */
+  unsigned fs = find(sp);
+  if (!m || !fs) return NULL;
+  mask_build(mem + 4u * ent[fs - 1].off4, al, m);
+  if (nent >= ENTRIES) return NULL;
+  ent[nent++] = (Entry){(uint16_t)(sp | MASK), (uint16_t)((uint32_t)(m - mem) / 4), (uint16_t)n, (uint16_t)tick};
+  return m;
+}
+
+const uint8_t *spr_peek_mask(uint16_t sp) {
+  unsigned f = sp < SPRITE_COUNT && mem ? find((uint16_t)(sp | MASK)) : 0;
+  return f ? mem + 4u * ent[f - 1].off4 : NULL;
 }
 
 uint32_t spr_cache_used(void) { return top; }

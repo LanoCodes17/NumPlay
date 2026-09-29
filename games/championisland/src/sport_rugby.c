@@ -24,9 +24,6 @@
 #include <stdio.h>
 #include "ent.h"
 #include "phys.h"
-#ifdef RG_DEBUG
-#include <stdlib.h>
-#endif
 
 #define ACT_MAX 32
 #define OB_MAX 176
@@ -62,7 +59,7 @@ typedef struct {
   NodeId proto[PROTO_MAX];   /* one node per kind of rock and background tile */
   uint16_t proto_sym[PROTO_MAX];
   int16_t proto_nb[PROTO_MAX][4];
-  int nproto;
+  int nproto, proto_last;
   int bg_slot;
   Actor act[ACT_MAX];
   int nact;
@@ -438,8 +435,9 @@ static void act_remove(Actor *a) {   /* co, with removeFx (Yp) */
 
 /* ---------------------------------------------------------------- setting up */
 static int proto_of(uint16_t sym) {
+  if (S->proto_last < S->nproto && S->proto_sym[S->proto_last] == sym) return S->proto_last;   /* runs of one kind */
   for (int i = 0; i < S->nproto; i++)
-    if (S->proto_sym[i] == sym) return i;
+    if (S->proto_sym[i] == sym) return S->proto_last = i;
   if (S->nproto >= PROTO_MAX) return -1;
   NodeId n = node_new_sym(sym);
   if (!n) return -1;
@@ -614,10 +612,6 @@ static void start(void) {
     S->nact++;
   }
   build_grid();
-#ifdef RG_DEBUG
-  fprintf(stderr, "nob %d pa %.1f %.1f %.1f %.1f grid %dx%d end %.1f %.1f %.1f %.1f nact %d\n", S->nob, S->pa.x, S->pa.y, S->pa.w, S->pa.h, S->gw, S->gh, S->end_r.x, S->end_r.y, S->end_r.w, S->end_r.h, S->nact);
-  for (int i = 0; i < 3; i++) fprintf(stderr, "ob %d: %d %d %d %d\n", i, S->ob_r[i][0], S->ob_r[i][1], S->ob_r[i][2], S->ob_r[i][3]);
-#endif
 
   /* the camera's view at the start (Ls is off during the countdown: what is near shows) */
   {
@@ -628,15 +622,6 @@ static void start(void) {
       S->view = (Rect){x0, y0, 960 / g.a, 540 / g.d};
     }
   }
-#ifdef RG_DEBUG
-  if (getenv("RG_X"))   /* tests: the team starts further on */
-    for (int i = 0; i < S->nact; i++)
-      if (S->act[i].kind == A_CHAR) { S->act[i].x += atof(getenv("RG_X")); if (getenv("RG_Y")) S->act[i].y += atof(getenv("RG_Y")); }
-#endif
-#ifdef RG_START_X   /* performance tests on the calculator: the team starts further on */
-  for (int i = 0; i < S->nact; i++)
-    if (S->act[i].kind == A_CHAR) S->act[i].x += RG_START_X;
-#endif
   for (int i = 0; i < S->nact; i++) {
     Actor *a = &S->act[i];
     Rect v = rect_pad(S->view, 240, 216, 240, 432);
@@ -665,9 +650,7 @@ static void visibility(void) {
   }
   for (int i = 0; i < S->nob; i++) {
     if ((uint32_t)(i + 3) % 4 != t % 4) continue;
-    Key k;
     float x = S->ob_r[i][0] * .25f + S->ob_r[i][2] * .125f, y = S->ob_r[i][1] * .25f + S->ob_r[i][3] * .125f;
-    (void)k;
     if (rect_contains(v, x, y)) S->ob_vis[i >> 3] |= (uint8_t)(1 << (i & 7));
     else S->ob_vis[i >> 3] &= (uint8_t)~(1 << (i & 7));
   }
@@ -1289,9 +1272,9 @@ static bool in_end_zone(void) {
   return false;
 }
 
-static void big_toast(const char *s) {
+static void big_toast(const char *s) {   /* To(..., {size: 100, shadow: "#222", outline: "#aaa"}) */
   S->toast_s = s;
-  S->toast_t = 37;      /* To: 400 ms in, 2 s, 300 ms out */
+  S->toast_t = 1;
 }
 
 static void finish(int rating) {
@@ -1302,7 +1285,7 @@ static void finish(int rating) {
 }
 
 static void the_end(bool zone) {
-  if (S->toast_t > 0) { S->toast_t--; toast_countdown(S->toast_s); }
+  if (S->toast_t > 0) S->toast_t++;
   if (S->ended) {
     if (S->win_t > 0 && --S->win_t == 0 && S->pl >= 0) act_label(&S->act[S->pl], "win");
     if (S->end_t > 0 && --S->end_t == 0) menus_game_over_rated((float)S->score, S->rating);
@@ -1365,11 +1348,6 @@ static void tick(void) {
   if (go) sprite_dirs();                /* aq */
   rhud_tick();                           /* Ct */
   the_end(zone);                        /* Et */
-#ifdef RG_DEBUG
-  if (S->pl >= 0) { Actor *a = &S->act[S->pl]; float x, y; act_pos(a, &x, &y);
-    { int nb = 0; for (int i = 0; i < BODY_MAX; i++) nb += bodies[i].used; static int mx; if (nb > mx) { mx = nb; fprintf(stderr, "bodies max %d, state %d\n", mx, (int)sizeof(State)); } }
-    fprintf(stderr, "t%u pl %d pos %.2f %.2f v %.2f %.2f body %d go %d label %s nodes %u\n", game.ticks, S->pl, x, y, a->vx, a->vy, a->body, go, a->n ? node_label(a->n) : "-", node_count()); }
-#endif
 }
 
 /* ---------------------------------------------------------------- drawing: the map in the doodle's order */
@@ -1463,6 +1441,34 @@ static void draw_under(void) {
   }
 }
 
+/* To: the banner slides in from the right (400 ms), stays 2 s, leaves to the left (300 ms) */
+static float cubic_out(float t) { return 1 - (1 - t) * (1 - t) * (1 - t); }
+
+static void draw_over(void) {
+  if (!S || S->toast_t <= 0 || !S->toast_s) return;
+  int t = S->toast_t - 1;
+  float dx;
+  if (t < 12) dx = 1000 * (1 - cubic_out(t / 12.0f));
+  else if (t < 72) dx = 0;
+  else if (t < 81) { float q = (t - 72) / 9.0f; dx = -1000 * q * q * q; }
+  else return;
+  Mat m = MAT_ID;
+  m.tx = (480 + dx) / 3;
+  m.ty = (151.2f - 50) / 3;
+  Mat sh = m;
+  sh.ty += 100.0f / 12 / 3;
+  gfx_text_k(S->toast_s, sh, rgb565(0x22, 0x22, 0x22), 1, 0, 0, 204, 3);
+  for (int oy = -1; oy <= 1; oy++)
+    for (int ox = -1; ox <= 1; ox++) {
+      if (!ox && !oy) continue;
+      Mat o = m;
+      o.tx += ox;
+      o.ty += oy;
+      gfx_text_k(S->toast_s, o, rgb565(0xaa, 0xaa, 0xaa), 1, 0, 0, 255, 3);
+    }
+  gfx_text_k(S->toast_s, m, rgb565(0xff, 0xff, 0xff), 1, 0, 0, 255, 3);
+}
+
 static void end(void) {
   if (S)
     for (int i = 0; i < S->nproto; i++) node_free(S->proto[i]);   /* not in the scene's tree */
@@ -1470,4 +1476,4 @@ static void end(void) {
   S = NULL;
 }
 
-const SceneDef scene_rugby = {"rugby", start, tick, end, draw_under, NULL, NULL};
+const SceneDef scene_rugby = {"rugby", start, tick, end, draw_under, draw_over, NULL};

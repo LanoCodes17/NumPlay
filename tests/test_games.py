@@ -100,6 +100,11 @@ GAMES = {
     # start, then through the bathroom and the hallway to the table; then continue
     "buckshot": ("BuckshotRoulette.nwa", "buckshot.sav", every(1500, 14000, 900, "ok"), 16000,
                  presses((1500, "ok")), 4000),
+    # the intro film is skipped (seen), Lucky walks up the dock and talks to the
+    # guardians; next time the game starts where it was left
+    "championisland": ("ChampionIsland.nwa", "champion.sav",
+                       presses((2000, "up", 1500)) + every(4000, 9000, 700, "ok"), 11000,
+                       presses((2000, "up", 400)), 4000),
     # a level, its message, then play; then back to the level select
     "portal": ("PortalReturns.nwa", "portal.sav",
                presses((1500, "ok"), (2500, "ok"), (3500, "ok")) + every(4000, 7000, 400, "right", 300), 8000,

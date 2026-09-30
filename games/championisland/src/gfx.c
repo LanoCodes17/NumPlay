@@ -50,7 +50,17 @@ void gfx_begin(void) {
 
 void gfx_clear_color(uint16_t c) { clear_color = c; }
 
-static Item *add(void) { return nitems < MAX_ITEMS ? &items[nitems++] : NULL; }
+#ifdef HOST
+unsigned gfx_drops;   /* tests: what the draw list had no room for (a frame missing some of its pictures) */
+#define DROPPED() (gfx_drops++)
+#else
+#define DROPPED() ((void)0)
+#endif
+static Item *add(void) {
+  if (nitems < MAX_ITEMS) return &items[nitems++];
+  DROPPED();
+  return NULL;
+}
 
 static bool axis_aligned(Mat m) {
   return fabsf(m.b) < 1e-4f && fabsf(m.c) < 1e-4f && fabsf(fabsf(m.a) - 1) < 1e-3f && fabsf(fabsf(m.d) - 1) < 1e-3f;
@@ -74,6 +84,7 @@ static bool on_view(int x0, int y0, int x1, int y1) { return x1 > 0 && y1 > view
 
 static bool set_affine(Item *it, Mat m) {
   float det = m.a * m.d - m.b * m.c;
+  if (naffs >= MAX_AFF) DROPPED();
   if (fabsf(det) < 1e-6f || naffs >= MAX_AFF) return false;
   Aff *f = &affs[naffs];
   f->m = m;
@@ -106,6 +117,15 @@ void gfx_sprite_ex(uint16_t sp, Mat m, uint8_t alpha, bool opaque_only) {
     it->flags = (uint8_t)((opaque_only ? DF_OPAQUE : 0) | (overlay ? DF_OVERLAY : 0));
     if (!set_affine(it, m)) nitems--;
   }
+}
+
+void gfx_sprite_rows(uint16_t sp, int x, int y, int h, uint8_t alpha) {
+  if (sp >= SPRITE_COUNT || !alpha || h <= 0) return;
+  Sprite s;
+  sprite_info(sp, &s);
+  if (!on_view(x, y, x + s.w, y + h)) return;
+  Item *it = add();
+  if (it) *it = (Item){DI_SPRITE, alpha, (uint8_t)(overlay ? DF_OVERLAY : 0), 0, (int16_t)x, (int16_t)y, (int16_t)(x + s.w), (int16_t)(y + h), sp, sp};
 }
 
 void gfx_rect(int x, int y, int w, int h, uint16_t c, uint8_t alpha) {
@@ -154,8 +174,9 @@ void gfx_shape(const uint8_t *shape, Mat m, uint8_t alpha) {
   }
   if (!visible) return;
   /* an overlay's backdrop over the whole stage (a menu's shade) covers the
-   * whole view when it is taller than the stage */
-  if (overlay && (view_top < 0 || view_bottom > VIEW_H) && lx <= 0 && ly <= 0 && hx >= VIEW_W && hy >= VIEW_H) {
+   * whole view when it is taller than the stage (to half a pixel: the skip
+   * menu's is a quarter of a stage pixel to the left) */
+  if (overlay && (view_top < 0 || view_bottom > VIEW_H) && lx <= .5f && ly <= .5f && hx >= VIEW_W - .5f && hy >= VIEW_H - .5f) {
     float k = (float)(view_bottom - view_top) / VIEW_H;
     m = (Mat){m.a, m.b * k, m.c, m.d * k, m.tx, m.ty * k + (float)view_top};
     ly = ly * k + (float)view_top;
@@ -196,7 +217,10 @@ void gfx_text_k3(const char *s, Mat m, uint16_t color, uint8_t align, int16_t lw
     affs[naffs].m = m;
     affs[naffs].scale = (uint8_t)k3;
     it->ref = (uint16_t)naffs++;
-  } else nitems--;
+  } else {
+    DROPPED();
+    nitems--;
+  }
 }
 
 /* ---------------------------------------------------------------- the background layer */
@@ -477,17 +501,21 @@ void bg_draw(uint16_t sp, int x, int y, uint8_t flags, uint8_t alpha) {
 }
 
 void bg_blit_stream(uint16_t sp, int x, int y) {
+  if (!spr_stream(sp)) { bg_blit_sprite(sp, x, y, false, false); return; }
+  bg_blit_rows(sp, x, y, clip_y0, clip_y1);
+}
+
+void bg_blit_rows(uint16_t sp, int x, int y, int y0, int y1) {
   Sprite s;
   sprite_info(sp, &s);
-  if (x >= clip_x1 || y >= clip_y1 || x + s.w <= clip_x0 || y + s.h <= clip_y0) return;
-  const uint8_t *st = spr_stream(sp);
-  if (!st) { bg_blit_sprite(sp, x, y, false, false); return; }
+  if (y0 < clip_y0) y0 = clip_y0;
+  if (y1 > clip_y1) y1 = clip_y1;
+  if (x >= clip_x1 || y >= y1 || x + s.w <= clip_x0 || y + s.h <= y0) return;
   const uint8_t *alpha = palalpha(s.sheet);
-  z_open(rd32(st + 2), rd32(st + 6), rd32(st + 10));
-  int r0 = clip_y0 - y, r1 = clip_y1 - y;
+  int r0 = y0 - y, r1 = y1 - y;
   if (r0 < 0) r0 = 0;
   if (r1 > s.h) r1 = s.h;
-  z_get(NULL, (uint32_t)r0 * s.w);
+  if (!spr_rows_at(sp, &s, r0)) return;
   int c0 = clip_x0 - x, c1 = clip_x1 - x;
   if (c0 < 0) c0 = 0;
   if (c1 > s.w) c1 = s.w;
@@ -682,6 +710,9 @@ static void draw_stream(const Item *it, int y0, int y1, int by, unsigned ga) {
  * cache holds, such as a menu over the island): decoded now, unless a stream
  * holds the decoder or the menu comes first (then it comes next frame). */
 static bool scene_later;   /* a menu's frame too big for the cache: the scene's sprites that do not fit wait */
+/* something the band shows could not be drawn (no room in the cache) and was
+ * not known to be missing: the band is drawn again next frame */
+static bool band_short;
 static const uint8_t *band_sprite(uint16_t sp, uint8_t flags) {
   const uint8_t *r = spr_peek(sp);
   if (r || streaming || (scene_later && !(flags & DF_OVERLAY))) return r;
@@ -692,12 +723,12 @@ static const uint8_t *band_sprite(uint16_t sp, uint8_t flags) {
 
 static __attribute__((noinline)) void draw_sprite_item(const Item *it, int y0, int y1, int by, int rows, unsigned ga) {
   const uint8_t *r = band_sprite(it->ref, it->flags);
-  if (!r) return;
+  if (!r) { band_short |= !(it->flags & DF_MISSING); return; }
   Sprite s;
   sprite_info(it->ref, &s);
   const uint16_t *pal = pal565(s.sheet);
   const uint8_t *al = palalpha(s.sheet);
-  int h = rd16(r + 2), w = rd16(r);
+  int h = rd16(r + 2), w = rd16(r), ih = it->y1 - it->y0;
   uint8_t al_opaque[256];             /* for DF_OPAQUE: 255 stays, the rest are skipped */
   if (it->flags & DF_OPAQUE) {
     for (int i = 0; i < 256; i++) al_opaque[i] = al[i] == 255 ? 255 : 0;
@@ -705,6 +736,7 @@ static __attribute__((noinline)) void draw_sprite_item(const Item *it, int y0, i
   }
   for (int y = y0; y < y1; y++) {
     int row = y - it->y0;
+    if (ih != h) row = (2 * row + 1) * h / (2 * ih);   /* stretched (gfx_sprite_rows): the row under the pixel's middle */
     if (it->flags & DF_FLIPY) row = h - 1 - row;
     draw_rle_row(r + rd16(r + 4 + 2 * row), it->x0, w, it->flags & DF_FLIPX, band + (y - by) * VIEW_W, pal, al, ga);
   }
@@ -712,7 +744,7 @@ static __attribute__((noinline)) void draw_sprite_item(const Item *it, int y0, i
 
 static __attribute__((noinline)) void draw_affine_item(const Item *it, int y0, int y1, int by, int rows, unsigned ga) {
   const uint8_t *r = band_sprite(it->color, it->flags);
-  if (!r) return;
+  if (!r) { band_short |= !(it->flags & DF_MISSING); return; }
   Sprite s;
   sprite_info(it->color, &s);
   const uint16_t *pal = pal565(s.sheet);
@@ -823,6 +855,7 @@ static __attribute__((noinline)) void draw_shape_item(const Item *it, int y0, in
 static __attribute__((noinline)) void draw_mask_item(const Item *it, int y0, int y1, int by) {
   const uint8_t *m = spr_peek_mask(it->ref);
   if (!m && !streaming) { m = spr_mask(it->ref); line_spr = NULL; }
+  if (!m) band_short |= !(it->flags & DF_MISSING);
   if (!m || !bgmem) return;
   const uint16_t *pal = pal565(bgsheet);
   const uint8_t *al = palalpha(bgsheet);
@@ -903,7 +936,9 @@ static void draw_item(const Item *it, int by, int rows) {
   unsigned ga = (it->alpha * 32u + 127) / 255;
   switch (it->kind) {
     case DI_STREAM:
-      /* another big one this frame is drawn from the cache if it fits */
+      /* the streamed sprite's next item down: read again; another big one
+       * this frame is drawn from the cache if it fits */
+      if (streaming && it != streaming && it->ref == streaming->ref && it->y0 >= streaming->y1) stream_begin(it);
       if (it == streaming) draw_stream(it, y0, y1, by, ga);
       else draw_sprite_item(it, y0, y1, by, rows, ga);
       break;
@@ -986,6 +1021,7 @@ static void release_done(int y) {
 
 #ifdef HOST
 int gfx_peak_items, gfx_peak_affs;   /* tests: the most a frame used */
+int gfx_missing;                     /* tests: items the last frame left for the next (not cached) */
 #endif
 void gfx_end(void) {
 #ifdef HOST
@@ -1076,6 +1112,15 @@ void gfx_end(void) {
 #endif
     }
   }
+  /* and the masks of the scenery drawn again in front: without room for
+   * them, houses would be left out behind what stands in front of them */
+  memset(seen, 0, sizeof seen);
+  for (int i = 0; i < nitems; i++) {
+    uint16_t sp = items[i].ref;
+    if (items[i].kind != DI_MASK || !shown[i] || (seen[sp >> 3] & (1 << (sp & 7)))) continue;
+    seen[sp >> 3] |= (uint8_t)(1 << (sp & 7));
+    need += spr_mask_bytes(sp);
+  }
   bool over = need + 1024 > spr_capacity();
   /* more than the cache holds: the biggest sprite drawn as it decodes (top
    * down, once) may leave room for the others; with a menu, the menu's
@@ -1109,16 +1154,26 @@ void gfx_end(void) {
           continue;
         Sprite t;
         sprite_info(it->ref, &t);
-        if (t.kind <= 1 && t.rle > bigsz) { big = i; bigsz = t.rle; }
+        if (t.kind <= 1 && t.rle > bigsz && it->y1 - it->y0 == t.h) { big = i; bigsz = t.rle; }   /* (a stream is not stretched) */
       }
-      for (int i = 0; big >= 0 && i < nitems; i++)   /* one item: a stream is read once */
-        if (i != big && (items[i].kind == DI_SPRITE || items[i].kind == DI_AFFINE) &&
-            (items[i].kind == DI_SPRITE ? items[i].ref : items[i].color) == items[big].ref)
-          big = -1;
-      uint32_t bs = big >= 0 && !stream_already && !spr_peek(items[big].ref) ? (bigsz + 3) & ~3u : 0;
+      /* a stream is read top down: a sprite drawn more than once is read
+       * again for each, one below the other (not in the same band) */
+      for (int i = 0; big >= 0 && i < nitems; i++) {
+        const Item *a = &items[i];
+        if (i == big || (a->kind == DI_SPRITE ? a->ref : a->kind == DI_AFFINE ? a->color : NONE16) != items[big].ref) continue;
+        if (a->kind != DI_SPRITE || (a->flags & (DF_FLIPY | DF_OPAQUE))) big = -1;
+        for (int j = 0; big >= 0 && j < nitems; j++)
+          if (j != i && items[j].kind == DI_SPRITE && items[j].ref == a->ref && a->y0 < items[j].y1 + BAND && items[j].y0 < a->y1 + BAND) big = -1;
+      }
+      uint32_t bs = big >= 0 && !stream_already ? (bigsz + 3) & ~3u : 0;
       /* (a little too much: the last small ones come next frame) */
       if (menu ? need_menu - bs <= spr_capacity() : bs && need - bs <= spr_capacity() + 1024) {
-        if (bs) { items[big].kind = DI_STREAM; need -= bs; }
+        if (bs) {
+          for (int i = 0; i < nitems; i++)
+            if (items[i].kind == DI_SPRITE && items[i].ref == items[big].ref) items[i].kind = DI_STREAM;
+          spr_release(items[big].ref);   /* cached: its room goes first */
+          need -= bs;
+        }
         over = false;
         scene_later = menu;
       }
@@ -1142,7 +1197,7 @@ void gfx_end(void) {
   for (int i = 0; i < nitems && !over; i++)
     if (items[i].kind == DI_MASK && shown[i]) spr_mask(items[i].ref);
   /* big sprites are cached too while everything fits; otherwise the first
-   * one keeps the decoder while the bands go down */
+   * one keeps the decoder while the bands go down (from its topmost item) */
   for (int i = 0; i < nitems; i++) {
     Item *it = &items[i];
     if (it->kind != DI_STREAM || !shown[i]) continue;
@@ -1152,18 +1207,22 @@ void gfx_end(void) {
     if (!over && need + sz + 1024 <= spr_capacity() && spr_get(it->ref)) {
       it->kind = DI_SPRITE;
       need += sz;
-    } else if (!streaming) stream_begin(it);
+    } else if (!streaming || (streaming->ref == it->ref && it->y0 < streaming->y0)) stream_begin(it);
   }
   /* with a stream holding the decoder nothing is decoded while the bands go
    * down: what is not cached is drawn next frame */
   for (int i = 0; i < nitems && (streaming || !over); i++) {
     Item *it = &items[i];
     if (!shown[i]) continue;
-    if ((it->kind == DI_SPRITE || it->kind == DI_AFFINE || (it->kind == DI_STREAM && it != streaming)) &&
+    if ((it->kind == DI_SPRITE || it->kind == DI_AFFINE || (it->kind == DI_STREAM && (!streaming || it->ref != streaming->ref))) &&
         !spr_peek(it->kind == DI_AFFINE ? it->color : it->ref))
       it->flags |= DF_MISSING;
     if (it->kind == DI_MASK && !spr_peek_mask(it->ref)) it->flags |= DF_MISSING;
   }
+#ifdef HOST
+  gfx_missing = 0;
+  for (int i = 0; i < nitems; i++) gfx_missing += shown[i] && (items[i].flags & DF_MISSING);
+#endif
   for (int by = view_top; by < view_bottom; by += BAND) {
     int rows = view_bottom - by < BAND ? view_bottom - by : BAND;
     if (!dirty[(by - view_top) / BAND]) { if (over) release_done(by + rows); continue; }
@@ -1172,15 +1231,19 @@ void gfx_end(void) {
       const Item *it = &items[i];
       if (it->y1 > by && it->y0 < by + rows && it->kind != DI_HIDDEN) h = item_hash(h, it, true);
     }
-    band_hash[(by - view_top) / BAND] = h;
 #ifdef HOST
     if (getenv("CI_BANDS")) fprintf(stderr, "band %d\n", by);
 #endif
     band_bg(by, rows);
+    band_short = false;
     for (int i = 0; i < nitems; i++) {
       const Item *it = &items[i];
       if (it->y1 > by && it->y0 < by + rows) draw_item(it, by, rows);
     }
+    band_hash[(by - view_top) / BAND] = band_short ? ~h : h;
+#ifdef HOST
+    gfx_missing += band_short;
+#endif
     plat_push(0, VIEW_Y + by, VIEW_W, rows, band);
     if (over) release_done(by + rows);
   }

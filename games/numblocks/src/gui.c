@@ -1023,10 +1023,12 @@ static void menu_screen(void) {
   switch (gui) {
     case GUI_TITLE:
       logo(30);
-      splash("Also try Minecraft!", w / 2 + 90, 70, 1.6f + 0.1f * fabsf(sinf((frame_no % 60) * 0.1047f)));
+      splash("Also try Minecraft!", w / 2 + 72, 72, 1.25f + 0.08f * fabsf(sinf((frame_no % 60) * 0.1047f)));
       text("NumBlocks 1.0", 2, h - 10, 0xFFFF, true);
-      text("Made by Mason Chen for NumPlay", w - text_width("Made by Mason Chen for NumPlay") - 2, h - 10, 0xFFFF,
-           true);
+      text("Inspired by Minecraft, not affiliated with Mojang",
+           w - text_width("Inspired by Minecraft, not affiliated with Mojang") - 2, h - 20, 0xFFFF, true);
+      text("Made by Mason Chen as part of NumPlay", w - text_width("Made by Mason Chen as part of NumPlay") - 2, h - 10,
+           0xFFFF, true);
       break;
     case GUI_WORLDS:
       text_center("Select World", w / 2, 20, 0xFFFF);

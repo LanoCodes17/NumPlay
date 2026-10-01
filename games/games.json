@@ -39,54 +39,6 @@
     "repo": "https://github.com/Mason363/CrossyWorks"
   },
   {
-    "id": "numdrive",
-    "title": "NumDrive",
-    "tagline": "Drive, flip, finish",
-    "credit": null,
-    "top": "0x35A8F0",
-    "bottom": "0x123A63",
-    "accent": "0xFFB020",
-    "records": [
-      "drivemad.sav"
-    ],
-    "shots": [
-      "docs/shot1.png"
-    ],
-    "repo": "https://github.com/Mason363/NumDrive"
-  },
-  {
-    "id": "balatro",
-    "title": "Balatro",
-    "tagline": "Poker hands, wild jokers",
-    "credit": null,
-    "top": "0xFE5F55",
-    "bottom": "0x1E2A2C",
-    "accent": "0x009DFF",
-    "records": [
-      "balatro.sav"
-    ],
-    "shots": [
-      "docs/shot.png"
-    ],
-    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/balatro"
-  },
-  {
-    "id": "buckshot",
-    "title": "Buckshot Roulette",
-    "tagline": "You, the Dealer, one shotgun",
-    "credit": null,
-    "top": "0x4A2A26",
-    "bottom": "0x0E0A09",
-    "accent": "0xD83A2E",
-    "records": [
-      "buckshot.sav"
-    ],
-    "shots": [
-      "docs/shot.png"
-    ],
-    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/buckshot"
-  },
-  {
     "id": "numblocks",
     "title": "NumBlocks",
     "tagline": "Mine, craft, survive",
@@ -140,6 +92,54 @@
     ],
     "app": "NumBlocks.nwa",
     "repo": "https://github.com/Mason363/NumPlay/tree/main/games/numblocks"
+  },
+  {
+    "id": "numdrive",
+    "title": "NumDrive",
+    "tagline": "Drive, flip, finish",
+    "credit": null,
+    "top": "0x35A8F0",
+    "bottom": "0x123A63",
+    "accent": "0xFFB020",
+    "records": [
+      "drivemad.sav"
+    ],
+    "shots": [
+      "docs/shot1.png"
+    ],
+    "repo": "https://github.com/Mason363/NumDrive"
+  },
+  {
+    "id": "balatro",
+    "title": "Balatro",
+    "tagline": "Poker hands, wild jokers",
+    "credit": null,
+    "top": "0xFE5F55",
+    "bottom": "0x1E2A2C",
+    "accent": "0x009DFF",
+    "records": [
+      "balatro.sav"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/balatro"
+  },
+  {
+    "id": "buckshot",
+    "title": "Buckshot Roulette",
+    "tagline": "You, the Dealer, one shotgun",
+    "credit": null,
+    "top": "0x4A2A26",
+    "bottom": "0x0E0A09",
+    "accent": "0xD83A2E",
+    "records": [
+      "buckshot.sav"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/buckshot"
   },
   {
     "id": "portal",

@@ -1,4 +1,4 @@
 title: NumPlay
-description: "16 games for the NumWorks calculator in one app: NumDash, Crossy Road, NumDrive, Balatro, Buckshot Roulette, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake and more, plus NumVisuals."
+description: "17 games for the NumWorks calculator in one app: NumDash, Crossy Road, NumBlocks, NumDrive, Balatro, Buckshot Roulette, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake and more, plus NumVisuals."
 theme: jekyll-theme-cayman
 exclude: [games, launcher, tools, tests, build, LICENSES, Makefile, .github]

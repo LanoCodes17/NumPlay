@@ -1,0 +1,55 @@
+# NumBlocks: Minecraft 1.8.8 on the NumWorks calculator.
+#   make            output/numblocks.nwa
+#   make check      link it like the calculator does (output/numblocks.bin)
+#   make host       build/play: the game on a computer, for tests and screenshots
+#   make data       src/data.c from Minecraft 1.8.8's client.jar (CLIENT_JAR=path)
+Q ?= @
+CC = arm-none-eabi-gcc
+NWLINK ?= npx --yes -- nwlink@1.0.0
+BUILD_DIR = output
+STRIP ?= arm-none-eabi-strip --strip-unneeded
+CLIENT_JAR ?= client.jar
+GEN ?= src/genstub.c
+GAME = src/main.c src/world.c src/edits.c src/render.c src/player.c src/hud.c src/data.c $(GEN)
+HEADERS = $(wildcard src/*.h) ../common/epsilon_app.h ../common/epsilon_files.h
+
+CFLAGS = -std=gnu11 $(shell $(NWLINK) eadk-cflags-device)
+CFLAGS += -O2 -Wall -Wextra -Wno-unused-parameter -fno-math-errno -fsingle-precision-constant -ffast-math
+CFLAGS += -fno-tree-loop-distribute-patterns -flto -fno-fat-lto-objects -fwhole-program -fvisibility=internal
+CFLAGS += -ffunction-sections -fdata-sections $(EXTRA)
+LDFLAGS = -Wl,--relocatable -nostartfiles --specs=nano.specs
+LDFLAGS += -Wl,-e,main -Wl,-u,eadk_app_name -Wl,-u,eadk_app_icon -Wl,-u,eadk_api_level
+LDFLAGS += -Wl,--gc-sections -flinker-output=nolto-rel
+
+.PHONY: build check clean host data
+build: $(BUILD_DIR)/numblocks.nwa
+
+check: $(BUILD_DIR)/numblocks.nwa
+	$(Q) $(NWLINK) nwa-bin --ram-length 153676 $< $(BUILD_DIR)/numblocks.bin
+	@echo "BIN     $(BUILD_DIR)/numblocks.bin: $$(wc -c < $(BUILD_DIR)/numblocks.bin) bytes"
+
+$(BUILD_DIR)/numblocks.nwa: $(GAME) src/plat_eadk.c $(HEADERS) $(BUILD_DIR)/icon.o
+	@echo "LD      $@"
+	$(Q) $(CC) $(CFLAGS) $(LDFLAGS) $(GAME) src/plat_eadk.c $(BUILD_DIR)/icon.o -lm -o $@
+	$(Q) $(STRIP) $@
+	$(Q) arm-none-eabi-size $@
+
+$(BUILD_DIR)/icon.o: src/icon.png | $(BUILD_DIR)
+	$(Q) $(NWLINK) png-icon-o $< $@
+
+$(BUILD_DIR):
+	$(Q) mkdir -p $@
+
+HOST_FLAGS = -std=gnu11 -O2 -g -Wall -Wextra -Wno-unused-parameter -Isrc -DHOST
+host: build/play
+build/play: $(GAME) src/plat_host.c tests/play.c $(HEADERS)
+	$(Q) mkdir -p build
+	$(Q) cc $(HOST_FLAGS) $(GAME) src/plat_host.c tests/play.c -lm -o $@
+	@echo "HOST    $@"
+
+data:
+	python3 tools/blocks.py --header > src/blocks.h
+	python3 tools/pack.py $(CLIENT_JAR)
+
+clean:
+	$(Q) rm -rf $(BUILD_DIR) build

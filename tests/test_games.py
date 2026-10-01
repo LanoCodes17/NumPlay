@@ -101,10 +101,11 @@ GAMES = {
     "championisland": ("ChampionIsland.nwa", "champion.sav",
                        presses((2000, "up", 1500)) + every(4000, 9000, 700, "ok"), 11000,
                        presses((2000, "up", 400)), 4000),
-    # Singleplayer, Create New World (Survival, a random seed), walk; then Play Selected World
+    # past the key sheet, Singleplayer, Create New World (Survival, a random seed), walk; then
+    # Play Selected World
     "numblocks": ("NumBlocks.nwa", "nb1.nbw",
-                  presses((3000, "ok"), (3600, "ok"), (4200, "down"), (4500, "down"), (4800, "ok"),
-                          (7500, "ln", 1500)), 11000,
+                  presses((3000, "ok"), (3600, "ok"), (4200, "ok"), (4800, "down"), (5100, "down"), (5400, "ok"),
+                          (8100, "comma", 1500)), 11600,
                   presses((3000, "ok"), (3600, "ok")), 8000),
     # a level, its message, then play; then back to the level select
     "portal": ("PortalReturns.nwa", "portal.sav",

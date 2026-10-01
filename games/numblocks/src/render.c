@@ -111,9 +111,10 @@ static __attribute__((noinline)) uint16_t sky(float dx, float dy, float dz, floa
   uint32_t gc = sky_grad[e <= 0 ? 0 : e >= 0.4f ? 128 : (int)(e * 320)];
   int r = (int)(gc >> 20), g = (int)(gc >> 10) & 1023, b = (int)gc & 1023;
   if (under_water) return pack(r / 4, g / 3, b / 2 + 40);
-  /* the sunrise and sunset glow (RenderGlobal's fan): towards the sun, low on the horizon */
-  if (ss_a > 0 && dy >= 0) {
-    float hl = sqrtf(dx * dx + dz * dz) + 1e-6f, w1 = dx * ss_side / hl, e = dy / len;
+  /* the sunrise and sunset glow (RenderGlobal's fan): towards the sun, on the horizon, fading above
+   * it and below it alike (the fan straddles it: cut there, it hung over a line in the air) */
+  if (ss_a > 0) {
+    float hl = sqrtf(dx * dx + dz * dz) + 1e-6f, w1 = dx * ss_side / hl, e = fabsf(dy) / len;
     float w2 = 1 - e / (0.31f * ss_a + 0.05f);
     if (w1 > 0 && w2 > 0) {
       int a = (int)(ss_a * w1 * w2 * 256);

@@ -51,11 +51,15 @@ def main():
 
     # the game's own files go with it; a script and another game's save stay
     own = next(g["records"] for g in manifest if g["id"] == target)
+    # a name ending with '*' stands for every file starting so (NumBlocks' world)
+    prefixes = [n[:-1] for n in own if n.endswith("*")]
+    own = [n for n in own if not n.endswith("*")]
     save = own[0] if own else None
     other = ("crossyroad.sav", bytes(range(24))) if target == "tetris" else ("tetris.set", struct.pack("<3I", 1, 1, 1234))
     records = [("pi.py", b"\x01print(3.14)\n"), (save or "none.sav", bytes(range(40))),
                ("script.py", b"\x01import math\nprint(math.e)\n"), other]
     records[3:3] = [(n, bytes(range(12))) for n in own[1:2]]
+    records[3:3] = [(p + s, bytes(range(16))) for p in prefixes for s in ("0_0.nbe", "-1_2.nbe")]
     c.set_records(records, cached="script.py")
 
     # Home: the settings card is last. Settings: the games are listed in order,
@@ -168,9 +172,12 @@ def main():
     for name in own:
         if name in names:
             fail(f"{name} is still there")
+    for p in prefixes:
+        if any(n.startswith(p) for n in names):
+            fail(f"a file starting with {p} is still there")
     buf = c.storage_bytes()
     for name, content in records:
-        if name in own:
+        if name in own or any(name.startswith(p) for p in prefixes):
             continue
         if name not in names:
             fail(f"{name} disappeared")

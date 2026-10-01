@@ -98,6 +98,28 @@ Shooting yourself with a blank keeps your turn.
 
 <br clear="right">
 
+## NumBlocks
+
+<img src="media/numblocks.gif" width="320" align="right" alt="NumBlocks: walking through a forest, mining and building">
+
+| Key | What it does |
+| --- | --- |
+| **Arrows** | Look around |
+| **ln**, **cos**, **sin**, **tan** | Walk forward, back, left, right |
+| **π** | Jump (twice in Creative: fly) |
+| **√** / **x²** | Sneak / sprint |
+| **Back** | Mine and attack (hold it to mine) |
+| **OK** or **EXE** | Place a block, use, eat |
+| **var** | Inventory (in Creative: every block and item) |
+| **1** to **9** | Pick a hotbar slot |
+| **x,n,t** | Drop the item |
+| **Toolbox** | Pause |
+| **Home** | Save and quit |
+
+In NumBlocks, Back mines, so **Toolbox** pauses. In the inventory, the arrows move between slots, **OK** picks up or puts down a stack, **EXE** one item, and **shift** with **OK** sends a stack to the other side. Your world saves as you play and when you quit.
+
+<br clear="right">
+
 ## Champion Island
 
 <img src="media/championisland.gif" width="320" align="right" alt="Champion Island: Lucky crossing the island, then the island map">

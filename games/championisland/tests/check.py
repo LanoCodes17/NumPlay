@@ -296,6 +296,17 @@ _, err, _ = run("overworld@hub", 420, env={"CI_PATH": "4;-1240,660;-1380,660;-11
 held = [line for line in err.splitlines() if line.startswith("held ")]
 check("the busiest streets are whole once the view is still", len(held) == 5 and all(line.endswith(" left 0") for line in held), "\n".join(held))
 
+# standing still in that street (an animated sign and someone walking redraw
+# a few bands), the two big buildings and the scenery in front need more than
+# the cache: the bigger one is read as the bands go down, the others decoded
+# once each (they used to push each other out band after band, 600 KB and
+# more decoded in one frame, a frame of 150 ms on the calculator)
+_, err, _ = run("overworld@conveniencestore2", 420, "200-215:left", env={"CI_TUTORIAL_DONE": "1", "CI_ZFRAME": "1"})
+kb = {int(m[1]): float(m[2]) for m in re.finditer(r"^f(\d+) decoded ([\d.]+) KB", err, re.M)}
+still = [kb.get(f, 0) for f in range(240, 415)]
+check("standing still in the busiest street decodes little", sum(still) < 6500 and max(still) < 450,
+      f"{sum(still):.0f} KB in all, at most {max(still):.0f} KB in a frame")
+
 # random keys where a crash once was (the trophy room's entities outnumbered
 # their state records), and in every kind of scene
 for scene in ("interior:trophyRoom", "overworld@hub", "overworld@pingponghouse1", "skate:park2", "rugby", "archery"):

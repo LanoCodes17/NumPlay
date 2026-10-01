@@ -648,6 +648,8 @@ static void draw_rle_row(const uint8_t *p, int x, int w, bool flipx, uint16_t *d
 /* the one big sprite of the frame decoded as the bands go down */
 static const Item *streaming;
 static int stream_row;
+static uint32_t stream_epoch;   /* z_epoch as the stream last read: changed, the decoder read another sprite since */
+static bool stream_shared;      /* the others are decoded as their bands come, the stream reading on after them */
 
 /* affine sprites sample the one source row they last decoded (into stream_buf) */
 static const uint8_t *line_spr;
@@ -679,6 +681,7 @@ static void stream_begin(const Item *it) {
   sprite_info(it->ref, &s);
   streaming = spr_rows_open(it->ref, &s) ? it : NULL;
   stream_row = 0;
+  stream_epoch = z_epoch;
 }
 
 static void draw_stream(const Item *it, int y0, int y1, int by, unsigned ga) {
@@ -687,12 +690,16 @@ static void draw_stream(const Item *it, int y0, int y1, int by, unsigned ga) {
   sprite_info(it->ref, &s);
   const uint16_t *pal = pal565(s.sheet);
   const uint8_t *al = palalpha(s.sheet);
+  /* another sprite was decoded since (stream_shared): back to this one's row */
+  if (z_epoch != stream_epoch && !spr_rows_at(it->ref, &s, stream_row)) return;
+  stream_epoch = z_epoch;
   for (int y = y0; y < y1; y++) {
     int row = y - it->y0;
     if (row < stream_row) continue;
     if (row > stream_row) z_get(NULL, (uint32_t)(row - stream_row) * s.w);
     if (!z_get(stream_buf, s.w)) return;
     stream_row = row + 1;
+    stream_epoch = z_epoch;   /* (its own next strip may have been opened) */
     uint16_t *d = band + (y - by) * VIEW_W;
     bool fx = it->flags & DF_FLIPX;
     for (int i = 0; i < s.w; i++) {
@@ -715,7 +722,7 @@ static bool scene_later;   /* a menu's frame too big for the cache: the scene's 
 static bool band_short;
 static const uint8_t *band_sprite(uint16_t sp, uint8_t flags) {
   const uint8_t *r = spr_peek(sp);
-  if (r || streaming || (scene_later && !(flags & DF_OVERLAY))) return r;
+  if (r || (streaming && !stream_shared) || (scene_later && !(flags & DF_OVERLAY))) return r;
   r = spr_get(sp);
   line_spr = NULL;   /* the cache may have moved */
   return r;
@@ -854,7 +861,7 @@ static __attribute__((noinline)) void draw_shape_item(const Item *it, int y0, in
 
 static __attribute__((noinline)) void draw_mask_item(const Item *it, int y0, int y1, int by) {
   const uint8_t *m = spr_peek_mask(it->ref);
-  if (!m && !streaming) { m = spr_mask(it->ref); line_spr = NULL; }
+  if (!m && (!streaming || stream_shared)) { m = spr_mask(it->ref); line_spr = NULL; }
   if (!m) band_short |= !(it->flags & DF_MISSING);
   if (!m || !bgmem) return;
   const uint16_t *pal = pal565(bgsheet);
@@ -1019,6 +1026,34 @@ static void release_done(int y) {
   }
 }
 
+/* the cache the dirty bands need at most, each for what it shows, the
+ * streamed sprite aside (masks are counted with a bit 15) */
+static uint32_t band_need(uint16_t stream_sp, const bool *dirty) {
+  uint32_t most = 0;
+  for (int by = view_top; by < view_bottom; by += BAND) {
+    if (!dirty[(by - view_top) / BAND]) continue;
+    uint16_t got[64];
+    int n = 0;
+    uint32_t sum = 0;
+    for (int i = 0; i < nitems; i++) {
+      const Item *it = &items[i];
+      if (it->y1 <= by || it->y0 >= by + BAND) continue;
+      uint16_t sp = it->kind == DI_SPRITE || it->kind == DI_STREAM ? it->ref : it->kind == DI_AFFINE ? it->color
+                    : it->kind == DI_MASK ? (uint16_t)(it->ref | 0x8000) : NONE16;
+      if (sp == NONE16 || sp == stream_sp || (!(sp & 0x8000) && spr_pinned(sp))) continue;
+      bool dup = false;
+      for (int k = 0; k < n && !dup; k++) dup = got[k] == sp;
+      if (dup) continue;
+      if (n < 64) got[n++] = sp;
+      Sprite t;
+      sprite_info(sp & 0x7FFF, &t);
+      sum += sp & 0x8000 ? spr_mask_bytes(sp & 0x7FFF) : (t.rle + 3) & ~3u;
+    }
+    if (sum > most) most = sum;
+  }
+  return most;
+}
+
 #ifdef HOST
 int gfx_peak_items, gfx_peak_affs;   /* tests: the most a frame used */
 int gfx_missing;                     /* tests: items the last frame left for the next (not cached) */
@@ -1059,6 +1094,7 @@ void gfx_end(void) {
    * street) is decoded band by band instead, from the top, each sprite let go
    * once its last band is drawn (release_done) */
   streaming = NULL;
+  stream_shared = false;
   line_spr = NULL;
   /* what a menu's opaque panel hides is not drawn (nor decoded) */
   for (int j = 0; j < nitems; j++) {
@@ -1161,7 +1197,7 @@ void gfx_end(void) {
       for (int i = 0; big >= 0 && i < nitems; i++) {
         const Item *a = &items[i];
         if (i == big || (a->kind == DI_SPRITE ? a->ref : a->kind == DI_AFFINE ? a->color : NONE16) != items[big].ref) continue;
-        if (a->kind != DI_SPRITE || (a->flags & (DF_FLIPY | DF_OPAQUE))) big = -1;
+        if (a->kind != DI_SPRITE || (a->flags & (DF_FLIPY | DF_OPAQUE)) || a->y1 - a->y0 != items[big].y1 - items[big].y0) big = -1;   /* (nor a stretched copy) */
         for (int j = 0; big >= 0 && j < nitems; j++)
           if (j != i && items[j].kind == DI_SPRITE && items[j].ref == a->ref && a->y0 < items[j].y1 + BAND && items[j].y0 < a->y1 + BAND) big = -1;
       }
@@ -1176,12 +1212,21 @@ void gfx_end(void) {
         }
         over = false;
         scene_later = menu;
+      } else if (!menu && bs && band_need(items[big].ref, dirty) + 1024 <= spr_capacity()) {
+        /* still too much for the whole frame, but each band's share fits:
+         * the big one streams while the bands go down, the others are
+         * decoded as their bands come (band by band, never one sprite per
+         * band again and again), the stream reading on from its row after */
+        for (int i = 0; i < nitems; i++)
+          if (items[i].kind == DI_SPRITE && items[i].ref == items[big].ref) items[i].kind = DI_STREAM;
+        spr_release(items[big].ref);
+        stream_shared = true;
       }
     }
   }
 #ifdef HOST
-  if (getenv("CI_NEED")) fprintf(stderr, "need %u of %u%s%s\n", (unsigned)need, (unsigned)spr_capacity(), over ? " (by band)" : "",
-                                 scene_later ? " (scene later)" : "");
+  if (getenv("CI_NEED")) fprintf(stderr, "need %u of %u%s%s\n", (unsigned)need, (unsigned)spr_capacity(),
+                                 stream_shared ? " (by band, streaming)" : over ? " (by band)" : "", scene_later ? " (scene later)" : "");
 #endif
   /* the menus' first; then the scene's, as long as the menus' can stay (too
    * many: some of the scene's come next frame) */
@@ -1196,6 +1241,29 @@ void gfx_end(void) {
   /* then the masks, which may take the place of what this frame does not draw */
   for (int i = 0; i < nitems && !over; i++)
     if (items[i].kind == DI_MASK && shown[i]) spr_mask(items[i].ref);
+  /* with a shared stream, what starts above its end first, as long as it
+   * fits: decoded now, it does not take the decoder from the stream later */
+  if (stream_shared) {
+    int end = 0;
+    for (int i = 0; i < nitems; i++)
+      if (items[i].kind == DI_STREAM && items[i].y1 > end) end = items[i].y1;
+    uint32_t got = 0;
+    for (int i = 0; i < nitems; i++) {
+      const Item *it = &items[i];
+      if (!shown[i] || it->y0 >= end) continue;
+      uint16_t sp = it->kind == DI_SPRITE ? it->ref : it->kind == DI_AFFINE ? it->color : it->kind == DI_MASK ? it->ref : NONE16;
+      if (sp == NONE16 || (it->kind != DI_MASK && spr_pinned(sp))) continue;
+      Sprite t;
+      sprite_info(sp, &t);
+      uint32_t sz = it->kind == DI_MASK ? spr_mask_bytes(sp) : (t.rle + 3) & ~3u;
+      bool have = it->kind == DI_MASK ? spr_peek_mask(sp) != NULL : spr_peek(sp) != NULL;   /* (kept: used this frame) */
+      if (!have && got + sz + 1024 > spr_capacity()) continue;
+      got += sz;
+      if (have) continue;
+      if (it->kind == DI_MASK) spr_mask(sp);
+      else spr_get(sp);
+    }
+  }
   /* big sprites are cached too while everything fits; otherwise the first
    * one keeps the decoder while the bands go down (from its topmost item) */
   for (int i = 0; i < nitems; i++) {
@@ -1211,7 +1279,7 @@ void gfx_end(void) {
   }
   /* with a stream holding the decoder nothing is decoded while the bands go
    * down: what is not cached is drawn next frame */
-  for (int i = 0; i < nitems && (streaming || !over); i++) {
+  for (int i = 0; i < nitems && ((streaming && !stream_shared) || !over); i++) {
     Item *it = &items[i];
     if (!shown[i]) continue;
     if ((it->kind == DI_SPRITE || it->kind == DI_AFFINE || (it->kind == DI_STREAM && (!streaming || it->ref != streaming->ref))) &&

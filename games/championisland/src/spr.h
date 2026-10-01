@@ -7,6 +7,7 @@
 void z_open(uint32_t off, uint32_t clen, uint32_t rawlen);
 void z_open_stream(const uint8_t *st);          /* a stream from its record (spr_stream), all its strips */
 uint32_t z_read(uint32_t n, const uint8_t **at);
+extern uint32_t z_epoch;                        /* changes when the decoder is opened again */
 bool z_get(uint8_t *dst, uint32_t n);
 
 /* Run-length rows of a sprite, decoded on demand, or NULL:

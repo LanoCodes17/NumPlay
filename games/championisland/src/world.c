@@ -318,9 +318,18 @@ static void translate_tree(NodeId n) {
   for (NodeId c = nodes[n].first; c; c = nodes[c].next) translate_tree(c);
 }
 
+void storage_sprite(NodeId n);
+/* a storageSprite shows its frame from the start, not after its turn comes
+ * (Lucky's statues flashed on the pedestals of champions not yet beaten) */
+static void storage_tree(NodeId n) {
+  storage_sprite(n);
+  for (NodeId c = nodes[n].first; c; c = nodes[c].next) storage_tree(c);
+}
+
 static void streamed_in(NodeId c) {
   ent_register_tree(c);
   translate_tree(c);
+  storage_tree(c);
   uint16_t T = nodes[c].T;
   if (T == NONE16) return;
   /* sr: places are markers for the designers */

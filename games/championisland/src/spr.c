@@ -18,11 +18,13 @@ static CLzmaDec dec;
 static const uint8_t *z_src;
 static uint32_t z_in, z_len, z_out, z_total;
 static const uint8_t *z_next;   /* a stream's next strip (its record), read on when this one ends */
+uint32_t z_epoch;               /* counts z_open: whoever reads on knows if someone else used the decoder */
 
 #ifdef HOST
 uint64_t z_bytes, z_opens;   /* tests: how much the decoder did */
 #endif
 void z_open(uint32_t off, uint32_t clen, uint32_t rawlen) {
+  z_epoch++;
   memset(&dec, 0, sizeof dec);
   dec.prop.lc = 0;
   dec.prop.lp = 0;

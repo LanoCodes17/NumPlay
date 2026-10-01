@@ -1,9 +1,11 @@
 /* The calculator: EADK display, keyboard, time and files.
  *
- * Keys, Minecraft's on the calculator's keyboard: the arrows look around;
- * ln, sin, cos and tan are W, A, S and D; pi jumps; OK uses and places, Back
- * mines and hits; 1-9 pick the hotbar slot; var opens the inventory; square
- * root sneaks, x squared sprints; Toolbox pauses; Home saves and quits. */
+ * Keys, Minecraft's on the calculator's keyboard: the left thumb looks around
+ * with the arrows, the right one walks with the keys under OK and Back, laid
+ * out like W, A, S and D: comma, pi, square root and x squared. Next to them,
+ * x^y jumps, i sneaks and backspace sprints. OK uses and places, Back mines
+ * and hits; 1-9 pick the hotbar slot; var opens the inventory; x,n,t drops;
+ * Toolbox pauses; Home saves and quits. */
 #include <eadk.h>
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
@@ -18,11 +20,11 @@ uint32_t plat_keys(void) {
   if (k & KEY(eadk_key_right)) r |= K_RIGHT;
   if (k & KEY(eadk_key_up)) r |= K_UP;
   if (k & KEY(eadk_key_down)) r |= K_DOWN;
-  if (k & KEY(eadk_key_ln)) r |= K_FWD;
-  if (k & KEY(eadk_key_cosine)) r |= K_BACKW;
-  if (k & KEY(eadk_key_sine)) r |= K_STRAFE_L;
-  if (k & KEY(eadk_key_tangent)) r |= K_STRAFE_R;
-  if (k & KEY(eadk_key_pi)) r |= K_JUMP;
+  if (k & KEY(eadk_key_comma)) r |= K_FWD;
+  if (k & KEY(eadk_key_sqrt)) r |= K_BACKW;
+  if (k & KEY(eadk_key_pi)) r |= K_STRAFE_L;
+  if (k & KEY(eadk_key_square)) r |= K_STRAFE_R;
+  if (k & KEY(eadk_key_power)) r |= K_JUMP;
   if (k & (KEY(eadk_key_ok) | KEY(eadk_key_exe))) r |= K_USE;
   if (k & KEY(eadk_key_ok)) r |= K_OK;
   if (k & KEY(eadk_key_exe)) r |= K_EXE;
@@ -30,11 +32,11 @@ uint32_t plat_keys(void) {
   if (k & KEY(eadk_key_back)) r |= K_BACK;
   if (k & KEY(eadk_key_zero)) r |= K_ZERO;
   if (k & KEY(eadk_key_minus)) r |= K_MINUS;
-  if (k & (KEY(eadk_key_back) | KEY(eadk_key_backspace))) r |= K_ATTACK;
+  if (k & KEY(eadk_key_back)) r |= K_ATTACK;
   if (k & KEY(eadk_key_var)) r |= K_INV;
   if (k & (KEY(eadk_key_home) | KEY(eadk_key_on_off))) r |= K_HOME;
-  if (k & KEY(eadk_key_sqrt)) r |= K_SNEAK;
-  if (k & KEY(eadk_key_square)) r |= K_SPRINT;
+  if (k & KEY(eadk_key_imaginary)) r |= K_SNEAK;
+  if (k & KEY(eadk_key_backspace)) r |= K_SPRINT;
   if (k & KEY(eadk_key_toolbox)) r |= K_PAUSE;
   if (k & KEY(eadk_key_xnt)) r |= K_DROP;
   static const uint8_t digits[9] = {eadk_key_one, eadk_key_two, eadk_key_three, eadk_key_four, eadk_key_five,

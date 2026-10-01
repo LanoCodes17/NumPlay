@@ -105,9 +105,10 @@ Shooting yourself with a blank keeps your turn.
 | Key | What it does |
 | --- | --- |
 | **Arrows** | Look around |
-| **ln**, **cos**, **sin**, **tan** | Walk forward, back, left, right |
-| **π** | Jump (twice in Creative: fly) |
-| **√** / **x²** | Sneak / sprint |
+| **,** / **π** / **√** / **x²** | Walk forward / left / back / right (like W, A, S, D) |
+| **xʸ** | Jump (twice in Creative: fly) |
+| **i** | Sneak |
+| **⌫** | Sprint (or press forward twice) |
 | **Back** | Mine and attack (hold it to mine) |
 | **OK** or **EXE** | Place a block, use, eat |
 | **var** | Inventory (in Creative: every block and item) |
@@ -116,7 +117,7 @@ Shooting yourself with a blank keeps your turn.
 | **Toolbox** | Pause |
 | **Home** | Save and quit |
 
-In NumBlocks, Back mines, so **Toolbox** pauses. In the inventory, the arrows move between slots, **OK** picks up or puts down a stack, **EXE** one item, and **shift** with **OK** sends a stack to the other side. Your world saves as you play and when you quit.
+The left thumb looks with the arrows, the right one walks. The first time you open NumBlocks it shows these keys, and Options, then Controls, shows them again. In NumBlocks, Back mines, so **Toolbox** pauses. In the inventory, the arrows move between slots, **OK** picks up or puts down a stack, **EXE** one item, and **shift** with **OK** sends a stack to the other side. Your world saves as you play and when you quit.
 
 <br clear="right">
 

@@ -18,10 +18,10 @@ Mine, craft and survive on your NumWorks calculator, in a world like Minecraft 1
 | Key | What it does |
 | --- | --- |
 | Arrows | Look around |
-| ln, cos, sin, tan | Walk forward, back, left, right |
-| π | Jump (twice in Creative: fly) |
-| √ | Sneak |
-| x² | Sprint |
+| , π √ x² | Walk forward, left, back, right (like W, A, S, D) |
+| xʸ | Jump (twice in Creative: fly) |
+| i | Sneak |
+| ⌫ | Sprint (or press forward twice) |
 | Back | Mine, attack |
 | OK | Place, use, eat |
 | var | Inventory |
@@ -30,7 +30,7 @@ Mine, craft and survive on your NumWorks calculator, in a world like Minecraft 1
 | Toolbox | Pause |
 | Home | Save and quit |
 
-In the inventory, the arrows move between slots, OK picks up or puts down, EXE takes or leaves one, and shift with OK moves a whole stack. Options, then Controls, shows these keys in the game too.
+In the inventory, the arrows move between slots, OK picks up or puts down, EXE takes or leaves one, and shift with OK moves a whole stack. The game shows these keys the first time you open it, and again from Options, then Controls.
 
 ## Get it
 

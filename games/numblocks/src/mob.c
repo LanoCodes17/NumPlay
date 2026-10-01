@@ -347,7 +347,12 @@ bool mob_attack(const Entity *ce) {
   /* a critical hit: falling, not on a ladder or in water */
   if (pl.vy < 0 && !pl.on_ground && !pl.in_water) dmg *= 1.5f;
   float kx = e->x - pl.x, kz = e->z - pl.z;
-  if (pl.sprinting) e->vx += kx * 0.2f, e->vz += kz * 0.2f;
+  if (pl.sprinting) {
+    /* a sprinting hit knocks harder, slows you and ends the sprint */
+    e->vx += kx * 0.2f, e->vz += kz * 0.2f;
+    pl.vx *= 0.6f, pl.vz *= 0.6f;
+    pl.sprinting = false;
+  }
   hurt(e, dmg, kx, kz);
   if (pl.mode == 0) {
     if (k == IK_SWORD) stack_wear(h, 1);

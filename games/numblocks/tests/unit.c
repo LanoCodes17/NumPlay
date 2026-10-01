@@ -256,6 +256,41 @@ int main(void) {
     CHECK(pl.on_ground && pl.y >= g && pl.z > 10);
     plat_remove_prefix("ut7");
   }
+  {
+    /* sprinting (EntityPlayerSP): forward twice, or with the sprint key; it lasts while forward is held */
+    world_new(0, "ut8");
+    world_follow(8, 110, 8);
+    int g = 110;
+    for (int z = -8; z <= 60; z++)
+      for (int x = 2; x <= 14; x++)
+        for (int y = g - 2; y < g + 4; y++) world_set(x, y, z, y >= g ? B_AIR : B_STONE);
+    memset(&pl, 0, sizeof pl);
+    pl.x = 8.5f, pl.z = 0.5f, pl.y = (float)g, pl.health = 20, pl.food = 20, pl.mode = 0, pl.on_ground = true;
+    for (int t = 0; t < 3; t++) player_tick(0, 0);
+    player_tick(K_FWD, K_FWD), player_tick(0, 0), player_tick(0, 0);
+    CHECK(!pl.sprinting);
+    player_tick(K_FWD, K_FWD);
+    CHECK(pl.sprinting);
+    for (int t = 0; t < 5; t++) player_tick(K_FWD, 0);
+    CHECK(pl.sprinting);
+    player_tick(0, 0);
+    CHECK(!pl.sprinting);
+    /* too slow a second press: walking */
+    for (int t = 0; t < 10; t++) player_tick(0, 0);
+    player_tick(K_FWD, K_FWD);
+    for (int t = 0; t < 10; t++) player_tick(0, 0);
+    player_tick(K_FWD, K_FWD);
+    CHECK(!pl.sprinting);
+    /* the key, let go, still sprints; sneaking stops it; hungry, it doesn't start */
+    player_tick(K_FWD | K_SPRINT, K_SPRINT), player_tick(K_FWD, 0);
+    CHECK(pl.sprinting);
+    player_tick(K_FWD | K_SNEAK, K_SNEAK);
+    CHECK(!pl.sprinting);
+    pl.food = 6;
+    player_tick(K_FWD | K_SPRINT, K_SPRINT);
+    CHECK(!pl.sprinting);
+    plat_remove_prefix("ut8");
+  }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;
 }

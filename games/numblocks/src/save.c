@@ -9,7 +9,7 @@
 #define WORLD_REC "nb1.nbw"
 #define OPTIONS_REC "numblocks.cfg"
 
-Options opt = {2, 0, 100, 1, 1};
+Options opt = {2, 0, 100, 1, 1, 0};
 int64_t world_seed;
 
 typedef struct {

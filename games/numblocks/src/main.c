@@ -77,6 +77,7 @@ void game_init(void) {
     return;
   }
   title();
+  if (!opt.keys_seen) gui_menu(GUI_CONTROLS);   /* the first time: the keys */
 }
 
 /* one frame: input, the ticks due, the picture; false once the player quits */
@@ -151,7 +152,6 @@ bool game_frame(void) {
     if (k & K_DOWN) pl.pitch += 100 * turn;
     if (pl.pitch > 90) pl.pitch = 90;
     if (pl.pitch < -90) pl.pitch = -90;
-    pl.sprinting = (k & K_SPRINT) && (k & K_FWD) && !pl.sneaking;
   }
   bool paused = gui == GUI_PAUSE || gui == GUI_OPTIONS || gui == GUI_CONTROLS;
   if (!paused) acc += dt;

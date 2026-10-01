@@ -98,17 +98,22 @@ static void dark_background(void) {
 #define RGB(r, g, b) (uint16_t)(((r) & 0xF8) << 8 | ((g) & 0xFC) << 3 | (b) >> 3)
 
 /* ---------------------------------------------------------------- text (FontRenderer) */
+/* three symbols the font lacks, for the key sheet: \1 pi, \2 the square root, \3 backspace */
+static const uint8_t sym_bits[3][8] = {{0x00, 0x3F, 0x12, 0x12, 0x12, 0x12, 0x21, 0x00},
+                                       {0x78, 0x08, 0x08, 0x08, 0x09, 0x0A, 0x04, 0x00},
+                                       {0xFC, 0x82, 0xA9, 0x91, 0xA9, 0x82, 0xFC, 0x00}};
+static const uint8_t sym_w[3] = {7, 8, 9};
+static int char_w(int c) { return c >= 1 && c <= 3 ? sym_w[c - 1] : c >= 32 && c < 127 ? font_w[c - 32] : 0; }
 int text_width(const char *s) {
   int w = 0;
-  for (; *s; s++)
-    if (*s >= 32 && *s < 127) w += font_w[*s - 32];
+  for (; *s; s++) w += char_w((unsigned char)*s);
   return w;
 }
 static void glyphs(const char *s, int x, int y, uint16_t col, int scale) {
   for (; *s; s++) {
     int c = (unsigned char)*s;
-    if (c < 32 || c >= 127) continue;
-    const uint8_t *g = font_bits + (c - 32) * 8;
+    if (!char_w(c)) continue;
+    const uint8_t *g = c < 32 ? sym_bits[c - 1] : font_bits + (c - 32) * 8;
     for (int r = 0; r < 8 * scale; r++) {
       int ty = y + r;
       if (ty < clip_y0 || ty >= clip_y1) continue;
@@ -118,7 +123,7 @@ static void glyphs(const char *s, int x, int y, uint16_t col, int scale) {
       for (int k = 0; k < 8 * scale; k++)
         if (bits & (1 << (k / scale)) && (unsigned)(x + k) < SCREEN_W) d[x + k] = col;
     }
-    x += font_w[c - 32] * scale;
+    x += char_w(c) * scale;
   }
 }
 /* drawStringWithShadow: the shadow is the colour at a quarter, one pixel down and right */
@@ -781,6 +786,7 @@ int menu_choice;            /* an action for main.c (ACT_*) */
 int create_mode;            /* the new world's game mode */
 char seed_text[21];         /* the new world's seed, as typed */
 static int options_from;    /* the screen the options go back to */
+static int controls_from;   /* and the key sheet */
 static bool seed_focus;
 
 static void add_button(int x, int y, int w, int on, int id, const char *label) {
@@ -872,6 +878,7 @@ static void menu(int screen) {
 }
 
 void gui_menu(int screen) {
+  if (screen == GUI_CONTROLS && gui != GUI_CONTROLS) controls_from = gui;   /* Options, or the title */
   gui = screen;
   bcur = 0;
   seed_focus = false;
@@ -920,7 +927,10 @@ static void press(int id) {
       gui_menu(options_from);
       break;
     case B_CONTROLS: gui_menu(GUI_CONTROLS); break;
-    case B_CONTROLS_DONE: gui_menu(GUI_OPTIONS); break;
+    case B_CONTROLS_DONE:
+      if (!opt.keys_seen) opt.keys_seen = 1, save_options();
+      gui_menu(controls_from);
+      break;
     case B_BACK_GAME: gui = GUI_NONE; break;
     case B_SAVEQUIT: menu_choice = ACT_SAVE_QUIT; break;
     case B_RESPAWN: menu_choice = ACT_RESPAWN; break;
@@ -938,7 +948,7 @@ static void menu_input(uint32_t keys, uint32_t pressed) {
       if (pressed & (K_SLOT1 << d) && n < 19) seed_text[n++] = (char)('1' + d), seed_text[n] = 0;
     if (pressed & K_ZERO && n < 19) seed_text[n++] = '0', seed_text[n] = 0;
     if (pressed & K_MINUS && n == 0) seed_text[n++] = '-', seed_text[n] = 0;
-    if ((pressed & K_ATTACK) && !(keys & K_BACK) && n > 0) seed_text[--n] = 0;
+    if ((pressed & K_SPRINT) && n > 0) seed_text[--n] = 0;   /* (backspace) */
     if (pressed & (K_USE | K_BACK)) seed_focus = false;
     menu(gui);
     return;
@@ -1027,6 +1037,73 @@ static void dirt_background(void) {
   }
 }
 
+/* ---------------------------------------------------------------- the key sheet */
+/* a key's name, a character after ^ raised (x^y) */
+static void key_text(const char *s, int cx, int y, uint16_t col) {
+  int w = 0;
+  for (const char *c = s; *c; c++) w += *c == '^' ? 0 : char_w((unsigned char)*c);
+  int x = cx - w / 2;
+  for (const char *c = s; *c; c++) {
+    if (*c == '^') continue;
+    char t[2] = {*c, 0};
+    text(t, x, y - (c > s && c[-1] == '^' ? 3 : 0), col, true);
+    x += char_w((unsigned char)*c);
+  }
+}
+/* a key: bright with what it does, dim if the game doesn't use it */
+static void key(int x, int y, int w, const char *cap, const char *act) {
+  fill(x, y, w, 29, act ? RGB(0xA0, 0xA0, 0xA0) : RGB(0x50, 0x50, 0x50));
+  fill(x + 1, y + 1, w - 2, 27, act ? RGB(0x28, 0x28, 0x28) : RGB(0x18, 0x18, 0x18));
+  if (!act) {
+    key_text(cap, x + w / 2, y + 11, RGB(0x70, 0x70, 0x70));
+    return;
+  }
+  if (cap[0] == ',' && !cap[1]) {
+    /* the comma, big enough to see: a dot and its tail */
+    int cx = x + w / 2;
+    fill(cx - 1, y + 6, 3, 3, 0xFFFF);
+    fill(cx, y + 9, 2, 2, 0xFFFF);
+    fill(cx - 1, y + 11, 2, 1, 0xFFFF);
+  } else key_text(cap, x + w / 2, y + 5, 0xFFFF);
+  text_center(act, x + w / 2, y + 17, RGB(0xFF, 0xFF, 0xA0));
+}
+/* the round pad of arrows */
+static void arrow_pad(int cx, int cy, int r) {
+  for (int dy = -r; dy < r; dy++) {
+    float e = (float)(r * r) - (dy + 0.5f) * (dy + 0.5f);
+    int hw = (int)sqrtf(e), hi = (int)sqrtf(e - 2 * r + 1);
+    fill(cx - hw, cy + dy, 2 * hw, 1, RGB(0xA0, 0xA0, 0xA0));
+    if (abs(dy) < r - 1) fill(cx - hi, cy + dy, 2 * hi, 1, RGB(0x28, 0x28, 0x28));
+  }
+  for (int i = 1; i <= 5; i++) {
+    fill(cx - i, cy - r + 3 + i, 2 * i, 1, 0xFFFF);
+    fill(cx - i, cy + r - 4 - i, 2 * i, 1, 0xFFFF);
+    fill(cx - r + 3 + i, cy - i, 1, 2 * i, 0xFFFF);
+    fill(cx + r - 4 - i, cy - i, 1, 2 * i, 0xFFFF);
+  }
+  text_center("Look", cx, cy - 4, RGB(0xFF, 0xFF, 0xA0));
+}
+static void key_sheet(void) {
+  text_center("Controls", SCREEN_W / 2, 4, 0xFFFF);
+  arrow_pad(40, 45, 27);
+  key(130, 30, 60, "Home", "Save, quit");
+  key(236, 14, 80, "OK", "Place, use");
+  key(236, 46, 80, "Back", "Mine, attack");
+  /* the three rows under them, as on the calculator (the two left columns narrower) */
+  static const char *const caps[3][6] = {{"shift", "alpha", "x,n,t", "var", "toolbox", "\3"},
+                                         {"e^x", "ln", "log", "i", ",", "x^y"},
+                                         {"sin", "cos", "tan", "\1", "\2", "x^2"}};
+  static const char *const acts[3][6] = {{0, 0, "Drop", "Inventory", "Pause", "Sprint"},
+                                         {0, 0, 0, "Sneak", "Forward", "Jump"},
+                                         {0, 0, 0, "Left", "Backward", "Right"}};
+  for (int r = 0; r < 3; r++)
+    for (int c = 0; c < 6; c++)
+      key(c < 2 ? 5 + c * 37 : 79 + (c - 2) * 60, 80 + r * 32, c < 2 ? 34 : 57, caps[r][c], acts[r][c]);
+  text_center("1 to 9: hotbar slot.   EXE: same as OK.", SCREEN_W / 2, 178, 0xFFFF);
+  text_center("Forward twice: sprint.   Jump twice: fly (Creative).", SCREEN_W / 2, 189, 0xFFFF);
+  text_center("Menus: OK moves a stack, EXE one item, Back closes.", SCREEN_W / 2, 200, 0xFFFF);
+}
+
 static void menu_screen(void) {
   int w = SCREEN_W, h = SCREEN_H;
   switch (gui) {
@@ -1074,23 +1151,7 @@ static void menu_screen(void) {
       text_center("'New World' will be lost forever! (A long time!)", w / 2, 90, 0xFFFF);
       break;
     case GUI_OPTIONS: text_center("Options", w / 2, 15, 0xFFFF); break;
-    case GUI_CONTROLS: {
-      /* GuiControls: each action and its key (the calculator's) */
-      static const char *const rows[][2] = {
-          {"Look Around", "Arrows"}, {"Walk Forwards", "ln"}, {"Walk Backwards", "cos"}, {"Strafe Left", "sin"},
-          {"Strafe Right", "tan"}, {"Jump (twice: fly)", "pi"}, {"Sneak", "sqrt"}, {"Sprint", "x^2"},
-          {"Attack/Destroy", "Back"}, {"Use Item/Place Block", "OK or EXE"}, {"Inventory", "var"},
-          {"Drop Item", "x,n,t"}, {"Hotbar Slots", "1 to 9"}, {"Pause", "Toolbox"}, {"Save and Quit", "Home"}};
-      text_center("Controls", w / 2, 6, 0xFFFF);
-      for (int i = 0; i < 15; i++) {
-        int y = 20 + i * 12;
-        text(rows[i][0], w / 2 - 140, y + 2, 0xFFFF, true);
-        fill(w / 2 + 20, y, 100, 11, RGB(0x60, 0x60, 0x60));
-        fill(w / 2 + 21, y + 1, 98, 9, RGB(0x20, 0x20, 0x20));
-        text_center(rows[i][1], w / 2 + 70, y + 2, RGB(0xFF, 0xFF, 0xA0));
-      }
-      break;
-    }
+    case GUI_CONTROLS: key_sheet(); break;
     case GUI_PAUSE: text_center("Game menu", w / 2, 40, 0xFFFF); break;
     case GUI_LOADING:
       text_center("Loading world", w / 2, h / 2 - 50, 0xFFFF);

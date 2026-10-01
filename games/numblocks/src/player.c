@@ -20,6 +20,7 @@ static void box_of(float x, float y, float z, float *a) {
 }
 
 /* Entity.moveEntity: y first, then x and z; step up 0.6 if that goes further */
+static bool hit_wall;   /* the last move ran into something sideways (isCollidedHorizontally) */
 static void move(float dx, float dy, float dz) {
   float a[6];
   box_of(pl.x, pl.y, pl.z, a);
@@ -67,6 +68,7 @@ static void move(float dx, float dy, float dz) {
   pl.y = a[1];
   pl.z = (a[2] + a[5]) / 2;
   pl.on_ground = ody != mdy && ody < 0;
+  hit_wall = odx != mdx || odz != mdz;
   if (ody != mdy) pl.vy = 0;
   if (odx != mdx) pl.vx = 0;
   if (odz != mdz) pl.vz = 0;
@@ -661,7 +663,8 @@ void player_respawn(void) {
   pl.pitch = 0;
 }
 
-static int break_cooldown, jump_timer;
+static int break_cooldown, jump_timer, sprint_timer;
+static bool was_fwd;   /* forward was held last tick */
 static uint32_t prev_keys;
 
 /* the damage the world does: falls, drowning, lava, fire, cactus, suffocation, the void */
@@ -722,7 +725,18 @@ void player_tick(uint32_t keys, uint32_t pressed) {
   fwd *= 0.98f;
   strafe *= 0.98f;
   if (pl.sneaking) fwd *= 0.3f, strafe *= 0.3f;
-  if (pl.using_ticks) fwd *= 0.2f, strafe *= 0.2f;   /* eating slows you down */
+  if (pl.using_ticks) fwd *= 0.2f, strafe *= 0.2f, sprint_timer = 0;   /* eating slows you down */
+  /* EntityPlayerSP.onLivingUpdate: forward pressed twice within 7 ticks on the ground, or with the
+   * sprint key, sprints until forward is let go, you walk into a wall, sneak or get hungry */
+  bool fed = pl.food > 6 || pl.mode == 1, went = fwd >= 0.8f * 0.98f;
+  if (sprint_timer) sprint_timer--;
+  if (pl.on_ground && !was_fwd && went && !pl.sprinting && fed && !pl.using_ticks) {
+    if (!sprint_timer && !(keys & K_SPRINT)) sprint_timer = 7;
+    else pl.sprinting = true;
+  }
+  if (!pl.sprinting && went && fed && !pl.using_ticks && (keys & K_SPRINT)) pl.sprinting = true;
+  if (pl.sprinting && (!went || hit_wall || !fed)) pl.sprinting = false;
+  was_fwd = went;
   pl.in_water = in_liquid();
   /* creative: jump twice quickly to fly or land */
   if (jump_timer) jump_timer--;
@@ -732,7 +746,6 @@ void player_tick(uint32_t keys, uint32_t pressed) {
       jump_timer = 0;
     } else jump_timer = 7;
   }
-  if (pl.food <= 6 && pl.mode == 0) pl.sprinting = false;
   float y0 = pl.y, ox = pl.x, oz = pl.z;
   if (pl.flying) {
     /* PlayerCapabilities: flying speed 0.05, x2 sprinting; up with jump, down with sneak */

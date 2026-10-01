@@ -1,5 +1,6 @@
 /* Checks of the item rules: crafting, stacking, smelting, drops. */
 #include <stdio.h>
+#include <unistd.h>
 #include "nb.h"
 #include "edits.h"
 
@@ -222,6 +223,20 @@ int main(void) {
     for (int i = 1; i < 36; i++) caught += pl.inv[i].id != 0;
     CHECK(caught == 1);
     plat_remove_prefix("ut5");
+  }
+  {
+    /* the picture, straight up and straight down at every turn: no ray may get stuck
+     * (an empty-region jump once handed a ray back and forth forever); the alarm ends a hang */
+    world_new(0, "ut6");
+    world_follow(8, 70, 8);
+    alarm(60);
+    for (int p = -90; p <= 90; p += 180)
+      for (float yaw = -180; yaw < 180; yaw += 7.5f) {
+        Camera c = {8.5f, 71.62f, 8.5f, yaw, (float)p};
+        render_frame(&c, 6000);
+      }
+    alarm(0);
+    plat_remove_prefix("ut6");
   }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;

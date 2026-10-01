@@ -266,6 +266,8 @@ static inline int cracked(int tc, int i, int u, int v) {
   if (i == brk_i && (cracks[brk_stage][(v * 16 + u) >> 3] >> (u & 7) & 1)) tc = shade565((uint16_t)tc, 13);
   return tc;
 }
+static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
+
 static uint16_t trace(float dx, float dy, float dz) {
   hit_kind = 0;
   last_t = 1e9f;
@@ -389,11 +391,14 @@ static uint16_t trace(float dx, float dy, float dz) {
       else te = ez, ax = 2;
       if (te > tmax) break;
       t = te;
-      /* the cell just past the boundary: on the crossing axis it is the next one */
+      /* the cell just past the boundary: on the crossing axis it is the next one; on
+       * the others it is still in this region (rounding must not put it in another,
+       * or two regions could hand the ray back and forth) */
       float hx = ox + dx * te, hy = oy + dy * te, hz = oz + dz * te;
-      x = ax == 0 ? (x & ~3) + (bx ? 4 : -1) : (int)floorf(hx);
-      y = ax == 1 ? (y & ~3) + (by ? 4 : -1) : (int)floorf(hy);
-      z = ax == 2 ? (z & ~3) + (bz ? 4 : -1) : (int)floorf(hz);
+      int rx = x & ~3, ry = y & ~3, rz = z & ~3;
+      x = ax == 0 ? rx + (bx ? 4 : -1) : clampi((int)floorf(hx), rx, rx + 3);
+      y = ax == 1 ? ry + (by ? 4 : -1) : clampi((int)floorf(hy), ry, ry + 3);
+      z = ax == 2 ? rz + (bz ? 4 : -1) : clampi((int)floorf(hz), rz, rz + 3);
       if ((unsigned)x >= VCX || (unsigned)y >= VCY || (unsigned)z >= VCZ) break;
       face = ax == 0 ? (sx > 0 ? 4 : 5) : ax == 1 ? (sy > 0 ? 0 : 1) : (sz > 0 ? 2 : 3);
       tx = (x + bx - ox) * ivx;
@@ -1054,6 +1059,7 @@ static float row_height(float x, float z, float py) {
 }
 
 static void rain_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
+  const float KX = RW / 2 / TAN_H, KY = RH / 2 / TAN_V;
   for (int n = 0; n < nsheets; n++) {
     const Sheet *s = &sheets[n];
     if (s->sy1 < py0 || s->sy0 >= py0 + rows) continue;
@@ -1070,36 +1076,42 @@ static void rain_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
     if (ylo < s->y0) ylo = s->y0;
     if (yhi > s->y1) yhi = s->y1;
     if (ylo >= yhi) continue;
+    /* far away the streaks are much thinner than a pixel: every other one, twice as strong */
+    float tc = (s->cx - ox) * fwx + (s->cz - oz) * fwz + ((ylo + yhi) / 2 - oy) * fwy;
+    int step = tc * 64 > KX * 3.5f ? 2 : 1;
     /* texture rows: row = y * 64 + v; runs are at most 16 rows long */
     int r0 = (int)floorf(ylo * 64 + s->v) - 16, r1 = (int)ceilf(yhi * 64 + s->v);
     for (int base = (int)floorf(r0 / 256.0f) * 256; base <= r1; base += 256) {
       int lo = r0 - base < 0 ? 0 : r0 - base, hi = r1 - base > 255 ? 255 : r1 - base;
-      for (int i = idx[lo]; i < idx[hi + 1]; i++) {
-        float ya = (base + run[i][0] - s->v) / 64, yb = ya + run[i][2] / 64.0f;
+      for (int i = idx[lo]; i < idx[hi + 1]; i += step) {
+        int a = run[i][3] * s->alpha;
+        if (a <= 25 * 255) continue;   /* 1.8's alpha test */
+        float ya = (base + run[i][0] - s->v) * (1 / 64.0f), yb = ya + run[i][2] * (1 / 64.0f);
         if (ya < s->y0) ya = s->y0;
         if (yb > s->y1) yb = s->y1;
         if (yb <= ya) continue;
-        float u = (run[i][1] + 0.5f) / 64 + s->u;
-        u = (u - floorf(u)) * 2 - 1;
+        float u = (run[i][1] + 0.5f) * (1 / 64.0f) + s->u;
+        u = (u >= 1 ? u - 1 : u) * 2 - 1;
         float x = s->cx + s->hx * u - ox, z = s->cz + s->hz * u - oz;
-        float bz = x * fwx + z * fwz, bx = x * rgx + z * rgz, by = x * upx + z * upz;
+        float bz = x * fwx + z * fwz;
         float za = bz + (ya - oy) * fwy, zb2 = bz + (yb - oy) * fwy;
         if (za < 0.05f || zb2 < 0.05f) continue;
-        float t = (za + zb2) / 2;
-        int sx = (int)((bx / t / TAN_H + 1) * RW / 2);
+        float t = (za + zb2) * 0.5f, it = 1 / t;
+        int sx = (int)((x * rgx + z * rgz) * it * KX + RW / 2);
         if ((unsigned)sx >= RW) continue;
-        float top = (1 - (by + (yb - oy) * upy) / zb2 / TAN_V) * RH / 2;
-        float bot = (1 - (by + (ya - oy) * upy) / za / TAN_V) * RH / 2;
+        float by = x * upx + z * upz;
+        float top = RH / 2 - (by + (yb - oy) * upy) / zb2 * KY;
+        float bot = RH / 2 - (by + (ya - oy) * upy) / za * KY;
+        if (bot <= py0 || top >= py0 + rows) continue;
         /* how much of a pixel the texels cover: across, and down when shorter than one */
-        float cover = RW / 2 / (TAN_H * t) / 64;
+        float cover = KX * it * (1 / 64.0f);
         if (cover > 1) cover = 1;
-        int a = run[i][3] * s->alpha / 255;
-        if (a <= 25) continue;   /* 1.8's alpha test */
-        int k0 = (int)floorf(top + 0.5f), k1 = (int)floorf(bot - 0.5f);
-        float ak = a * cover * 32 / 255;
-        if (k1 < k0) k0 = k1 = (int)floorf((top + bot) / 2), ak *= bot - top;
+        float ak = a * cover * step * (32 / 65025.0f);
+        int k0 = (int)(top + 0.5f), k1 = (int)(bot - 0.5f);
+        if (k1 < k0) k0 = k1 = (int)((top + bot) * 0.5f), ak *= bot - top;
         int k = (int)(ak + 0.5f);
         if (k <= 0) continue;
+        if (k > 32) k = 32;
         for (int py = k0 < py0 ? py0 : k0; py <= k1 && py < py0 + rows; py++)
           if (zb[py - py0][sx] > t) cb[py - py0][sx] = mix565(cb[py - py0][sx], s->col, k);
       }

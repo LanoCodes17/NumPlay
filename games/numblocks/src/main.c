@@ -137,6 +137,8 @@ bool game_frame(void) {
     float turn = dt / 1000.0f * opt.look / 100.0f;
     if (k & K_LEFT) pl.yaw -= 150 * turn;
     if (k & K_RIGHT) pl.yaw += 150 * turn;
+    if (pl.yaw >= 180) pl.yaw -= 360;   /* (kept small, for the floats' precision) */
+    if (pl.yaw < -180) pl.yaw += 360;
     if (k & K_UP) pl.pitch -= 100 * turn;
     if (k & K_DOWN) pl.pitch += 100 * turn;
     if (pl.pitch > 90) pl.pitch = 90;

@@ -359,7 +359,7 @@ static uint16_t trace(float dx, float dy, float dz) {
           return c;
         }
       } else if (m == M_CROSS) {
-        Hit h;
+        Hit h = {0};
         float t1 = fminf(fminf(tx, ty), tz) - t;
         if (hit_cross(blk_tex[b][3], lx, ly, lz, dx, dy, dz, 0, t1, &h)) {
           int r, g, bb;

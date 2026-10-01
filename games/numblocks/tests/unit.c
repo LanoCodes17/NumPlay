@@ -154,7 +154,7 @@ int main(void) {
     /* weather: the clock, the strength, the light, and where rain falls */
     extern uint32_t game_time;
     world_new(0, "ut4");
-    world_follow(8, 70, 8);
+    world_follow(8, 110, 8);   /* (high above the ground: only the test's blocks under the sky) */
     for (int i = 0; i < VCX * VCZ; i++) vbiome[i] = 1;   /* plains */
     memset(&weather, 0, sizeof weather);
     rain_str = thunder_str = 0;
@@ -169,7 +169,7 @@ int main(void) {
     CHECK(rain_str == 1 && sky_sub() == 3);   /* rain alone: still day, no sleeping */
     weather.thundering = 1, thunder_str = 1;
     CHECK(sky_sub() >= 4);                    /* a storm: dark enough to sleep */
-    int y = 70;
+    int y = 110;
     for (int z = 0; z <= 4; z++)
       for (int x = 0; x <= 4; x++) {
         world_set(x, y - 1, z, B_STONE);

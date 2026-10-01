@@ -55,6 +55,32 @@ int block_boxes(int b, int x, int y, int z, int8_t (*o)[6]) {
   return n;
 }
 
+/* the selection box of block b (Block.getSelectedBoundingBox, from its corner): its shape's bounds;
+ * plants as BlockBush and its kin */
+void select_box(int b, int x, int y, int z, float *o) {
+  int8_t bx[5][6];
+  int n = block_boxes(b, x, y, z, bx);
+  float lo[3] = {0, 0, 0}, hi[3] = {16, 16, 16};
+  if (n) {
+    for (int i = 0; i < 3; i++) lo[i] = 16, hi[i] = 0;
+    for (int k = 0; k < n; k++)
+      for (int i = 0; i < 3; i++) {
+        if (bx[k][i] < lo[i]) lo[i] = bx[k][i];
+        if (bx[k][i + 3] > hi[i]) hi[i] = bx[k][i + 3];
+      }
+  } else if (blk_model[b] == M_CROSS) {
+    float r = 6.4f, h = 12.8f;   /* tall grass, ferns, saplings, dead bushes: 0.4 around, 0.8 high */
+    if (b >= B_DANDELION && b <= B_OXEYE_DAISY) r = 3.2f, h = 9.6f;                       /* flowers */
+    else if (b == B_BROWN_MUSHROOM || b == B_RED_MUSHROOM) r = 3.2f, h = 6.4f;           /* mushrooms */
+    else if (b == B_SUGAR_CANE) r = 6, h = 16;
+    else if ((b >= B_WHEAT_0 && b <= B_WHEAT_7) || (b >= B_CARROTS_0 && b <= B_CARROTS_3) ||
+             (b >= B_POTATOES_0 && b <= B_POTATOES_3))
+      r = 8, h = 4;   /* crops */
+    lo[0] = lo[2] = 8 - r, hi[0] = hi[2] = 8 + r, hi[1] = h;
+  }
+  for (int i = 0; i < 3; i++) o[i] = lo[i] / 16, o[i + 3] = hi[i] / 16;
+}
+
 /* the collision boxes of the block at (x, y, z), in world coordinates (b: up to 5 x 6) */
 static int block_cboxes(int x, int y, int z, float *b) {
   int s = world_get(x, y, z);

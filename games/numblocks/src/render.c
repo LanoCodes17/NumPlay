@@ -1736,31 +1736,6 @@ static float sel_pt[8][3];   /* the corners on the picture: x, y, 1 / depth (0: 
 static float sel_w[8][3];    /* and in the cache */
 static bool sel_on;
 
-/* the selection box (sixteenths) of block b: its shape's bounds; plants as BlockBush and its kin */
-static void select_box(int b, int x, int y, int z, float *o) {
-  int8_t bx[5][6];
-  int n = block_boxes(b, x, y, z, bx);
-  float lo[3] = {0, 0, 0}, hi[3] = {16, 16, 16};
-  if (n) {
-    for (int i = 0; i < 3; i++) lo[i] = 16, hi[i] = 0;
-    for (int k = 0; k < n; k++)
-      for (int i = 0; i < 3; i++) {
-        if (bx[k][i] < lo[i]) lo[i] = bx[k][i];
-        if (bx[k][i + 3] > hi[i]) hi[i] = bx[k][i + 3];
-      }
-  } else if (blk_model[b] == M_CROSS) {
-    float r = 6.4f, h = 12.8f;   /* tall grass, ferns, saplings, dead bushes: 0.4 around, 0.8 high */
-    if (b >= B_DANDELION && b <= B_OXEYE_DAISY) r = 3.2f, h = 9.6f;                       /* flowers */
-    else if (b == B_BROWN_MUSHROOM || b == B_RED_MUSHROOM) r = 3.2f, h = 6.4f;           /* mushrooms */
-    else if (b == B_SUGAR_CANE) r = 6, h = 16;
-    else if ((b >= B_WHEAT_0 && b <= B_WHEAT_7) || (b >= B_CARROTS_0 && b <= B_CARROTS_3) ||
-             (b >= B_POTATOES_0 && b <= B_POTATOES_3))
-      r = 8, h = 4;   /* crops */
-    lo[0] = lo[2] = 8 - r, hi[0] = hi[2] = 8 + r, hi[1] = h;
-  }
-  for (int i = 0; i < 3; i++) o[i] = lo[i] / 16 - 0.002f, o[i + 3] = hi[i] / 16 + 0.002f;
-}
-
 static void select_frame(void) {
   sel_on = false;
   if (pl.hit_face < 0 || gui != GUI_NONE || !world_loaded(pl.hit_x, pl.hit_y, pl.hit_z)) return;
@@ -1768,6 +1743,7 @@ static void select_frame(void) {
   if (b == B_AIR || blk_model[b] == M_LIQUID) return;
   float s[6];
   select_box(b, pl.hit_x, pl.hit_y, pl.hit_z, s);
+  for (int i = 0; i < 3; i++) s[i] -= 0.002f, s[i + 3] += 0.002f;
   float bx = (float)(pl.hit_x - vc_x0), by = (float)(pl.hit_y - vc_y0), bz = (float)(pl.hit_z - vc_z0);
   for (int k = 0; k < 8; k++) {
     float *w = sel_w[k], *q = sel_pt[k];

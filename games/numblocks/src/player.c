@@ -325,11 +325,57 @@ static void set_block(int x, int y, int z, int b) {
 }
 
 /* ---------------------------------------------------------------- looking */
+/* the eyes' ray, as the last frame drew it (EntityRenderer.getMouseOver runs each frame, and the
+ * clicks of the next ticks use what it found): the crosshair is where it points */
+float look_ray[6];
+float hit_t;   /* how far along it the block looked at is */
+
+/* the ray against a box: where it comes in, and through which face */
+static bool ray_box(const float *o, const float *d, const float *lo, const float *hi, float *t, int *face) {
+  float t0 = -1e9f, t1 = 1e9f;
+  int f = -1;
+  for (int a = 0; a < 3; a++) {
+    if (fabsf(d[a]) < 1e-7f) {
+      if (o[a] < lo[a] || o[a] > hi[a]) return false;
+      continue;
+    }
+    float ta = (lo[a] - o[a]) / d[a], tb = (hi[a] - o[a]) / d[a];
+    int fa = a == 0 ? 4 : a == 1 ? 0 : 2;   /* (coming in through the low side) */
+    if (ta > tb) {
+      float s = ta;
+      ta = tb, tb = s, fa++;
+    }
+    if (ta > t0) t0 = ta, f = fa;
+    if (tb < t1) t1 = tb;
+  }
+  if (t0 > t1 || t1 < 0) return false;
+  *t = t0, *face = f;
+  return true;
+}
+
+/* where the ray meets block b at (x, y, z): its selection box (Block.collisionRayTrace), the steps
+ * of stairs one by one (BlockStairs); a ray passing beside a flower or over a slab goes on */
+static bool ray_block(int b, int x, int y, int z, float *t, int *face) {
+  float o[3] = {look_ray[0] - x, look_ray[1] - y, look_ray[2] - z}, s[6];
+  if (blk_model[b] == M_STAIRS) {
+    int8_t bx[5][6];
+    int n = block_boxes(b, x, y, z, bx);
+    bool hit = false;
+    for (int k = 0; k < n; k++) {
+      float lo[3] = {bx[k][0] / 16.0f, bx[k][1] / 16.0f, bx[k][2] / 16.0f}, hi[3] = {bx[k][3] / 16.0f, bx[k][4] / 16.0f, bx[k][5] / 16.0f};
+      float kt;
+      int kf;
+      if (ray_box(o, look_ray + 3, lo, hi, &kt, &kf) && (!hit || kt < *t)) *t = kt, *face = kf, hit = true;
+    }
+    return hit;
+  }
+  select_box(b, x, y, z, s);
+  return ray_box(o, look_ray + 3, s, s + 3, t, face);
+}
+
 /* the first block the eyes' ray meets within reach (4.5, 5 in creative) */
 static void pick(void) {
-  float ex = pl.x, ey = pl.y + (pl.sneaking ? 1.54f : 1.62f), ez = pl.z;
-  float yaw = pl.yaw * 0.017453292f, pitch = pl.pitch * 0.017453292f;
-  float dx = -sinf(yaw) * cosf(pitch), dy = -sinf(pitch), dz = cosf(yaw) * cosf(pitch);
+  float ex = look_ray[0], ey = look_ray[1], ez = look_ray[2], dx = look_ray[3], dy = look_ray[4], dz = look_ray[5];
   int x = ifloor(ex), y = ifloor(ey), z = ifloor(ez);
   int sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1, sz = dz > 0 ? 1 : -1;
   float idx = dx != 0 ? fabsf(1 / dx) : 1e9f, idy = dy != 0 ? fabsf(1 / dy) : 1e9f, idz = dz != 0 ? fabsf(1 / dz) : 1e9f;
@@ -341,8 +387,14 @@ static void pick(void) {
   while (t <= reach) {
     int b = world_get(x, y, z);
     if (b != B_AIR && blk_model[b] != M_LIQUID) {
-      pl.hit_x = x, pl.hit_y = y, pl.hit_z = z, pl.hit_face = face < 0 ? 1 : face;
-      return;
+      float bt;
+      int bf;
+      if (ray_block(b, x, y, z, &bt, &bf)) {
+        if (bt > reach) return;
+        if (bt <= t) bt = t, bf = face;   /* (the eyes inside it: the side they came in by) */
+        pl.hit_x = x, pl.hit_y = y, pl.hit_z = z, pl.hit_face = bf < 0 ? 1 : bf, hit_t = bt;
+        return;
+      }
     }
     if (tx < ty && tx < tz) t = tx, tx += idx, x += sx, face = sx > 0 ? 4 : 5;
     else if (ty < tz) t = ty, ty += idy, y += sy, face = sy > 0 ? 0 : 1;
@@ -350,11 +402,16 @@ static void pick(void) {
   }
 }
 
+void player_look(float ex, float ey, float ez, float yaw, float pitch) {
+  float yr = yaw * 0.017453292f, pr = pitch * 0.017453292f;
+  look_ray[0] = ex, look_ray[1] = ey, look_ray[2] = ez;
+  look_ray[3] = -sinf(yr) * cosf(pr), look_ray[4] = -sinf(pr), look_ray[5] = cosf(yr) * cosf(pr);
+  pick();
+}
+
 /* the liquid source the eyes look at (for buckets), or false */
 static bool pick_liquid(int *ox, int *oy, int *oz) {
-  float ex = pl.x, ey = pl.y + 1.62f, ez = pl.z;
-  float yaw = pl.yaw * 0.017453292f, pitch = pl.pitch * 0.017453292f;
-  float dx = -sinf(yaw) * cosf(pitch), dy = -sinf(pitch), dz = cosf(yaw) * cosf(pitch);
+  float ex = look_ray[0], ey = look_ray[1], ez = look_ray[2], dx = look_ray[3], dy = look_ray[4], dz = look_ray[5];
   for (float t = 0; t < 4.5f; t += 0.1f) {
     int x = ifloor(ex + dx * t), y = ifloor(ey + dy * t), z = ifloor(ez + dz * t);
     int b = world_get(x, y, z);
@@ -821,12 +878,7 @@ void player_tick(uint32_t keys, uint32_t pressed) {
   if (pl.dead) return;
   pick();
   /* a mob under the crosshair, nearer than the block: Back hits it, OK uses on it */
-  float bt = 1e9f;
-  if (pl.hit_face >= 0) {
-    float bx = pl.hit_x + 0.5f - pl.x, by = pl.hit_y + 0.5f - (pl.y + 1.62f), bz = pl.hit_z + 0.5f - pl.z;
-    bt = sqrtf(bx * bx + by * by + bz * bz) - 0.5f;
-  }
-  Entity *target = entity_looked_at(pl.mode ? 5.0f : 3.0f, bt);
+  Entity *target = entity_looked_at(pl.mode ? 5.0f : 3.0f, pl.hit_face >= 0 ? hit_t : 1e9f);
   if (target) {
     if (pressed & K_ATTACK) mob_attack(target), player_swing();
     if ((pressed & K_USE) && mob_use(target)) pressed &= ~K_USE;
@@ -836,6 +888,9 @@ void player_tick(uint32_t keys, uint32_t pressed) {
   /* mining (Back held) */
   if (break_cooldown) break_cooldown--;
   if ((pressed & K_ATTACK) && pl.hit_face < 0 && !target) player_swing();
+  /* PlayerControllerMP.onPlayerDamageBlock: looking at another block starts over */
+  static int bx_ = -1, by_, bz_;
+  if (pl.hit_x != bx_ || pl.hit_y != by_ || pl.hit_z != bz_) pl.breaking = 0, bx_ = pl.hit_x, by_ = pl.hit_y, bz_ = pl.hit_z;
   if ((keys & K_ATTACK) && pl.hit_face >= 0 && !break_cooldown) {
     player_swing();
     int b = world_get(pl.hit_x, pl.hit_y, pl.hit_z);

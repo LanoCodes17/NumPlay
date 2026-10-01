@@ -308,9 +308,7 @@ static void hurt(Entity *e, float dmg, float kx, float kz) {
 
 /* ---------------------------------------------------------------- the player and mobs */
 Entity *entity_looked_at(float reach, float block_t) {
-  float ex = pl.x, ey = pl.y + (pl.sneaking ? 1.54f : 1.62f), ez = pl.z;
-  float yaw = pl.yaw * 0.017453292f, pitch = pl.pitch * 0.017453292f;
-  float d[3] = {-sinf(yaw) * cosf(pitch), -sinf(pitch), cosf(yaw) * cosf(pitch)};
+  float ex = look_ray[0], ey = look_ray[1], ez = look_ray[2], *d = look_ray + 3;
   float best = reach < block_t ? reach : block_t;
   Entity *hit = NULL;
   for (int i = 0; i < N_ENT; i++) {

@@ -20,7 +20,10 @@ static float px, py, pz;
 static bool in_world;      /* playing; else the title screens, the world turning behind */
 static float title_yaw;
 
-static void camera_reset(void) { px = pl.x, py = pl.y, pz = pl.z; }
+static void camera_reset(void) {
+  px = pl.x, py = pl.y, pz = pl.z;
+  player_look(pl.x, pl.y + 1.62f, pl.z, pl.yaw, pl.pitch);
+}
 
 /* the title's backdrop: the saved world where the player is, else a world of seed 0 */
 static void title(void) {
@@ -183,10 +186,13 @@ bool game_frame(void) {
   }
   bool paused = gui == GUI_PAUSE || gui == GUI_OPTIONS || gui == GUI_CONTROLS;
   if (!paused) acc += dt;
-  uint32_t game_keys = in_game ? k : 0, game_pressed = in_game ? pressed : 0;
+  /* a key pressed on a frame between ticks waits for the next tick (else that press is lost) */
+  static uint32_t game_pressed;
+  uint32_t game_keys = in_game ? k : 0;
+  game_pressed = in_game ? game_pressed | pressed : 0;
   while (acc >= 50) {
     px = pl.x, py = pl.y, pz = pl.z;
-    player_tick(game_keys, game_pressed);
+    player_tick(game_keys | game_pressed, game_pressed);
     game_pressed = 0;
     ents_tick();
     world_tick();
@@ -218,6 +224,8 @@ bool game_frame(void) {
     c.x += -cosf(yr) * side, c.z += -sinf(yr) * side, c.y += dip;
     c.pitch += fabsf(cosf(w - 0.2f) * b) * 5;
   }
+  /* what the crosshair is on: the ray through the middle of this picture */
+  if (!pl.dead) player_look(c.x, c.y, c.z, c.yaw, c.pitch);
   if (pl.dead) c.y = pl.y + 0.3f;
   if (pl.sleep_timer) c.y = pl.y + 0.3f;
   render_frame(&c, game_time);

@@ -1,5 +1,6 @@
 /* Checks of the item rules: crafting, stacking, smelting, drops. */
 #include <stdio.h>
+#include <math.h>
 #include <unistd.h>
 #include "nb.h"
 #include "edits.h"
@@ -335,6 +336,31 @@ int main(void) {
     CHECK(!world_info(1, &w) && world_info(2, &w) && world_free_slot() == 1);
     CHECK(load_world(2) && pl.mode == 1 && world_seed == 6);
     for (int s = 1; s <= MAX_WORLDS; s++) delete_world(s);
+  }
+  {
+    /* the block looked at: a ray over a slab or beside a flower goes on to what is behind */
+    extern float hit_t;
+    world_new(5, "ut10");
+    world_follow(8, 100, 8);
+    while (world_pending()) world_follow(8, 100, 8);
+    for (int z = 4; z < 16; z++)
+      for (int x = 4; x < 12; x++)
+        for (int y = 99; y < 104; y++) world_set(x, y, z, y == 99 ? B_STONE : B_AIR);
+    world_set(8, 100, 12, B_STONE);
+    world_set(8, 100, 10, B_STONE_SLAB);
+    pl.mode = 0;
+    player_look(8.5f, 100.75f, 8.5f, 0, 0);
+    CHECK(pl.hit_face == 2 && pl.hit_x == 8 && pl.hit_y == 100 && pl.hit_z == 12);
+    player_look(8.5f, 100.25f, 8.5f, 0, 0);
+    CHECK(pl.hit_face == 2 && pl.hit_z == 10 && fabsf(hit_t - 1.5f) < 0.01f);
+    player_look(8.5f, 102, 10.5f, 0, 90);
+    CHECK(pl.hit_face == 1 && pl.hit_y == 100 && pl.hit_z == 10 && fabsf(hit_t - 1.5f) < 0.01f);
+    world_set(8, 100, 10, B_POPPY);
+    player_look(8.9f, 100.25f, 8.5f, 0, 0);
+    CHECK(pl.hit_z == 12);
+    player_look(8.5f, 100.25f, 8.5f, 0, 0);
+    CHECK(pl.hit_face == 2 && pl.hit_z == 10);
+    plat_remove_prefix("ut10");
   }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;

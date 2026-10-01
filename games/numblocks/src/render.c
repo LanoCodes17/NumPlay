@@ -167,6 +167,60 @@ static __attribute__((noinline)) uint16_t sky(float dx, float dy, float dz, floa
   return pack(r, g, b);
 }
 
+/* The sky along one picture row, by day (no sunset, no stars): the ray's height part is the
+ * row's, so the clouds' plane is as far for all its pixels, and what changes across it is
+ * linear in su (the ray's sideways part) */
+typedef struct {
+  float dy, len2, sd0, sds, tx0, txs, cx0, cxs, cz0, czs, ct;
+} SkyRow;
+static bool sky_fast(void) { return ss_a <= 0 && star_k <= 0; }
+static void sky_row(SkyRow *k, const float *row) {
+  k->dy = row[1];
+  k->len2 = row[0] * row[0] + row[1] * row[1] + row[2] * row[2];   /* (+ su^2: rg is square to the row) */
+  k->sd0 = row[0] * sun_x + row[1] * sun_y + row[2] * sun_z, k->sds = rgx * sun_x + rgz * sun_z;
+  k->tx0 = row[0] * sun_tx + row[1] * sun_ty, k->txs = rgx * sun_tx;
+  k->ct = row[1] > 0.01f ? (128.33f - (oy + vc_y0)) / row[1] : 0;
+  k->cx0 = (ox + vc_x0) + row[0] * k->ct + cloud_off, k->cxs = rgx * k->ct;
+  k->cz0 = (oz + vc_z0) + row[2] * k->ct, k->czs = rgz * k->ct;
+}
+static __attribute__((unused)) uint16_t sky_px(const SkyRow *k, float su, float dz) {
+  float len = sqrtf(k->len2 + su * su), e = k->dy / len;
+  uint32_t gc = sky_grad[e <= 0 ? 0 : e >= 0.4f ? 128 : (int)(e * 320)];
+  int r = (int)(gc >> 20), g = (int)(gc >> 10) & 1023, b = (int)gc & 1023;
+  if (under_water) return pack(r / 4, g / 3, b / 2 + 40);
+  if (sun_a > 0) {
+    float sd = k->sd0 + k->sds * su, tx = k->tx0 + k->txs * su;
+    int sp = -1;
+    float u = 0, v = 0;
+    if (sd > 0.9f * len) sp = SP_SUN, u = (dz / sd / 0.3f + 1) * 16, v = (tx / sd / 0.3f + 1) * 16;
+    else if (sd < -0.95f * len)
+      sp = SP_MOON_0 + moon_phase, u = 32 - (dz / -sd / 0.2f + 1) * 16, v = (tx / -sd / 0.2f + 1) * 16;
+    if (sp >= 0) {
+      int c0 = sp == SP_SUN ? 2 : 8, w = spr_w[sp];
+      int iu = (int)u - c0, iv = (int)v - c0;
+      if ((unsigned)iu < (unsigned)w && (unsigned)iv < (unsigned)w) {
+        uint8_t q = spr_px[spr_off[sp] + iv * ((w + 1) / 2) + (iu >> 1)];
+        uint16_t c = spr_pal[sp][(iu & 1) ? q >> 4 : q & 15];
+        r += (int)(r5(c) * sun_a), g += (int)(g6(c) * sun_a), b += (int)(b5(c) * sun_a);
+      }
+    }
+  }
+  if (k->dy > 0.01f && opt.clouds) {
+    float dist = k->ct * len;
+    if (dist < 200) {
+      int ix = (int)floorf((k->cx0 + k->cxs * su) / 12) & 255, iz = (int)floorf((k->cz0 + k->czs * su) / 12) & 255;
+      extern const uint8_t clouds[256 * 256 / 8];
+      if (clouds[(iz * 256 + ix) >> 3] & (1 << (ix & 7))) {
+        float a = 0.8f * (1 - dist / 200);
+        r += (int)((cloud_r - r) * a);
+        g += (int)((cloud_g - g) * a);
+        b += (int)((cloud_b - b) * a);
+      }
+    }
+  }
+  return pack(r, g, b);
+}
+
 /* ---------------------------------------------------------------- tracing */
 /* blocks with a front (furnaces, pumpkins, chests) turn it to the first open
  * side: south, north, east, west; beds lie towards their other half */
@@ -1771,6 +1825,7 @@ void render_frame(const Camera *c, uint32_t tod) {
   for (int px = 0; px <= RW; px++) col_su[px] = (2 * (px + 0.5f) / RW - 1) * TAN_H;
   static bool tops;
   if (!tops) shape_tops(), tops = true;
+  bool fast_sky = sky_fast();
   enum { NC = RW / 4 };
   static Sample cn[2][NC + 1], ed[2][NC + 1], md[2 * NC + 1];   /* corners, edges' middles, the middle row */
   static uint8_t ed_ok[2][NC + 1], md_ok[2 * NC + 1];
@@ -1785,9 +1840,11 @@ void render_frame(const Camera *c, uint32_t tod) {
     for (int k = 0; k < NC; k++) sample_at(&md[2 * k + 1], 4 * k + 2, py + 2), md_ok[2 * k + 1] = 1;
     /* the rays' bases for the strip's rows (the forward and up parts) */
     float rb[SR][3];
+    SkyRow skr[SR];
     for (int r = 0; r < SR; r++) {
       float sv = (1 - 2 * (py + r + 0.5f) / RH) * TAN_V;
       rb[r][0] = fwx + upx * sv, rb[r][1] = fwy + upy * sv, rb[r][2] = fwz + upz * sv;
+      if (fast_sky) sky_row(&skr[r], rb[r]);
     }
     for (int k = 0; k < NC; k++) {
       int x0 = 4 * k;
@@ -1795,6 +1852,18 @@ void render_frame(const Camera *c, uint32_t tod) {
       if (same(a, b) && same(a, c) && same(a, d) && same(a, m)) {
         bool one = a->cell == b->cell && a->cell == c->cell && a->cell == d->cell && a->cell == m->cell;
         (void)one;
+#ifndef FULL_TRACE
+        if (a->kind == 2 && fast_sky) {
+          for (int r = 0; r < SR; r++)
+            for (int x = x0; x < x0 + 4; x++) {
+              if (r == 0 && x == x0) cbuf[0][x] = a->c;
+              else if (r == 2 && x == x0 + 2) cbuf[2][x] = m->c;
+              else cbuf[r][x] = sky_px(&skr[r], col_su[x], rb[r][2] + rgz * col_su[x]);
+              zbuf[r][x] = 1e9f;
+            }
+          continue;
+        }
+#endif
         for (int r = 0; r < SR; r++)
           for (int x = x0; x < x0 + 4; x++) {
             if (r == 0 && x == x0) cbuf[0][x] = a->c, zbuf[0][x] = a->t;

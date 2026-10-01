@@ -98,6 +98,40 @@ static inline i32 jr_next(JRand *r, int bits) {
     return (i32)(u32)(r->s >> (48 - bits));
 }
 
+/* float <-> int64 conversions done with integer operations: the C casts are exact and
+ * cheap on a 64-bit host but go through soft double arithmetic on the Cortex-M7. */
+typedef union {
+    float f;
+    u32 u;
+} FBits;
+
+/* (i64)(v * 2^k) for |v * 2^k| < 2^62: scaling by 2^k is exact, the cast truncates toward 0 */
+static inline i64 f2i64_scaled(float v, int k) {
+    FBits c = {v};
+    int e = (int)((c.u >> 23) & 255) - 150 + k; /* v * 2^k = m * 2^e */
+    if (e <= -25) return 0;
+    u64 m = (c.u & 0x7fffffu) | 0x800000u;
+    u64 a = e >= 0 ? m << e : m >> -e;
+    return (c.u >> 31) ? -(i64)a : (i64)a;
+}
+
+/* (float)v * 2^-k, rounded to nearest even like the cast */
+static inline float i64_to_f_scaled(i64 v, int k) {
+    FBits s;
+    if (v >= INT32_MIN && v <= INT32_MAX) {
+        s.u = (u32)(127 - k) << 23;
+        return (float)(i32)v * s.f;
+    }
+    u64 a = v < 0 ? 0 - (u64)v : (u64)v;
+    int sh = 40 - __builtin_clzll(a); /* bits below the 24 kept, >= 8 here */
+    u32 m = (u32)(a >> sh);
+    u64 rem = a & ((1ULL << sh) - 1), half = 1ULL << (sh - 1);
+    if (rem > half || (rem == half && (m & 1))) m++;
+    s.u = (u32)(127 + sh - k) << 23;
+    float f = (float)m * s.f;
+    return v < 0 ? -f : f;
+}
+
 static i32 jr_int(JRand *r, i32 n) {
     if ((n & -n) == n) return (i32)(((i64)n * (i64)jr_next(r, 31)) >> 31);
     i32 bits, val;
@@ -128,7 +162,7 @@ static inline i64 jr_double_bits(JRand *r) {
 static inline double jr_double(JRand *r) { return (double)jr_double_bits(r) * (1.0 / 9007199254740992.0); }
 
 /* nextDouble rounded to float (one rounding from the exact value) */
-static inline float jr_doublef(JRand *r) { return (float)jr_double_bits(r) * (1.0f / 9007199254740992.0f); }
+static inline float jr_doublef(JRand *r) { return i64_to_f_scaled(jr_double_bits(r), 53); }
 
 /* LCG jump: advance by n steps (n < 1024) */
 static u64 jump_mul[10], jump_add[10];
@@ -623,9 +657,23 @@ static inline void lr_chunk(LRand *r, i64 x, i64 z) {
     r->d = (i64)d;
 }
 
+/* (d >> 24) mod n in [0, n) (Java's % then + n). The 40-bit dividend is split so that
+ * only 32-bit divisions are needed (a 64-bit one is a slow library call on the M7). */
 static inline int lr_int(LRand *r, int n) {
-    int j = (int)((r->d >> 24) % (i64)n);
-    if (j < 0) j += n;
+    i64 x = r->d >> 24;
+    int j;
+    if ((n & (n - 1)) == 0) {
+        j = (int)((u64)x & (u64)(n - 1));
+    } else if (n <= 65536) {
+        u32 un = (u32)n, lo = (u32)x;
+        i32 h = (i32)(x >> 32) % n;
+        if (h < 0) h += n;
+        u32 t = (((u32)h << 16) | (lo >> 16)) % un;
+        j = (int)(((t << 16) | (lo & 0xffffu)) % un);
+    } else {
+        j = (int)(x % (i64)n);
+        if (j < 0) j += n;
+    }
     u64 d = (u64)r->d;
     d *= d * LMUL + LADD;
     d += (u64)r->c;
@@ -2148,10 +2196,11 @@ static uint8_t sum_block(const ColSum *s, int y) {
 /* ======================================================================== */
 
 /* A carve target: one chunk (tcx, tcz) and, inside it, the region we care about.
- * mode CAVE_OUT: the chunk being generated (blocks in cout / summary csum).
+ * mode CAVE_OUT: the chunk being generated (blocks in out / its summary).
  * mode CAVE_MASK: a query box (world coords) whose carved blocks are marked in a bitmap;
- *   blocks come from the summary of the target chunk. */
-enum { CAVE_OUT, CAVE_MASK };
+ *   blocks come from the summary of the target chunk.
+ * mode CAVE_REC: nothing is carved, the walk only records which tunnels come near. */
+enum { CAVE_OUT, CAVE_MASK, CAVE_REC };
 
 typedef struct {
     int mode;
@@ -2215,13 +2264,14 @@ static inline int cv_water(int x, int y, int z) {
 /* position in 32.32 fixed point (world coordinates) */
 typedef i64 Q32;
 #define Q32_ONE (1LL << 32)
-static inline Q32 q32_of_float(float v) { return (Q32)(v * 4294967296.0f); }
-static inline float q32_to_float(Q32 v) { return (float)v * (1.0f / 4294967296.0f); }
+static inline Q32 q32_of_float(float v) { return f2i64_scaled(v, 32); }
+static inline float q32_to_float(Q32 v) { return i64_to_f_scaled(v, 32); }
 static inline int q32_floor(Q32 v) { return (int)(v >> 32); }
 
 /* One carve step of a tunnel (cave or canyon) into the target chunk.
- * px,py,pz: centre; r6, r7: horizontal and vertical radii (Q32). */
-static int cave_carve(Q32 px, Q32 py, Q32 pz, Q32 r6, Q32 r7, int canyon) {
+ * px,py,pz: centre; r6, r7: horizontal and vertical radii (Q32). Returns 0 when water aborts
+ * the step (only rooms care: Java's room stops after its first unaborted step). */
+static int cave_carve(Q32 px, Q32 py, Q32 pz, Q32 r6, Q32 r7, int canyon, int room) {
     int j = cv->tcx, k = cv->tcz;
     int l1 = q32_floor(px - r6) - j * 16 - 1, i2 = q32_floor(px + r6) - j * 16 + 1;
     int j2 = q32_floor(py - r7) - 1, k2 = q32_floor(py + r7) + 1;
@@ -2232,6 +2282,10 @@ static int cave_carve(Q32 px, Q32 py, Q32 pz, Q32 r6, Q32 r7, int canyon) {
     if (k2 > 248) k2 = 248;
     if (l2 < 0) l2 = 0;
     if (i3 > 16) i3 = 16;
+    /* outside the region we care about the step changes nothing we keep: only a room needs
+     * to know whether water aborts it */
+    int outside = l1 >= cv->rx1 || i2 <= cv->rx0 || l2 >= cv->rz1 || i3 <= cv->rz0 || j2 >= cv->ry1 || k2 + 1 < cv->ry0;
+    if (outside && !room) return 1;
     /* water check (shell of the box plus top and bottom layers): water aborts this step */
     for (int x = l1; x < i2; x++)
         for (int z = l2; z < i3; z++)
@@ -2241,8 +2295,7 @@ static int cave_carve(Q32 px, Q32 py, Q32 pz, Q32 r6, Q32 r7, int canyon) {
                     if (y != j2 - 1 && x != l1 && x != i2 - 1 && z != l2 && z != i3 - 1) y = j2;
                 }
             }
-    /* skip carving where it cannot touch the region we care about (no other effect) */
-    if (l1 >= cv->rx1 || i2 <= cv->rx0 || l2 >= cv->rz1 || i3 <= cv->rz0 || j2 >= cv->ry1 || k2 + 1 < cv->ry0) return 1;
+    if (outside) return 1;
     float d6 = q32_to_float(r6), d7 = q32_to_float(r7);
     for (int x = l1; x < i2; x++) {
         float d12 = q32_to_float(SHL(j * 16 + x, 32) + (Q32_ONE >> 1) - px) / d6;
@@ -2317,6 +2370,55 @@ static inline int cave_can_reach(Q32 x, Q32 z, int left) {
     return d <= SHL(left + 16, 32);
 }
 
+/* ---- several targets at once ----
+ * Java carves one target chunk at a time: it replays the tunnels of every source chunk within
+ * 8 chunks, and a tunnel stops for that target when it gets too far from it (a room also stops
+ * after its first carve). Where a tunnel goes (its random numbers, its branches) does not depend
+ * on the target, only where it stops does; so each tunnel is walked once for several targets,
+ * with a bit mask of the targets it still runs for (branches inherit it: a branch only exists for
+ * the targets its parent was still running for when it split).
+ * Targets are indexed by their place around the chunk being generated: (dz + 1) * 3 + (dx + 1). */
+#define NTGT 9
+static CaveCtx *tg[NTGT];
+static Q32 tg_cx[NTGT], tg_cz[NTGT]; /* target chunk centres, world coords */
+static unsigned tg_touch;            /* targets the current top-level tunnel came within carving range of */
+
+/* One step of a tunnel for the targets in act: Java's "too far: stop" test and range test,
+ * then the carve. Returns the targets still running. Both tests are first settled with integer
+ * bounds from the whole-block distances (exactly where those decide them); recording targets
+ * take the undecided cases conservatively (still running, in range). */
+static unsigned cave_step(unsigned act, Q32 d0, Q32 d1, Q32 d2, Q32 r6, Q32 r7, int left, float f, int room,
+                          int canyon) {
+    int d11 = (int)(f + 18.0f);                /* d11 in [d11, d11 + 1] */
+    int far_hi = (d11 + 1) * (d11 + 1) + left * left, far_lo = d11 * d11 + left * left;
+    int lim = 16 + 2 * (int)(r6 >> 32);        /* range limit in [lim, lim + 2) */
+    for (int ti = 0; ti < NTGT; ti++) {
+        if (!(act >> ti & 1)) continue;
+        Q32 dx = d0 - tg_cx[ti], dz = d2 - tg_cz[ti];
+        int ax = (int)((dx < 0 ? -dx : dx) >> 32), az = (int)((dz < 0 ? -dz : dz) >> 32); /* |d| in [a, a+1) */
+        if (ax > 255 || az > 255 || ax * ax + az * az > far_hi) { /* surely too far */
+            act &= ~(1u << ti);
+            continue;
+        }
+        int rec = tg[ti]->mode == CAVE_REC;
+        int near = (ax + 1) * (ax + 1) + (az + 1) * (az + 1) <= far_lo;
+        if (!near && !rec && cave_too_far(dx, dz, left, f + 2.0f + 16.0f)) {
+            act &= ~(1u << ti);
+            continue;
+        }
+        if (ax > lim + 2 || az > lim + 2) continue; /* surely out of range */
+        if (!rec && !(ax + 1 <= lim && az + 1 <= lim)) {
+            float flim = 16.0f + q32_to_float(r6) * 2.0f;
+            float d8 = q32_to_float(dx), d9 = q32_to_float(dz);
+            if (!(d8 >= -flim && d9 >= -flim && d8 <= flim && d9 <= flim)) continue;
+        }
+        tg_touch |= 1u << ti;
+        cv = tg[ti];
+        if (!rec && cave_carve(d0, d1, d2, r6, r7, canyon, room) && room) act &= ~(1u << ti);
+    }
+    return act;
+}
+
 /* tunnel stack (branches) */
 typedef struct {
     i64 seed;
@@ -2324,17 +2426,19 @@ typedef struct {
     float f, f1, f2;
     int16_t l, i1;
     uint8_t room;
+    uint16_t act;
 } Tunnel;
-#define TSTACK 24
+#define TSTACK 8 /* branches (width < 1) never branch again: depth <= 2 */
 static Tunnel tstack[TSTACK];
 
 /* Walks one cave tunnel (WorldGenCaves.a, 13-argument version) and its branches. */
-static void cave_tunnel(i64 seed0, Q32 x0, Q32 y0, Q32 z0, float f0, float f10, float f20, int l0, int i10, int room0) {
+static void cave_tunnel(i64 seed0, Q32 x0, Q32 y0, Q32 z0, float f0, float f10, float f20, int l0, int i10, int room0,
+                        unsigned act0) {
     int sp = 0;
-    tstack[sp++] = (Tunnel){seed0, x0, y0, z0, f0, f10, f20, (int16_t)l0, (int16_t)i10, (uint8_t)room0};
-    Q32 cxq = SHL(cv->tcx * 16 + 8, 32), czq = SHL(cv->tcz * 16 + 8, 32);
+    tstack[sp++] = (Tunnel){seed0, x0, y0, z0, f0, f10, f20, (int16_t)l0, (int16_t)i10, (uint8_t)room0, (uint16_t)act0};
     while (sp > 0) {
         Tunnel t = tstack[--sp];
+        unsigned act = t.act;
         float f3 = 0, f4 = 0;
         JRand r;
         jr_seed(&r, t.seed);
@@ -2381,31 +2485,30 @@ static void cave_tunnel(i64 seed0, Q32 x0, Q32 y0, Q32 z0, float f0, float f10, 
                     i64 s2 = jr_long(&r);
                     float w2 = jr_float(&r) * 0.5f + 0.5f;
                     /* second branch below the first: the first runs (with its sub-branches) first */
-                    tstack[sp++] = (Tunnel){s2, d0, d1, d2, w2, f1 + 1.5707964f, f2 / 3.0f, (int16_t)l, (int16_t)i1, 0};
-                    tstack[sp++] = (Tunnel){s1, d0, d1, d2, w1, f1 - 1.5707964f, f2 / 3.0f, (int16_t)l, (int16_t)i1, 0};
+                    tstack[sp++] = (Tunnel){s2, d0, d1, d2, w2, f1 + 1.5707964f, f2 / 3.0f, (int16_t)l, (int16_t)i1, 0,
+                                            (uint16_t)act};
+                    tstack[sp++] = (Tunnel){s1, d0, d1, d2, w1, f1 - 1.5707964f, f2 / 3.0f, (int16_t)l, (int16_t)i1, 0,
+                                            (uint16_t)act};
                 }
                 break;
             }
             if (flag || jr_int(&r, 4) != 0) {
-                float d8 = q32_to_float(d0 - cxq), d9 = q32_to_float(d2 - czq);
-                if (cave_too_far(d0 - cxq, d2 - czq, i1 - l, f + 2.0f + 16.0f)) break;
-                float lim = 16.0f + q32_to_float(r6) * 2.0f;
-                if (d8 >= -lim && d9 >= -lim && d8 <= lim && d9 <= lim) {
-                    if (cave_carve(d0, d1, d2, r6, r7, 0) && flag) break;
-                }
+                act = cave_step(act, d0, d1, d2, r6, r7, i1 - l, f, flag, 0);
+                if (!act) break;
             }
         }
     }
 }
 
-static void canyon_tunnel(i64 seed, Q32 d0, Q32 d1, Q32 d2, float f, float f1, float f2) {
+static void canyon_tunnel(i64 seed, Q32 d0, Q32 d1, Q32 d2, float f, float f1, float f2, unsigned act) {
     JRand r;
     jr_seed(&r, seed);
-    Q32 cxq = SHL(cv->tcx * 16 + 8, 32), czq = SHL(cv->tcz * 16 + 8, 32);
     float f3 = 0, f4 = 0;
     int j1 = 8 * 16 - 16;
     int i1 = j1 - jr_int(&r, j1 / 4);
     int l = 0;
+    /* (the canyon has its own random: stopping before its width table changes nothing else) */
+    if (!cave_can_reach(d0, d2, i1)) return;
     float f5 = 1.0f;
     for (int k1 = 0; k1 < 256; ++k1) {
         if (k1 == 0 || jr_int(&r, 3) == 0) {
@@ -2441,62 +2544,161 @@ static void canyon_tunnel(i64 seed, Q32 d0, Q32 d1, Q32 d2, float f, float f1, f
             f3 += (a - b) * c * 4.0f;
         }
         if (jr_int(&r, 4) != 0) {
-            float d8 = q32_to_float(d0 - cxq), d9 = q32_to_float(d2 - czq);
-            if (cave_too_far(d0 - cxq, d2 - czq, i1 - l, f + 2.0f + 16.0f)) return;
-            float lim = 16.0f + q32_to_float(r6) * 2.0f;
-            if (d8 >= -lim && d9 >= -lim && d8 <= lim && d9 <= lim) cave_carve(d0, d1, d2, r6, r7, 1);
+            act = cave_step(act, d0, d1, d2, r6, r7, i1 - l, f, 0, 1);
+            if (!act) return;
         }
     }
 }
 
-/* MapGenBase.a for both caves and canyons, carving target cv */
-static void caves_run(void) {
-    int i = cv->tcx, j = cv->tcz;
-    reg_x0 = SHL(i * 16 + cv->rx0, 32);
-    reg_x1 = SHL(i * 16 + cv->rx1, 32);
-    reg_z0 = SHL(j * 16 + cv->rz0, 32);
-    reg_z1 = SHL(j * 16 + cv->rz1, 32);
+/* ---- tunnels that matter around the chunk being generated ----
+ * gen_slab walks every tunnel once for the 3x3 chunks around C (carving C for real) and records
+ * which top-level tunnels come within carving range of which of the 9 chunks; the cave queries
+ * of the populations then replay only those. A record names a tunnel by its source chunk
+ * (relative to C), the pass (caves, canyons) and its rank among the source's tunnels. */
+typedef struct {
+    int8_t sx, sz;
+    uint8_t pass, ord;
+    uint16_t mask;
+} CaveRec;
+#define NCREC 80
+static CaveRec crec[NCREC];
+static int ncrec, crec_ok, crec_cx, crec_cz;
+static int crec_on; /* recording */
+
+static void crec_add(int j1, int k1, int pass, int ord) {
+    if (!tg_touch || !crec_on) return;
+    if (ncrec == NCREC) {
+        crec_ok = 0; /* too many: queries walk everything */
+        return;
+    }
+    crec[ncrec++] = (CaveRec){(int8_t)(j1 - crec_cx), (int8_t)(k1 - crec_cz), (uint8_t)pass, (uint8_t)ord,
+                              (uint16_t)tg_touch};
+}
+
+/* The tunnels of source chunk (j1, k1) for one pass (MapGenCaves.a / MapGenCanyon.a), walked for
+ * targets `act`. With recs (records of this source and pass, by rank), only those tunnels are
+ * walked, each for act & its mask. */
+static void cave_source(int j1, int k1, int pass, unsigned act, const CaveRec *recs, int nrec) {
     JRand r;
-    for (int pass = 0; pass < 2; pass++) {
-        for (int j1 = i - 8; j1 <= i + 8; ++j1)
-            for (int k1 = j - 8; k1 <= j + 8; ++k1) {
-                jr_seed(&r, (i64)((u64)(i64)j1 * (u64)cave_mul_x) ^ (i64)((u64)(i64)k1 * (u64)cave_mul_z) ^ g_seed);
-                if (pass == 0) {
-                    int n = jr_int(&r, jr_int(&r, jr_int(&r, 15) + 1) + 1);
-                    if (jr_int(&r, 7) != 0) n = 0;
-                    for (int c = 0; c < n; ++c) {
-                        int xx = j1 * 16 + jr_int(&r, 16);
-                        int yy = jr_int(&r, jr_int(&r, 120) + 8);
-                        int zz = k1 * 16 + jr_int(&r, 16);
-                        Q32 d0 = SHL(xx, 32), d1 = SHL(yy, 32), d2 = SHL(zz, 32);
-                        int k = 1;
-                        if (jr_int(&r, 4) == 0) {
-                            i64 s = jr_long(&r);
-                            float w = 1.0f + jr_float(&r) * 6.0f;
-                            cave_tunnel(s, d0, d1, d2, w, 0.0f, 0.0f, -1, -1, 1);
-                            k += jr_int(&r, 4);
-                        }
-                        for (int l1 = 0; l1 < k; ++l1) {
-                            float f = jr_float(&r) * 3.1415927f * 2.0f;
-                            float f1 = (jr_float(&r) - 0.5f) * 2.0f / 8.0f;
-                            float f2 = jr_float(&r) * 2.0f + jr_float(&r);
-                            if (jr_int(&r, 10) == 0) {
-                                float a = jr_float(&r), b = jr_float(&r);
-                                f2 *= a * b * 3.0f + 1.0f;
-                            }
-                            cave_tunnel(jr_long(&r), d0, d1, d2, f2, f, f1, 0, 0, 0);
-                        }
-                    }
-                } else if (jr_int(&r, 50) == 0) {
-                    int xx = j1 * 16 + jr_int(&r, 16);
-                    int yy = jr_int(&r, jr_int(&r, 40) + 8) + 20;
-                    int zz = k1 * 16 + jr_int(&r, 16);
-                    float f = jr_float(&r) * 3.1415927f * 2.0f;
-                    float f1 = (jr_float(&r) - 0.5f) * 2.0f / 8.0f;
-                    float f2 = (jr_float(&r) * 2.0f + jr_float(&r)) * 2.0f;
-                    canyon_tunnel(jr_long(&r), SHL(xx, 32), SHL(yy, 32), SHL(zz, 32), f2, f, f1);
+    jr_seed(&r, (i64)((u64)(i64)j1 * (u64)cave_mul_x) ^ (i64)((u64)(i64)k1 * (u64)cave_mul_z) ^ g_seed);
+    int ord = 0, ri = 0;
+    /* the targets tunnel `ord` is walked for (0: skip it) */
+#define WANT() (recs ? (ri < nrec && recs[ri].ord == ord ? act & recs[ri++].mask : 0u) : act)
+    if (pass == 0) {
+        int n = jr_int(&r, jr_int(&r, jr_int(&r, 15) + 1) + 1);
+        if (jr_int(&r, 7) != 0) n = 0;
+        for (int c = 0; c < n; ++c) {
+            if (recs && ri == nrec) return;
+            int xx = j1 * 16 + jr_int(&r, 16);
+            int yy = jr_int(&r, jr_int(&r, 120) + 8);
+            int zz = k1 * 16 + jr_int(&r, 16);
+            Q32 d0 = SHL(xx, 32), d1 = SHL(yy, 32), d2 = SHL(zz, 32);
+            int k = 1;
+            if (jr_int(&r, 4) == 0) {
+                i64 s = jr_long(&r);
+                float w = 1.0f + jr_float(&r) * 6.0f;
+                unsigned a = WANT();
+                if (a) {
+                    tg_touch = 0;
+                    cave_tunnel(s, d0, d1, d2, w, 0.0f, 0.0f, -1, -1, 1, a);
+                    crec_add(j1, k1, pass, ord);
                 }
+                ord++;
+                k += jr_int(&r, 4);
             }
+            for (int l1 = 0; l1 < k; ++l1) {
+                float f = jr_float(&r) * 3.1415927f * 2.0f;
+                float f1 = (jr_float(&r) - 0.5f) * 2.0f / 8.0f;
+                float f2 = jr_float(&r) * 2.0f + jr_float(&r);
+                if (jr_int(&r, 10) == 0) {
+                    float a = jr_float(&r), b = jr_float(&r);
+                    f2 *= a * b * 3.0f + 1.0f;
+                }
+                i64 s = jr_long(&r);
+                unsigned a = WANT();
+                if (a) {
+                    tg_touch = 0;
+                    cave_tunnel(s, d0, d1, d2, f2, f, f1, 0, 0, 0, a);
+                    crec_add(j1, k1, pass, ord);
+                }
+                ord++;
+            }
+        }
+    } else if (jr_int(&r, 50) == 0) {
+        int xx = j1 * 16 + jr_int(&r, 16);
+        int yy = jr_int(&r, jr_int(&r, 40) + 8) + 20;
+        int zz = k1 * 16 + jr_int(&r, 16);
+        float f = jr_float(&r) * 3.1415927f * 2.0f;
+        float f1 = (jr_float(&r) - 0.5f) * 2.0f / 8.0f;
+        float f2 = (jr_float(&r) * 2.0f + jr_float(&r)) * 2.0f;
+        i64 s = jr_long(&r);
+        unsigned a = WANT();
+        if (a) {
+            tg_touch = 0;
+            canyon_tunnel(s, SHL(xx, 32), SHL(yy, 32), SHL(zz, 32), f2, f, f1, a);
+            crec_add(j1, k1, pass, ord);
+        }
+    }
+#undef WANT
+}
+
+/* targets of tgt (bits): set the reach region (union of their regions) */
+static void caves_region(unsigned tmask) {
+    int first = 1;
+    for (int ti = 0; ti < NTGT; ti++) {
+        if (!(tmask >> ti & 1)) continue;
+        const CaveCtx *c = tg[ti];
+        Q32 x0 = SHL(c->tcx * 16 + c->rx0, 32), x1 = SHL(c->tcx * 16 + c->rx1, 32);
+        Q32 z0 = SHL(c->tcz * 16 + c->rz0, 32), z1 = SHL(c->tcz * 16 + c->rz1, 32);
+        if (first || x0 < reg_x0) reg_x0 = x0;
+        if (first || x1 > reg_x1) reg_x1 = x1;
+        if (first || z0 < reg_z0) reg_z0 = z0;
+        if (first || z1 > reg_z1) reg_z1 = z1;
+        first = 0;
+    }
+}
+
+/* MapGenBase.a (caves, then canyons) for the targets tmask: every source chunk within 8 chunks
+ * of a target, in Java's order (x outer, z inner), each walked for the targets in its range */
+static void caves_run(unsigned tmask) {
+    int x0 = 1 << 30, x1 = -(1 << 30), z0 = 1 << 30, z1 = -(1 << 30);
+    for (int ti = 0; ti < NTGT; ti++) {
+        if (!(tmask >> ti & 1)) continue;
+        tg_cx[ti] = SHL(tg[ti]->tcx * 16 + 8, 32);
+        tg_cz[ti] = SHL(tg[ti]->tcz * 16 + 8, 32);
+        if (tg[ti]->tcx < x0) x0 = tg[ti]->tcx;
+        if (tg[ti]->tcx > x1) x1 = tg[ti]->tcx;
+        if (tg[ti]->tcz < z0) z0 = tg[ti]->tcz;
+        if (tg[ti]->tcz > z1) z1 = tg[ti]->tcz;
+    }
+    caves_region(tmask);
+    for (int pass = 0; pass < 2; pass++)
+        for (int j1 = x0 - 8; j1 <= x1 + 8; ++j1)
+            for (int k1 = z0 - 8; k1 <= z1 + 8; ++k1) {
+                unsigned act = 0;
+                for (int ti = 0; ti < NTGT; ti++)
+                    if ((tmask >> ti & 1) && j1 >= tg[ti]->tcx - 8 && j1 <= tg[ti]->tcx + 8 &&
+                        k1 >= tg[ti]->tcz - 8 && k1 <= tg[ti]->tcz + 8)
+                        act |= 1u << ti;
+                if (act) cave_source(j1, k1, pass, act, 0, 0);
+            }
+}
+
+/* the same from the records (targets must be among the 9 around crec_cx, crec_cz) */
+static void caves_replay(unsigned tmask) {
+    for (int ti = 0; ti < NTGT; ti++) {
+        if (!(tmask >> ti & 1)) continue;
+        tg_cx[ti] = SHL(tg[ti]->tcx * 16 + 8, 32);
+        tg_cz[ti] = SHL(tg[ti]->tcz * 16 + 8, 32);
+    }
+    caves_region(tmask);
+    for (int i = 0; i < ncrec;) {
+        int j = i;
+        unsigned any = 0;
+        while (j < ncrec && crec[j].sx == crec[i].sx && crec[j].sz == crec[i].sz && crec[j].pass == crec[i].pass)
+            any |= crec[j++].mask;
+        if (any & tmask) cave_source(crec_cx + crec[i].sx, crec_cz + crec[i].sz, crec[i].pass, tmask, crec + i, j - i);
+        i = j;
     }
 }
 
@@ -2791,36 +2993,39 @@ static void cave_query(int x0, int y0, int z0, int x1, int y1, int z1) {
         return;
     }
     memset(U.p.qmask, 0, sizeof U.p.qmask);
-    CaveCtx ctx;
-    memset(&ctx, 0, sizeof ctx);
-    ctx.mode = CAVE_MASK;
-    ctx.bx0 = x0;
-    ctx.bx1 = x1;
-    ctx.by0 = y0;
-    ctx.by1 = y1;
-    ctx.bz0 = z0;
-    ctx.bz1 = z1;
-    ctx.mask = U.p.qmask;
+    CaveCtx ctx[4];
+    unsigned tmask = 0;
+    int n = 0;
     for (int tcz = z0 >> 4; tcz <= (z1 - 1) >> 4; tcz++)
         for (int tcx = x0 >> 4; tcx <= (x1 - 1) >> 4; tcx++) {
             int dx = tcx - nb_cx + 1, dz = tcz - nb_cz + 1;
-            if (dx < 0 || dx > 2 || dz < 0 || dz > 2) continue;
-            ctx.tcx = tcx;
-            ctx.tcz = tcz;
-            ctx.sum = nb[dz][dx]->s;
-            ctx.rx0 = x0 - tcx * 16;
-            if (ctx.rx0 < 0) ctx.rx0 = 0;
-            ctx.rx1 = x1 - tcx * 16;
-            if (ctx.rx1 > 16) ctx.rx1 = 16;
-            ctx.rz0 = z0 - tcz * 16;
-            if (ctx.rz0 < 0) ctx.rz0 = 0;
-            ctx.rz1 = z1 - tcz * 16;
-            if (ctx.rz1 > 16) ctx.rz1 = 16;
-            ctx.ry0 = y0;
-            ctx.ry1 = y1;
-            cv = &ctx;
-            caves_run();
+            if (dx < 0 || dx > 2 || dz < 0 || dz > 2 || n == 4) continue;
+            CaveCtx *c = &ctx[n++];
+            memset(c, 0, sizeof *c);
+            c->mode = CAVE_MASK;
+            c->bx0 = x0;
+            c->bx1 = x1;
+            c->by0 = y0;
+            c->by1 = y1;
+            c->bz0 = z0;
+            c->bz1 = z1;
+            c->mask = U.p.qmask;
+            c->tcx = tcx;
+            c->tcz = tcz;
+            c->sum = nb[dz][dx]->s;
+            c->rx0 = x0 - tcx * 16 < 0 ? 0 : x0 - tcx * 16;
+            c->rx1 = x1 - tcx * 16 > 16 ? 16 : x1 - tcx * 16;
+            c->rz0 = z0 - tcz * 16 < 0 ? 0 : z0 - tcz * 16;
+            c->rz1 = z1 - tcz * 16 > 16 ? 16 : z1 - tcz * 16;
+            c->ry0 = y0;
+            c->ry1 = y1;
+            tg[dz * 3 + dx] = c;
+            tmask |= 1u << (dz * 3 + dx);
         }
+    if (tmask) {
+        if (crec_ok && crec_cx == nb_cx && crec_cz == nb_cz) caves_replay(tmask);
+        else caves_run(tmask);
+    }
     v->qon = 1;
     v->qx0 = x0;
     v->qx1 = x1;
@@ -4680,6 +4885,39 @@ void gen_init(int64_t seed) {
     last_cx = bc_cx = 0x7fffffff;
 }
 
+/* Caves and ravines of chunk (cx, cz) into out, recording the tunnels near the 3x3 chunks
+ * around it for the populations' cave queries (one walk for all) */
+#if defined(__GNUC__)
+__attribute__((noinline))
+#endif
+static void slab_caves(int cx, int cz, const ColSum *sum, uint8_t *out, int y0, int h) {
+    CaveCtx ctx[NTGT];
+    memset(ctx, 0, sizeof ctx);
+    for (int ti = 0; ti < NTGT; ti++) {
+        CaveCtx *c = &ctx[ti];
+        c->mode = ti == 4 ? CAVE_OUT : CAVE_REC;
+        c->tcx = cx + ti % 3 - 1;
+        c->tcz = cz + ti / 3 - 1;
+        c->rx1 = 16;
+        c->rz1 = 16;
+        c->ry1 = 256;
+        tg[ti] = c;
+    }
+    ctx[4].sum = sum;
+    ctx[4].out = out;
+    ctx[4].y0 = y0;
+    ctx[4].h = h;
+    ncrec = 0;
+    crec_ok = 1;
+    crec_cx = cx;
+    crec_cz = cz;
+    crec_on = 1;
+    cave_track_on = 1;
+    caves_run(0x1ff);
+    cave_track_on = 0;
+    crec_on = 0;
+}
+
 void gen_slab(int cx, int cz, int y0, int h, uint8_t *out) {
     if (y0 < 0) {
         h += y0;
@@ -4707,22 +4945,7 @@ void gen_slab(int cx, int cz, int y0, int h, uint8_t *out) {
     }
     nb[1][1] = e;
     /* caves and ravines */
-    CaveCtx ctx;
-    memset(&ctx, 0, sizeof ctx);
-    ctx.mode = CAVE_OUT;
-    ctx.tcx = cx;
-    ctx.tcz = cz;
-    ctx.sum = e->s;
-    ctx.out = out;
-    ctx.y0 = y0;
-    ctx.h = h;
-    ctx.rx1 = 16;
-    ctx.rz1 = 16;
-    ctx.ry1 = 256;
-    cv = &ctx;
-    cave_track_on = 1;
-    caves_run();
-    cave_track_on = 0;
+    slab_caves(cx, cz, e->s, out, y0, h);
     /* the 3x3 summaries */
     for (int dz = -1; dz <= 1; dz++)
         for (int dx = -1; dx <= 1; dx++) {

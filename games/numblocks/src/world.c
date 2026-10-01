@@ -101,9 +101,13 @@ static void mac_box(int x0, int y0, int z0, int x1, int y1, int z1) {
 /* ---------------------------------------------------------------- filling */
 /* the chunk (cx, cz) for the cache cells not already filled: x, z in the cache
  * box [nx0, nx1) x [nz0, nz1) (world), every y of the cache */
-static void fill_chunk(int cx, int cz, const bool *keep, int ox, int oy, int oz) {
-  gen_slab(cx, cz, vc_y0, VCY, slab);
-  edits_apply(cx, cz, vc_y0, VCY, slab);
+/* the chunk (cx, cz), rows [ylo, yhi) of the cache, for the columns of the
+ * cache inside it; columns the old cache had (keep) keep the rows it had
+ * (old bottom oy) */
+static void fill_chunk(int cx, int cz, const bool *keep, int oy, int ylo, int yhi) {
+  int h = yhi - ylo;
+  gen_slab(cx, cz, vc_y0 + ylo, h, slab);
+  edits_apply(cx, cz, vc_y0 + ylo, h, slab);
   for (int z = 0; z < 16; z++) {
     int lz = cz * 16 + z - vc_z0;
     if (lz < 0 || lz >= VCZ) continue;
@@ -112,10 +116,10 @@ static void fill_chunk(int cx, int cz, const bool *keep, int ox, int oy, int oz)
       if (lx < 0 || lx >= VCX) continue;
       int col = lz * VCX + lx;
       bool old_col = keep && keep[col];
-      for (int y = 0; y < VCY; y++) {
+      for (int y = ylo; y < yhi; y++) {
         /* cells the old cache had are kept (their content is the same) */
         if (old_col && y + vc_y0 - oy >= 0 && y + vc_y0 - oy < VCY) continue;
-        vc[VC_I(lx, y, lz)] = slab[(y * 16 + z) * 16 + x];
+        vc[VC_I(lx, y, lz)] = slab[((y - ylo) * 16 + z) * 16 + x];
       }
       if (!old_col) {
         vbiome[col] = (uint8_t)gen_biome(cx * 16 + x, cz * 16 + z);
@@ -124,14 +128,32 @@ static void fill_chunk(int cx, int cz, const bool *keep, int ox, int oy, int oz)
       }
     }
   }
-  (void)ox;
-  (void)oz;
 }
 
 static bool kept[VCZ * VCX];   /* columns the old cache covered (moved, not generated) */
 
-static void recenter(int nx0, int ny0, int nz0) {
+/* Chunks still to generate after a move: the one under the player is made
+ * at once, the others one a frame (world_follow), nearest first. Until then
+ * their columns are air to look at and solid to everything that moves. */
+static uint8_t vpend[VCZ * VCX];
+typedef struct { int16_t cx, cz; int8_t ylo, yhi; } PendChunk;
+static PendChunk pend[16];
+static int npend, pend_oy;
+static bool pend_any;
+
+static void fill_pending(int k) {
+  PendChunk p = pend[k];
+  pend[k] = pend[--npend];
+  fill_chunk(p.cx, p.cz, pend_any ? kept : NULL, pend_oy, p.ylo, p.yhi);
+  int x0 = p.cx * 16 - vc_x0, z0 = p.cz * 16 - vc_z0;
+  for (int z = z0 < 0 ? 0 : z0; z < z0 + 16 && z < VCZ; z++)
+    for (int x = x0 < 0 ? 0 : x0; x < x0 + 16 && x < VCX; x++) vpend[z * VCX + x] = 0;
+}
+
+static void recenter(int nx0, int ny0, int nz0, int px, int pz) {
   edits_forget();
+  bool was_valid = vc_valid;
+  while (npend) fill_pending(0);   /* (a move before the last one finished: finish it first) */
   int dx = nx0 - vc_x0, dy = ny0 - vc_y0, dz = nz0 - vc_z0;
   bool any = vc_valid && dx > -VCX && dx < VCX && dz > -VCZ && dz < VCZ && dy > -VCY && dy < VCY;
   /* move what stays: in an order that never overwrites a cell before it is read */
@@ -161,16 +183,41 @@ static void recenter(int nx0, int ny0, int nz0) {
   vc_x0 = nx0;
   vc_y0 = ny0;
   vc_z0 = nz0;
+  pend_oy = any ? oy : vc_y0 + 100000;
+  pend_any = any;
   for (int cz = floordiv(nz0, 16); cz <= floordiv(nz0 + VCZ - 1, 16); cz++)
     for (int cx = floordiv(nx0, 16); cx <= floordiv(nx0 + VCX - 1, 16); cx++) {
-      /* skip chunks the old cache covered entirely */
-      bool need = !any || dy != 0;
-      for (int z = 0; z < 16 && !need; z++)
-        for (int x = 0; x < 16 && !need; x++) {
+      /* what this chunk needs: new columns (every row), or only the new rows */
+      bool cols = !any;
+      for (int z = 0; z < 16 && !cols; z++)
+        for (int x = 0; x < 16 && !cols; x++) {
           int lx = cx * 16 + x - vc_x0, lz = cz * 16 + z - vc_z0;
-          if (lx >= 0 && lx < VCX && lz >= 0 && lz < VCZ && !kept[lz * VCX + lx]) need = true;
+          if (lx >= 0 && lx < VCX && lz >= 0 && lz < VCZ && !kept[lz * VCX + lx]) cols = true;
         }
-      if (need) fill_chunk(cx, cz, any ? kept : NULL, 0, any ? oy : vc_y0 + 100000, 0);
+      int ylo = 0, yhi = VCY;
+      if (!cols) {
+        if (dy == 0) continue;
+        if (dy > 0) ylo = VCY - dy;
+        else yhi = -dy;
+      }
+      /* the player's chunk (and any within 3 blocks of the player), or a first fill: now */
+      bool near = px >= cx * 16 - 3 && px < cx * 16 + 19 && pz >= cz * 16 - 3 && pz < cz * 16 + 19;
+      if (!was_valid || near || npend >= 16) {
+        fill_chunk(cx, cz, any ? kept : NULL, pend_oy, ylo, yhi);
+        continue;
+      }
+      pend[npend++] = (PendChunk){(int16_t)cx, (int16_t)cz, (int8_t)ylo, (int8_t)yhi};
+      for (int z = 0; z < 16; z++)
+        for (int x = 0; x < 16; x++) {
+          int lx = cx * 16 + x - vc_x0, lz = cz * 16 + z - vc_z0;
+          if (lx < 0 || lx >= VCX || lz < 0 || lz >= VCZ) continue;
+          int col = lz * VCX + lx;
+          vpend[col] = 1;
+          bool old_col = any && kept[col];
+          for (int y = ylo; y < yhi; y++)
+            if (!(old_col && y + vc_y0 - oy >= 0 && y + vc_y0 - oy < VCY)) vc[VC_I(lx, y, lz)] = B_AIR;
+          if (!old_col) vtop[col] = 0, vbiome[col] = 1;
+        }
     }
   vc_valid = true;
   light_box(0, 0, 0, VCX, VCY, VCZ);
@@ -182,19 +229,38 @@ void world_new(int64_t seed, const char *name) {
   edits_setup(name, slab32, sizeof slab32 / 4);
   edits_clear();
   vc_valid = false;
+  npend = 0;
+  memset(vpend, 0, sizeof vpend);
 }
 
 void world_follow(float x, float y, float z) {
   int px = ifloor(x), py = ifloor(y), pz = ifloor(z);
   int lx = px - vc_x0, ly = py - vc_y0, lz = pz - vc_z0;
-  if (vc_valid && lx >= 12 && lx < VCX - 12 && lz >= 12 && lz < VCZ - 12 && ly >= 8 && ly < VCY - 8) return;
-  int nx0 = (px - VCX / 2) & ~7, nz0 = (pz - VCZ / 2) & ~7;
-  int ny0 = (py - VCY / 2 + 2) & ~3;
-  if (ny0 < 0) ny0 = 0;
-  if (ny0 > WORLD_H - VCY) ny0 = WORLD_H - VCY;
-  if (vc_valid && nx0 == vc_x0 && ny0 == vc_y0 && nz0 == vc_z0) return;
-  recenter(nx0, ny0, nz0);
+  if (!(vc_valid && lx >= 12 && lx < VCX - 12 && lz >= 12 && lz < VCZ - 12 && ly >= 8 && ly < VCY - 8)) {
+    int nx0 = (px - VCX / 2) & ~7, nz0 = (pz - VCZ / 2) & ~7;
+    int ny0 = (py - VCY / 2 + 2) & ~3;
+    if (ny0 < 0) ny0 = 0;
+    if (ny0 > WORLD_H - VCY) ny0 = WORLD_H - VCY;
+    if (!vc_valid || nx0 != vc_x0 || ny0 != vc_y0 || nz0 != vc_z0) {
+      recenter(nx0, ny0, nz0, px, pz);
+      return;
+    }
+  }
+  if (npend) {
+    /* one waiting chunk a frame, the nearest first; then its light and empty regions */
+    int best = 0, bd = 1 << 30;
+    for (int k = 0; k < npend; k++) {
+      int ddx = pend[k].cx * 16 + 8 - px, ddz = pend[k].cz * 16 + 8 - pz, d = ddx * ddx + ddz * ddz;
+      if (d < bd) bd = d, best = k;
+    }
+    int x0 = pend[best].cx * 16 - vc_x0, z0 = pend[best].cz * 16 - vc_z0;
+    fill_pending(best);
+    light_box(x0 - 4, 0, z0 - 4, x0 + 20, VCY, z0 + 20);
+    mac_box(x0 < 0 ? 0 : x0, 0, z0 < 0 ? 0 : z0, x0 + 16 > VCX ? VCX : x0 + 16, VCY, z0 + 16 > VCZ ? VCZ : z0 + 16);
+  }
 }
+
+bool world_pending(void) { return npend > 0; }
 
 bool world_loaded(int x, int y, int z) {
   return (unsigned)(x - vc_x0) < VCX && (unsigned)(y - vc_y0) < VCY && (unsigned)(z - vc_z0) < VCZ;
@@ -203,11 +269,13 @@ bool world_loaded(int x, int y, int z) {
 int world_get(int x, int y, int z) {
   if (y < 0) return B_BEDROCK;
   if (!world_loaded(x, y, z)) return B_AIR;
+  if (vpend[(z - vc_z0) * VCX + x - vc_x0]) return B_STONE;   /* not made yet: nothing goes in */
   return vc[VC_I(x - vc_x0, y - vc_y0, z - vc_z0)];
 }
 
 void world_set(int x, int y, int z, int b) {
   if (!world_loaded(x, y, z) || y < 0 || y >= WORLD_H) return;
+  if (vpend[(z - vc_z0) * VCX + x - vc_x0]) return;
   int lx = x - vc_x0, ly = y - vc_y0, lz = z - vc_z0;
   vc[VC_I(lx, ly, lz)] = (uint8_t)b;
   edits_put(x, y, z, b);

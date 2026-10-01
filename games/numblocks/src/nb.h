@@ -84,6 +84,7 @@ void world_follow(float x, float y, float z);   /* keeps the cache around (x, y,
 int world_get(int x, int y, int z);            /* B_AIR outside the cache, B_BEDROCK below 0 */
 void world_set(int x, int y, int z, int b);     /* a player's change: kept in the edit log */
 bool world_loaded(int x, int y, int z);
+bool world_pending(void);                       /* chunks still being made after a move */
 
 /* ---------------------------------------------------------------- items (inv.c) */
 typedef struct { uint16_t id, aux; } Stack;   /* aux: how many; for tools and armour, their damage (one) */

@@ -39,6 +39,8 @@ static float sun_a;                     /* how much of the sun or moon shows (ra
 static bool night;
 static int under_water;
 static int cam_x, cam_y, cam_z, cam_i, cam_b;   /* the camera's cell, its index (-1 outside the cache), its block */
+static int cam_mi, cam_liq;      /* its region, the liquid it is in (liquid[], 255: none) */
+static float cam_fr[3][2];       /* from the eye to its cell's sides: [axis][0 low side, 1 high] */
 
 static const float TAN_V = 0.70020754f;   /* 70 degree vertical field of view */
 #define TAN_H (TAN_V * (float)RW / (float)RH)
@@ -522,29 +524,29 @@ static uint16_t trace(float dx, float dy, float dz) {
   ST(st_pixels++);
   float len = sqrtf(dx * dx + dy * dy + dz * dz);
   int x = cam_x, y = cam_y, z = cam_z;
-  int sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1, sz = dz > 0 ? 1 : -1;
+  int bx = dx > 0, by = dy > 0, bz = dz > 0, sx = 2 * bx - 1, sy = 2 * by - 1, sz = 2 * bz - 1;
   /* signed inverses: the ray reaches plane x = X at t = (X - ox) * ivx */
   /* (a 0 component steps the negative way: its inverse must be "minus infinity", or the
    * boundaries behind the camera would come first) */
   float ivx = dx != 0 ? 1 / dx : -1e9f, ivy = dy != 0 ? 1 / dy : -1e9f, ivz = dz != 0 ? 1 / dz : -1e9f;
   float idx = fabsf(ivx), idy = fabsf(ivy), idz = fabsf(ivz);
-  int bx = dx > 0, by = dy > 0, bz = dz > 0;
-  float tx = (x + bx - ox) * ivx, ty = (y + by - oy) * ivy, tz = (z + bz - oz) * ivz;
+  float tx = cam_fr[0][bx] * ivx, ty = cam_fr[1][by] * ivy, tz = cam_fr[2][bz] * ivz;
   float tmax = MAX_T / len, t = 0;
   if (cam_i < 0) return hit_kind = 2, sky(dx, dy, dz, len);
   int i = cam_i;
-  Ray R = {dx, dy, dz, len, ivx, ivy, ivz, 0, 0, 0, 0, cam_b};   /* (in the block the camera is in: water...) */
+  Ray R;   /* (in the block the camera is in: water...) */
+  R.dx = dx, R.dy = dy, R.dz = dz, R.len = len, R.ivx = ivx, R.ivy = ivy, R.ivz = ivz, R.wa = 0, R.inside = cam_b;
   /* steps through the cache and its regions (mi: the region of cell i) along each axis; a
    * step into a region's first cell (ex0...) checks the region */
-  const int ex0 = sx > 0 ? 0 : 3, ey0 = sy > 0 ? 0 : 3, ez0 = sz > 0 ? 0 : 3;
-  const int fx = sx > 0 ? 4 : 5, fy = sy > 0 ? 0 : 1, fz = sz > 0 ? 2 : 3;
+  const int ex0 = 3 - 3 * bx, ey0 = 3 - 3 * by, ez0 = 3 - 3 * bz;
+  const int fx = 5 - bx, fy = 1 - by, fz = 3 - bz;
   const int iy = sy * VCX * VCZ, iz = sz * VCX, my = sy * MCZ * MCX, mz = sz * MCX;
-  int mi = MC_I(x, y, z);
+  int mi = cam_mi;
   /* the face a cell was entered through is the axis crossed last (the latest of the sides
    * behind), except where the ray starts (-1) or comes out of a jump (jf, at t = tj) */
   float tj = 0;
   int jf = -1;
-  int in_liq = liquid[R.inside] ? liquid[R.inside] : 255;   /* (the liquid the ray is in: cells of it are skipped) */
+  int in_liq = cam_liq;   /* (the liquid the ray is in: cells of it are skipped) */
   if (trace_top >= 0 && dy < 0) {
     /* start where the ray comes down through plane y = trace_top, in through the top of the cell below */
     float t0 = (trace_top - oy) * ivy;
@@ -1992,6 +1994,10 @@ void render_frame(const Camera *c, uint32_t tod) {
   cam_x = (int)floorf(ox), cam_y = (int)floorf(oy), cam_z = (int)floorf(oz);
   cam_i = (unsigned)cam_x < VCX && (unsigned)cam_y < VCY && (unsigned)cam_z < VCZ ? VC_I(cam_x, cam_y, cam_z) : -1;
   cam_b = cam_i < 0 ? B_AIR : vc[cam_i];
+  cam_mi = cam_i < 0 ? 0 : MC_I(cam_x, cam_y, cam_z);
+  cam_fr[0][0] = cam_x - ox, cam_fr[0][1] = cam_x + 1 - ox;
+  cam_fr[1][0] = cam_y - oy, cam_fr[1][1] = cam_y + 1 - oy;
+  cam_fr[2][0] = cam_z - oz, cam_fr[2][1] = cam_z + 1 - oz;
   under_water = is_water(cam_b);
   if (under_water) {
     fog_r = 10, fog_g = 30, fog_b = 110;
@@ -2030,6 +2036,7 @@ void render_frame(const Camera *c, uint32_t tod) {
   for (int px = 0; px <= RW; px++) col_su[px] = (2 * (px + 0.5f) / RW - 1) * TAN_H;
   static bool tops;
   if (!tops) shape_tops(), tops = true;
+  cam_liq = liquid[cam_b] ? liquid[cam_b] : 255;
   bool fast_sky = sky_fast();
   for (int k = 0; k <= 128; k++) {
     uint32_t gc = sky_grad[k];

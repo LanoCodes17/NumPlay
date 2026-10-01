@@ -300,6 +300,7 @@ static void hurt(Entity *e, float dmg, float kx, float kz) {
     if (e->vy > 0.4f) e->vy = 0.4f;
   }
   if (!hostile(e->type)) e->panic = 100;
+  else if (kx != 0 || kz != 0) e->panic = e->panic > 100 ? e->panic : 100;   /* EntityAIHurtByTarget */
   if (e->type == E_SPIDER) e->panic = 600;   /* a hit spider fights back, even by day */
   if (e->health <= 0) {
     e->state = 255;
@@ -584,6 +585,115 @@ static void tnt_tick(Entity *e) {
 }
 
 /* ---------------------------------------------------------------- a tick */
+/* ---------------------------------------------------------------- finding the way */
+/* EntitySenses.canSee: nothing opaque between its eyes and the player's */
+static bool sees(const Entity *e) {
+  float x = e->x, y = e->y + info[e->type].h * 0.85f, z = e->z;
+  float dx = pl.x - x, dy = pl.y + 1.62f - y, dz = pl.z - z, d = sqrtf(dx * dx + dy * dy + dz * dz);
+  int n = (int)(d / 0.4f);
+  for (int k = 1; k < n; k++) {
+    float t = (float)k / n;
+    if (blk_flags[world_get(ifl(x + dx * t), ifl(y + dy * t), ifl(z + dz * t))] & BF_OPAQUE) return false;
+  }
+  return true;
+}
+/* where a mob as tall as h can stand, going from height y onto the column (x, z): up a step, level,
+ * or down up to three (PathFinder.getSafePoint); -1: nowhere */
+static bool clear(int b) { return !(blk_flags[b] & BF_SOLID) && !is_lava(b) && b != B_FIRE && b != B_CACTUS; }
+static int stand_at(int x, int y, int z, int tall) {
+  for (int k = 0; k < 5; k++) {
+    int ny = k == 0 ? y + 1 : y - k + 1;
+    int below = world_get(x, ny - 1, z);
+    bool water = is_water(world_get(x, ny, z));
+    if (!clear(world_get(x, ny, z)) || (tall && !clear(world_get(x, ny + 1, z)))) {
+      if (k > 1) return -1;   /* (going down: something in the way) */
+      continue;
+    }
+    if (k == 0 && !clear(world_get(x, y + 1 + tall, z))) continue;   /* (no room over its head to step up) */
+    if (water || ((blk_flags[below] & BF_SOLID) && blk_model[below] != M_FENCE && !is_lava(below) && below != B_CACTUS))
+      return ny;
+  }
+  return -1;
+}
+/* PathFinder: the way to its goal over the blocks about it (A*, four ways from each); the nearest it can
+ * get if it cannot get there. It steers to the end of the way's first straight */
+#define PG 32
+typedef struct { uint8_t y, g, from; } PNode;   /* from: the way it came (4: the start), +8 done */
+static void find_way(Entity *e, float h) {
+  PNode *n = (PNode *)world_scratch(PG * PG * sizeof(PNode) + PG * PG * 2);
+  if (!n) return;
+  uint16_t *heap = (uint16_t *)(n + PG * PG);
+  memset(n, 0, PG * PG * sizeof(PNode));
+  int x0 = ifl(e->x) - PG / 2, z0 = ifl(e->z) - PG / 2, tall = h > 1;
+  int tx = e->tx - x0, tz = e->tz - z0;
+  tx = tx < 0 ? 0 : tx >= PG ? PG - 1 : tx, tz = tz < 0 ? 0 : tz >= PG ? PG - 1 : tz;
+  int s = PG / 2 * PG + PG / 2, nh = 0, best = s, bestd = 1 << 20;
+  n[s].y = (uint8_t)ifl(e->y + 0.01f), n[s].from = 4;
+  heap[nh++] = (uint16_t)s;
+  static const int8_t DX[4] = {1, -1, 0, 0}, DZ[4] = {0, 0, 1, -1};
+  #define F(i) (n[i].g + abs((i) % PG - tx) + abs((i) / PG - tz))
+  for (int done = 0; nh && done < 300;) {
+    /* the open one nearest by its cost and what is left (a heap) */
+    int c = heap[0];
+    heap[0] = heap[--nh];
+    for (int i = 0;;) {
+      int l = 2 * i + 1, r = l + 1, m = i;
+      if (l < nh && F(heap[l]) < F(heap[m])) m = l;
+      if (r < nh && F(heap[r]) < F(heap[m])) m = r;
+      if (m == i) break;
+      uint16_t t = heap[i];
+      heap[i] = heap[m], heap[m] = t, i = m;
+    }
+    if (n[c].from & 8) continue;
+    n[c].from |= 8, done++;
+    int cx = c % PG, cz = c / PG, d = abs(cx - tx) + abs(cz - tz);
+    if (d < bestd) bestd = d, best = c;
+    if (!d) break;
+    for (int k = 0; k < 4; k++) {
+      int nx = cx + DX[k], nz = cz + DZ[k];
+      if (nx < 0 || nx >= PG || nz < 0 || nz >= PG) continue;
+      int i = nz * PG + nx;
+      if (n[i].from & 8) continue;
+      int ny = stand_at(x0 + nx, n[c].y, z0 + nz, tall);
+      if (ny < 1 || ny > 255) continue;
+      int g = n[c].g + 1 + is_water(world_get(x0 + nx, ny, z0 + nz));
+      if (g > 250 || (n[i].y && n[i].g <= g)) continue;
+      n[i].y = (uint8_t)ny, n[i].g = (uint8_t)g, n[i].from = (uint8_t)k;
+      if (nh < PG * PG) {
+        int j = nh++;
+        heap[j] = (uint16_t)i;
+        while (j && F(heap[(j - 1) / 2]) > F(heap[j])) {
+          uint16_t t = heap[j];
+          heap[j] = heap[(j - 1) / 2], heap[(j - 1) / 2] = t, j = (j - 1) / 2;
+        }
+      }
+    }
+  }
+  #undef F
+  /* the way, from its end back to the start (in the heap's room); then from the start, as far as its
+   * first straight goes */
+  int len = 0;
+  for (int c = best; c != s && len < PG * PG; c = (c % PG - DX[n[c].from & 7]) + (c / PG - DZ[n[c].from & 7]) * PG)
+    heap[len++] = (uint16_t)c;
+  if (!len) {
+    e->gx = e->x, e->gz = e->z;
+    return;
+  }
+  int k0 = n[heap[len - 1]].from & 7, end = len - 1;
+  while (end > 0 && (n[heap[end - 1]].from & 7) == k0) end--;
+  e->gx = x0 + heap[end] % PG + 0.5f, e->gz = z0 + heap[end] / PG + 0.5f;
+}
+/* RandomPositionGenerator.findRandomTarget: of ten places within 10 blocks, the one it likes best */
+static void wander_to(Entity *e) {
+  int best = -1000;
+  for (int k = 0; k < 10; k++) {
+    int x = ifl(e->x) + rnd(21) - 10, z = ifl(e->z) + rnd(21) - 10, y = ifl(e->y) + rnd(7) - 3;
+    if (!world_loaded(x, y, z)) continue;
+    int w = hostile(e->type) ? -light_there(x, y, z) : world_get(x, y - 1, z) == B_GRASS ? 10 : light_there(x, y, z) - 8;
+    if (w > best) best = w, e->tx = (int16_t)x, e->tz = (int16_t)z;
+  }
+}
+
 static float wrap(float a) {
   while (a > 180) a -= 360;
   while (a < -180) a += 360;
@@ -636,7 +746,8 @@ void mob_tick(Entity *e) {
   }
   if (e->panic > 0) e->panic--;
   if (e->growth < 0) e->growth++;
-  if (e->timer > 0 && !hostile(e->type) && e->state != 255) e->timer--;   /* (animals: time before breeding again) */
+  /* (animals: the time before breeding again; in love, how long it has been by its mate) */
+  if (e->timer > 0 && !hostile(e->type) && e->state != 255 && !e->love) e->timer--;
   if (e->love > 0) {
     e->love--;
     /* EntityAIMate: to the nearest other one in love; close together for 3 seconds: a baby */
@@ -646,10 +757,10 @@ void mob_tick(Entity *e) {
       float mx = o->x - e->x, mz = o->z - e->z;
       if (mx * mx + mz * mz > 64) continue;
       e->gx = o->x, e->gz = o->z;
-      if (mx * mx + mz * mz < 2.5f && ++e->item.aux >= 60) {
+      if (mx * mx + mz * mz < 2.5f && ++e->timer >= 60) {
         Entity *b = spawn(e->type, e->x, e->y, e->z);
         if (b) b->growth = -24000;
-        e->love = o->love = 0, e->item.aux = o->item.aux = 0;
+        e->love = o->love = 0;
         e->timer = o->timer = 6000;
         player_add_xp(1 + rnd(7));
       }
@@ -657,17 +768,27 @@ void mob_tick(Entity *e) {
     }
   }
   if (e->delay > 0 && e->type != E_CREEPER) e->delay--;
-  /* where to go */
-  bool chase = false, go = false;
+  /* what it wants (EntityAITasks, by priority): a hostile mob the player it saw lately or that hit it;
+   * an animal running when hit, going to its mate, after the food in the player's hand; then looking
+   * about and wandering */
+  bool chase = false, go = false, look = false;
   float speed = mi->speed;
-  if (e->state != 255 && hostile(e->type) && opt.difficulty > 0 && !pl.dead && pl.mode == 0 && dist < 16) {
-    chase = e->type != E_SPIDER || e->panic > 0 || light_there(bx, by + 1, bz) < 8 || !daylight();
+  if (e->state != 255 && hostile(e->type)) {
+    bool can = opt.difficulty > 0 && !pl.dead && pl.mode == 0;
+    /* EntityAINearestAttackableTarget: seen within 16 (a spider only in the dark); EntityAITarget: kept
+     * while seen in the last 3 seconds, within 16 (zombies 35) */
+    bool dark = e->type != E_SPIDER || light_there(bx, by + 1, bz) < 8 || !daylight();
+    if (can && dist < 16 && (dark || e->panic > 60) && (ticks_run + (unsigned)(e - ents)) % 4 == 0 && sees(e))
+      e->panic = e->panic > 60 ? e->panic : 60;
+    chase = can && e->panic > 0 && dist < (e->type == E_ZOMBIE ? 35 : 16);
+    if (!can) e->panic = 0;
   }
   if (chase) {
-    e->gx = pl.x, e->gz = pl.z;
+    e->tx = (int16_t)ifl(pl.x), e->tz = (int16_t)ifl(pl.z);
     go = true;
-    if (e->type == E_SKELETON && dist < 10) go = false;
+    if (e->type == E_SKELETON && dist < 10 && sees(e)) go = false;   /* EntityAIArrowAttack: in range, it stands */
     if (e->type == E_CREEPER) {
+      /* EntityAICreeperSwell: within 3, it stops and swells; past 7, or out of sight, it lets go */
       if (dist < 3 && fabsf(dy) < 3) e->delay++, go = false;
       else if (e->delay > 0 && dist > 7) e->delay--;
       else if (e->delay > 0) e->delay++, go = dist > 2;
@@ -679,42 +800,65 @@ void mob_tick(Entity *e) {
     }
   } else if (e->state != 255) {
     if (e->type == E_CREEPER && e->delay > 0) e->delay--;
+    int food = food_of(e->type);
     if (e->panic > 0 && !hostile(e->type)) {
-      /* EntityAIPanic: run somewhere, fast */
-      if (e->panic % 20 == 19 || (e->gx == e->x && e->gz == e->z)) e->gx = e->x + rnd(11) - 5, e->gz = e->z + rnd(11) - 5;
+      /* EntityAIPanic: somewhere within 5 blocks, fast, again and again */
+      if (e->panic % 20 == 19 || (ifl(e->x) == e->tx && ifl(e->z) == e->tz))
+        e->tx = (int16_t)(ifl(e->x) + rnd(11) - 5), e->tz = (int16_t)(ifl(e->z) + rnd(11) - 5);
       go = true;
       speed *= e->type == E_COW ? 2.0f : e->type == E_CHICKEN ? 1.4f : 1.25f;
+    } else if (e->love > 0 && e->gx != e->x) {
+      go = true;   /* (to its mate: set above) */
+      e->tx = (int16_t)ifl(e->gx), e->tz = (int16_t)ifl(e->gz);
+    } else if (food && held()->id == food && dist < 10 && !pl.dead) {
+      /* EntityAITempt: after the player holding its food, up to 2.5 blocks away, looking at them */
+      e->tx = (int16_t)ifl(pl.x), e->tz = (int16_t)ifl(pl.z);
+      go = dist > 2.5f, look = true;
     } else {
-      /* EntityAIWander: now and then, somewhere within 10 blocks (in love: to the other one) */
-      if (rnd(120) == 0 && !e->love) e->gx = e->x + rnd(21) - 10, e->gz = e->z + rnd(21) - 10;
-      float gx = e->gx - e->x, gz = e->gz - e->z;
-      go = gx * gx + gz * gz > 1;
+      /* EntityAIWander: one in 120 ticks somewhere within 10 blocks (RandomPositionGenerator: of ten
+       * tries, for an animal grass, for a monster the darkest); EntityAIWatchClosest: the player near */
+      if (rnd(120) == 0) wander_to(e);
+      int tx = e->tx - ifl(e->x), tz = e->tz - ifl(e->z);
+      go = tx * tx + tz * tz > 0;
+      look = !go && dist < 6 && !pl.dead;
     }
   }
   if (go) {
+    /* the way there, now and then or at each turn (PathNavigate): steer to its next turn */
     float gx = e->gx - e->x, gz = e->gz - e->z;
-    if (gx * gx + gz * gz < 0.04f) go = false;
-    else {
+    if ((ticks_run + (unsigned)(e - ents)) % 10 == 0 || gx * gx + gz * gz < 0.09f) find_way(e, mi->h);
+    gx = e->gx - e->x, gz = e->gz - e->z;
+    if (gx * gx + gz * gz < 0.04f) {
+      go = false;
+      if (!chase) e->tx = (int16_t)ifl(e->x), e->tz = (int16_t)ifl(e->z);   /* (there) */
+    } else {
       float want = atan2f(-gx, gz) * 57.29578f;
       float turn = wrap(want - e->yaw);
       if (turn > 30) turn = 30;
       if (turn < -30) turn = -30;
       e->yaw += turn;
-      /* do not walk off a cliff or into lava (unless chasing down a step) */
+      /* do not walk off a cliff or into lava or fire (the way avoids them; a push may not) */
       float yr = e->yaw * 0.017453292f;
       int ax = ifl(e->x - sinf(yr) * (mi->w / 2 + 0.4f)), az = ifl(e->z + cosf(yr) * (mi->w / 2 + 0.4f));
       bool ground = false;
-      for (int k = 1; k <= 3 && !ground; k++) ground = (blk_flags[world_get(ax, by - k + 1, az)] & BF_SOLID) != 0;
+      for (int k = 1; k <= 4 && !ground; k++) ground = (blk_flags[world_get(ax, by - k + 1, az)] & BF_SOLID) != 0;
       int ahead = world_get(ax, by, az);
       if ((!ground && !in_water) || is_lava(ahead) || ahead == B_FIRE) go = false, e->gx = e->x, e->gz = e->z;
     }
+  }
+  if (look && !chase) {
+    /* EntityLookHelper: turned towards the player, the head up or down to their eyes */
+    float turn = wrap(atan2f(-dx, dz) * 57.29578f - e->yaw);
+    e->yaw += turn > 10 ? 10 : turn < -10 ? -10 : turn;
+    e->pitch = -atan2f(dy + 1.62f - mi->h * 0.85f, dist) * 57.29578f;
   }
   if (chase) {
     float want = atan2f(-dx, dz) * 57.29578f;
     float turn = wrap(want - e->yaw);
     if (fabsf(turn) < 60) e->yaw += turn * 0.5f;
     e->pitch = -atan2f(dy + 1.0f - mi->h * 0.85f, dist) * 57.29578f;
-  } else e->pitch *= 0.8f;
+  } else if (!look)
+    e->pitch *= 0.8f;
   /* moving: EntityLivingBase.moveEntityWithHeading, the AI's speed twice (as forward and as friction) */
   float fwd = go && e->state != 255 ? speed : 0;
   float yr = e->yaw * 0.017453292f;

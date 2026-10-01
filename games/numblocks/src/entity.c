@@ -110,6 +110,8 @@ Entity *ent_new(int type, float x, float y, float z) {
   e->x = e->px = x;
   e->y = e->py = y;
   e->z = e->pz = z;
+  e->gx = x, e->gz = z;
+  if (type >= E_ZOMBIE && type <= E_CHICKEN) e->tx = (int16_t)floorf(x), e->tz = (int16_t)floorf(z);   /* (going nowhere yet) */
   return e;
 }
 

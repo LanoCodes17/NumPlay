@@ -176,11 +176,14 @@ typedef struct {
   float x, y, z, vx, vy, vz, yaw, pitch;
   float px, py, pz;       /* last tick's position */
   float limb, limb_amt;   /* the walk's swing */
-  float gx, gz;           /* where it is going */
+  float gx, gz;           /* where it steers now (the next turn of its way) */
   int16_t panic, fire;
   int16_t love, growth;   /* animals: in love (ticks), a baby's growing up (negative: ticks left) */
   uint8_t invuln, sheared;
-  Stack item;
+  union {
+    Stack item;                  /* an item, an arrow, TNT: what it is */
+    struct { int16_t tx, tz; };  /* a mob: where it is going in the end (a block) */
+  };
 } Entity;
 #define N_ENT 24
 extern Entity ents[N_ENT];

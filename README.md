@@ -30,11 +30,15 @@
   <img src="docs/media/launcher.gif" width="640" alt="The NumPlay launcher on a NumWorks calculator, scrolling through its games">
 </p>
 
+
+
 ## Go support the original games!
 
 NumPlay is a fan project, made out of love for these games and for the NumWorks calculator. It is not meant to replace any of them. If you enjoy a game here, go play the original and support the people who made it.
 
 NumWorks also has a great community of people making games by hand, some of them over years. Go try their work too: [Numcraft](https://github.com/yannis300307/NumcraftRust), [Celeste Classic](https://github.com/BenchatonDev/Celeste-Numworks), [Tatone26's All the Apps](https://github.com/Tatone26/Numworks-games), the apps on [Nwagyu](https://nwagyu.org/guide/) and many more in [yannis300307's list](https://gist.github.com/yannis300307/9123136f90877107ec0d49ba96b303e5).
+
+
 
 
 ## Download

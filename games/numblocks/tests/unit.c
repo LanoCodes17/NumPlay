@@ -291,6 +291,27 @@ int main(void) {
     CHECK(!pl.sprinting);
     plat_remove_prefix("ut8");
   }
+  {
+    /* the cache moving up a step at a time (new rows above the terrain are not generated, only
+     * aired) holds the same blocks and light as one made there at once */
+    static uint8_t a[VCY * VCZ * VCX], l[VCY * VCZ * VCX];
+    int ay = 0;
+    for (int k = 0; k < 2; k++) {
+      world_new(77, "ut9");
+      if (k == 0)
+        for (int y = 64; y < 100; y += 3) {
+          world_follow(8, (float)y, 8);
+          while (world_pending()) world_follow(8, (float)y, 8);
+        }
+      world_follow(8, 100, 8);
+      while (world_pending()) world_follow(8, 100, 8);
+      if (k == 0) memcpy(a, vc, sizeof a), memcpy(l, vl, sizeof l), ay = vc_y0;
+    }
+    CHECK(ay == vc_y0);
+    CHECK(!memcmp(a, vc, sizeof a));
+    CHECK(!memcmp(l, vl, sizeof l));
+    plat_remove_prefix("ut9");
+  }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;
 }

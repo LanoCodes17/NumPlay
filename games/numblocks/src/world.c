@@ -11,6 +11,7 @@ uint8_t vl[VCY * VCZ * VCX];
 uint8_t vbiome[VCZ * VCX];
 uint8_t vtop[VCZ * VCX];
 uint8_t vmac[MCY * MCZ * MCX];      /* per column: 1 + the highest block that stops sky light, 0 if none */
+static uint8_t vgtop[VCZ * VCX];    /* per column: the generator's highest block (not air) */
 int vc_x0, vc_y0, vc_z0;
 static bool vc_valid;
 
@@ -57,6 +58,18 @@ static void light_box(int x0, int y0, int z0, int x1, int y1, int z1) {
         if (y < y1) vl[i] = (uint8_t)(lvl | blk_light[b] << 4);
       }
     }
+  /* any block light here or at the edges? if not, only sky light spreads, and cells already at
+   * full sky light (most of the air) have nothing to gain */
+  bool blk = false;
+  for (int y = y0 > 0 ? y0 - 1 : 0; y < y1 + 1 && y < VCY && !blk; y++)
+    for (int z = z0 > 0 ? z0 - 1 : 0; z < z1 + 1 && z < VCZ && !blk; z++) {
+      const uint8_t *r = &vl[VC_I(0, y, z)];
+      for (int x = x0 > 0 ? x0 - 1 : 0; x < x1 + 1 && x < VCX; x++)
+        if (r[x] >> 4) {
+          blk = true;
+          break;
+        }
+    }
   for (int round = 0; round < 2; round++)
     for (int dir = 0; dir < 2; dir++) {
       int ys = dir ? y0 : y1 - 1, ye = dir ? y1 : y0 - 1, yi = dir ? 1 : -1;
@@ -65,9 +78,11 @@ static void light_box(int x0, int y0, int z0, int x1, int y1, int z1) {
       for (int y = ys; y != ye; y += yi)
         for (int z = zs; z != ze; z += zi)
           for (int x = xs; x != xe; x += xi) {
-            int i = VC_I(x, y, z), op = opacity(vc[i]);
+            int i = VC_I(x, y, z), cur = vl[i];
+            if ((cur & 15) == 15 && !blk) continue;
+            int op = opacity(vc[i]);
             if (op >= 15) continue;
-            int cur = vl[i], bs = cur & 15, bb = cur >> 4, dec = op ? op : 1;
+            int bs = cur & 15, bb = cur >> 4, dec = op ? op : 1;
             int n[6] = {x > 0 ? i - 1 : -1, x < VCX - 1 ? i + 1 : -1, z > 0 ? i - VCX : -1,
                         z < VCZ - 1 ? i + VCX : -1, y < VCY - 1 ? i + VCX * VCZ : -1, y > 0 ? i - VCX * VCZ : -1};
             for (int k = 0; k < 6; k++)
@@ -125,9 +140,10 @@ static void mac_box(int x0, int y0, int z0, int x1, int y1, int z1) {
 /* the chunk (cx, cz), rows [ylo, yhi) of the cache, for the columns of the
  * cache inside it; columns the old cache had (keep) keep the rows it had
  * (old bottom oy) */
-static void fill_chunk(int cx, int cz, const bool *keep, int oy, int ylo, int yhi) {
+static void fill_chunk(int cx, int cz, const bool *keep, int oy, int ylo, int yhi, bool air) {
   int h = yhi - ylo;
-  gen_slab(cx, cz, vc_y0 + ylo, h, slab);
+  if (air) memset(slab, B_AIR, (size_t)h * 256);   /* (rows above all it generates: only the edits) */
+  else gen_slab(cx, cz, vc_y0 + ylo, h, slab);
   edits_apply(cx, cz, vc_y0 + ylo, h, slab);
   for (int z = 0; z < 16; z++) {
     int lz = cz * 16 + z - vc_z0;
@@ -144,7 +160,8 @@ static void fill_chunk(int cx, int cz, const bool *keep, int oy, int ylo, int yh
       }
       if (!old_col) {
         vbiome[col] = (uint8_t)gen_biome(cx * 16 + x, cz * 16 + z);
-        int t = edits_top(cx * 16 + x, cz * 16 + z, gen_top(cx * 16 + x, cz * 16 + z) + 1);
+        int gt = gen_top(cx * 16 + x, cz * 16 + z), t = edits_top(cx * 16 + x, cz * 16 + z, gt + 1);
+        vgtop[col] = (uint8_t)gt;
         vtop[col] = (uint8_t)(t < 0 ? 0 : t > 255 ? 255 : t);
       }
     }
@@ -165,7 +182,7 @@ static bool pend_any;
 static void fill_pending(int k) {
   PendChunk p = pend[k];
   pend[k] = pend[--npend];
-  fill_chunk(p.cx, p.cz, pend_any ? kept : NULL, pend_oy, p.ylo, p.yhi);
+  fill_chunk(p.cx, p.cz, pend_any ? kept : NULL, pend_oy, p.ylo, p.yhi, false);
   int x0 = p.cx * 16 - vc_x0, z0 = p.cz * 16 - vc_z0;
   for (int z = z0 < 0 ? 0 : z0; z < z0 + 16 && z < VCZ; z++)
     for (int x = x0 < 0 ? 0 : x0; x < x0 + 16 && x < VCX; x++) vpend[z * VCX + x] = 0;
@@ -197,6 +214,7 @@ static void recenter(int nx0, int ny0, int nz0, int px, int pz) {
         if (in) {
           vbiome[z * VCX + x] = vbiome[sz * VCX + sx];
           vtop[z * VCX + x] = vtop[sz * VCX + sx];
+          vgtop[z * VCX + x] = vgtop[sz * VCX + sx];
         }
       }
   } else memset(kept, 0, sizeof kept);
@@ -216,15 +234,27 @@ static void recenter(int nx0, int ny0, int nz0, int px, int pz) {
           if (lx >= 0 && lx < VCX && lz >= 0 && lz < VCZ && !kept[lz * VCX + lx]) cols = true;
         }
       int ylo = 0, yhi = VCY;
+      bool air = false;
       if (!cols) {
         if (dy == 0) continue;
         if (dy > 0) ylo = VCY - dy;
         else yhi = -dy;
+        /* new rows above everything the generator put in these columns: air, at once (going up a
+         * hill moves the cache up, and making every chunk again for its top rows was slow) */
+        air = dy > 0;
+        for (int z = 0; z < 16 && air; z++)
+          for (int x = 0; x < 16; x++) {
+            int lx = cx * 16 + x - vc_x0, lz = cz * 16 + z - vc_z0;
+            if (lx >= 0 && lx < VCX && lz >= 0 && lz < VCZ && vgtop[lz * VCX + lx] >= vc_y0 + ylo) {
+              air = false;
+              break;
+            }
+          }
       }
       /* the player's chunk (and any within 3 blocks of the player), or a first fill: now */
       bool near = px >= cx * 16 - 3 && px < cx * 16 + 19 && pz >= cz * 16 - 3 && pz < cz * 16 + 19;
-      if (!was_valid || near || npend >= 16) {
-        fill_chunk(cx, cz, any ? kept : NULL, pend_oy, ylo, yhi);
+      if (!was_valid || near || air || npend >= 16) {
+        fill_chunk(cx, cz, any ? kept : NULL, pend_oy, ylo, yhi, air);
         continue;
       }
       pend[npend++] = (PendChunk){(int16_t)cx, (int16_t)cz, (int8_t)ylo, (int8_t)yhi};

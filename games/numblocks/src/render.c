@@ -64,10 +64,10 @@ static uint16_t tint_of(int b, int col) {
   switch (blk_flags[b] & BF_TINT) {
     case 1: return biome_grass[biome];
     case 2: return biome_foliage[biome];
-    case 3: return 0x630E;   /* spruce 0x619961 */
-    case 4: return 0x8434;   /* birch 0x80A755 */
+    case 3: return 0x64CC;   /* spruce 0x619961 */
+    case 4: return 0x852A;   /* birch 0x80A755 */
     case 5: return biome_water[biome];
-    case 6: return 0x2384;   /* lily pad 0x208030 */
+    case 6: return 0x2406;   /* lily pad 0x208030 */
   }
   return 0xFFFF;
 }

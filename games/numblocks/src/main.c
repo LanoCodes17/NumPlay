@@ -12,6 +12,7 @@ const uint32_t eadk_api_level __attribute__((section(".rodata.eadk_api_level")))
 uint32_t perf_frames __attribute__((used));   /* read by tools/emu.py */
 uint32_t game_time = 1000;                    /* Minecraft's time of day: 0 sunrise, 6000 noon */
 bool start_in_world;                          /* tests: straight into a new world */
+int64_t start_seed;                           /* (its seed) */
 
 static uint32_t last, acc, keys_held, autosave;
 static float px, py, pz;
@@ -70,7 +71,7 @@ void game_init(void) {
   load_options();
   last = plat_millis();
   if (start_in_world) {
-    new_world(0, 0);
+    new_world(start_seed, 0);
     game_time = 1000;
     loading();
     return;

@@ -264,12 +264,22 @@ SPRITES = [
 ]
 
 
+# what the inventory tints its icons with: plains grass and foliage, and the fixed colours
+# (ColorizerFoliage.getFoliageColorPine and getFoliageColorBirch, BlockLilyPad)
+ICON_TINT = {'grass': (0x91, 0xBD, 0x59), 'foliage': (0x91, 0xBD, 0x59), 'spruce': (0x61, 0x99, 0x61),
+             'birch': (0x80, 0xA7, 0x55), 'lily': (0x20, 0x80, 0x30)}
+
+
 def iso_icon(jar, s, names_px):
     """A block as the inventory shows it: three faces, the top lit, the left 0.8, the right 0.6 (16 x 16)."""
     t = s['tex']
+    k = ICON_TINT.get(s['tint'])
     if s['model'] in ('cross', 'flat', 'torch', 'vine', 'ladder', 'door', 'pane'):
         n = t if isinstance(t, str) else t.get('side')
         im = tex_image(jar, n)
+        if k:
+            im = im.convert('RGBA').copy()
+            im.putdata([(r * k[0] // 255, g * k[1] // 255, b * k[2] // 255, a) for r, g, b, a in pixels(im)])
         return im
     top = t if isinstance(t, str) else t['top']
     left = t if isinstance(t, str) else t.get('front', t['side']) if s['meta'] in (0,) else t['side']
@@ -283,14 +293,14 @@ def iso_icon(jar, s, names_px):
         px = []
         for r, g, b, a in pixels(im):
             if tint_on:
-                r, g, b = r * 0x91 // 255, g * 0xBD // 255, b * 0x59 // 255   # plains grass/foliage
+                r, g, b = r * k[0] // 255, g * k[1] // 255, b * k[2] // 255
             px.append((int(r * shade), int(g * shade), int(b * shade), a))
         o = Image.new('RGBA', im.size)
         o.putdata(px)
         return o
-    timg = tinted(timg, 1.0, tint in ('grass', 'foliage'))
-    limg = tinted(limg, 0.8, tint == 'foliage')
-    rimg = tinted(rimg, 0.6, tint == 'foliage')
+    timg = tinted(timg, 1.0, k is not None)
+    limg = tinted(limg, 0.8, k is not None and tint != 'grass')
+    rimg = tinted(rimg, 0.6, k is not None and tint != 'grass')
     h = 0.5 if s['model'] == 'slab' else 0.5625 if s['model'] == 'bed' else 1.0
     for y in range(16):
         for x in range(16):

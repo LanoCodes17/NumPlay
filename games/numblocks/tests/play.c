@@ -51,6 +51,10 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "--rain")) rain = 1;
     else if (!strcmp(argv[i], "--storm")) rain = 2;
     else if (!strcmp(argv[i], "--time") && i + 1 < argc) start_time = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--seed") && i + 1 < argc) {
+      extern int64_t start_seed;
+      start_seed = strtoll(argv[++i], NULL, 10);
+    }
     else if (!strcmp(argv[i], "--hurt") && i + 1 < argc) hurt = (float)atof(argv[++i]);
     else if (!strcmp(argv[i], "--keys") && i + 1 < argc) {
       char *s = strdup(argv[++i]);

@@ -172,7 +172,7 @@ void neighbours_changed(int x, int y, int z);
 void break_block_at(int x, int y, int z, bool drops);
 
 /* ---------------------------------------------------------------- screens (gui.c) */
-enum { GUI_NONE, GUI_INVENTORY, GUI_CRAFTING, GUI_FURNACE, GUI_CHEST,
+enum { GUI_NONE, GUI_INVENTORY, GUI_CRAFTING, GUI_FURNACE, GUI_CHEST, GUI_CREATIVE,
        GUI_PAUSE, GUI_DEATH, GUI_OPTIONS, GUI_TITLE, GUI_WORLDS, GUI_CREATE, GUI_CONFIRM, GUI_LOADING };
 extern int gui;            /* the screen open */
 void gui_open(int screen, int x, int y, int z);

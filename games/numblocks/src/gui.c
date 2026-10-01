@@ -420,16 +420,16 @@ void gui_tick(void) {
 }
 
 /* ---------------------------------------------------------------- container screens */
-enum { SL_NORMAL, SL_RESULT, SL_OUTPUT, SL_ARMOR, SL_FUEL };
-typedef struct { uint8_t x, y, kind, k; Stack *s; } Slot;
-static Slot slots[64];
+enum { SL_NORMAL, SL_RESULT, SL_OUTPUT, SL_ARMOR, SL_FUEL, SL_CREATIVE, SL_TAB };
+typedef struct { int16_t x, y; uint8_t kind, k; Stack *s; } Slot;
+static Slot slots[72];
 static int nslots, cur, panel_x, panel_y, panel_h, grid_w;
 static Stack result;           /* what the crafting grid makes */
 static Stack table_grid[9];    /* the crafting table's grid */
 static Stack *grid;
 
 static void add_slot(int x, int y, int kind, int k, Stack *s) {
-  slots[nslots++] = (Slot){(uint8_t)x, (uint8_t)y, (uint8_t)kind, (uint8_t)k, s};
+  slots[nslots++] = (Slot){(int16_t)x, (int16_t)y, (uint8_t)kind, (uint8_t)k, s};
 }
 static void add_player_slots(int y_main, int y_hot) {
   for (int r = 0; r < 3; r++)
@@ -443,6 +443,22 @@ static void update_result(void) {
   int r = craft_find(grid, grid_w);
   if (r >= 0) result.id = recipes[r].out, result.aux = recipes[r].n;
   if (result.id && item_dur(result.id)) result.aux = 0;
+}
+
+/* the creative inventory: the tab shown, how far down, what its 45 slots show */
+static int ctab = 0, cscroll;
+static Stack cshown[45], ctabs[12];
+static const uint16_t tab_icon[12] = {B_BRICKS, B_PEONY_LOWER, I_REDSTONE, B_RAIL, I_LAVA_BUCKET, I_COMPASS,
+                                      I_APPLE, I_IRON_AXE, I_GOLDEN_SWORD, 0, I_STICK, B_CHEST};
+static int tab_rows(void) { return (tab_start[ctab + 1] - tab_start[ctab] + 8) / 9; }
+static void creative_refresh(void) {
+  int n = tab_start[ctab + 1] - tab_start[ctab];
+  for (int k = 0; k < 45; k++) {
+    int i = cscroll * 9 + k;
+    cshown[k].id = i < n ? tab_items[tab_start[ctab] + i] : 0;
+    cshown[k].aux = 1;
+  }
+  for (int t = 0; t < 12; t++) ctabs[t].id = tab_icon[t], ctabs[t].aux = 1;
 }
 
 static int origin_x, origin_y, origin_z;
@@ -482,6 +498,16 @@ void gui_open(int screen, int x, int y, int z) {
       add_player_slots(84, 142);
       cur = 3 + 27;
       break;
+    case GUI_CREATIVE:
+      for (int i = 0; i < 45; i++) add_slot(9 + (i % 9) * 18, 18 + (i / 9) * 18, SL_CREATIVE, (uint8_t)i, &cshown[i]);
+      for (int c = 0; c < 9; c++) add_slot(9 + c * 18, 112, SL_NORMAL, 0, &pl.inv[c]);
+      for (int t = 0; t < 12; t++)
+        if (t != 9) add_slot(28 * (t % 6) + 6, t < 6 ? -28 + 9 : 136 + 6, SL_TAB, (uint8_t)t, &ctabs[t]);
+      cscroll = 0;
+      creative_refresh();
+      panel_h = 136;
+      cur = 45;
+      break;
     case GUI_CHEST:
       chest = chest_at(x, y, z, true);
       if (!chest) {
@@ -494,7 +520,7 @@ void gui_open(int screen, int x, int y, int z) {
       cur = 27 + 27;
       break;
   }
-  panel_x = (SCREEN_W - 176) / 2;
+  panel_x = (SCREEN_W - (screen == GUI_CREATIVE ? 195 : 176)) / 2;
   panel_y = (SCREEN_H - panel_h) / 2;
   update_result();
 }
@@ -554,6 +580,25 @@ static void furnace_xp(int id, int n) {
 /* Container.slotClick: button 0 left, 1 right */
 static void click(Slot *sl, int button) {
   Stack *s = sl->s, *c = &pl.cursor;
+  if (sl->kind == SL_TAB) {
+    if (sl->k == 11) {
+      gui_close();
+      gui_open(GUI_INVENTORY, 0, 0, 0);
+      return;
+    }
+    ctab = sl->k, cscroll = 0;
+    creative_refresh();
+    return;
+  }
+  if (sl->kind == SL_CREATIVE) {
+    /* GuiContainerCreative: a click takes a stack of it (right: one); a held stack clicked there is gone */
+    if (c->id) c->id = 0, c->aux = 0;
+    else if (s->id) {
+      c->id = s->id;
+      c->aux = (uint16_t)(item_dur(s->id) ? 0 : button == 0 ? item_max(s->id) : 1);
+    }
+    return;
+  }
   if (sl->kind == SL_RESULT || sl->kind == SL_OUTPUT) {
     if (!s->id) return;
     int n = item_count(s);
@@ -632,6 +677,15 @@ static bool merge(Stack *s, int a, int b, bool backwards) {
 static void shift_click(int i) {
   Slot *sl = &slots[i];
   if (!sl->s->id) return;
+  if (sl->kind == SL_CREATIVE) {
+    inv_add(pl.inv, 36, sl->s->id, item_dur(sl->s->id) ? 1 : item_max(sl->s->id), 0);
+    return;
+  }
+  if (sl->kind == SL_TAB) return;
+  if (gui == GUI_CREATIVE) {
+    sl->s->id = 0, sl->s->aux = 0;   /* shift-click on the hotbar in creative clears it */
+    return;
+  }
   int pmain = nslots - 36, phot = nslots - 9;   /* the player's rows, then the hotbar */
   if (sl->kind == SL_RESULT) {
     /* craft as many as fit */
@@ -1017,7 +1071,7 @@ void gui_input(uint32_t keys, uint32_t pressed) {
   }
   if (gui == GUI_NONE) {
     nbuttons = 0;
-    if (pressed & K_INV && !pl.dead) gui_open(pl.mode == 1 ? GUI_INVENTORY : GUI_INVENTORY, 0, 0, 0);
+    if (pressed & K_INV && !pl.dead) gui_open(pl.mode == 1 ? GUI_CREATIVE : GUI_INVENTORY, 0, 0, 0);
     else if (pressed & K_PAUSE) gui_menu(GUI_PAUSE);
     if (held()->id != last_id || pl.slot != last_slot) name_timer = 40, last_id = held()->id, last_slot = pl.slot;
     if (name_timer) name_timer--;
@@ -1028,10 +1082,19 @@ void gui_input(uint32_t keys, uint32_t pressed) {
     gui_close();
     return;
   }
-  if (pressed & K_LEFT) move_cursor(-1, 0);
-  if (pressed & K_RIGHT) move_cursor(1, 0);
-  if (pressed & K_UP) move_cursor(0, -1);
-  if (pressed & K_DOWN) move_cursor(0, 1);
+  bool scrolled = false;
+  if (gui == GUI_CREATIVE && slots[cur].kind == SL_CREATIVE) {
+    /* past the top or bottom row: scroll the tab */
+    if ((pressed & K_DOWN) && cur >= 36 && cscroll + 5 < tab_rows()) cscroll++, scrolled = true;
+    if ((pressed & K_UP) && cur < 9 && cscroll > 0) cscroll--, scrolled = true;
+    if (scrolled) creative_refresh();
+  }
+  if (!scrolled) {
+    if (pressed & K_LEFT) move_cursor(-1, 0);
+    if (pressed & K_RIGHT) move_cursor(1, 0);
+    if (pressed & K_UP) move_cursor(0, -1);
+    if (pressed & K_DOWN) move_cursor(0, 1);
+  }
   if (pressed & K_OK) {
     if (keys & K_SHIFT) shift_click(cur);
     else click(&slots[cur], 0);
@@ -1040,6 +1103,11 @@ void gui_input(uint32_t keys, uint32_t pressed) {
   for (int n = 0; n < 9; n++)
     if (pressed & (K_SLOT1 << n)) {
       Slot *sl = &slots[cur];
+      if (sl->kind == SL_TAB) continue;
+      if (sl->kind == SL_CREATIVE) {
+        if (sl->s->id) pl.inv[n].id = sl->s->id, pl.inv[n].aux = (uint16_t)(item_dur(sl->s->id) ? 0 : item_max(sl->s->id));
+        continue;
+      }
       if (sl->kind == SL_RESULT || sl->kind == SL_OUTPUT) {
         if (!pl.inv[n].id) {
           pl.inv[n] = *sl->s;
@@ -1056,7 +1124,7 @@ void gui_input(uint32_t keys, uint32_t pressed) {
   /* xnt: throw the hovered stack's one item */
   if (pressed & K_DROP) {
     Slot *sl = &slots[cur];
-    if (sl->s->id && sl->kind != SL_RESULT) {
+    if (sl->s->id && sl->kind != SL_RESULT && sl->kind < SL_CREATIVE) {
       ent_drop(sl->s->id, 1, sl->s->aux, pl.x, pl.y + 1.32f, pl.z, true);
       stack_take(sl->s, 1);
     }
@@ -1084,8 +1152,19 @@ static void tooltip(const char *s, int x, int y) {
 
 static void container(void) {
   int px = panel_x, py = panel_y;
-  static const uint8_t img[] = {0, IMG_INVENTORY, IMG_CRAFTING_TABLE, IMG_FURNACE, IMG_CHEST};
+  static const uint8_t img[] = {0, IMG_INVENTORY, IMG_CRAFTING_TABLE, IMG_FURNACE, IMG_CHEST, IMG_CREATIVE};
+  if (gui == GUI_CREATIVE)
+    for (int t = 0; t < 12; t++)
+      if (t != ctab && t != 9) sprite(t < 6 ? SP_TAB_TOP : SP_TAB_BOTTOM, px + 28 * (t % 6), t < 6 ? py - 28 : py + 136 - 4);
   image(img[gui], px, py);
+  if (gui == GUI_CREATIVE) {
+    int t = ctab;
+    sprite(t < 6 ? SP_TAB_TOP_SEL : SP_TAB_BOTTOM_SEL, px + 28 * (t % 6), t < 6 ? py - 28 : py + 136 - 4);
+    text(tab_name[ctab], px + 8, py + 6, RGB(0x40, 0x40, 0x40), false);
+    int rows = tab_rows(), y = 18;
+    if (rows > 5) y += (112 - 17) * cscroll / (rows - 5);
+    sprite(SP_SCROLLER, px + 175, py + y);
+  }
   uint16_t label = RGB(0x40, 0x40, 0x40);
   switch (gui) {
     case GUI_INVENTORY:
@@ -1119,6 +1198,7 @@ static void container(void) {
   Slot *sl = &slots[cur];
   tint_rect(px + sl->x, py + sl->y, 16, 16, 0xFFFF, 16);
   if (pl.cursor.id) draw_stack(&pl.cursor, px + sl->x + 4, py + sl->y + 4);
+  else if (sl->kind == SL_TAB) tooltip(tab_name[sl->k], px + sl->x + 8, py + sl->y + 8);
   else if (sl->s->id) tooltip(item_label(sl->s->id), px + sl->x + 8, py + sl->y + 8);
 }
 
@@ -1134,7 +1214,7 @@ void hud_strip(uint16_t *buf, int y0, int rows) {
     tint_rect(0, y0, SCREEN_W, rows, RGB(0xFF, 0, 0), pl.hurt_time * 2 / 3);
   }
   switch (gui) {
-    case GUI_INVENTORY: case GUI_CRAFTING: case GUI_FURNACE: case GUI_CHEST:
+    case GUI_INVENTORY: case GUI_CRAFTING: case GUI_FURNACE: case GUI_CHEST: case GUI_CREATIVE:
       dark_background();
       container();
       break;

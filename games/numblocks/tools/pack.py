@@ -393,7 +393,8 @@ def gui_images(jar):
     chest.paste(g54.crop((0, 0, 176, 71)), (0, 0))
     chest.paste(g54.crop((0, 126, 176, 222)), (0, 71))
     w = jar.image('gui/widgets')
-    return [('inventory', inv), ('crafting_table', craft), ('furnace', furn), ('chest', chest),
+    tab = jar.image('gui/container/creative_inventory/tab_items').crop((0, 0, 195, 136))
+    return [('inventory', inv), ('crafting_table', craft), ('furnace', furn), ('chest', chest), ('creative', tab)
 ]
 
 
@@ -404,6 +405,11 @@ GUI_SPRITES = [
     ('armor_half', 'gui/icons', 25, 9, 9, 9),
     ('bubble_pop', 'gui/icons', 25, 18, 9, 9),
     ('heart_hit', 'gui/icons', 25, 0, 9, 9),
+    ('tab_top', 'gui/container/creative_inventory/tabs', 0, 0, 28, 32),
+    ('tab_top_sel', 'gui/container/creative_inventory/tabs', 0, 32, 28, 32),
+    ('tab_bottom', 'gui/container/creative_inventory/tabs', 0, 64, 28, 32),
+    ('tab_bottom_sel', 'gui/container/creative_inventory/tabs', 0, 96, 28, 32),
+    ('scroller', 'gui/container/creative_inventory/tabs', 232, 0, 12, 15),
     ('button', 'gui/widgets', 0, 66, 200, 20),
     ('button_hover', 'gui/widgets', 0, 86, 200, 20),
     ('button_off', 'gui/widgets', 0, 46, 200, 20),
@@ -562,6 +568,21 @@ def main():
                 bits[i >> 3] |= 1 << (i & 7)
         cr.append(bits)
     out.append('const uint8_t cracks[10][32] = {' + ','.join('{' + ','.join(str(v) for v in b) + '}' for b in cr) + '};')
+    # the creative inventory: each tab's items, in id order (blocks, then items)
+    tab_lists = [[] for _ in items.TABS]
+    for iid in list(range(len(blocks.S))) + [256 + k for k in range(len(items.I))]:
+        t = items.tab_of(iid)
+        if t is not None:
+            tab_lists[t].append(iid)
+            tab_lists[5].append(iid)   # Search Items: everything
+    flat, starts = [], []
+    for L in tab_lists:
+        starts.append(len(flat))
+        flat += L
+    starts.append(len(flat))
+    out.append(f'const uint16_t tab_items[{len(flat)}] = {{' + ','.join(str(v) for v in flat) + '};')
+    out.append(f'const uint16_t tab_start[{len(starts)}] = {{' + ','.join(str(v) for v in starts) + '};')
+    out.append('const char *const tab_name[12] = {' + ','.join('"' + t + '"' for t in items.TABS) + '};')
     # the font
     fb, fw = font_bits(jar)
     out.append('const uint8_t font_bits[96 * 8] = {' + ','.join(str(v) for v in fb) + '};')
@@ -646,6 +667,8 @@ def main():
           'enum { SKIN_ZOMBIE, SKIN_SKELETON, SKIN_CREEPER, SKIN_SPIDER, SKIN_PIG, SKIN_COW, SKIN_SHEEP, SKIN_SHEEP_FUR,'
           ' SKIN_CHICKEN };',
           'extern const uint8_t cracks[10][32];   /* destroy stages, 1 bit a texel */']
+    h += ['extern const uint16_t tab_items[], tab_start[13];   /* the creative tabs\' items */',
+          'extern const char *const tab_name[12];']
     h += ['extern const uint8_t font_bits[96 * 8], font_w[96];   /* characters 32-127 */',
           'extern const uint8_t img_rle[], img_w[], img_h[];', 'extern const uint32_t img_rows[];',
           'extern const uint16_t img_row0[], img_pal[][16];']

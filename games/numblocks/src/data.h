@@ -256,16 +256,21 @@ extern const uint16_t blk_icon[B_COUNT];   /* sprite of its icon */
 #define SP_ARMOR_HALF 377
 #define SP_BUBBLE_POP 378
 #define SP_HEART_HIT 379
-#define SP_BUTTON 380
-#define SP_BUTTON_HOVER 381
-#define SP_BUTTON_OFF 382
-#define SP_SLOT_HELMET 383
-#define SP_SLOT_CHESTPLATE 384
-#define SP_SLOT_LEGGINGS 385
-#define SP_SLOT_BOOTS 386
-#define SP_STEVE 387
-#define SP_ARM 388
-#define SP_DIRT_BG 389
+#define SP_TAB_TOP 380
+#define SP_TAB_TOP_SEL 381
+#define SP_TAB_BOTTOM 382
+#define SP_TAB_BOTTOM_SEL 383
+#define SP_SCROLLER 384
+#define SP_BUTTON 385
+#define SP_BUTTON_HOVER 386
+#define SP_BUTTON_OFF 387
+#define SP_SLOT_HELMET 388
+#define SP_SLOT_CHESTPLATE 389
+#define SP_SLOT_LEGGINGS 390
+#define SP_SLOT_BOOTS 391
+#define SP_STEVE 392
+#define SP_ARM 393
+#define SP_DIRT_BG 394
 
 #include "items.h"
 extern const uint16_t blk_item[B_COUNT];   /* the item a block state counts as (0xFFFF: none) */
@@ -288,6 +293,8 @@ extern const uint8_t skin_px[][1024];   /* mob skins, 64 x 32 */
 extern const uint16_t skin_pal[][16];
 enum { SKIN_ZOMBIE, SKIN_SKELETON, SKIN_CREEPER, SKIN_SPIDER, SKIN_PIG, SKIN_COW, SKIN_SHEEP, SKIN_SHEEP_FUR, SKIN_CHICKEN };
 extern const uint8_t cracks[10][32];   /* destroy stages, 1 bit a texel */
+extern const uint16_t tab_items[], tab_start[13];   /* the creative tabs' items */
+extern const char *const tab_name[12];
 extern const uint8_t font_bits[96 * 8], font_w[96];   /* characters 32-127 */
 extern const uint8_t img_rle[], img_w[], img_h[];
 extern const uint32_t img_rows[];
@@ -296,5 +303,6 @@ extern const uint16_t img_row0[], img_pal[][16];
 #define IMG_CRAFTING_TABLE 1
 #define IMG_FURNACE 2
 #define IMG_CHEST 3
+#define IMG_CREATIVE 4
 
 #endif

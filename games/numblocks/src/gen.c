@@ -1509,13 +1509,13 @@ typedef struct {
 typedef struct {
     View v;
     uint8_t qmask[2048];
-    i32 lay[640];
 } PopScratch;
 
 static union {
     TerrainScratch t;
     i32 lay[LAY_INTS];
     PopScratch p;
+    uint8_t spawn_rows[sizeof(i32) * LAY_INTS + 8 * 129];
 } U;
 
 /* ======================================================================== */
@@ -1541,54 +1541,19 @@ static void chunk_biomes(int cx, int cz) {
 
 static void octave_setup(const Octave *o, i64 off[3]) { perm_build(o->st, U.t.perm, off); }
 
-/* noise grid for chunk (cx, cz) -> U.t.grid holds the 5x5x33 densities */
+/* noise grid for chunk (cx, cz) -> U.t.grid holds the 5x5x33 densities.
+ * The density is lerp(min, max, main) / 512 - offset(y); each limit noise is a sum of 16
+ * octaves of amplitude 2^o whose values are within [-2, 2] (gradient dots of fractions,
+ * lerped), so the noise part is within +-256. Grid points where offset(y) alone decides the
+ * sign for every cell around them do not need any noise: they get +-1 instead (cells whose
+ * 8 corners all agree interpolate to the same sign whatever the values). */
 static void chunk_density(int cx, int cz) {
     TerrainScratch *T = &U.t;
     int xc[5], zc[5], yc[33];
     float xf[5], zf[5], yf[33];
     i64 off[3];
     i64 bx = (i64)cx * 4, bz = (i64)cz * 4;
-    /* main noise (8 octaves), all points */
-    memset(T->grid, 0, sizeof T->grid);
-    for (int o = 0; o < 8; o++) {
-        octave_setup(&oc_main[o], off);
-        for (int n = 0; n < 5; n++) {
-            coord_split(coord_q32(bx, SC_MAINXZ, o, n, off[0]), &xc[n], &xf[n]);
-            coord_split(coord_q32(bz, SC_MAINXZ, o, n, off[2]), &zc[n], &zf[n]);
-        }
-        for (int n = 0; n < 33; n++) coord_split(coord_q32(0, SC_MAINY, o, n, off[1]), &yc[n], &yf[n]);
-        perlin3_octave(T->perm, T->grid, 0, 0, 0, xc, xf, zc, zf, yc, yf, (float)(1 << o));
-    }
-    /* classes: 1 min only, 2 max only, 3 both */
-    for (int i = 0; i < 825; i++) {
-        float d7 = (T->grid[i] / 10.0f + 1.0f) / 2.0f;
-        T->grid[i] = d7;
-        T->cls[i] = d7 < 0.0f ? 1 : (d7 > 1.0f ? 2 : 3);
-    }
-    memset(T->acc, 0, sizeof T->acc);
-    for (int o = 0; o < 16; o++) {
-        octave_setup(&oc_min[o], off);
-        for (int n = 0; n < 5; n++) {
-            coord_split(coord_q32(bx, SC_LIMIT, o, n, off[0]), &xc[n], &xf[n]);
-            coord_split(coord_q32(bz, SC_LIMIT, o, n, off[2]), &zc[n], &zf[n]);
-        }
-        for (int n = 0; n < 33; n++) coord_split(coord_q32(0, SC_LIMIT, o, n, off[1]), &yc[n], &yf[n]);
-        perlin3_octave(T->perm, T->acc, T->cls, 1, 0, xc, xf, zc, zf, yc, yf, (float)(1 << o));
-    }
-    for (int i = 0; i < 825; i++) {
-        if (T->cls[i] == 3) T->acc[i] *= 1.0f - T->grid[i];
-        if (T->cls[i] == 2) T->grid[i] = 1.0f;
-    }
-    for (int o = 0; o < 16; o++) {
-        octave_setup(&oc_max[o], off);
-        for (int n = 0; n < 5; n++) {
-            coord_split(coord_q32(bx, SC_LIMIT, o, n, off[0]), &xc[n], &xf[n]);
-            coord_split(coord_q32(bz, SC_LIMIT, o, n, off[2]), &zc[n], &zf[n]);
-        }
-        for (int n = 0; n < 33; n++) coord_split(coord_q32(0, SC_LIMIT, o, n, off[1]), &yc[n], &yf[n]);
-        perlin3_octave(T->perm, T->acc, T->cls, 2, T->grid, xc, xf, zc, zf, yc, yf, (float)(1 << o));
-    }
-    /* depth noise (2D, 16 octaves) into grid[0..24] after we are done with it: keep separate */
+    /* depth noise (2D, 16 octaves) */
     float depth[25];
     memset(depth, 0, sizeof depth);
     for (int o = 0; o < 16; o++) {
@@ -1599,10 +1564,10 @@ static void chunk_density(int cx, int cz) {
         }
         perlin2_octave(T->perm, depth, xc, xf, zc, zf, (float)(1 << o));
     }
-    /* density */
-    int l = 0, i1 = 0;
-    for (int j1 = 0; j1 < 5; j1++)
-        for (int k1 = 0; k1 < 5; k1++) {
+    /* height offsets per column; T->acc temporarily holds d4 (and the top blending) */
+    float colD3[25], colD2[25];
+    for (int j1 = 0, i1 = 0; j1 < 5; j1++)
+        for (int k1 = 0; k1 < 5; k1++, i1++) {
             float f2 = 0, f3 = 0, f4 = 0;
             const Biome *bc = bio(cb4[j1 + 2 + (k1 + 2) * 10]);
             for (int l1 = -2; l1 <= 2; l1++)
@@ -1632,22 +1597,101 @@ static void chunk_density(int cx, int cz) {
                 if (d0 > 1.0f) d0 = 1.0f;
                 d0 /= 8.0f;
             }
-            ++i1;
-            float d1 = f3, d2 = f2;
+            float d1 = f3;
             d1 += d0 * 0.2f;
             d1 = d1 * 8.5f / 8.0f;
-            float d3 = 8.5f + d1 * 4.0f;
-            for (int j2 = 0; j2 < 33; j2++, l++) {
-                float d4 = ((float)j2 - d3) * 12.0f * 128.0f / 256.0f / d2;
-                if (d4 < 0.0f) d4 *= 4.0f;
-                float d8 = T->acc[l] / 512.0f - d4;
-                if (j2 > 29) {
-                    float d9 = (float)(j2 - 29) / 3.0f;
-                    d8 = d8 * (1.0f - d9) + -10.0f * d9;
-                }
-                T->grid[l] = d8;
-            }
+            colD3[i1] = 8.5f + d1 * 4.0f;
+            colD2[i1] = f2;
         }
+    /* sign classes of the grid points from the bounds: 1 solid, 2 empty, 0 undecided */
+    uint8_t *dec = T->cls; /* reused: cls is rebuilt below for the needed points */
+    for (int c = 0; c < 25; c++)
+        for (int j2 = 0; j2 < 33; j2++) {
+            float d4 = ((float)j2 - colD3[c]) * 12.0f * 128.0f / 256.0f / colD2[c];
+            if (d4 < 0.0f) d4 *= 4.0f;
+            float lo = -256.5f - d4, hi = 256.5f - d4;
+            if (j2 > 29) {
+                float d9 = (float)(j2 - 29) / 3.0f;
+                lo = lo * (1.0f - d9) + -10.0f * d9;
+                hi = hi * (1.0f - d9) + -10.0f * d9;
+            }
+            T->acc[c * 33 + j2] = d4;
+            dec[c * 33 + j2] = lo > 0.0f ? 1 : (hi <= 0.0f ? 2 : 0);
+        }
+    /* a point needs noise if one of the cells around it has corners of different classes */
+    static const uint8_t NEED = 4;
+    uint8_t need[825];
+    memset(need, 0, sizeof need);
+    for (int gx = 0; gx < 4; gx++)
+        for (int gz = 0; gz < 4; gz++)
+            for (int gy = 0; gy < 32; gy++) {
+                int c0 = (gx * 5 + gz) * 33 + gy, c1 = (gx * 5 + gz + 1) * 33 + gy;
+                int c2 = ((gx + 1) * 5 + gz) * 33 + gy, c3 = ((gx + 1) * 5 + gz + 1) * 33 + gy;
+                uint8_t k = dec[c0];
+                if (k && dec[c1] == k && dec[c2] == k && dec[c3] == k && dec[c0 + 1] == k && dec[c1 + 1] == k &&
+                    dec[c2 + 1] == k && dec[c3 + 1] == k)
+                    continue;
+                need[c0] = need[c1] = need[c2] = need[c3] = NEED;
+                need[c0 + 1] = need[c1 + 1] = need[c2 + 1] = need[c3 + 1] = NEED;
+            }
+    float d4s[825];
+    memcpy(d4s, T->acc, sizeof d4s);
+    for (int i = 0; i < 825; i++) T->cls[i] = need[i];
+    /* main noise (8 octaves) */
+    memset(T->grid, 0, sizeof T->grid);
+    for (int o = 0; o < 8; o++) {
+        octave_setup(&oc_main[o], off);
+        for (int n = 0; n < 5; n++) {
+            coord_split(coord_q32(bx, SC_MAINXZ, o, n, off[0]), &xc[n], &xf[n]);
+            coord_split(coord_q32(bz, SC_MAINXZ, o, n, off[2]), &zc[n], &zf[n]);
+        }
+        for (int n = 0; n < 33; n++) coord_split(coord_q32(0, SC_MAINY, o, n, off[1]), &yc[n], &yf[n]);
+        perlin3_octave(T->perm, T->grid, T->cls, NEED, 0, xc, xf, zc, zf, yc, yf, (float)(1 << o));
+    }
+    /* classes of the needed points: bit 0 min needed, bit 1 max needed (bit 2: needed) */
+    for (int i = 0; i < 825; i++) {
+        if (!T->cls[i]) continue;
+        float d7 = (T->grid[i] / 10.0f + 1.0f) / 2.0f;
+        T->grid[i] = d7;
+        T->cls[i] = (uint8_t)(d7 < 0.0f ? 1 : (d7 > 1.0f ? 2 : 3));
+    }
+    memset(T->acc, 0, sizeof T->acc);
+    for (int o = 0; o < 16; o++) {
+        octave_setup(&oc_min[o], off);
+        for (int n = 0; n < 5; n++) {
+            coord_split(coord_q32(bx, SC_LIMIT, o, n, off[0]), &xc[n], &xf[n]);
+            coord_split(coord_q32(bz, SC_LIMIT, o, n, off[2]), &zc[n], &zf[n]);
+        }
+        for (int n = 0; n < 33; n++) coord_split(coord_q32(0, SC_LIMIT, o, n, off[1]), &yc[n], &yf[n]);
+        perlin3_octave(T->perm, T->acc, T->cls, 1, 0, xc, xf, zc, zf, yc, yf, (float)(1 << o));
+    }
+    for (int i = 0; i < 825; i++) {
+        if (T->cls[i] == 3) T->acc[i] *= 1.0f - T->grid[i];
+        if (T->cls[i] == 2) T->grid[i] = 1.0f;
+    }
+    for (int o = 0; o < 16; o++) {
+        octave_setup(&oc_max[o], off);
+        for (int n = 0; n < 5; n++) {
+            coord_split(coord_q32(bx, SC_LIMIT, o, n, off[0]), &xc[n], &xf[n]);
+            coord_split(coord_q32(bz, SC_LIMIT, o, n, off[2]), &zc[n], &zf[n]);
+        }
+        for (int n = 0; n < 33; n++) coord_split(coord_q32(0, SC_LIMIT, o, n, off[1]), &yc[n], &yf[n]);
+        perlin3_octave(T->perm, T->acc, T->cls, 2, T->grid, xc, xf, zc, zf, yc, yf, (float)(1 << o));
+    }
+    /* density */
+    for (int i = 0; i < 825; i++) {
+        int j2 = i % 33;
+        if (!need[i]) {
+            T->grid[i] = dec[i] == 1 ? 1.0f : -1.0f;
+            continue;
+        }
+        float d8 = T->acc[i] / 512.0f - d4s[i];
+        if (j2 > 29) {
+            float d9 = (float)(j2 - 29) / 3.0f;
+            d8 = d8 * (1.0f - d9) + -10.0f * d9;
+        }
+        T->grid[i] = d8;
+    }
 }
 
 /* surface depth noise (NoiseGenerator3, 4 octaves) for chunk -> U.t.surf[z*16+x] */
@@ -2255,6 +2299,17 @@ static int cave_too_far(Q32 dx, Q32 dz, int d10i, float d11) {
     return e8 * e8 + e9 * e9 - e10 * e10 > e11 * e11;
 }
 
+/* can a tunnel at (x, z) with `left` steps (and branches) still reach the region of interest?
+ * Each step moves at most one block horizontally; radius <= 1.5 + 12 for caves, 1.5 + 6 for canyons. */
+static Q32 reg_x0, reg_x1, reg_z0, reg_z1;
+
+static inline int cave_can_reach(Q32 x, Q32 z, int left) {
+    Q32 dx = x < reg_x0 ? reg_x0 - x : (x > reg_x1 ? x - reg_x1 : 0);
+    Q32 dz = z < reg_z0 ? reg_z0 - z : (z > reg_z1 ? z - reg_z1 : 0);
+    Q32 d = dx > dz ? dx : dz; /* Chebyshev distance is <= the Euclidean one */
+    return d <= SHL(left + 16, 32);
+}
+
 /* tunnel stack (branches) */
 typedef struct {
     i64 seed;
@@ -2291,6 +2346,7 @@ static void cave_tunnel(i64 seed0, Q32 x0, Q32 y0, Q32 z0, float f0, float f10, 
         float f = t.f, f1 = t.f1, f2 = t.f2;
         Q32 d0 = t.x, d1 = t.y, d2 = t.z;
         for (; l < i1; ++l) {
+            if (!cave_can_reach(d0, d2, i1 - l)) break; /* nothing left to carve here (no side effects) */
             float sv = mh_sin((float)l * 3.1415927f / (float)i1) * f * 1.0f;
             Q32 r6 = (Q32)(3LL << 31) + q32_of_float(sv); /* 1.5 + ... */
             Q32 r7 = t.room ? r6 / 2 : r6;
@@ -2352,6 +2408,7 @@ static void canyon_tunnel(i64 seed, Q32 d0, Q32 d1, Q32 d2, float f, float f1, f
         canyon_w[k1] = f5 * f5;
     }
     for (; l < i1; ++l) {
+        if (!cave_can_reach(d0, d2, i1 - l)) return;
         float sv = mh_sin((float)l * 3.1415927f / (float)i1) * f * 1.0f;
         Q32 r6 = (Q32)(3LL << 31) + q32_of_float(sv);
         Q32 r7 = r6 * 3; /* d3 = 3.0 */
@@ -2388,6 +2445,10 @@ static void canyon_tunnel(i64 seed, Q32 d0, Q32 d1, Q32 d2, float f, float f1, f
 /* MapGenBase.a for both caves and canyons, carving target cv */
 static void caves_run(void) {
     int i = cv->tcx, j = cv->tcz;
+    reg_x0 = SHL(i * 16 + cv->rx0, 32);
+    reg_x1 = SHL(i * 16 + cv->rx1, 32);
+    reg_z0 = SHL(j * 16 + cv->rz0, 32);
+    reg_z1 = SHL(j * 16 + cv->rz1, 32);
     JRand r;
     for (int pass = 0; pass < 2; pass++) {
         for (int j1 = i - 8; j1 <= i + 8; ++j1)
@@ -4442,7 +4503,7 @@ static void decorate(const Biome *b) {
 /* ---- one population ---- */
 static int biome_at(int x, int z);
 
-static void populate(int px, int pz) {
+static void populate(int px, int pz, int biome) {
     View *v = &PV;
     v->px = px;
     v->pz = pz;
@@ -4460,7 +4521,7 @@ static void populate(int px, int pz) {
         }
     PK = px * 16;
     PL = pz * 16;
-    const Biome *b = bio(biome_at(PK + 16, PL + 16));
+    const Biome *b = bio(biome);
     jr_seed(&PR, (i64)((u64)(i64)px * (u64)pop_mul_x + (u64)(i64)pz * (u64)pop_mul_z) ^ g_seed);
     /* TODO: structures (mineshafts, villages, strongholds, temples, monuments) would draw here */
     if (b->id != BI_DESERT && b->id != BI_DESERT_HILLS && RI(4) == 0) {
@@ -4520,8 +4581,8 @@ static int biome_at(int x, int z) {
     i32 rm[4];
     int rx, rz, rw, rh;
     voronoi_rm_win(x, z, 1, 1, &rx, &rz, &rw, &rh);
-    lay_mem = U.p.lay;
-    lay_cap = (int)(sizeof U.p.lay / sizeof U.p.lay[0]);
+    lay_mem = U.lay;
+    lay_cap = LAY_INTS;
     lay_top = 0;
     layers_rivermix(rx, rz, rw, rh, rm);
     uint8_t b;
@@ -4663,11 +4724,13 @@ void gen_slab(int cx, int cz, int y0, int h, uint8_t *out) {
             sum_pin[n - sumc] = 1;
             nb[dz + 1][dx + 1] = n;
         }
-    /* the four populations writing into C */
-    populate(cx - 1, cz - 1);
-    populate(cx, cz - 1);
-    populate(cx - 1, cz);
-    populate(cx, cz);
+    /* the four populations writing into C (their biome is the one at +16, +16) */
+    int pb[4];
+    for (int k = 0; k < 4; k++) pb[k] = biome_at((cx - 1 + (k & 1)) * 16 + 16, (cz - 1 + (k >> 1)) * 16 + 16);
+    populate(cx - 1, cz - 1, pb[0]);
+    populate(cx, cz - 1, pb[1]);
+    populate(cx - 1, cz, pb[2]);
+    populate(cx, cz, pb[3]);
     memset(sum_pin, 0, sizeof sum_pin);
     last_cx = cx;
     last_cz = cz;
@@ -4705,14 +4768,14 @@ void gen_spawn(int *px, int *py, int *pz) {
     jr_seed(&r, g_seed);
     /* WorldChunkManager.a(0, 0, 256, spawn biomes, random): 129 x 129 cells of rivermix */
     int found = 0, fx = 0, fz = 0, j2 = 0;
-    uint8_t *rows = U.p.qmask; /* 8 rows x 129 */
+    uint8_t *rows = (uint8_t *)U.lay + sizeof(i32) * LAY_INTS; /* 8 rows x 129, after the layer scratch */
     for (int tz = 0; tz < 129; tz += 8) {
         int th = 129 - tz < 8 ? 129 - tz : 8;
         for (int tx = 0; tx < 129; tx += 8) {
             int tw = 129 - tx < 8 ? 129 - tx : 8;
             i32 rm[64];
-            lay_mem = U.p.lay;
-            lay_cap = (int)(sizeof U.p.lay / sizeof U.p.lay[0]);
+            lay_mem = U.lay;
+            lay_cap = LAY_INTS;
             lay_top = 0;
             layers_rivermix(-64 + tx, -64 + tz, tw, th, rm);
             for (int j = 0; j < th; j++)

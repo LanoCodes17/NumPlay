@@ -28,6 +28,8 @@ static float sun_x, sun_y, sun_z;  /* towards the sun */
 static float sun_tx, sun_ty;       /* the way the sun moves */
 static float cos_c, sin_c;         /* the sky's turn (the celestial angle) */
 static int moon_phase, star_k;     /* the moon's phase (0 full), how bright the stars are (0..255) */
+static int ss_r, ss_g, ss_b;       /* the sunrise or sunset colour (0..255) */
+static float ss_a, ss_side;        /* how strong it is, and on which side (+1 east, -1 west) */
 static float cloud_off;
 static int cloud_r, cloud_g, cloud_b;   /* the clouds' colour (0..255) */
 static float sun_a;                     /* how much of the sun or moon shows (rain hides it) */
@@ -104,6 +106,15 @@ static uint16_t sky(float dx, float dy, float dz, float len) {
   float k = e <= 0 ? 0 : e > 0.4f ? 1 : e / 0.4f;
   int r = fog_r + (int)((sky_r - fog_r) * k), g = fog_g + (int)((sky_g - fog_g) * k), b = fog_b + (int)((sky_b - fog_b) * k);
   if (under_water) return pack(r / 4, g / 3, b / 2 + 40);
+  /* the sunrise and sunset glow (RenderGlobal's fan): towards the sun, low on the horizon */
+  if (ss_a > 0 && dy >= 0) {
+    float hl = sqrtf(dx * dx + dz * dz) + 1e-6f, w1 = dx * ss_side / hl, e = dy / len;
+    float w2 = 1 - e / (0.31f * ss_a + 0.05f);
+    if (w1 > 0 && w2 > 0) {
+      int a = (int)(ss_a * w1 * w2 * 256);
+      r += ((ss_r - r) * a) >> 8, g += ((ss_g - g) * a) >> 8, b += ((ss_b - b) * a) >> 8;
+    }
+  }
   /* RenderGlobal.renderSky: the sun, the moon in its phase and the stars turn with the
    * sky; their textures add light (and rain hides them) */
   if (sun_a > 0) {
@@ -1440,6 +1451,23 @@ void render_frame(const Camera *c, uint32_t tod) {
   sky_b = (int)(sbl * 255);
   float fr = 0.7529412f * (day * 0.94f + 0.06f), fg = 0.84705883f * (day * 0.94f + 0.06f), fb = 1.0f * (day * 0.91f + 0.09f);
   /* 1.8 mixes the fog towards the sky at short view distances, then darkens it in rain and storms */
+  /* WorldProvider.calcSunriseSunsetColors; facing the sun, the fog takes the colour */
+  ss_a = 0;
+  {
+    float f1 = cosf(ang * 6.2831853f);
+    if (f1 >= -0.4f && f1 <= 0.4f) {
+      float f3 = f1 / 0.4f * 0.5f + 0.5f, f4 = 1 - (1 - sinf(f3 * 3.14159265f)) * 0.99f;
+      ss_a = f4 * f4;
+      ss_r = (int)((f3 * 0.3f + 0.7f) * 255), ss_g = (int)((f3 * f3 * 0.7f + 0.2f) * 255), ss_b = (int)(0.2f * 255);
+      ss_side = -sinf(ang * 6.2831853f) > 0 ? 1 : -1;
+      float f5 = fwx * ss_side;
+      if (f5 > 0) {
+        f5 *= ss_a;
+        fr = fr * (1 - f5) + ss_r / 255.0f * f5, fg = fg * (1 - f5) + ss_g / 255.0f * f5;
+        fb = fb * (1 - f5) + ss_b / 255.0f * f5;
+      }
+    }
+  }
   fr += (sr - fr) * 0.26f;
   fg += (sg - fg) * 0.26f;
   fb += (sbl - fb) * 0.26f;

@@ -480,14 +480,35 @@ static int ctab = 0, cscroll;
 static Stack cshown[45], ctabs[12];
 static const uint16_t tab_icon[12] = {B_BRICKS, B_PEONY_LOWER, I_REDSTONE, B_RAIL, I_LAVA_BUCKET, I_COMPASS,
                                       I_APPLE, I_IRON_AXE, I_GOLDEN_SWORD, 0, I_STICK, B_CHEST};
-static int tab_rows(void) { return (tab_start[ctab + 1] - tab_start[ctab] + 8) / 9; }
-static void creative_refresh(void) {
-  int n = tab_start[ctab + 1] - tab_start[ctab];
-  for (int k = 0; k < 45; k++) {
-    int i = cscroll * 9 + k;
-    cshown[k].id = i < n ? tab_items[tab_start[ctab] + i] : 0;
-    cshown[k].aux = 1;
+#define TAB_SEARCH 5
+static char csearch[16];   /* Search Items: what is typed (GuiContainerCreative.searchField) */
+/* an item whose name has what is typed in it (updateCreativeSearch) */
+static bool found(int id) {
+  const char *n = item_label(id);
+  for (; *n; n++) {
+    int k = 0;
+    while (csearch[k] && n[k] && (n[k] | 32) == csearch[k]) k++;
+    if (!csearch[k]) return true;
   }
+  return !csearch[0];
+}
+static int tab_count(void) {
+  int n = tab_start[ctab + 1] - tab_start[ctab];
+  if (ctab != TAB_SEARCH || !csearch[0]) return n;
+  int c = 0;
+  for (int i = 0; i < n; i++) c += found(tab_items[tab_start[ctab] + i]);
+  return c;
+}
+static int tab_rows(void) { return (tab_count() + 8) / 9; }
+static void creative_refresh(void) {
+  int n = tab_start[ctab + 1] - tab_start[ctab], skip = cscroll * 9, k = 0;
+  for (int i = 0; i < n && k < 45; i++) {
+    int id = tab_items[tab_start[ctab] + i];
+    if (ctab == TAB_SEARCH && !found(id)) continue;
+    if (skip) skip--;
+    else cshown[k].id = (uint16_t)id, cshown[k++].aux = 1;
+  }
+  for (; k < 45; k++) cshown[k].id = 0;
   for (int t = 0; t < 12; t++) ctabs[t].id = tab_icon[t], ctabs[t].aux = 1;
 }
 
@@ -617,7 +638,7 @@ static void click(Slot *sl, int button) {
       gui_open(GUI_INVENTORY, 0, 0, 0);
       return;
     }
-    ctab = sl->k, cscroll = 0;
+    ctab = sl->k, cscroll = 0, csearch[0] = 0;
     creative_refresh();
     return;
   }
@@ -1765,7 +1786,32 @@ void gui_input(uint32_t keys, uint32_t pressed) {
     return;
   }
   bool scrolled = false;
-  if (gui == GUI_CREATIVE && slots[cur].kind == SL_CREATIVE) {
+  if (gui == GUI_CREATIVE && (pressed & (K_UP | K_DOWN)) && (keys & K_SHIFT)) {
+    /* shift and up or down: the top or the bottom of the tab */
+    int last = tab_rows() > 5 ? tab_rows() - 5 : 0;
+    cscroll = pressed & K_UP ? 0 : last;
+    creative_refresh();
+    scrolled = true;
+  }
+  if (gui == GUI_CREATIVE && ctab == TAB_SEARCH) {
+    /* Search Items: the keys type (their letters, as alpha gives them), backspace takes one back */
+    uint64_t raw = plat_scan(), down = raw & ~raw_held;
+    raw_held = raw;
+    int n = (int)strlen(csearch);
+    bool typed = false;
+    for (int k = 4; k < 64; k++) {
+      if (!(down >> k & 1)) continue;
+      uint8_t d = f_digits, c = f_caps;
+      f_digits = 0, f_caps = 0;
+      char ch = k == RK_BACKSPACE ? 0 : key_char(k);
+      f_digits = d, f_caps = c;
+      if (k == RK_BACKSPACE && n) csearch[--n] = 0, typed = true;
+      else if (((ch >= 'a' && ch <= 'z') || ch == ' ') && n < (int)sizeof csearch - 1) csearch[n++] = ch, csearch[n] = 0, typed = true;
+    }
+    if (typed) cscroll = 0, creative_refresh();
+    pressed &= ~(uint32_t)(K_SLOT1 * 511);   /* (digits are letters here) */
+  }
+  if (gui == GUI_CREATIVE && slots[cur].kind == SL_CREATIVE && !scrolled) {
     /* past the top or bottom row: scroll the tab; holding a stack, down goes to the hotbar instead */
     if ((pressed & K_DOWN) && cur >= 36 && cscroll + 5 < tab_rows() && !pl.cursor.id) cscroll++, scrolled = true;
     if ((pressed & K_UP) && cur < 9 && cscroll > 0) cscroll--, scrolled = true;
@@ -1848,6 +1894,14 @@ static void container(void) {
     int t = ctab;
     sprite(t < 6 ? SP_TAB_TOP_SEL : SP_TAB_BOTTOM_SEL, px + 28 * (t % 6), t < 6 ? py - 28 : py + 136 - 4);
     text(tab_name[ctab], px + 8, py + 6, RGB(0x40, 0x40, 0x40), false);
+    if (ctab == TAB_SEARCH) {
+      /* the search box (tab_item_search.png), what is typed in it, and the cursor */
+      fill(px + 80, py + 4, 90, 12, RGB(0x55, 0x55, 0x55));
+      fill(px + 81, py + 5, 89, 11, 0xFFFF);
+      fill(px + 81, py + 5, 88, 10, RGB(0x8B, 0x8B, 0x8B));
+      text(csearch, px + 82, py + 6, 0xFFFF, false);
+      if ((frame_no / 6) & 1) text("_", px + 82 + text_width(csearch), py + 6, 0xFFFF, false);
+    }
     int rows = tab_rows(), y = 18;
     if (rows > 5) y += (112 - 17) * cscroll / (rows - 5);
     sprite(SP_SCROLLER, px + 175, py + y);

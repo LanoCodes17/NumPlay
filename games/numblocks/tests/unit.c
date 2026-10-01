@@ -238,6 +238,24 @@ int main(void) {
     alarm(0);
     plat_remove_prefix("ut6");
   }
+  {
+    /* out of a pool one block deep: swim into the bank holding jump (the 0.3 lift) */
+    world_new(0, "ut7");
+    world_follow(8, 110, 8);
+    int g = 110;
+    for (int z = 2; z <= 14; z++)
+      for (int x = 2; x <= 14; x++)
+        for (int y = g - 3; y < g + 4; y++)
+          world_set(x, y, z, y >= g ? B_AIR : (x >= 7 && x <= 9 && z >= 7 && z <= 9 && y == g - 1) ? B_WATER : B_DIRT);
+    memset(&pl, 0, sizeof pl);
+    pl.x = 8.5f, pl.z = 8.5f, pl.y = (float)(g - 1), pl.health = 20, pl.food = 20, pl.mode = 0;
+    for (int t = 0; t < 10; t++) player_tick(0, 0);
+    CHECK(pl.in_water);
+    int t = 0;
+    for (; t < 60 && !(pl.on_ground && pl.y >= g); t++) player_tick(K_FWD | K_JUMP, t == 0 ? K_JUMP : 0);
+    CHECK(pl.on_ground && pl.y >= g && pl.z > 10);
+    plat_remove_prefix("ut7");
+  }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;
 }

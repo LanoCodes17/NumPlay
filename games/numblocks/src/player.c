@@ -86,6 +86,15 @@ static void move_flying(float strafe, float fwd, float f) {
   pl.vz += fwd * c + strafe * s;
 }
 
+/* World.isAnyLiquid: a liquid in any block the box touches */
+static bool liquid_in(const float *a) {
+  for (int y = ifloor(a[1]); y <= ifloor(a[4]); y++)
+    for (int z = ifloor(a[2]); z <= ifloor(a[5]); z++)
+      for (int x = ifloor(a[0]); x <= ifloor(a[3]); x++)
+        if (blk_model[world_get(x, y, z)] == M_LIQUID) return true;
+  return false;
+}
+
 static bool in_liquid(void) {
   int b = world_get(ifloor(pl.x), ifloor(pl.y + 0.4f), ifloor(pl.z));
   return blk_model[b] == M_LIQUID;
@@ -749,9 +758,18 @@ void player_tick(uint32_t keys, uint32_t pressed) {
     int at = world_get(ifloor(pl.x), ifloor(pl.y), ifloor(pl.z));
     if (pl.in_water) {
       move_flying(strafe, fwd, 0.02f);
+      float bvx = pl.vx, bvz = pl.vz;
       move(pl.vx, pl.vy, pl.vz);
+      bool wall = bvx != pl.vx || bvz != pl.vz;
       pl.vx *= 0.8f, pl.vy *= 0.8f, pl.vz *= 0.8f;
       pl.vy -= 0.02f;
+      /* EntityLivingBase.moveEntityWithHeading: swimming into a wall with room above it
+       * (nothing solid, no water) lifts you out, onto the bank */
+      if (wall) {
+        float a[6], dy = pl.vy + 0.6f - pl.y + y0;
+        box_of(pl.x + pl.vx, pl.y + dy, pl.z + pl.vz, a);
+        if (phys_free(a) && !liquid_in(a)) pl.vy = 0.3f;
+      }
     } else {
       float fr = pl.on_ground ? 0.6f * 0.91f : 0.91f;
       float speed = 0.1f * (pl.sprinting ? 1.3f : 1.0f);

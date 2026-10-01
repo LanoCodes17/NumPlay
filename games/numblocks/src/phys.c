@@ -117,6 +117,21 @@ float phys_clip(const float *a, int axis, float d) {
   return d;
 }
 
+/* nothing solid overlaps the box a (World.getCollidingBoundingBoxes is empty) */
+bool phys_free(const float *a) {
+  for (int y = ifloor(a[1]) - 1; y <= ifloor(a[4]); y++)
+    for (int z = ifloor(a[2]); z <= ifloor(a[5]); z++)
+      for (int x = ifloor(a[0]); x <= ifloor(a[3]); x++) {
+        float bs[30];
+        int nb = block_cboxes(x, y, z, bs);
+        for (int q = 0; q < nb; q++) {
+          const float *b = bs + q * 6;
+          if (a[0] < b[3] && a[3] > b[0] && a[1] < b[4] && a[4] > b[1] && a[2] < b[5] && a[5] > b[2]) return false;
+        }
+      }
+  return true;
+}
+
 /* moves a box (w wide, h high, feet at p) by v; stops on blocks, zeroes the
  * velocity along blocked axes; true if it landed on something */
 bool phys_move(float *p, float *v, float w, float h) {

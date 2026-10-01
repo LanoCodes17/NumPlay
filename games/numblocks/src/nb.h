@@ -114,6 +114,7 @@ bool block_box(int x, int y, int z, float *b);
 int block_boxes(int b, int x, int y, int z, int8_t (*o)[6]);   /* its shape, up to 5 boxes; 0: a whole cube */
 float phys_clip(const float *box, int axis, float d);
 bool phys_move(float *p, float *v, float w, float h);
+bool phys_free(const float *a);   /* nothing solid overlaps the box {x0 y0 z0 x1 y1 z1} */
 
 /* ---------------------------------------------------------------- the player (player.c) */
 typedef struct {

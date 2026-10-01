@@ -183,7 +183,7 @@ static void sky_row(SkyRow *k, const float *row) {
   k->cx0 = (ox + vc_x0) + row[0] * k->ct + cloud_off, k->cxs = rgx * k->ct;
   k->cz0 = (oz + vc_z0) + row[2] * k->ct, k->czs = rgz * k->ct;
 }
-static __attribute__((unused)) uint16_t sky_px(const SkyRow *k, float su, float dz) {
+static inline __attribute__((always_inline)) uint16_t sky_px(const SkyRow *k, float su, float dz) {
   /* (what depends on the ray's length compared squared: its root only where it is needed) */
   float l2 = k->len2 + su * su, len = 0, dy = k->dy;
   int gi = 128;
@@ -528,16 +528,20 @@ static uint16_t trace(float dx, float dy, float dz) {
   int bx = dx > 0, by = dy > 0, bz = dz > 0;
   float tx = (x + bx - ox) * ivx, ty = (y + by - oy) * ivy, tz = (z + bz - oz) * ivz;
   float tmax = MAX_T / len, t = 0;
-  int face = -1;
   if (cam_i < 0) return hit_kind = 2, sky(dx, dy, dz, len);
   int i = cam_i;
   Ray R = {dx, dy, dz, len, ivx, ivy, ivz, 0, 0, 0, 0, cam_b};   /* (in the block the camera is in: water...) */
-  int fresh = 1;        /* just entered a 4 x 4 x 4 region */
-  int ex0 = sx > 0 ? 0 : 3, ey0 = sy > 0 ? 0 : 3, ez0 = sz > 0 ? 0 : 3;
-  /* steps through the cache and its regions (mi: the region of cell i) along each axis */
+  /* steps through the cache and its regions (mi: the region of cell i) along each axis; a
+   * step into a region's first cell (ex0...) checks the region */
+  const int ex0 = sx > 0 ? 0 : 3, ey0 = sy > 0 ? 0 : 3, ez0 = sz > 0 ? 0 : 3;
   const int fx = sx > 0 ? 4 : 5, fy = sy > 0 ? 0 : 1, fz = sz > 0 ? 2 : 3;
   const int iy = sy * VCX * VCZ, iz = sz * VCX, my = sy * MCZ * MCX, mz = sz * MCX;
   int mi = MC_I(x, y, z);
+  /* the face a cell was entered through is the axis crossed last (the latest of the sides
+   * behind), except where the ray starts (-1) or comes out of a jump (jf, at t = tj) */
+  float tj = 0;
+  int jf = -1;
+  if (!vmac[mi] || (vmac[mi] == 2 && is_water(R.inside))) goto jump;
   for (;;) {
     ST(st_steps++);
     int b = vc[i];
@@ -545,16 +549,44 @@ static uint16_t trace(float dx, float dy, float dz) {
       float te = fminf(fminf(tx, ty), tz);
       /* (over a low shape the whole way through its cell: nothing there) */
       if (shape_top[b] >= 16 || oy + dy * (dy > 0 ? t : te) - y <= shape_top[b] * (1 / 16.0f)) {
+        float px = tx - idx, py = ty - idy, pz = tz - idz;
+        int face = t == tj ? jf : px > py ? (px > pz ? fx : fz) : (py > pz ? fy : fz);
         int c = cell_hit(&R, b, i, x, y, z, face, t, te - t);
         if (c >= 0) return (uint16_t)c;
       }
     }
-    int reg = fresh ? vmac[mi] : 1;
-    if (!reg || (reg == 2 && is_water(R.inside))) {
+    /* the next cell */
+    if (tx < ty && tx < tz) {
+      t = tx;
+      tx += idx;
+      x += sx;
+      if ((unsigned)x >= VCX) break;
+      i += sx;
+      if ((x & 3) != ex0) goto next;
+      mi += sx;
+    } else if (ty < tz) {
+      t = ty;
+      ty += idy;
+      y += sy;
+      if ((unsigned)y >= VCY) break;
+      i += iy;
+      if ((y & 3) != ey0) goto next;
+      mi += my;
+    } else {
+      t = tz;
+      tz += idz;
+      z += sz;
+      if ((unsigned)z >= VCZ) break;
+      i += iz;
+      if ((z & 3) != ez0) goto next;
+      mi += mz;
+    }
+    if (!vmac[mi] || (vmac[mi] == 2 && is_water(R.inside))) {
+    jump:;
       /* an empty 4 x 4 x 4 region (or all water, seen from in the water): on from region to
        * region (the times the ray crosses their sides) while they are empty */
       bool wet = is_water(R.inside);
-      int rx = x >> 2, ry = y >> 2, rz = z >> 2, ax;
+      int rx = x >> 2, ry = y >> 2, rz = z >> 2, ax, reg;
       float ex = ((rx + bx) * 4 - ox) * ivx, ey = ((ry + by) * 4 - oy) * ivy, ez = ((rz + bz) * 4 - oz) * ivz, te;
       for (;;) {
         ST(st_jumps++);
@@ -572,61 +604,21 @@ static uint16_t trace(float dx, float dy, float dz) {
         reg = vmac[mi];
         if (reg && !(reg == 2 && wet)) break;
       }
-      t = te;
+      t = tj = te;
+      jf = ax == 0 ? fx : ax == 1 ? fy : fz;
       /* the cell just past the side: on the crossing axis the region's first; on the others
        * where the ray is, kept in the region (rounding must not put it in another) */
       float hx = ox + dx * te, hy = oy + dy * te, hz = oz + dz * te;
       x = ax == 0 ? rx * 4 + (bx ? 0 : 3) : clampi((int)hx, rx * 4, rx * 4 + 3);   /* ((int): the clamp does the floor) */
       y = ax == 1 ? ry * 4 + (by ? 0 : 3) : clampi((int)hy, ry * 4, ry * 4 + 3);
       z = ax == 2 ? rz * 4 + (bz ? 0 : 3) : clampi((int)hz, rz * 4, rz * 4 + 3);
-      face = ax == 0 ? fx : ax == 1 ? fy : fz;
       tx = (x + bx - ox) * ivx;
       ty = (y + by - oy) * ivy;
       tz = (z + bz - oz) * ivz;
       i = VC_I(x, y, z);
-      fresh = 0;   /* (its region is known: not empty) */
       continue;
     }
-    /* the next cell */
-    if (tx < ty) {
-      if (tx < tz) {
-        t = tx;
-        tx += idx;
-        x += sx;
-        if ((unsigned)x >= VCX) break;
-        i += sx;
-        face = fx;
-        fresh = (x & 3) == ex0;
-        if (fresh) mi += sx;
-      } else {
-        t = tz;
-        tz += idz;
-        z += sz;
-        if ((unsigned)z >= VCZ) break;
-        i += iz;
-        face = fz;
-        fresh = (z & 3) == ez0;
-        if (fresh) mi += mz;
-      }
-    } else if (ty < tz) {
-      t = ty;
-      ty += idy;
-      y += sy;
-      if ((unsigned)y >= VCY) break;
-      i += iy;
-      face = fy;
-      fresh = (y & 3) == ey0;
-      if (fresh) mi += my;
-    } else {
-      t = tz;
-      tz += idz;
-      z += sz;
-      if ((unsigned)z >= VCZ) break;
-      i += iz;
-      face = fz;
-      fresh = (z & 3) == ez0;
-      if (fresh) mi += mz;
-    }
+  next:
     if (t > tmax) break;
   }
 out:;
@@ -715,6 +707,12 @@ typedef struct {
 /* (the ray of picture column px across: rgx, rgz times this, on top of the row's base) */
 static float col_su[RW + 1];
 
+/* a 4 x 4 cell of daytime sky */
+static __attribute__((unused)) void sky_fill(uint16_t (*cb)[RW], float (*zb)[RW], float (*rb)[3], const SkyRow *skr, int x0) {
+  for (int r = 0; r < SR; r++)
+    for (int x = x0; x < x0 + 4; x++) cb[r][x] = sky_px(&skr[r], col_su[x], rb[r][2] + rgz * col_su[x]), zb[r][x] = 1e9f;
+}
+
 /* a pixel between samples that all met the same face of the same block: that face there */
 static int face_cell(float dx, float dy, float dz, const Sample *s) {
   if (!(s->flags & 1)) return -1;   /* something in front the samples went past (grass): trace */
@@ -798,6 +796,95 @@ static __attribute__((unused)) void face_fill(uint16_t (*cb)[RW], float (*zb)[RW
         c = mix565(c, fog565, dist >= fog1 ? 32 : (int)((dist - fog0) * fog_k * 32));
       }
       cb[r][x] = c, zb[r][x] = t;
+      continue;
+    miss:
+      cb[r][x] = trace(d[0], d[1], d[2]), zb[r][x] = last_t;
+    }
+  }
+}
+
+/* A 4 x 4 cell whose corners and middle all met faces of the same plane, of different blocks:
+ * each pixel the face there if its block shows it (face_pixel's checks, made once a block,
+ * kept while the next pixels are on the same one). A pixel it could not draw is traced. */
+static __attribute__((unused)) void plane_fill(uint16_t (*cb)[RW], float (*zb)[RW], float (*rb)[3], int x0, const Sample *s) {
+  static const uint8_t KA[3] = {1, 2, 0}, KU[3] = {0, 0, 2}, KV[3] = {2, 1, 1}, side[6] = {3, 0, 1, 1, 2, 2};
+  static const int8_t nx[6] = {0, 0, 0, 0, -1, 1}, ny[6] = {-1, 1, 0, 0, 0, 0}, nz[6] = {0, 0, -1, 1, 0, 0};
+  int f = s->f, a = f >> 1, ka = KA[a], ku = KU[a], kv = KV[a];
+  int fu = f == 2 || f == 5 ? 15 : 0, fv = a ? 15 : 0;
+  int plane = s->plane, cp = (f & 1) ? (plane - 1) >> 4 : plane >> 4, edge = plane - cp * 16;
+  bool wet = is_water(cam_b);
+  const float o[3] = {ox, oy, oz};
+  float K = plane * (1 / 16.0f) - o[ka];
+  /* the block last met: whether it shows the face, and how */
+  int last = -1, ok = 0, tex = 0, fl = 0, shd = 0;
+  bool black = false, crack = false;
+  uint16_t tint = 0;
+  const int8_t *q = NULL;
+  for (int r = 0; r < SR; r++) {
+    const float *b = rb[r];
+    float tr = a == 0 ? K / b[1] : 0;   /* (a top or bottom face: as far all along the row) */
+    for (int x = x0; x < x0 + 4; x++) {
+      float su = col_su[x], d[3] = {b[0] + rgx * su, b[1], b[2] + rgz * su};
+      float t = tr;
+      if (a) t = K / d[ka];
+      if (!(t > 0)) goto miss;
+      float hu = o[ku] + d[ku] * t, hv = o[kv] + d[kv] * t;
+      if (hu < 0 || hv < 0) goto miss;
+      int c[3];
+      c[ka] = cp, c[ku] = (int)hu, c[kv] = (int)hv;
+      if ((unsigned)c[0] >= VCX || (unsigned)c[1] >= VCY || (unsigned)c[2] >= VCZ) goto miss;
+      int i = VC_I(c[0], c[1], c[2]);
+      if (i != last) {
+        last = i;
+        int bk = vc[i], m = blk_model[bk];
+        bool cube = m == M_CUBE || m == M_LEAVES || m == M_GLASS;
+        q = NULL;
+        if (cube) ok = !(edge & 15);
+        else ok = one_box(bk) && blk_box[bk][0][ka + ((f & 1) ? 3 : 0)] == edge, q = blk_box[bk][0];
+        if (!ok) goto miss;
+        int light = vl[i];
+        if (!(edge & 15)) {
+          /* on the cell's side: lit by the cell in front, which must be clear */
+          int px = c[0] + nx[f], py = c[1] + ny[f], pz = c[2] + nz[f];
+          light = 15;
+          if ((unsigned)px < VCX && (unsigned)py < VCY && (unsigned)pz < VCZ) {
+            int fi = VC_I(px, py, pz);
+            if (vc[fi] != B_AIR && !(wet && is_water(vc[fi]))) {
+              ok = 0;
+              goto miss;
+            }
+            light = vl[fi];
+          }
+        }
+        tex = blk_front[bk] ? face_tex(bk, f, c[0], c[1], c[2]) : blk_tex[bk][f];
+        fl = tex_flags[tex];
+        if ((fl & 0x1F) < 16) tint = tint_of(bk, c[2] * VCX + c[0]);
+        shd = light_shade(side[f], light);
+        black = m == M_LEAVES && !opt.fancy;
+        crack = cube && i == brk_i;
+      }
+      if (!ok) goto miss;
+      float lu = hu - c[ku], lv = hv - c[kv];
+      if (q && (lu * 16 < q[ku] || lu * 16 > q[ku + 3] || lv * 16 < q[kv] || lv * 16 > q[kv + 3])) goto miss;
+      int iu = (int)(lu * 16), iv = (int)(lv * 16);
+      if ((unsigned)iu > 15 || (unsigned)iv > 15) goto miss;
+      int u = iu ^ fu, v = iv ^ fv, tx = texel(tex, u, v);
+      uint16_t col;
+      if (!tx && (fl & 0x20)) {
+        if (!black) goto miss;
+        col = 0;
+      } else {
+        col = tex_pal[tex][tx];
+        if (tx >= (fl & 0x1F)) col = pack(r5(col) * r5(tint) >> 8, g6(col) * g6(tint) >> 8, b5(col) * b5(tint) >> 8);
+      }
+      if (crack) col = (uint16_t)cracked(col, i, u, v);
+      col = shade565(col, shd);
+      float d2 = t * t * (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+      if (d2 > fog0 * fog0) {
+        float dist = sqrtf(d2);
+        col = mix565(col, fog565, dist >= fog1 ? 32 : (int)((dist - fog0) * fog_k * 32));
+      }
+      cb[r][x] = col, zb[r][x] = t;
       continue;
     miss:
       cb[r][x] = trace(d[0], d[1], d[2]), zb[r][x] = last_t;
@@ -1915,20 +2002,16 @@ void render_frame(const Camera *c, uint32_t tod) {
         bool one = a->cell == b->cell && a->cell == c->cell && a->cell == d->cell && a->cell == m->cell;
         (void)one;
 #ifndef FULL_TRACE
-        if (a->kind == 1 && one && (a->flags & 1) && a->cell != brk_i) {
-          face_fill(cbuf, zbuf, rb, x0, a);
+        if (a->kind == 1 && (one ? (a->flags & 1) && a->cell != brk_i : true)) {
+          if (one) face_fill(cbuf, zbuf, rb, x0, a);
+          else plane_fill(cbuf, zbuf, rb, x0, a);
           cbuf[0][x0] = a->c, zbuf[0][x0] = a->t;
           cbuf[2][x0 + 2] = m->c, zbuf[2][x0 + 2] = m->t;
           continue;
         }
         if (a->kind == 2 && fast_sky) {
-          for (int r = 0; r < SR; r++)
-            for (int x = x0; x < x0 + 4; x++) {
-              if (r == 0 && x == x0) cbuf[0][x] = a->c;
-              else if (r == 2 && x == x0 + 2) cbuf[2][x] = m->c;
-              else cbuf[r][x] = sky_px(&skr[r], col_su[x], rb[r][2] + rgz * col_su[x]);
-              zbuf[r][x] = 1e9f;
-            }
+          sky_fill(cbuf, zbuf, rb, skr, x0);
+          cbuf[0][x0] = a->c, cbuf[2][x0 + 2] = m->c;
           continue;
         }
 #endif

@@ -151,6 +151,28 @@ int main(void) {
     CHECK(calves == 1);
     plat_remove_prefix("ut3");
   }
+  /* a zombie after the player climbs a one-block step (the jump's first rise is the whole 0.42) */
+  {
+    extern uint32_t game_time;
+    world_new(0, "ut3z");
+    world_follow(8, 70, 8);
+    int y = 70;
+    for (int z = 0; z <= 16; z++)
+      for (int x = 0; x <= 16; x++) {
+        world_set(x, y - 1, z, B_STONE);
+        world_set(x, y, z, x >= 10 ? B_STONE : B_AIR);
+        for (int k = 1; k < 4; k++) world_set(x, y + k, z, B_AIR);
+      }
+    memset(ents, 0, sizeof ents);
+    opt.difficulty = 2, pl.mode = 0, pl.dead = false, pl.health = 20;
+    pl.x = 12.5f, pl.y = (float)y + 1, pl.z = 8.5f;
+    game_time = 18000;   /* (midnight: no burning) */
+    Entity *zb = ent_new(E_ZOMBIE, 5.5f, (float)y, 8.5f);
+    zb->health = 20, zb->panic = 60;
+    for (int t = 0; t < 100; t++) ticks_run++, ents_tick(), game_time++;
+    CHECK(zb->type == E_ZOMBIE && zb->y >= y + 1 && zb->x > 10);
+    plat_remove_prefix("ut3z");
+  }
   {
     /* weather: the clock, the strength, the light, and where rain falls */
     extern uint32_t game_time;
@@ -380,6 +402,17 @@ int main(void) {
     CHECK(pl.hit_z == 12);
     player_look(8.5f, 100.25f, 8.5f, 0, 0);
     CHECK(pl.hit_face == 2 && pl.hit_z == 10);
+    /* a mob in front of the block takes the crosshair (no outline); past 3 blocks nothing is in reach */
+    world_set(8, 100, 10, B_AIR), world_set(8, 100, 12, B_AIR), world_set(8, 100, 13, B_STONE);
+    memset(ents, 0, sizeof ents);
+    player_look(8.5f, 100.75f, 8.6f, 0, 0);
+    CHECK(pl.hit_face == 2 && pl.hit_z == 13);
+    Entity *cow = ent_new(E_COW, 8.5f, 100, 10.5f);
+    player_look(8.5f, 100.75f, 8.6f, 0, 0);
+    CHECK(pl.hit_face < 0 && entity_looked_at(3, 1e9f) == cow);
+    cow->z = 12.3f;
+    player_look(8.5f, 100.75f, 8.6f, 0, 0);
+    CHECK(pl.hit_face < 0 && !entity_looked_at(3, 1e9f));
     plat_remove_prefix("ut10");
   }
   {

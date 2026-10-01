@@ -30,6 +30,13 @@
   <img src="docs/media/launcher.gif" width="640" alt="The NumPlay launcher on a NumWorks calculator, scrolling through its games">
 </p>
 
+## Go support the original games!
+
+NumPlay is a fan project, made out of love for these games and for the NumWorks calculator. It is not meant to replace any of them. If you enjoy a game here, go play the original and support the people who made it.
+
+NumWorks also has a great community of people making games by hand, some of them over years. Go try their work too: [Numcraft](https://github.com/yannis300307/NumcraftRust), [Celeste Classic](https://github.com/BenchatonDev/Celeste-Numworks), [Tatone26's All the Apps](https://github.com/Tatone26/Numworks-games), the apps on [Nwagyu](https://nwagyu.org/guide/) and many more in [yannis300307's list](https://gist.github.com/yannis300307/9123136f90877107ec0d49ba96b303e5).
+
+
 ## Download
 
 Click a file to download it. Not sure which one? Take the first.
@@ -189,14 +196,6 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
     <td><img src="docs/media/uninstall.gif" width="100%" alt="Uninstalling a game from NumPlay's settings to free up space"></td>
   </tr>
 </table>
-
-## Go support the original games!
-
-NumPlay is a fan project, made out of love for these games and for the NumWorks calculator. It is not meant to replace any of them. If you enjoy a game here, go play the original and support the people who made it.
-
-If you made one of these games and would rather it not be here, email me at [masonchen204@gmail.com](mailto:masonchen204@gmail.com) or open an issue, and I'll take it down.
-
-NumWorks also has a great community of people making games by hand, some of them over years. Go try their work too: [Numcraft](https://github.com/yannis300307/NumcraftRust), [Celeste Classic](https://github.com/BenchatonDev/Celeste-Numworks), [Tatone26's All the Apps](https://github.com/Tatone26/Numworks-games), the apps on [Nwagyu](https://nwagyu.org/guide/) and many more in [yannis300307's list](https://gist.github.com/yannis300307/9123136f90877107ec0d49ba96b303e5).
 
 ## Acknowledgements
 

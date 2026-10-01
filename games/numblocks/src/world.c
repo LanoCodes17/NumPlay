@@ -291,6 +291,26 @@ void world_new(int64_t seed, const char *name) {
   memset(vpend, 0, sizeof vpend);
 }
 
+/* Near a side of the cache the next move is coming: the chunks it will make there (one row of
+ * them, 8 blocks in) need the terrain of the chunks around them, which takes most of making a
+ * chunk. Made ahead, one chunk's a frame, the move's frames making the chunks are shorter. */
+static void prepare_ahead(int lx, int lz) {
+  int dx = lx >= 22 ? 1 : lx < 18 ? -1 : 0, dz = lz >= 22 ? 1 : lz < 18 ? -1 : 0;
+  if (dx && dz) {   /* (one side at a time: the nearer) */
+    if ((dx > 0 ? VCX - lx : lx) < (dz > 0 ? VCZ - lz : lz)) dz = 0;
+    else dx = 0;
+  }
+  if (dx) {
+    int cx = floordiv(dx > 0 ? vc_x0 + VCX : vc_x0 - 8, 16);
+    for (int cz = floordiv(vc_z0, 16); cz <= floordiv(vc_z0 + VCZ - 1, 16); cz++)
+      if (gen_prepare(cx, cz)) return;
+  } else if (dz) {
+    int cz = floordiv(dz > 0 ? vc_z0 + VCZ : vc_z0 - 8, 16);
+    for (int cx = floordiv(vc_x0, 16); cx <= floordiv(vc_x0 + VCX - 1, 16); cx++)
+      if (gen_prepare(cx, cz)) return;
+  }
+}
+
 void world_follow(float x, float y, float z) {
   int px = ifloor(x), py = ifloor(y), pz = ifloor(z);
   int lx = px - vc_x0, ly = py - vc_y0, lz = pz - vc_z0;
@@ -315,7 +335,7 @@ void world_follow(float x, float y, float z) {
     fill_pending(best);
     light_mark(x0 - 4, 0, z0 - 4, x0 + 20, VCY, z0 + 20);
     mac_box(x0 < 0 ? 0 : x0, 0, z0 < 0 ? 0 : z0, x0 + 16 > VCX ? VCX : x0 + 16, VCY, z0 + 16 > VCZ ? VCZ : z0 + 16);
-  }
+  } else prepare_ahead(lx, lz);
   world_light_flush();
 }
 

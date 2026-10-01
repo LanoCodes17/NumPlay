@@ -3142,7 +3142,7 @@ static void crec_cover(int cx, int cz) {
 /* Summary cache                                                             */
 /* ======================================================================== */
 
-#define NSUM 20
+#define NSUM 25
 typedef struct {
     int cx, cz;
     uint32_t age;
@@ -5446,6 +5446,19 @@ static void slab_caves(int cx, int cz, const ColSum *sum, uint8_t *out, int y0, 
         caves_run(1u << 4);
     }
     cave_track_on = 0;
+}
+
+/* Ahead of gen_slab(cx, cz): one of the summaries of the chunks around it that it will need, if
+ * one is not kept (each is a chunk's terrain, so the work of a chunk can be spread over frames).
+ * 0 when they are all there. */
+int gen_prepare(int cx, int cz) {
+    for (int dz = -1; dz <= 1; dz++)
+        for (int dx = -1; dx <= 1; dx++)
+            if ((dx || dz) && !sum_find(cx + dx, cz + dz)) {
+                sum_get(cx + dx, cz + dz);
+                return 1;
+            }
+    return 0;
 }
 
 void gen_slab(int cx, int cz, int y0, int h, uint8_t *out) {

@@ -56,6 +56,7 @@ static inline bool is_lava(int b) { return b == B_LAVA || b == B_FLOWING_LAVA ||
 /* ---------------------------------------------------------------- the generator (gen.c) */
 void gen_init(int64_t seed);
 void gen_slab(int cx, int cz, int y0, int h, uint8_t *out);   /* out[(y - y0) * 256 + z * 16 + x] */
+int gen_prepare(int cx, int cz);   /* a slice of the work for gen_slab(cx, cz) ahead; 0: nothing left */
 int gen_biome(int x, int z);
 int gen_top(int x, int z);
 void gen_spawn(int *x, int *y, int *z);

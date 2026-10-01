@@ -2,7 +2,7 @@
 
 Mine, craft and survive on your NumWorks calculator, in a world like Minecraft 1.8.
 
-<img src="docs/shot.png" width="320" alt="NumBlocks: a grassy field with a sheep, a cow, a pig, a spider and a creeper">
+<img src="docs/shot.png" width="320" alt="NumBlocks: oak trees and lilacs, with a sheep, a cow, a pig, a chicken and a creeper">
 
 - **A real 1.8 world:** the same biomes, hills, caves, lakes and trees as Minecraft 1.8.8, for any seed.
 - **Survival:** health, hunger, day and night, zombies, skeletons, creepers and spiders, and pigs, cows, sheep and chickens.

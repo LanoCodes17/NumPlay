@@ -10,7 +10,7 @@
 
 #define OPTIONS_REC "numblocks.cfg"
 
-Options opt = {2, 0, 100, 1, 1, 0, 0, 0};
+Options opt = {2, 0, 100, 1, 1, 0, 0, 0, {0}};
 int64_t world_seed;
 
 /* the record's head: version 1 had no name (it was "New World") */
@@ -233,6 +233,7 @@ void delete_world(int s) {
 }
 
 void load_options(void) {
+  keys_reset();
   uint32_t len = 0;
   const uint8_t *d = plat_load(OPTIONS_REC, &len);
   /* (an older, shorter record: what it has; the rest stays as it was) */

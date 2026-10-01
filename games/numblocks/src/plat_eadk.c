@@ -1,50 +1,12 @@
 /* The calculator: EADK display, keyboard, time and files.
  *
- * Keys, Minecraft's on the calculator's keyboard: the left thumb looks around
- * with the arrows, the right one walks with the keys under OK and Back, laid
- * out like W, A, S and D: comma, pi, square root and x squared; backspace
- * sprints. Under the arrows, shift jumps and alpha sneaks. OK uses and places,
- * Back mines and hits; 1-9 pick the hotbar slot; var opens the inventory;
- * x,n,t drops; Toolbox pauses; Home saves and quits. */
+ * The keys are as Options > Controls has them (gui.c, keys_of). */
 #include <eadk.h>
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
 #include "nb.h"
 
-#define KEY(k) ((uint64_t)1 << (k))
-
-uint32_t plat_keys(void) {
-  uint64_t k = eadk_keyboard_scan();
-  uint32_t r = 0;
-  if (k & KEY(eadk_key_left)) r |= K_LEFT;
-  if (k & KEY(eadk_key_right)) r |= K_RIGHT;
-  if (k & KEY(eadk_key_up)) r |= K_UP;
-  if (k & KEY(eadk_key_down)) r |= K_DOWN;
-  if (k & KEY(eadk_key_comma)) r |= K_FWD;
-  if (k & KEY(eadk_key_sqrt)) r |= K_BACKW;
-  if (k & KEY(eadk_key_pi)) r |= K_STRAFE_L;
-  if (k & KEY(eadk_key_square)) r |= K_STRAFE_R;
-  if (k & KEY(eadk_key_shift)) r |= K_JUMP;
-  if (k & (KEY(eadk_key_ok) | KEY(eadk_key_exe))) r |= K_USE;
-  if (k & KEY(eadk_key_ok)) r |= K_OK;
-  if (k & KEY(eadk_key_exe)) r |= K_EXE;
-  if (k & KEY(eadk_key_shift)) r |= K_SHIFT;
-  if (k & KEY(eadk_key_back)) r |= K_BACK;
-  if (k & KEY(eadk_key_multiplication)) r |= K_CHAT;
-  if (k & KEY(eadk_key_division)) r |= K_COMMAND;
-  if (k & KEY(eadk_key_back)) r |= K_ATTACK;
-  if (k & KEY(eadk_key_var)) r |= K_INV;
-  if (k & (KEY(eadk_key_home) | KEY(eadk_key_on_off))) r |= K_HOME;
-  if (k & KEY(eadk_key_alpha)) r |= K_SNEAK;
-  if (k & KEY(eadk_key_backspace)) r |= K_SPRINT;
-  if (k & KEY(eadk_key_toolbox)) r |= K_PAUSE;
-  if (k & KEY(eadk_key_xnt)) r |= K_DROP;
-  static const uint8_t digits[9] = {eadk_key_one, eadk_key_two, eadk_key_three, eadk_key_four, eadk_key_five,
-                                    eadk_key_six, eadk_key_seven, eadk_key_eight, eadk_key_nine};
-  for (int i = 0; i < 9; i++)
-    if (k & KEY(digits[i])) r |= K_SLOT1 << i;
-  return r;
-}
+uint32_t plat_keys(void) { return keys_of(eadk_keyboard_scan()); }
 
 uint64_t plat_scan(void) { return eadk_keyboard_scan(); }
 uint32_t plat_millis(void) { return (uint32_t)eadk_timing_millis(); }

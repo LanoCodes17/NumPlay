@@ -152,6 +152,7 @@ typedef struct {
 enum { EF_POISON, EF_HUNGER, EF_REGEN };
 extern Player pl;
 void player_spawn(void);
+void player_pick_block(void);   /* the block looked at, into the hand (Pick Block) */
 extern float look_ray[6];   /* the eyes' ray as last drawn: from, direction */
 void player_look(float ex, float ey, float ez, float yaw, float pitch);
 void player_tick(uint32_t keys, uint32_t pressed);   /* 20 a second */
@@ -242,7 +243,7 @@ void break_block_at(int x, int y, int z, bool drops);
 /* ---------------------------------------------------------------- screens (gui.c) */
 enum { GUI_NONE, GUI_INVENTORY, GUI_CRAFTING, GUI_FURNACE, GUI_CHEST, GUI_CREATIVE, GUI_CHAT,
        GUI_PAUSE, GUI_DEATH, GUI_OPTIONS, GUI_TITLE, GUI_WORLDS, GUI_CREATE, GUI_CONFIRM, GUI_LOADING, GUI_CONTROLS,
-       GUI_RENAME, GUI_LAN };
+       GUI_RENAME, GUI_LAN, GUI_KEYS };
 extern int gui;            /* the screen open */
 void gui_open(int screen, int x, int y, int z);
 void gui_close(void);
@@ -268,7 +269,13 @@ typedef struct {
   uint8_t keys_seen;    /* the key sheet's version last shown (it opens when the keys change) */
   uint8_t last_world;   /* the world played last (its slot, 0: none): the title's backdrop */
   uint32_t plays;       /* worlds opened so far: each world keeps the count when it was last played */
+  uint8_t keys[24];     /* the key of each action (A_*): the calculator's number for it, 255 none */
 } Options;
+/* the actions keys are set to (KeyBinding), in the order of Minecraft's list: by category, then name */
+enum { A_ATTACK, A_PICK, A_USE, A_DROP, A_SLOT1, A_INVENTORY = A_SLOT1 + 9, A_PAUSE, A_JUMP, A_SNEAK, A_SPRINT,
+       A_LEFT, A_RIGHT, A_BACK, A_FORWARD, A_CHAT, A_COMMAND, N_ACTIONS };
+uint32_t keys_of(uint64_t raw);   /* the K_ bits of the keys held (the calculator's keys, as bound) */
+void keys_reset(void);            /* the keys as they start */
 #define KEY_SHEET 3       /* (2: jump and sneak on shift and alpha; 3: chat and commands) */
 extern Options opt;
 extern int64_t world_seed;

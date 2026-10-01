@@ -838,6 +838,11 @@ char seed_text[21];         /* the new world's seed, as typed */
 char name_text[WORLD_NAME + 1];   /* the new world's name, or the world being renamed's */
 int play_slot;              /* the world to play */
 static int options_from;    /* the screen the options go back to */
+/* the Controls list's selection: -1 the Key Sheet button, 0.. the actions (kcol 1: their Reset), N_ACTIONS Done
+ * (kcol 1: Reset Keys); waiting for a key (GuiControls.buttonId) */
+static int ksel = -1, kcol, kscroll;
+static bool kwait;
+static void keys_input(uint32_t pressed);
 static int controls_from;   /* and the key sheet */
 
 /* the worlds, the one played last first, and the one selected */
@@ -1166,6 +1171,8 @@ void gui_menu(int screen) {
   bcur = 0;
   field = F_NONE;
   if (screen == GUI_WORLDS) list_worlds();
+  if (screen == GUI_KEYS && controls_from != GUI_KEYS) ksel = -1, kcol = 0, kscroll = 0;
+  kwait = false;
   menu(screen);
 }
 
@@ -1267,7 +1274,7 @@ static void press(int id) {
       save_options();
       gui_menu(options_from);
       break;
-    case B_CONTROLS: gui_menu(GUI_CONTROLS); break;
+    case B_CONTROLS: gui_menu(GUI_KEYS); break;
     case B_CONTROLS_DONE:
       if (opt.keys_seen != KEY_SHEET) opt.keys_seen = KEY_SHEET, save_options();
       gui_menu(controls_from);
@@ -1281,6 +1288,10 @@ static void press(int id) {
 }
 
 static void menu_input(uint32_t keys, uint32_t pressed) {
+  if (gui == GUI_KEYS) {
+    keys_input(pressed);
+    return;
+  }
   if (!nbuttons) menu(gui);
   if (field) {
     field_input();
@@ -1299,7 +1310,7 @@ static void menu_input(uint32_t keys, uint32_t pressed) {
       bcur = (bcur + dir + nbuttons) % nbuttons;
       if (buttons[bcur].on) break;
     }
-  if (pressed & K_USE && buttons[bcur].on) press(buttons[bcur].id);
+  if (pressed & (K_OK | K_EXE) && buttons[bcur].on) press(buttons[bcur].id);
   else if (pressed & K_BACK) {
     /* Back: the way out of each screen */
     if (gui == GUI_PAUSE) gui = GUI_NONE;
@@ -1424,27 +1435,197 @@ static void arrow_pad(int cx, int cy, int r) {
   }
   text_center("Look", cx, cy - 4, RGB(0xFF, 0xFF, 0xA0));
 }
+/* ---------------------------------------------------------------- the keys (KeyBinding) */
+typedef struct { uint32_t bit; uint8_t key; const char *name, *what; } Action;
+/* (what: the key sheet's word for it; key: where it starts) */
+static const Action actions[N_ACTIONS] = {
+    {K_ATTACK, 5, "Attack/Destroy", "Mine, attack"}, {0, 20, "Pick Block", "Pick block"},
+    {K_USE, 4, "Use Item/Place Block", "Place, use"}, {K_DROP, 14, "Drop Item", "Drop"},
+    {K_SLOT1, 42, "Hotbar Slot 1", "Slot 1"}, {K_SLOT1 << 1, 43, "Hotbar Slot 2", "Slot 2"},
+    {K_SLOT1 << 2, 44, "Hotbar Slot 3", "Slot 3"}, {K_SLOT1 << 3, 36, "Hotbar Slot 4", "Slot 4"},
+    {K_SLOT1 << 4, 37, "Hotbar Slot 5", "Slot 5"}, {K_SLOT1 << 5, 38, "Hotbar Slot 6", "Slot 6"},
+    {K_SLOT1 << 6, 30, "Hotbar Slot 7", "Slot 7"}, {K_SLOT1 << 7, 31, "Hotbar Slot 8", "Slot 8"},
+    {K_SLOT1 << 8, 32, "Hotbar Slot 9", "Slot 9"}, {K_INV, 15, "Inventory", "Inventory"},
+    {K_PAUSE, 51, "Pause", "Pause"}, {K_JUMP, 12, "Jump", "Jump"}, {K_SNEAK, 13, "Sneak", "Sneak"},
+    {K_SPRINT, 17, "Sprint", "Sprint"}, {K_STRAFE_L, 27, "Strafe Left", "Left"},
+    {K_STRAFE_R, 29, "Strafe Right", "Right"}, {K_BACKW, 28, "Walk Backwards", "Backward"},
+    {K_FWD, 22, "Walk Forwards", "Forward"}, {K_CHAT, 39, "Open Chat", "Chat"},
+    {K_COMMAND, 40, "Open Command", "Command"}};
+static const char *const categories[5] = {"Gameplay", "Inventory", "Miscellaneous", "Movement", "Multiplayer"};
+static const uint8_t category_at[5] = {A_ATTACK, A_DROP, A_PAUSE, A_JUMP, A_CHAT};
+
+void keys_reset(void) {
+  for (int a = 0; a < N_ACTIONS; a++) opt.keys[a] = actions[a].key;
+}
+/* the keys that can be set: not the arrows (they look), Home (it leaves), On/Off or EXE (it does what OK does) */
+static bool settable(int k) { return k == 4 || k == 5 || (k >= 12 && k <= 51 && k != 35 && k != 41 && k != 47); }
+uint32_t keys_of(uint64_t raw) {
+  uint32_t r = 0;
+  static const uint32_t fixed[8] = {K_LEFT, K_UP, K_DOWN, K_RIGHT, K_OK, K_BACK, K_HOME, K_HOME};
+  for (int k = 0; k < 8; k++)
+    if (raw >> k & 1) r |= fixed[k];
+  if (raw >> 12 & 1) r |= K_SHIFT;
+  if (raw >> 52 & 1) r |= K_EXE, raw |= 1 << 4;   /* (EXE: what OK does) */
+  for (int a = 0; a < N_ACTIONS; a++)
+    if (opt.keys[a] < 64 && (raw >> opt.keys[a] & 1)) r |= actions[a].bit;
+  return r;
+}
+/* the key's name, as the calculator writes it */
+static const char *key_name(int k) {
+  static const char *const names[52] = {
+      [4] = "OK", [5] = "Back", [12] = "shift", [13] = "alpha", [14] = "x,n,t", [15] = "var", [16] = "toolbox",
+      [17] = "\3", [18] = "e^x", [19] = "ln", [20] = "log", [21] = "i", [22] = ",", [23] = "x^y", [24] = "sin",
+      [25] = "cos", [26] = "tan", [27] = "\1", [28] = "\2", [29] = "x^2", [30] = "7", [31] = "8", [32] = "9",
+      [33] = "(", [34] = ")", [36] = "4", [37] = "5", [38] = "6", [39] = "\4", [40] = "\5", [42] = "1", [43] = "2",
+      [44] = "3", [45] = "+", [46] = "-", [48] = "0", [49] = ".", [50] = "x10^x", [51] = "ans"};
+  return k < 52 && names[k] ? names[k] : "NONE";
+}
+static const char *action_on(int k) {
+  for (int a = 0; a < N_ACTIONS; a++)
+    if (opt.keys[a] == k) return actions[a].what;
+  return NULL;
+}
+
 static void key_sheet(void) {
   text_center("Controls", SCREEN_W / 2, 4, 0xFFFF);
   arrow_pad(40, 45, 27);
   key(130, 30, 60, "Home", "Save, quit");
-  key(236, 14, 80, "OK", "Place, use");
-  key(236, 46, 80, "Back", "Mine, attack");
+  key(236, 14, 80, "OK", action_on(4));
+  key(236, 46, 80, "Back", action_on(5));
   /* the three rows under them, as on the calculator (the two left columns narrower) */
-  static const char *const caps[3][6] = {{"shift", "alpha", "x,n,t", "var", "toolbox", "\3"},
-                                         {"e^x", "ln", "log", "i", ",", "x^y"},
-                                         {"sin", "cos", "tan", "\1", "\2", "x^2"}};
-  static const char *const acts[3][6] = {{"Jump", "Sneak", "Drop", "Inventory", "Pause", "Sprint"},
-                                         {0, 0, 0, 0, "Forward", 0},
-                                         {0, 0, 0, "Left", "Backward", "Right"}};
   for (int r = 0; r < 3; r++)
-    for (int c = 0; c < 6; c++)
-      key(c < 2 ? 5 + c * 37 : 79 + (c - 2) * 60, 80 + r * 32, c < 2 ? 34 : 57, caps[r][c], acts[r][c]);
-  static const char *const notes[4] = {"1 to 9: hotbar slot.  EXE: as OK.  \4: chat.  \5: command.",
-                                       "Forward twice: sprint.   Jump twice: fly (Creative).",
+    for (int c = 0; c < 6; c++) {
+      int k = 12 + r * 6 + c;
+      key(c < 2 ? 5 + c * 37 : 79 + (c - 2) * 60, 80 + r * 32, c < 2 ? 34 : 57, key_name(k), action_on(k));
+    }
+  /* the keys set further down, in words */
+  char line[2][72];
+  int n = 0, len = 0;
+  line[0][0] = line[1][0] = 0;
+  bool digits = true;
+  for (int a = A_SLOT1; a < A_SLOT1 + 9; a++) digits &= opt.keys[a] == actions[a].key;
+  for (int a = -1; a <= N_ACTIONS && n < 2; a++) {
+    char t[32];
+    if (a == -1) {
+      if (!digits) continue;
+      strcpy(t, "1 to 9: hotbar slot.");
+    } else if (a == N_ACTIONS) strcpy(t, "EXE: as OK.");
+    else {
+      int k = opt.keys[a];
+      if ((digits && a >= A_SLOT1 && a < A_SLOT1 + 9) || k == 4 || k == 5 || (k >= 12 && k < 30) || k > 51) continue;
+      cat(t, key_name(k), ": ");
+      cat(t + strlen(t), actions[a].what, ".");
+      for (char *c = t + strlen(key_name(k)) + 2; *c; c++)
+        if (*c >= 'A' && *c <= 'Z') *c = (char)(*c - 'A' + 'a');
+    }
+    if (len && text_width(line[n]) + text_width(t) + 12 > SCREEN_W - 8) {
+      if (++n == 2) break;
+      len = 0;
+    }
+    if (len) strcat(line[n], "   ");
+    strcat(line[n], t);
+    len++;
+  }
+  static const char *const notes[3] = {"Forward twice: sprint.   Jump twice: fly (Creative).",
                                        "Menus: OK takes or puts, EXE one, shift+OK moves.",
                                        "Hold OK and move over slots to spread a stack out."};
-  for (int i = 0; i < 4; i++) text_center(notes[i], SCREEN_W / 2, 177 + i * 10, 0xFFFF);
+  int rows = line[1][0] ? 2 : 1;
+  for (int i = 0; i < rows; i++) text_center(line[i], SCREEN_W / 2, 177 + i * 10, 0xFFFF);
+  for (int i = 0; i + rows < 4; i++) text_center(notes[i], SCREEN_W / 2, 177 + (i + rows) * 10, 0xFFFF);
+}
+
+/* GuiControls: the actions by category, each with its key and Reset; Done and Reset Keys under them */
+#define KLIST_Y 42
+#define KLIST_ROWS 8
+static int krow_of(int a) {
+  int r = a;
+  for (int c = 0; c < 5; c++) r += category_at[c] <= a;
+  return r;
+}
+static void keys_screen(void) {
+  int w = SCREEN_W, h = SCREEN_H;
+  text_center("Controls", w / 2, 8, 0xFFFF);
+  Button b = {(int16_t)(w / 2 - 100), 18, 200, 1, 0, "Key Sheet..."};
+  button(&b, ksel == -1);
+  /* the label column: as wide as the widest label */
+  int lw = 0;
+  for (int a = 0; a < N_ACTIONS; a++)
+    if (text_width(actions[a].name) > lw) lw = text_width(actions[a].name);
+  int x = w / 2 - 126 + 2;
+  for (int a = 0, c = 0, row = 0; a < N_ACTIONS; row++) {
+    int y = KLIST_Y + (row - kscroll) * 20;
+    bool shown = row >= kscroll && row < kscroll + KLIST_ROWS;
+    if (c < 5 && category_at[c] == a) {
+      if (shown) text_center(categories[c], w / 2, y + 20 - 9 - 1, 0xFFFF);
+      c++;
+      continue;
+    }
+    if (shown) {
+      text(actions[a].name, x + 90 - lw, y + 6, 0xFFFF, false);
+      /* the key: yellow between > < while waiting for one, red if another action has it too */
+      Button kb = {(int16_t)(x + 105), (int16_t)y, 75, 1, 0, ""};
+      button(&kb, ksel == a && kcol == 0);
+      bool clash = false;
+      for (int o = 0; o < N_ACTIONS; o++) clash |= o != a && opt.keys[o] == opt.keys[a] && opt.keys[a] != 255;
+      const char *n = key_name(opt.keys[a]);
+      uint16_t col = kwait && ksel == a ? RGB(0xFF, 0xFF, 0x55) : clash ? RGB(0xFF, 0x55, 0x55)
+                     : ksel == a && kcol == 0 ? RGB(0xFF, 0xFF, 0xA0) : RGB(0xE0, 0xE0, 0xE0);
+      key_text(n, x + 105 + 37, y + 6, col);
+      if (kwait && ksel == a) {
+        int nw = text_width(n) / 2 + 6;
+        text(">", x + 105 + 37 - nw - 6, y + 6, 0xFFFF, true);
+        text("<", x + 105 + 37 + nw, y + 6, 0xFFFF, true);
+      }
+      Button rb = {(int16_t)(x + 190), (int16_t)y, 50, opt.keys[a] != actions[a].key, 0, "Reset"};
+      button(&rb, ksel == a && kcol == 1);
+    }
+    a++;
+  }
+  Button done = {(int16_t)(w / 2 - 155), (int16_t)(h - 29), 150, 1, 0, "Done"};
+  bool any = false;
+  for (int a = 0; a < N_ACTIONS; a++) any |= opt.keys[a] != actions[a].key;
+  Button all = {(int16_t)(w / 2 + 5), (int16_t)(h - 29), 150, any, 0, "Reset Keys"};
+  button(&done, ksel == N_ACTIONS && kcol == 0);
+  button(&all, ksel == N_ACTIONS && kcol == 1);
+}
+static void keys_input(uint32_t pressed) {
+  if (kwait) {
+    uint64_t raw = plat_scan(), down = raw & ~raw_held;
+    raw_held = raw;
+    for (int k = 0; k < 64; k++) {
+      if (!(down >> k & 1)) continue;
+      if (k <= 3) kwait = false;   /* (an arrow: as it was) */
+      else if (settable(k)) opt.keys[ksel] = (uint8_t)k, kwait = false;
+    }
+    return;
+  }
+  raw_held = plat_scan();
+  if (pressed & K_DOWN) ksel = ksel < N_ACTIONS ? ksel + 1 : N_ACTIONS;
+  if (pressed & K_UP) ksel = ksel > -1 ? ksel - 1 : -1;
+  if (pressed & (K_LEFT | K_RIGHT)) kcol = !kcol;
+  if (ksel == -1) kcol = 0;
+  /* the selected action in view */
+  if (ksel >= 0 && ksel < N_ACTIONS) {
+    int r = krow_of(ksel);
+    if (ksel == category_at[0] || ksel == category_at[1] || ksel == category_at[2] || ksel == category_at[3] ||
+        ksel == category_at[4])
+      r--;   /* (its category's name with it) */
+    if (r < kscroll) kscroll = r;
+    if (krow_of(ksel) >= kscroll + KLIST_ROWS) kscroll = krow_of(ksel) - KLIST_ROWS + 1;
+  }
+  if (pressed & (K_OK | K_EXE)) {
+    if (ksel == -1) gui_menu(GUI_CONTROLS);
+    else if (ksel < N_ACTIONS && kcol == 0) kwait = true, raw_held = plat_scan();
+    else if (ksel < N_ACTIONS) opt.keys[ksel] = actions[ksel].key;
+    else if (kcol == 1) keys_reset();
+    else {
+      save_options();
+      gui_menu(GUI_OPTIONS);
+    }
+  } else if (pressed & K_BACK) {
+    save_options();
+    gui_menu(GUI_OPTIONS);
+  }
 }
 
 /* GuiTextField: grey framed (white when chosen), the text, and while typing a blinking cursor
@@ -1736,7 +1917,7 @@ void hud_strip(uint16_t *buf, int y0, int rows) {
     tint_rect(0, y0, SCREEN_W, rows, 0x0841, a > 30 ? 30 : a);
   }
   if (gui < GUI_PAUSE || gui == GUI_PAUSE || gui == GUI_DEATH || gui == GUI_LAN ||
-      (gui == GUI_OPTIONS && options_from == GUI_PAUSE))
+      ((gui == GUI_OPTIONS || gui == GUI_KEYS) && options_from == GUI_PAUSE))
     hud();
   if (gui == GUI_NONE || gui == GUI_CHAT) chat_lines();
   if (pl.hurt_time > 0 && gui == GUI_NONE) {
@@ -1753,10 +1934,11 @@ void hud_strip(uint16_t *buf, int y0, int rows) {
       menu_screen();
       break;
     case GUI_CHAT: chat_screen(); break;
-    case GUI_OPTIONS: case GUI_CONTROLS:
+    case GUI_OPTIONS: case GUI_CONTROLS: case GUI_KEYS:
       if (options_from == GUI_PAUSE) dark_background();
       else dirt_background();
-      menu_screen();
+      if (gui == GUI_KEYS) keys_screen();
+      else menu_screen();
       break;
     case GUI_TITLE:
       menu_screen();

@@ -699,6 +699,26 @@ static void use(uint32_t pressed) {
 }
 
 /* ---------------------------------------------------------------- a tick */
+/* Minecraft.middleClickMouse: the block looked at in the hand, from the hotbar if it is there; in
+ * Creative, else into the first empty hotbar slot, or the one held (InventoryPlayer.setCurrentItem) */
+void player_pick_block(void) {
+  if (pl.hit_face < 0) return;
+  int id = blk_item[world_get(pl.hit_x, pl.hit_y, pl.hit_z)];
+  if (id == 0xFFFF) return;
+  for (int i = 0; i < 9; i++)
+    if (pl.inv[i].id == id) {
+      pl.slot = i;
+      return;
+    }
+  if (pl.mode != 1) return;
+  for (int i = 0; i < 9; i++)
+    if (!pl.inv[i].id) {
+      pl.slot = i;
+      break;
+    }
+  pl.inv[pl.slot] = (Stack){(uint16_t)id, 1};
+}
+
 void player_spawn(void) {
   int x, y, z;
   gen_spawn(&x, &y, &z);

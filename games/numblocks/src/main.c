@@ -112,6 +112,10 @@ bool game_frame(void) {
   uint32_t k = plat_keys();
   uint32_t pressed = k & ~keys_held;
   keys_held = k;
+  static bool pick_held;
+  bool pick = opt.keys[A_PICK] < 64 && (plat_scan() >> opt.keys[A_PICK] & 1);
+  if (pick && !pick_held && in_world && gui == GUI_NONE && !pl.dead) player_pick_block();
+  pick_held = pick;
   if (k & K_HOME) {
     /* Home: save and quit, from anywhere */
     if (in_world) {
@@ -186,7 +190,7 @@ bool game_frame(void) {
     if (pl.pitch > 90) pl.pitch = 90;
     if (pl.pitch < -90) pl.pitch = -90;
   }
-  bool paused = gui == GUI_PAUSE || gui == GUI_OPTIONS || gui == GUI_CONTROLS || gui == GUI_LAN;
+  bool paused = gui == GUI_PAUSE || gui == GUI_OPTIONS || gui == GUI_CONTROLS || gui == GUI_LAN || gui == GUI_KEYS;
   if (!paused) acc += dt;
   /* a key pressed on a frame between ticks waits for the next tick (else that press is lost) */
   static uint32_t game_pressed;

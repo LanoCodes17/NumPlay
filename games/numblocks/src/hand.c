@@ -397,6 +397,38 @@ void hand_strip(uint16_t *buf, int y0, int rows) {
       const float *bx = box[fc->b];
       float c = bx[k + ((f & 1) ? 3 : 0)], ck = c - org[k];
       float r[3] = {dx0[0] + ddy[0] * y, dx0[1] + ddy[1] * y, dx0[2] + ddy[2] * y};
+      if (kind != H_ITEM && nbox == 1 && !fc->near) {
+        /* Along the row the point on the face's plane is (A + B x) / (C + E x) on each axis
+         * across it: its texel, and whether it is on the face, change only where it crosses a
+         * whole pixel of the model (the boxes are whole pixels). So the row goes in runs of one
+         * texel, each worked out once, the next crossing solved for. */
+        float C = r[k], E = ddx[k];
+        float Ai = org[i] * C + ck * r[i], Bi = org[i] * E + ck * ddx[i];
+        float Aj = org[j] * C + ck * r[j], Bj = org[j] * E + ck * ddx[j];
+        bool up_i = Bi * C - Ai * E > 0, up_j = Bj * C - Aj * E > 0;   /* (growing along the row) */
+        for (int x = xa; x < xb;) {
+          float D = C + E * x;
+          int nx = x + 1;
+          if (D != 0 && ck / D > 0) {
+            float id = 1 / D, pi = (Ai + Bi * x) * id, pj = (Aj + Bj * x) * id;
+            float ni = floorf(pi) + up_i, nj = floorf(pj) + up_j, di = Bi - ni * E, dj = Bj - nj * E;
+            float xe = fminf(di != 0 ? (ni * C - Ai) / di : 1e9f, dj != 0 ? (nj * C - Aj) / dj : 1e9f);
+            if (xe >= xb) nx = xb;
+            else if (xe >= x + 1) nx = (int)xe + 1;
+            if (pi >= bx[i] && pi <= bx[i + 3] && pj >= bx[j] && pj <= bx[j + 3]) {
+              float p[3];
+              p[k] = c, p[i] = pi, p[j] = pj;
+              int col = kind == H_ARM ? arm_texel(f, p) : block_texel(f, p);
+              if (col >= 0) {
+                uint16_t s = shade((uint16_t)col, face_sh[f]);
+                for (int q = x; q < nx; q++) row[q] = s;
+              }
+            }
+          }
+          x = nx;
+        }
+        continue;
+      }
       for (int x = xa; x < xb; x++) {
         /* the ray meets the face's plane at t; inside the face? */
         float d[3] = {r[0] + ddx[0] * x, r[1] + ddx[1] * x, r[2] + ddx[2] * x};

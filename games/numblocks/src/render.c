@@ -727,15 +727,21 @@ typedef struct {
 static float col_su[RW + 1];
 
 /* A 4 x 4 cell of daytime sky. A row of it where the sun and the moon cannot be (the brighter
- * of its ends too far from them) and above the horizon's glow (or below the horizon) is one
- * colour of the sky's (made once a frame, sky_base), unless a cloud is in front. */
-static uint16_t sky_base[2];   /* below the horizon, above its glow (render_frame) */
+ * of its ends too far from them) is one colour of the sky's gradient (packed once a frame,
+ * sky_pk) where the gradient is the same at its ends (and in its middle, if it is the
+ * highest there), unless a cloud is in front */
+static uint16_t sky_pk[129];   /* (render_frame) */
+static inline int sky_gi(float dy, float l2) {
+  return dy <= 0 ? 0 : dy * dy >= 0.16f * l2 ? 128 : (int)(dy / sqrtf(l2) * 320);
+}
 static __attribute__((unused)) void sky_fill(uint16_t (*cb)[RW], float (*zb)[RW], float (*rb)[3], const SkyRow *skr, int x0) {
-  float s0 = col_su[x0], s3 = col_su[x0 + 3], lo2 = fminf(s0 * s0, s3 * s3), hi2 = fmaxf(s0 * s0, s3 * s3);
+  float s0 = col_su[x0], s3 = col_su[x0 + 3], lo2 = fminf(s0 * s0, s3 * s3);
+  bool mid = s0 < 0 && s3 > 0;   /* (the gradient is highest where su is 0) */
   for (int r = 0; r < SR; r++) {
     const SkyRow *k = &skr[r];
     float dy = k->dy, l2 = k->len2 + lo2;
-    bool plain = !under_water && (dy <= 0 || dy * dy >= 0.16f * (k->len2 + hi2));
+    int gi = sky_gi(dy, k->len2 + s0 * s0);
+    bool plain = !under_water && gi == sky_gi(dy, k->len2 + s3 * s3) && (!mid || gi == sky_gi(dy, k->len2));
     if (plain && sun_a > 0) {
       float a = fabsf(k->sd0 + k->sds * s0), b = fabsf(k->sd0 + k->sds * s3), m = fmaxf(a, b);
       plain = m * m <= 0.81f * l2;
@@ -743,7 +749,7 @@ static __attribute__((unused)) void sky_fill(uint16_t (*cb)[RW], float (*zb)[RW]
     if (!plain) {
       for (int x = x0; x < x0 + 4; x++) cb[r][x] = sky_px(k, col_su[x], rb[r][2] + rgz * col_su[x]);
     } else {
-      uint16_t base = sky_base[dy > 0];
+      uint16_t base = sky_pk[gi];
       bool cloud = dy > 0.01f && k->ct > 0 && opt.clouds && k->ct * k->ct * l2 < 200 * 200;
       for (int x = x0; x < x0 + 4; x++) {
         uint16_t c = base;
@@ -2025,9 +2031,9 @@ void render_frame(const Camera *c, uint32_t tod) {
   static bool tops;
   if (!tops) shape_tops(), tops = true;
   bool fast_sky = sky_fast();
-  for (int k = 0; k < 2; k++) {
-    uint32_t gc = sky_grad[k ? 128 : 0];
-    sky_base[k] = pack((int)(gc >> 20), (int)(gc >> 10) & 1023, (int)gc & 1023);
+  for (int k = 0; k <= 128; k++) {
+    uint32_t gc = sky_grad[k];
+    sky_pk[k] = pack((int)(gc >> 20), (int)(gc >> 10) & 1023, (int)gc & 1023);
   }
   enum { NC = RW / 4 };
   static Sample cn[2][NC + 1], ed[2][NC + 1], md[2 * NC + 1];   /* corners, edges' middles, the middle row */
@@ -2122,7 +2128,11 @@ void render_frame(const Camera *c, uint32_t tod) {
       /* (a word a picture pixel: the C library's memcpy here goes a byte at a time) */
       uint32_t *d = (uint32_t *)(strip + r * 2 * SCREEN_W), *d2 = d + SCREEN_W / 2;
       const uint16_t *c = cbuf[r];
-      for (int x = 0; x < RW; x++) d[x] = d2[x] = c[x] * 0x10001u;
+      for (int x = 0; x < RW; x += 2) {
+        uint32_t lo = c[x] * 0x10001u, hi = c[x + 1] * 0x10001u;
+        d[x] = d2[x] = lo;
+        d[x + 1] = d2[x + 1] = hi;
+      }
     }
     hud_strip(strip, py * 2, SR * 2);
     plat_push(0, py * 2, SCREEN_W, SR * 2, strip);

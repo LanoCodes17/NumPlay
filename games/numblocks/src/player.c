@@ -135,7 +135,7 @@ void player_hurt(float amount, int kind) {
     pl.hurt_time = 10;
   }
   bool armored = kind == DMG_MOB || kind == DMG_ARROW || kind == DMG_EXPLOSION || kind == DMG_LAVA ||
-                 kind == DMG_FIRE || kind == DMG_CACTUS || kind == DMG_GENERIC;
+                 kind == DMG_FIRE || kind == DMG_CACTUS || kind == DMG_GENERIC || kind == DMG_LIGHTNING;
   if (armored) {
     float ap = armor_points();
     if (ap > 0) {

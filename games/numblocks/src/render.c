@@ -1106,6 +1106,107 @@ static void rain_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
   }
 }
 
+/* ---------------------------------------------------------------- lightning */
+/* RenderLightningBolt: a path 128 blocks up in 16-block steps that wander up
+ * to 5 blocks, and two branches that wander up to 15; each drawn four times,
+ * 0.1, 0.3, 0.5 and 0.7 blocks wide, adding (0.45, 0.45, 0.5) x 0.3 of light */
+static float bolt_off[3][9][2];   /* the path's offsets from its foot at heights 16 i; then the branches' */
+
+static void bolt_frame(void) {
+  if (!bolt.on) return;
+  uint32_t r = bolt.seed;
+#define BR(n) ((int)(((r = r * 1664525u + 1013904223u) >> 8) % (n)))
+  bolt_off[0][0][0] = bolt_off[0][0][1] = 0;
+  for (int i = 1; i <= 8; i++)
+    bolt_off[0][i][0] = bolt_off[0][i - 1][0] + BR(11) - 5, bolt_off[0][i][1] = bolt_off[0][i - 1][1] + BR(11) - 5;
+  for (int j = 1; j <= 2; j++) {
+    bolt_off[j][8 - j][0] = bolt_off[0][8 - j][0], bolt_off[j][8 - j][1] = bolt_off[0][8 - j][1];
+    for (int i = 7 - j; i >= 5 - j; i--)
+      bolt_off[j][i][0] = bolt_off[j][i + 1][0] + BR(31) - 15, bolt_off[j][i][1] = bolt_off[j][i + 1][1] + BR(31) - 15;
+  }
+#undef BR
+}
+
+static inline uint16_t add565(uint16_t c, int k) {   /* the bolt's light, k/32 of a layer */
+  return pack(r5(c) + 34 * k / 32, g6(c) + 34 * k / 32, b5(c) + 38 * k / 32);
+}
+
+/* one piece of the bolt between heights ya and yb (cache coordinates), its widths scaled by ma, mb */
+static void bolt_piece(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW], const float *a, const float *b, float ma,
+                       float mb) {
+  float p[2][3] = {{a[0] - ox, a[1] - oy, a[2] - oz}, {b[0] - ox, b[1] - oy, b[2] - oz}}, sx[2], sy[2], iz[2];
+  float cz[2];
+  for (int e = 0; e < 2; e++) cz[e] = p[e][0] * fwx + p[e][1] * fwy + p[e][2] * fwz;
+  if (cz[0] < 0.05f && cz[1] < 0.05f) return;
+  if (cz[0] < 0.05f || cz[1] < 0.05f) {
+    /* cut where it passes the camera */
+    int e = cz[0] < 0.05f ? 0 : 1;
+    float s = (0.05f - cz[e]) / (cz[1 - e] - cz[e]);
+    for (int k = 0; k < 3; k++) p[e][k] += (p[1 - e][k] - p[e][k]) * s;
+    if (e == 0) ma += (mb - ma) * s; else mb += (ma - mb) * s;
+    cz[e] = 0.05f;
+  }
+  for (int e = 0; e < 2; e++) {
+    float cx = p[e][0] * rgx + p[e][2] * rgz, cy = p[e][0] * upx + p[e][1] * upy + p[e][2] * upz;
+    sx[e] = (cx / cz[e] / TAN_H + 1) * RW / 2;
+    sy[e] = (1 - cy / cz[e] / TAN_V) * RH / 2;
+    iz[e] = 1 / cz[e];
+  }
+  if (fabsf(sx[1] - sx[0]) > fabsf(sy[1] - sy[0])) {
+    /* more across than down: column by column */
+    float lo = sx[0] < sx[1] ? sx[0] : sx[1], hi = sx[0] < sx[1] ? sx[1] : sx[0];
+    int c0 = (int)ceilf(lo - 0.5f), c1 = (int)floorf(hi - 0.5f);
+    for (int px = c0 < 0 ? 0 : c0; px <= c1 && px < RW; px++) {
+      float s = (px + 0.5f - sx[0]) / (sx[1] - sx[0]);
+      float y = sy[0] + (sy[1] - sy[0]) * s, t = 1 / (iz[0] + (iz[1] - iz[0]) * s), m = ma + (mb - ma) * s;
+      for (int k = 0; k < 4; k++) {
+        float hw = (0.1f + 0.2f * k) * m * 1.2f * (RW / 2 / TAN_H / t);
+        int y0 = (int)floorf(y - hw + 0.5f), y1 = (int)floorf(y + hw - 0.5f), cov = 32;
+        if (y1 < y0) y0 = y1 = (int)floorf(y), cov = (int)(hw * 64);
+        if (cov <= 0) continue;
+        for (int py = y0 < py0 ? py0 : y0; py <= y1 && py < py0 + rows; py++)
+          if (zb[py - py0][px] > t) cb[py - py0][px] = add565(cb[py - py0][px], cov);
+      }
+    }
+    return;
+  }
+  float lo = sy[0] < sy[1] ? sy[0] : sy[1], hi = sy[0] < sy[1] ? sy[1] : sy[0];
+  int r0 = (int)ceilf(lo - 0.5f), r1 = (int)floorf(hi - 0.5f);
+  if (r0 < py0) r0 = py0;
+  if (r1 >= py0 + rows) r1 = py0 + rows - 1;
+  for (int py = r0; py <= r1; py++) {
+    float s = hi - lo < 1e-3f ? 0.5f : (py + 0.5f - sy[0]) / (sy[1] - sy[0]);
+    float x = sx[0] + (sx[1] - sx[0]) * s, t = 1 / (iz[0] + (iz[1] - iz[0]) * s), m = ma + (mb - ma) * s;
+    float px_per = RW / 2 / TAN_H / t;
+    for (int k = 0; k < 4; k++) {
+      float hw = (0.1f + 0.2f * k) * m * 1.2f * px_per;
+      int x0 = (int)floorf(x - hw + 0.5f), x1 = (int)floorf(x + hw - 0.5f), cov = 32;
+      if (x1 < x0) x0 = x1 = (int)floorf(x), cov = (int)(hw * 64);
+      if (cov <= 0) continue;
+      for (int px = x0 < 0 ? 0 : x0; px <= x1 && px < RW; px++)
+        if (zb[py - py0][px] > t) cb[py - py0][px] = add565(cb[py - py0][px], cov);
+    }
+  }
+}
+
+static void bolt_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
+  if (!bolt.on) return;
+  float bx = bolt.x - vc_x0, by = bolt.y - vc_y0, bz = bolt.z - vc_z0;
+  for (int j = 0; j < 3; j++) {
+    int lo = j ? 5 - j : 0, hi = j ? 8 - j : 8;
+    for (int i = lo; i < hi; i++)
+      for (int q = 0; q < 4; q++) {
+        /* four pieces a step: the path is straight, the picture's perspective is not */
+        float f0 = q / 4.0f, f1 = (q + 1) / 4.0f;
+        const float *o0 = bolt_off[j][i], *o1 = bolt_off[j][i + 1];
+        float a[3] = {bx + o0[0] + (o1[0] - o0[0]) * f0, by + 16 * (i + f0), bz + o0[1] + (o1[1] - o0[1]) * f0};
+        float b[3] = {bx + o0[0] + (o1[0] - o0[0]) * f1, by + 16 * (i + f1), bz + o0[1] + (o1[1] - o0[1]) * f1};
+        float ma = j ? 1 : (i - 1 + f0) * 0.1f + 1, mb = j ? 1 : (i - 1 + f1) * 0.1f + 1;
+        bolt_piece(py0, rows, cb, zb, a, b, ma, mb);
+      }
+  }
+}
+
 static void ents_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
   Box bx[MAX_PARTS];
   particles_strip(py0, rows, cb, zb);
@@ -1137,6 +1238,7 @@ static void ents_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
       }
   }
   rain_strip(py0, rows, cb, zb);
+  bolt_strip(py0, rows, cb, zb);
 }
 
 /* ---------------------------------------------------------------- the frame */
@@ -1192,7 +1294,7 @@ void render_frame(const Camera *c, uint32_t tod) {
   float sunb = 1 - (cosf(ang * 6.2831853f) * 2 + 0.2f);
   sunb = sunb < 0 ? 0 : sunb > 1 ? 1 : sunb;
   sunb = (1 - sunb) * (1 - rs * 5 / 16) * (1 - ts * 5 / 16) * 0.8f + 0.2f;
-  setup_light(sunb);
+  setup_light(last_bolt > 0 ? 1 : sunb);   /* (a lightning flash lights everything) */
   night = day < 0.5f;
   /* the sun's direction: it rises in the east (+X) */
   float sa = ang * 6.2831853f;
@@ -1228,6 +1330,12 @@ void render_frame(const Camera *c, uint32_t tod) {
   if (ts > 0) {
     float lum = (sr * 0.3f + sg * 0.59f + sbl * 0.11f) * 0.2f, k = 1 - ts * 0.75f;
     sr = sr * k + lum * (1 - k), sg = sg * k + lum * (1 - k), sbl = sbl * k + lum * (1 - k);
+  }
+  if (last_bolt > 0) {
+    /* the flash: towards a pale blue */
+    float k = last_bolt - tick_frac;
+    k = (k > 1 ? 1 : k) * 0.45f;
+    sr = sr * (1 - k) + 0.8f * k, sg = sg * (1 - k) + 0.8f * k, sbl = sbl * (1 - k) + k;
   }
   sky_r = (int)(sr * 255);
   sky_g = (int)(sg * 255);
@@ -1282,6 +1390,7 @@ void render_frame(const Camera *c, uint32_t tod) {
   }
   ents_frame();
   rain_frame();
+  bolt_frame();
   /* every other pixel of every other row is traced; the others come from
    * their neighbours when those met the same face (or the sky) */
   Sample *top = rows[0], *mid = rows[1], *bot = rows[2];

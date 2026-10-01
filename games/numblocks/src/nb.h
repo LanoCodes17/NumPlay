@@ -143,7 +143,7 @@ void player_tick(uint32_t keys, uint32_t pressed);   /* 20 a second */
 static inline Stack *held(void) { return &pl.inv[pl.slot]; }
 void player_hurt(float amount, int kind);   /* kind: DMG_* */
 enum { DMG_GENERIC, DMG_FALL, DMG_DROWN, DMG_LAVA, DMG_FIRE, DMG_STARVE, DMG_WALL, DMG_VOID, DMG_MOB, DMG_ARROW,
-       DMG_EXPLOSION, DMG_CACTUS };
+       DMG_EXPLOSION, DMG_CACTUS, DMG_LIGHTNING };
 void player_add_xp(int n);
 void player_swing(void);   /* the arm swings (gui.c) */
 void hand_tick(void);
@@ -180,6 +180,7 @@ void explode(float x, float y, float z, float power);
 void throw_item(int id, float speed, bool from_player);   /* arrows, snowballs, eggs */
 bool mob_attack(const Entity *e);   /* the player hits this mob (with the held item) */
 bool mob_use(Entity *e);            /* the player uses the held item on it (shears, bucket) */
+void mob_struck(Entity *e);         /* hit by lightning */
 Entity *entity_looked_at(float reach, float block_t);   /* the mob under the crosshair, nearer than block_t */
 extern float tick_frac;
 
@@ -201,6 +202,11 @@ float celestial(uint32_t t);          /* the sun's angle: 0 noon, 0.5 midnight *
 int sky_sub(void);                    /* how much darker the sky light is: 0 by day, 11 at night */
 float temp_at(int x, int y, int z);   /* the biome's temperature there */
 bool rain_at(int x, int y, int z);    /* rain (not snow) falls on it */
+/* a bolt of lightning (EntityLightningBolt): it shows (and the sky flashes)
+ * while state >= 0, and comes back `living` more times */
+typedef struct { float x, y, z; int8_t state, living, on; uint32_t seed; } Bolt;
+extern Bolt bolt;
+extern int last_bolt;                 /* ticks of the sky's flash left (World.lastLightningBolt) */
 void neighbours_changed(int x, int y, int z);
 void break_block_at(int x, int y, int z, bool drops);
 

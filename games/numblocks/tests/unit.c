@@ -183,6 +183,14 @@ int main(void) {
     CHECK(!rain_at(1, y, 2));
     vbiome[(2 - vc_z0) * VCX + 1 - vc_x0] = 12; /* snowy biomes get snow */
     CHECK(!rain_at(1, y, 2));
+    /* a bolt on the player: 5 damage and fire, and the sky flashes */
+    pl.x = 2.5f, pl.y = (float)y, pl.z = 2.5f, pl.mode = 0, pl.dead = false, pl.health = 20, pl.invuln = 0, pl.fire = 0;
+    memset(pl.armor, 0, sizeof pl.armor);
+    bolt = (Bolt){2.5f, (float)y, 2.5f, 2, 0, 1, 7};
+    world_tick();
+    CHECK(pl.health == 15 && pl.fire > 0 && last_bolt == 2 && bolt.on);
+    for (int t = 0; t < 3; t++) world_tick();
+    CHECK(!bolt.on);
     weather_clear();
     world_tick();
     CHECK(!weather.raining && !weather.thundering);

@@ -343,6 +343,57 @@ void weather_tick(void) {
   rain_str = rain_str < 0 ? 0 : rain_str > 1 ? 1 : rain_str;
 }
 
+/* ---------------------------------------------------------------- lightning */
+Bolt bolt;
+int last_bolt;
+
+/* EntityLightningBolt.onUpdate: what is within 3 blocks (and 6 up) is struck:
+ * 5 damage, and set on fire for 8 seconds (Entity.onStruckByLightning) */
+static void bolt_strikes(void) {
+  if (fabsf(pl.x - bolt.x) < 3.3f && fabsf(pl.z - bolt.z) < 3.3f && pl.y + 1.8f > bolt.y - 3 && pl.y < bolt.y + 9) {
+    player_hurt(5, DMG_LIGHTNING);
+    if (pl.mode != 1 && pl.fire < 160) pl.fire = 160;
+  }
+  for (int i = 0; i < N_ENT; i++) {
+    Entity *e = &ents[i];
+    if (e->type >= E_ZOMBIE && e->type <= E_CHICKEN && fabsf(e->x - bolt.x) < 3.3f && fabsf(e->z - bolt.z) < 3.3f &&
+        e->y > bolt.y - 4 && e->y < bolt.y + 9)
+      mob_struck(e);
+  }
+}
+
+static void bolt_tick(void) {
+  if (last_bolt > 0) last_bolt--;
+  /* WorldServer.updateBlocks: in a storm, each of the 225 chunks about the
+   * player is struck one tick in 100000, where rain falls on it, and a
+   * creature within 3 blocks draws it (adjustPosToNearbyEntity) */
+  if (!bolt.on && rain_str > 0.2f && thunder_str * rain_str > 0.9f && rnd(100000) < 225) {
+    int x = (int)floorf(pl.x) + rnd(225) - 112, z = (int)floorf(pl.z) + rnd(225) - 112, y = 64;
+    if (world_loaded(x, vc_y0, z)) {
+      y = world_rain_top(x, z);
+      if (y > WORLD_H || !rain_at(x, y, z)) return;
+    } else if (!rain_at((int)floorf(pl.x), WORLD_H, (int)floorf(pl.z)))
+      return;   /* (too far to know: where it rains on the player) */
+    bolt.x = x + 0.5f, bolt.y = (float)y, bolt.z = z + 0.5f;
+    if (fabsf(pl.x - bolt.x) < 3.5f && fabsf(pl.z - bolt.z) < 3.5f && !pl.dead &&
+        pl.y >= world_rain_top((int)floorf(pl.x), (int)floorf(pl.z)))
+      bolt.x = pl.x, bolt.y = pl.y, bolt.z = pl.z;
+    bolt.on = 1, bolt.state = 2, bolt.living = (int8_t)(rnd(3) + 1), bolt.seed = (uint32_t)rnd(1 << 30);
+  }
+  if (!bolt.on) return;
+  if (--bolt.state < 0) {
+    if (bolt.living == 0) {
+      bolt.on = 0;
+      return;
+    }
+    if (bolt.state < -rnd(10)) bolt.living--, bolt.state = 1, bolt.seed = (uint32_t)rnd(1 << 30);
+  }
+  if (bolt.state >= 0) {
+    last_bolt = 2;
+    bolt_strikes();
+  }
+}
+
 /* WorldProvider.resetRainAndThunder: after a night's sleep */
 void weather_clear(void) {
   weather.rain_time = weather.thunder_time = 0;
@@ -373,6 +424,7 @@ static void freeze_tick(void) {
 
 void world_tick(void) {
   weather_tick();
+  bolt_tick();
   freeze_tick();
   fluids_tick();
   /* about 3 a section: the cache is VCX x VCY x VCZ blocks */

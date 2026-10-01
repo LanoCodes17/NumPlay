@@ -367,6 +367,12 @@ static int food_of(int type) {
   return 0;
 }
 
+/* Entity.onStruckByLightning */
+void mob_struck(Entity *e) {
+  hurt(e, 5, 0, 0);
+  if (e->fire < 160) e->fire = 160;
+}
+
 bool mob_use(Entity *e) {
   Stack *h = held();
   if (h->id && h->id == food_of(e->type) && e->state != 255 && e->growth >= 0 && !e->love && e->timer <= 0) {

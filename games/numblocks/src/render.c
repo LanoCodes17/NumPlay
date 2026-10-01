@@ -122,7 +122,7 @@ static __attribute__((noinline)) uint16_t sky(float dx, float dy, float dz, floa
   }
   /* RenderGlobal.renderSky: the sun, the moon in its phase and the stars turn with the
    * sky; their textures add light (and rain hides them) */
-  if (sun_a > 0) {
+  if (sun_a > 0 && dy > 0) {
     float sd = dx * sun_x + dy * sun_y + dz * sun_z;
     float tx = dx * sun_tx + dy * sun_ty;   /* along the sky's turn; dz across it */
     int sp = -1;
@@ -531,7 +531,13 @@ static uint16_t trace(float dx, float dy, float dz) {
   float idx = fabsf(ivx), idy = fabsf(ivy), idz = fabsf(ivz);
   float tx = cam_fr[0][bx] * ivx, ty = cam_fr[1][by] * ivy, tz = cam_fr[2][bz] * ivz;
   float tmax = MAX_T / len, t = 0;
-  if (cam_i < 0) return hit_kind = 2, sky(dx, dy, dz, len);
+  /* the camera above the cache (high in the air, the cache kept on the ground): rays going down come
+   * in through its top; any other way out of it, only the sky */
+  int top = trace_top;
+  if (cam_i < 0) {
+    if (dy >= 0 || oy < VCY || cam_x < 0 || cam_x >= VCX || cam_z < 0 || cam_z >= VCZ) return hit_kind = 2, sky(dx, dy, dz, len);
+    if (top < 0) top = VCY;
+  }
   int i = cam_i;
   Ray R;   /* (in the block the camera is in: water...) */
   R.dx = dx, R.dy = dy, R.dz = dz, R.len = len, R.ivx = ivx, R.ivy = ivy, R.ivz = ivz, R.wa = 0, R.inside = cam_b;
@@ -546,20 +552,22 @@ static uint16_t trace(float dx, float dy, float dz) {
   float tj = 0;
   int jf = -1;
   int in_liq = cam_liq;   /* (the liquid the ray is in: cells of it are skipped) */
-  if (trace_top >= 0 && dy < 0) {
-    /* start where the ray comes down through plane y = trace_top, in through the top of the cell below */
-    float t0 = (trace_top - oy) * ivy;
-    if (t0 > 0) {
+  if (top >= 0 && dy < 0) {
+    /* start where the ray comes down through plane y = top, in through the top of the cell below */
+    float t0 = (top - oy) * ivy;
+    if (t0 > 0 || cam_i < 0) {
       if (t0 > tmax) goto out;
-      int x0 = (int)(ox + dx * t0), z0 = (int)(oz + dz * t0);
-      if ((unsigned)x0 < VCX && (unsigned)z0 < VCZ && (unsigned)(trace_top - 1) < VCY) {
-        x = x0, y = trace_top - 1, z = z0;
+      int x0 = (int)floorf(ox + dx * t0), z0 = (int)floorf(oz + dz * t0);
+      if ((unsigned)x0 < VCX && (unsigned)z0 < VCZ && (unsigned)(top - 1) < VCY) {
+        x = x0, y = top - 1, z = z0;
         t = tj = t0, jf = 1;
         tx = (x + bx - ox) * ivx, ty = (y - oy) * ivy, tz = (z + bz - oz) * ivz;
         i = VC_I(x, y, z), mi = MC_I(x, y, z);
-      }
+      } else if (cam_i < 0)
+        goto out;
     }
   }
+  if (vmac[mi] == 3 && dy < 0) goto unmade;
   if (!vmac[mi] || (vmac[mi] == 2 && in_liq == 1)) goto jump;
   for (;;) {
     ST(st_steps++);
@@ -601,6 +609,7 @@ static uint16_t trace(float dx, float dy, float dz) {
       if ((z & 3) != ez0) goto next;
       mi += mz;
     }
+    if (vmac[mi] == 3 && dy < 0) goto unmade;
     if (!vmac[mi] || (vmac[mi] == 2 && in_liq == 1)) {
     jump:;
       /* an empty 4 x 4 x 4 region (or all water, seen from in the water): on from region to
@@ -622,6 +631,7 @@ static uint16_t trace(float dx, float dy, float dz) {
         }
         if (te > tmax) goto out;
         reg = vmac[mi];
+        if (reg == 3 && dy < 0) goto unmade;
         if (reg && !(reg == 2 && wet)) break;
       }
       t = tj = te;
@@ -641,6 +651,9 @@ static uint16_t trace(float dx, float dy, float dz) {
   next:
     if (t > tmax) break;
   }
+  /* a chunk not made yet, seen from above: the fog, not the sky through the ground */
+unmade:
+  if (vmac[mi] == 3 && dy < 0) return fog565;
 out:;
   uint16_t c = sky(dx, dy, dz, len);
   int wa = R.wa;

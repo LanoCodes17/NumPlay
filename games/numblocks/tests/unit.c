@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include "nb.h"
 #include "edits.h"
+#include "gen.h"
 
 static int fails;
 #define CHECK(c) do { if (!(c)) { printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); fails++; } } while (0)
@@ -310,6 +311,26 @@ int main(void) {
     CHECK(ay == vc_y0);
     CHECK(!memcmp(a, vc, sizeof a));
     CHECK(!memcmp(l, vl, sizeof l));
+    /* and coming down from high up (the new rows in the air made as air): as the generator makes them */
+    world_new(77, "ut9");
+    for (int y = 160; y >= 92; y -= 3)
+      for (int r = 0; r < 3; r++) {
+        world_follow(8, (float)y, 8);
+        while (world_pending()) world_follow(8, (float)y, 8);
+      }
+    static uint8_t g[16 * 16 * VCY];
+    int off = 0;
+    for (int cz = -2; cz <= 1; cz++)
+      for (int cx = -2; cx <= 1; cx++) {
+        gen_slab(cx, cz, vc_y0, VCY, g);
+        for (int y = 0; y < VCY; y++)
+          for (int z = 0; z < 16; z++)
+            for (int x = 0; x < 16; x++) {
+              int lx = cx * 16 + x - vc_x0, lz = cz * 16 + z - vc_z0;
+              if (lx >= 0 && lx < VCX && lz >= 0 && lz < VCZ) off += vc[VC_I(lx, y, lz)] != g[(y * 16 + z) * 16 + x];
+            }
+      }
+    CHECK(off == 0);
     plat_remove_prefix("ut9");
   }
   {

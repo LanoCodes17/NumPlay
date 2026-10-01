@@ -95,6 +95,9 @@ void game_init(void) {
   if (start_in_world) {
     new_world(1, start_seed, 0, false, "New World");
     game_time = 1000;
+#ifdef BENCH_FALL
+    pl.mode = 1, pl.y += BENCH_FALL;   /* (timing a fall from that high, in Creative: no harm) */
+#endif
     loading();
     return;
   }

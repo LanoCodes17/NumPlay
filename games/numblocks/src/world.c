@@ -258,8 +258,9 @@ static void recenter(int nx0, int ny0, int nz0, int px, int pz) {
         if (dy > 0) ylo = VCY - dy;
         else yhi = -dy;
         /* new rows above everything the generator put in these columns: air, at once (going up a
-         * hill moves the cache up, and making every chunk again for its top rows was slow) */
-        air = dy > 0;
+         * hill, or falling from high up, moves the cache, and making every chunk again for its new
+         * rows was slow) */
+        air = true;
         for (int z = 0; z < 16 && air; z++)
           for (int x = 0; x < 16; x++) {
             int lx = cx * 16 + x - vc_x0, lz = cz * 16 + z - vc_z0;
@@ -292,6 +293,17 @@ static void recenter(int nx0, int ny0, int nz0, int px, int pz) {
   dirty[0] = dirty[3] = 0;   /* (all of it, now) */
   light_box(0, 0, 0, VCX, VCY, VCZ);
   mac_box(0, 0, 0, VCX, VCY, VCZ);
+  /* the chunks waiting to be made: their regions drawn as fog until they are (not the sky through the
+   * ground), as high as the ground already made goes */
+  int known = 0;
+  for (int k = 0; k < VCX * VCZ; k++)
+    if (!vpend[k] && vgtop[k] > known) known = vgtop[k];
+  for (int k = 0; k < npend; k++)
+    for (int lz = pend[k].cz * 16 - vc_z0; lz < pend[k].cz * 16 + 16 - vc_z0; lz += 4)
+      for (int lx = pend[k].cx * 16 - vc_x0; lx < pend[k].cx * 16 + 16 - vc_x0; lx += 4)
+        if (lx >= 0 && lx < VCX && lz >= 0 && lz < VCZ)
+          for (int my = pend[k].ylo >> 2; my < (pend[k].yhi + 3) >> 2 && my < MCY && my * 4 + vc_y0 <= known; my++)
+            vmac[(my * MCZ + (lz >> 2)) * MCX + (lx >> 2)] = 3;
 }
 
 void world_new(int64_t seed, const char *name) {
@@ -326,9 +338,17 @@ static void prepare_ahead(int lx, int lz) {
 void world_follow(float x, float y, float z) {
   int px = ifloor(x), py = ifloor(y), pz = ifloor(z);
   int lx = px - vc_x0, ly = py - vc_y0, lz = pz - vc_z0;
-  if (!(vc_valid && lx >= 12 && lx < VCX - 12 && lz >= 12 && lz < VCZ - 12 && ly >= 8 && ly < VCY - 8)) {
+  /* High above the ground (flying, falling) the cache goes down as far as it can with room above the
+   * player to build: what is in sight below shows, and falling makes nothing for the air it passes */
+  static bool high;
+  int ground = vc_valid && (unsigned)lx < VCX && (unsigned)lz < VCZ ? vgtop[lz * VCX + lx] : py;
+  if (py - ground > 10) high = true;
+  if (py - ground < 6) high = false;
+  int ny_high = (py + 8 - VCY) & ~3;
+  bool ok = high ? ly >= 4 && ly < VCY - 4 && !(vc_y0 > ground - 4 && ny_high < vc_y0) : ly >= 8 && ly < VCY - 8;
+  if (!(vc_valid && lx >= 12 && lx < VCX - 12 && lz >= 12 && lz < VCZ - 12 && ok)) {
     int nx0 = (px - VCX / 2) & ~7, nz0 = (pz - VCZ / 2) & ~7;
-    int ny0 = (py - VCY / 2 + 2) & ~3;
+    int ny0 = high ? ny_high : (py - VCY / 2 + 2) & ~3;
     if (ny0 < 0) ny0 = 0;
     if (ny0 > WORLD_H - VCY) ny0 = WORLD_H - VCY;
     if (!vc_valid || nx0 != vc_x0 || ny0 != vc_y0 || nz0 != vc_z0) {

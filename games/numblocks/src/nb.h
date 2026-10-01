@@ -31,6 +31,10 @@ enum {
   K_MINUS = 1u << 31     /* - (typing a seed) */
 };
 uint32_t plat_keys(void);
+uint64_t plat_scan(void);   /* the keys down as the calculator numbers them (bit RK_*), for typing */
+enum {
+  RK_OK = 4, RK_BACK = 5, RK_SHIFT = 12, RK_ALPHA = 13, RK_BACKSPACE = 17, RK_EXE = 52
+};
 uint32_t plat_millis(void);
 void plat_sleep(uint32_t ms);
 void plat_push(int x, int y, int w, int h, const uint16_t *px);
@@ -232,7 +236,8 @@ void break_block_at(int x, int y, int z, bool drops);
 
 /* ---------------------------------------------------------------- screens (gui.c) */
 enum { GUI_NONE, GUI_INVENTORY, GUI_CRAFTING, GUI_FURNACE, GUI_CHEST, GUI_CREATIVE,
-       GUI_PAUSE, GUI_DEATH, GUI_OPTIONS, GUI_TITLE, GUI_WORLDS, GUI_CREATE, GUI_CONFIRM, GUI_LOADING, GUI_CONTROLS };
+       GUI_PAUSE, GUI_DEATH, GUI_OPTIONS, GUI_TITLE, GUI_WORLDS, GUI_CREATE, GUI_CONFIRM, GUI_LOADING, GUI_CONTROLS,
+       GUI_RENAME };
 extern int gui;            /* the screen open */
 void gui_open(int screen, int x, int y, int z);
 void gui_close(void);
@@ -242,6 +247,8 @@ void tiles_removed(int x, int y, int z);   /* a chest or furnace broken: its ite
 void gui_menu(int screen);  /* opens a menu screen */
 enum { ACT_NONE, ACT_PLAY, ACT_NEW, ACT_QUIT_APP, ACT_SAVE_QUIT, ACT_RESPAWN, ACT_TITLE };
 extern int menu_choice;    /* what a menu asks main.c to do (ACT_*), 0 if nothing */
+extern int play_slot;      /* (ACT_PLAY) the world chosen */
+extern char name_text[];   /* (ACT_NEW) the new world's name, as typed */
 extern int create_mode;
 extern char seed_text[21];
 
@@ -252,16 +259,29 @@ typedef struct {
   uint8_t look;         /* look speed, % */
   uint8_t clouds, bobbing;
   uint8_t keys_seen;    /* the key sheet's version last shown (it opens when the keys change) */
+  uint8_t last_world;   /* the world played last (its slot, 0: none): the title's backdrop */
+  uint32_t plays;       /* worlds opened so far: each world keeps the count when it was last played */
 } Options;
 #define KEY_SHEET 2       /* (2: jump and sneak on shift and alpha) */
 extern Options opt;
 extern int64_t world_seed;
+/* Worlds: up to MAX_WORLDS, each in a slot (1..MAX_WORLDS) whose records start "nb<slot>" */
+#define MAX_WORLDS 9
+#define WORLD_NAME 24   /* the longest name */
+typedef struct {
+  char name[WORLD_NAME + 1];
+  int mode;          /* 0 survival, 1 creative */
+  int64_t seed;
+  uint32_t played;   /* opt.plays when it was last played (the latest first in the list) */
+} WorldInfo;
+bool world_info(int slot, WorldInfo *w);   /* false: no world there */
+int world_free_slot(void);                 /* 0: all taken */
+void world_unique_name(const char *base, char *out);   /* base, or "base (2)"... if taken */
 bool save_world(void);
-bool load_world(void);
-bool world_exists(void);
-int world_mode(void);
-void new_world(int64_t seed, int mode);
-void delete_world(void);
+bool load_world(int slot);
+void new_world(int slot, int64_t seed, int mode, const char *name);
+bool rename_world(int slot, const char *name);
+void delete_world(int slot);
 void load_options(void);
 void save_options(void);
 

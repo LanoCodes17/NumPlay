@@ -312,6 +312,30 @@ int main(void) {
     CHECK(!memcmp(l, vl, sizeof l));
     plat_remove_prefix("ut9");
   }
+  {
+    /* worlds in slots: names kept, made unique, renamed; one deleted leaves the others */
+    for (int s = 1; s <= MAX_WORLDS; s++) delete_world(s);
+    char n[WORLD_NAME + 1];
+    WorldInfo w;
+    world_unique_name("New World", n);
+    CHECK(!strcmp(n, "New World"));
+    new_world(world_free_slot(), 5, 0, n);
+    save_world();
+    world_unique_name("New World", n);
+    CHECK(!strcmp(n, "New World (2)"));
+    int s2 = world_free_slot();
+    new_world(s2, 6, 1, n);
+    save_world();
+    CHECK(s2 == 2 && world_info(1, &w) && !strcmp(w.name, "New World") && w.mode == 0 && w.seed == 5);
+    CHECK(world_info(2, &w) && !strcmp(w.name, "New World (2)") && w.mode == 1 && w.seed == 6);
+    CHECK(rename_world(1, "Base") && world_info(1, &w) && !strcmp(w.name, "Base"));
+    world_unique_name("New World", n);
+    CHECK(!strcmp(n, "New World"));
+    delete_world(1);
+    CHECK(!world_info(1, &w) && world_info(2, &w) && world_free_slot() == 1);
+    CHECK(load_world(2) && pl.mode == 1 && world_seed == 6);
+    for (int s = 1; s <= MAX_WORLDS; s++) delete_world(s);
+  }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;
 }

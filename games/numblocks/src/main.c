@@ -25,7 +25,7 @@ static void camera_reset(void) { px = pl.x, py = pl.y, pz = pl.z; }
 /* the title's backdrop: the saved world where the player is, else a world of seed 0 */
 static void title(void) {
   in_world = false;
-  if (!load_world()) {
+  if (!opt.last_world || !load_world(opt.last_world)) {
     world_new(0, "nbt");
     player_spawn();
   }
@@ -54,18 +54,30 @@ static void loading(void) {
   last = plat_millis();
 }
 
+/* GuiCreateWorld: the seed typed, a number (Long.parseLong) or else words (String.hashCode);
+ * none, or 0: random */
 static int64_t parse_seed(void) {
-  if (!seed_text[0] || (seed_text[0] == '-' && !seed_text[1])) {
-    /* random: the time, mixed */
-    uint64_t v = (uint64_t)plat_millis() * 0x9E3779B97F4A7C15ull + perf_frames;
-    v ^= v >> 29;
-    v *= 0xBF58476D1CE4E5B9ull;
-    return (int64_t)(v ^ v >> 32);
+  const char *s = seed_text;
+  bool neg = *s == '-';
+  int n = 0;
+  uint64_t v = 0;
+  bool num = s[neg] != 0;
+  for (const char *c = s + neg; *c && num; c++, n++) {
+    if (*c < '0' || *c > '9' || n >= 19) num = false;   /* (19 digits: no more than a long holds) */
+    else v = v * 10 + (uint64_t)(*c - '0');
   }
-  int64_t v = 0;
-  bool neg = seed_text[0] == '-';
-  for (const char *c = seed_text + neg; *c; c++) v = (int64_t)((uint64_t)v * 10 + (uint64_t)(*c - '0'));
-  return neg ? -v : v;
+  if (num && v > (uint64_t)INT64_MAX + neg) num = false;
+  if (s[0] && !num) {
+    int32_t h = 0;
+    for (const char *c = s; *c; c++) h = (int32_t)((uint32_t)h * 31u + (uint8_t)*c);
+    return h;
+  }
+  if (num && v) return neg ? (int64_t)(0 - v) : (int64_t)v;
+  /* random: the time, mixed */
+  uint64_t r = (uint64_t)plat_millis() * 0x9E3779B97F4A7C15ull + perf_frames;
+  r ^= r >> 29;
+  r *= 0xBF58476D1CE4E5B9ull;
+  return (int64_t)(r ^ r >> 32);
 }
 
 void game_init(void) {
@@ -76,7 +88,7 @@ void game_init(void) {
 #endif
   last = plat_millis();
   if (start_in_world) {
-    new_world(start_seed, 0);
+    new_world(1, start_seed, 0, "New World");
     game_time = 1000;
     loading();
     return;
@@ -110,14 +122,24 @@ bool game_frame(void) {
     menu_choice = 0;
     switch (c) {
       case ACT_PLAY:
-        if (load_world()) loading();
+        if (load_world(play_slot)) loading();
         break;
-      case ACT_NEW:
-        new_world(parse_seed(), create_mode);
+      case ACT_NEW: {
+        /* a free slot, the name made unique ("New World (2)") */
+        int slot = world_free_slot();
+        if (!slot) break;
+        char name[WORLD_NAME + 1];
+        int a = 0, b = (int)strlen(name_text);
+        while (name_text[a] == ' ') a++;
+        while (b > a && name_text[b - 1] == ' ') b--;
+        name_text[b] = 0;
+        world_unique_name(name_text + a, name);
+        new_world(slot, parse_seed(), create_mode, name);
         game_time = 0;
         loading();
         save_world();
         break;
+      }
       case ACT_QUIT_APP: return false;
       case ACT_SAVE_QUIT:
       case ACT_TITLE:

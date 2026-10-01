@@ -749,13 +749,90 @@ static Button buttons[12];
 static int nbuttons, bcur;
 enum { B_NO, B_SINGLE, B_OPTIONS, B_QUITAPP, B_PLAY, B_CREATE, B_DELETE, B_CANCEL, B_MODE, B_SEED, B_DOCREATE,
        B_DODELETE, B_DIFF, B_GFX, B_LOOK, B_CLOUDS, B_BOB, B_DONE, B_BACK_GAME, B_SAVEQUIT, B_RESPAWN, B_TITLE,
-       B_CONTROLS, B_CONTROLS_DONE };
+       B_CONTROLS, B_CONTROLS_DONE, B_NAME, B_RENAME, B_DORENAME, B_RECREATE };
 int menu_choice;            /* an action for main.c (ACT_*) */
 int create_mode;            /* the new world's game mode */
 char seed_text[21];         /* the new world's seed, as typed */
+char name_text[WORLD_NAME + 1];   /* the new world's name, or the world being renamed's */
+int play_slot;              /* the world to play */
 static int options_from;    /* the screen the options go back to */
 static int controls_from;   /* and the key sheet */
-static bool seed_focus;
+
+/* the worlds, the one played last first, and the one selected */
+static uint8_t wlist[MAX_WORLDS], nworlds, wsel;
+static void list_worlds(void) {
+  uint32_t when[MAX_WORLDS];
+  WorldInfo w;
+  nworlds = 0;
+  for (int s = 1; s <= MAX_WORLDS; s++)
+    if (world_info(s, &w)) {
+      int k = nworlds++;
+      for (; k > 0 && when[k - 1] < w.played; k--) wlist[k] = wlist[k - 1], when[k] = when[k - 1];
+      wlist[k] = (uint8_t)s, when[k] = w.played;
+    }
+  if (wsel >= nworlds) wsel = nworlds ? nworlds - 1 : 0;
+}
+
+/* Typing in a field: the calculator's keys as its own keyboard has them, letters (its alpha
+ * letters: e^x is a, + is z, - a space) or digits; alpha switches between them, shift makes the
+ * next letter a capital (twice: all of them), backspace deletes, OK or Back is done */
+enum { F_NONE, F_NAME, F_SEED };
+static int field;               /* the field being typed in */
+static uint8_t f_digits, f_caps;   /* (f_caps: 1 the next letter, 2 all of them) */
+static bool f_sel;              /* the text is selected: the first key typed replaces it (an arrow keeps it) */
+static uint64_t raw_held;
+static void press(int id);
+static char key_char(int k) {
+  static const char letters[53] = {[18] = 'a', [19] = 'b', [20] = 'c', [21] = 'd', [22] = 'e', [23] = 'f', [24] = 'g',
+                                   [25] = 'h', [26] = 'i', [27] = 'j', [28] = 'k', [29] = 'l', [30] = 'm', [31] = 'n',
+                                   [32] = 'o', [33] = 'p', [34] = 'q', [36] = 'r', [37] = 's', [38] = 't', [39] = 'u',
+                                   [40] = 'v', [42] = 'w', [43] = 'x', [44] = 'y', [45] = 'z', [46] = ' ', [48] = '?',
+                                   [49] = '!'};
+  static const char digits[53] = {[42] = '1', [43] = '2', [44] = '3', [36] = '4', [37] = '5', [38] = '6', [30] = '7',
+                                  [31] = '8', [32] = '9', [48] = '0', [49] = '.', [46] = '-', [45] = '+', [33] = '(',
+                                  [34] = ')', [39] = '*', [40] = '/'};
+  if (k < 0 || k > 52) return 0;
+  char c = f_digits ? digits[k] : letters[k];
+  if (c >= 'a' && c <= 'z' && f_caps) {
+    c = (char)(c - 'a' + 'A');
+    if (f_caps == 1) f_caps = 0;
+  }
+  return c;
+}
+static void field_open(int f) {
+  field = f;
+  f_digits = f == F_SEED, f_caps = 0;
+  f_sel = (f == F_NAME ? name_text : seed_text)[0] != 0;
+  raw_held = ~(uint64_t)0;   /* (the key that opened it is not typed) */
+}
+static void field_input(void) {
+  uint64_t raw = plat_scan(), down = raw & ~raw_held;
+  raw_held = raw;
+  char *t = field == F_NAME ? name_text : seed_text;
+  int max = field == F_NAME ? WORLD_NAME : 20, n = (int)strlen(t);
+  for (int k = 0; k < 64; k++) {
+    if (!(down >> k & 1)) continue;
+    if (k == RK_ALPHA) f_digits = !f_digits;
+    else if (k == RK_SHIFT) f_caps = (uint8_t)((f_caps + 1) % 3);
+    else if (k <= 3) f_sel = false;   /* (the arrows) */
+    else if (k == RK_BACKSPACE) {
+      if (f_sel) t[n = 0] = 0, f_sel = false;
+      else if (n > 0) t[--n] = 0;
+    } else if (k == RK_OK || k == RK_EXE || k == RK_BACK) {
+      if (gui == GUI_RENAME && k != RK_BACK && name_text[0]) {
+        /* (OK in the rename screen's field: rename, as Enter does) */
+        field = F_NONE;
+        press(B_DORENAME);
+        return;
+      }
+      field = F_NONE;
+    } else {
+      char c = key_char(k);
+      if (c && f_sel) t[n = 0] = 0, f_sel = false;
+      if (c && n < max) t[n++] = c, t[n] = 0;
+    }
+  }
+}
 
 static void add_button(int x, int y, int w, int on, int id, const char *label) {
   Button *b = &buttons[nbuttons++];
@@ -784,22 +861,29 @@ static void menu(int screen) {
       break;
     }
     case GUI_WORLDS: {
-      bool any = world_exists();
+      bool any = nworlds > 0;
       add_button(w / 2 - 154, h - 52, 150, any, B_PLAY, "Play Selected World");
-      add_button(w / 2 + 4, h - 52, 150, 1, B_CREATE, "Create New World");
-      add_button(w / 2 - 154, h - 28, 72, 0, B_NO, "Rename");
+      add_button(w / 2 + 4, h - 52, 150, world_free_slot() != 0, B_CREATE, "Create New World");
+      add_button(w / 2 - 154, h - 28, 72, any, B_RENAME, "Rename");
       add_button(w / 2 - 76, h - 28, 72, any, B_DELETE, "Delete");
-      add_button(w / 2 + 4, h - 28, 72, 0, B_NO, "Re-Create");
+      add_button(w / 2 + 4, h - 28, 72, any && world_free_slot() != 0, B_RECREATE, "Re-Create");
       add_button(w / 2 + 82, h - 28, 72, 1, B_CANCEL, "Cancel");
       break;
     }
     case GUI_CREATE:
+      add_button(w / 2 - 100, 60, 200, 1, B_NAME, name_text);   /* (drawn as a field) */
       cat(t, "Game Mode: ", create_mode ? "Creative" : "Survival");
       add_button(w / 2 - 75, 100, 150, 1, B_MODE, t);
-      cat(t, "Seed: ", seed_text[0] ? seed_text : (seed_focus ? "" : "(random)"));
+      cat(t, "Seed: ", seed_text[0] ? seed_text : (field == F_SEED ? "" : "(random)"));
       add_button(w / 2 - 100, 150, 200, 1, B_SEED, t);
       add_button(w / 2 - 155, h - 28, 150, 1, B_DOCREATE, "Create New World");
       add_button(w / 2 + 5, h - 28, 150, 1, B_CANCEL, "Cancel");
+      break;
+    case GUI_RENAME:
+      /* GuiRenameWorld */
+      add_button(w / 2 - 100, 60, 200, 1, B_NAME, name_text);
+      add_button(w / 2 - 100, h / 4 + 96 + 12, 200, name_text[0] != 0, B_DORENAME, "Rename");
+      add_button(w / 2 - 100, h / 4 + 120 + 12, 200, 1, B_CANCEL, "Cancel");
       break;
     case GUI_CONFIRM:
       add_button(w / 2 - 155, h / 6 + 96, 150, 1, B_DODELETE, "Delete");
@@ -849,9 +933,13 @@ void gui_menu(int screen) {
   if (screen == GUI_CONTROLS && gui != GUI_CONTROLS) controls_from = gui;   /* Options, or the title */
   gui = screen;
   bcur = 0;
-  seed_focus = false;
+  field = F_NONE;
+  if (screen == GUI_WORLDS) list_worlds();
   menu(screen);
 }
+
+/* the world selected in the list */
+static int selected(WorldInfo *w) { return nworlds && world_info(wlist[wsel], w) ? wlist[wsel] : 0; }
 
 static void button(const Button *b, bool hover) {
   int sp = !b->on ? SP_BUTTON_OFF : hover ? SP_BUTTON_HOVER : SP_BUTTON;
@@ -863,6 +951,7 @@ static void button(const Button *b, bool hover) {
 }
 
 static void press(int id) {
+  WorldInfo wi;
   switch (id) {
     case B_SINGLE: gui_menu(GUI_WORLDS); break;
     case B_OPTIONS:
@@ -870,20 +959,55 @@ static void press(int id) {
       gui_menu(GUI_OPTIONS);
       break;
     case B_QUITAPP: menu_choice = ACT_QUIT_APP; break;
-    case B_PLAY: menu_choice = ACT_PLAY; break;
+    case B_PLAY:
+      if (selected(&wi)) play_slot = wlist[wsel], menu_choice = ACT_PLAY;
+      break;
     case B_CREATE:
       create_mode = 0;
       seed_text[0] = 0;
+      world_unique_name("New World", name_text);
       gui_menu(GUI_CREATE);
+      break;
+    case B_RECREATE: {
+      /* GuiCreateWorld.func_146318_a: a new world as the selected one began, "Copy of" its name */
+      if (!selected(&wi)) break;
+      char n[WORLD_NAME + 9];
+      cat(n, "Copy of ", wi.name);
+      n[WORLD_NAME] = 0;
+      world_unique_name(n, name_text);
+      create_mode = wi.mode;
+      /* (its seed, as it would be typed) */
+      uint64_t v = wi.seed < 0 ? 0 - (uint64_t)wi.seed : (uint64_t)wi.seed;
+      char d[21];
+      int k = 0;
+      do d[k++] = (char)('0' + v % 10), v /= 10;
+      while (v);
+      int j = 0;
+      if (wi.seed < 0) seed_text[j++] = '-';
+      while (k) seed_text[j++] = d[--k];
+      seed_text[j] = 0;
+      gui_menu(GUI_CREATE);
+      break;
+    }
+    case B_RENAME:
+      if (!selected(&wi)) break;
+      memcpy(name_text, wi.name, sizeof wi.name);
+      gui_menu(GUI_RENAME);
+      field_open(F_NAME);
+      break;
+    case B_DORENAME:
+      if (name_text[0] && nworlds) rename_world(wlist[wsel], name_text);
+      gui_menu(GUI_WORLDS);
       break;
     case B_DELETE: gui_menu(GUI_CONFIRM); break;
     case B_DODELETE:
-      delete_world();
+      if (nworlds) delete_world(wlist[wsel]);
       gui_menu(GUI_WORLDS);
       break;
     case B_CANCEL: gui_menu(gui == GUI_WORLDS ? GUI_TITLE : GUI_WORLDS); break;
     case B_MODE: create_mode = !create_mode; break;
-    case B_SEED: seed_focus = !seed_focus; break;
+    case B_NAME: field_open(F_NAME); break;
+    case B_SEED: field_open(F_SEED); break;
     case B_DOCREATE: menu_choice = ACT_NEW; break;
     case B_DIFF: opt.difficulty = (uint8_t)((opt.difficulty + 1) & 3); break;
     case B_GFX: opt.fancy = !opt.fancy; break;
@@ -909,17 +1033,16 @@ static void press(int id) {
 
 static void menu_input(uint32_t keys, uint32_t pressed) {
   if (!nbuttons) menu(gui);
-  if (seed_focus) {
-    /* typing the seed: digits, a minus first; backspace deletes; OK is done */
-    int n = (int)strlen(seed_text);
-    for (int d = 0; d < 9; d++)
-      if (pressed & (K_SLOT1 << d) && n < 19) seed_text[n++] = (char)('1' + d), seed_text[n] = 0;
-    if (pressed & K_ZERO && n < 19) seed_text[n++] = '0', seed_text[n] = 0;
-    if (pressed & K_MINUS && n == 0) seed_text[n++] = '-', seed_text[n] = 0;
-    if ((pressed & K_SPRINT) && n > 0) seed_text[--n] = 0;   /* (backspace) */
-    if (pressed & (K_USE | K_BACK)) seed_focus = false;
-    menu(gui);
+  if (field) {
+    field_input();
+    if (gui != GUI_NONE) menu(gui);
     return;
+  }
+  raw_held = plat_scan();
+  if (gui == GUI_WORLDS && (pressed & (K_UP | K_DOWN)) && nworlds) {
+    /* up and down: the world; left and right: the buttons */
+    wsel = (uint8_t)((wsel + ((pressed & K_DOWN) ? 1 : nworlds - 1)) % nworlds);
+    pressed &= ~(uint32_t)(K_UP | K_DOWN);
   }
   int dir = (pressed & (K_DOWN | K_RIGHT)) ? 1 : (pressed & (K_UP | K_LEFT)) ? -1 : 0;
   if (dir)
@@ -933,7 +1056,7 @@ static void menu_input(uint32_t keys, uint32_t pressed) {
     if (gui == GUI_PAUSE) gui = GUI_NONE;
     else if (gui == GUI_OPTIONS) press(B_DONE);
     else if (gui == GUI_CONTROLS) press(B_CONTROLS_DONE);
-    else if (gui == GUI_WORLDS || gui == GUI_CREATE || gui == GUI_CONFIRM) press(B_CANCEL);
+    else if (gui == GUI_WORLDS || gui == GUI_CREATE || gui == GUI_CONFIRM || gui == GUI_RENAME) press(B_CANCEL);
   }
 }
 
@@ -1074,6 +1197,20 @@ static void key_sheet(void) {
   for (int i = 0; i < 4; i++) text_center(notes[i], SCREEN_W / 2, 177 + i * 10, 0xFFFF);
 }
 
+/* GuiTextField: grey framed (white when chosen), the text, and while typing a blinking cursor
+ * and what the keys type (abc, Abc for one capital, ABC, 123) */
+static void text_field(const Button *b, bool hover, bool typing) {
+  fill(b->x - 1, b->y - 1, b->w + 2, 22, hover || typing ? 0xFFFF : RGB(0xA0, 0xA0, 0xA0));
+  fill(b->x, b->y, b->w, 20, 0);
+  if (typing && f_sel) fill(b->x + 3, b->y + 5, text_width(b->label) + 1, 10, RGB(0x00, 0x00, 0xA0));   /* (selected) */
+  text(b->label, b->x + 4, b->y + 6, RGB(0xE0, 0xE0, 0xE0), true);
+  if (typing) {
+    if ((frame_no / 6) & 1) text("_", b->x + 4 + text_width(b->label), b->y + 6, RGB(0xE0, 0xE0, 0xE0), true);
+    const char *m = f_digits ? "123" : f_caps == 2 ? "ABC" : f_caps ? "Abc" : "abc";
+    text(m, b->x + b->w - 4 - text_width(m), b->y + 6, RGB(0x80, 0x80, 0x80), true);
+  }
+}
+
 static void menu_screen(void) {
   int w = SCREEN_W, h = SCREEN_H;
   switch (gui) {
@@ -1086,40 +1223,55 @@ static void menu_screen(void) {
       text("Made by Mason Chen as part of NumPlay", w - text_width("Made by Mason Chen as part of NumPlay") - 2, h - 10,
            0xFFFF, true);
       break;
-    case GUI_WORLDS:
+    case GUI_WORLDS: {
       text_center("Select World", w / 2, 20, 0xFFFF);
-      if (world_exists()) {
-        /* the one world, selected */
-        int x = w / 2 - 110, y = 36;
-        fill(x - 2, y - 2, 220, 36, RGB(0x80, 0x80, 0x80));
-        fill(x - 1, y - 1, 218, 34, 0);
-        text("New World", x + 2, y + 1, 0xFFFF, true);
-        char t[48], n[12];
-        number((int)((30000 - (int)plat_storage_free()) / 1024), n);
-        cat(t, "nb1  (storage free: ", "");
-        number((int)(plat_storage_free() / 1024), n);
-        cat(t + strlen(t), n, " KB)");
-        text(t, x + 2, y + 12, RGB(0x80, 0x80, 0x80), true);
-        text(world_mode() == 1 ? "Creative Mode" : "Survival Mode", x + 2, y + 22, RGB(0x80, 0x80, 0x80), true);
-      } else text_center("No worlds yet", w / 2, 60, RGB(0x80, 0x80, 0x80));
+      /* GuiSlot: 36 pixels a world, the selected one framed */
+      int first = wsel > 3 ? wsel - 3 : 0;
+      for (int k = first; k < nworlds && k < first + 4; k++) {
+        WorldInfo wi;
+        if (!world_info(wlist[k], &wi)) continue;
+        int x = w / 2 - 110, y = 32 + (k - first) * 36 + 2;
+        if (k == wsel) {
+          fill(x - 2, y - 2, 220, 36, RGB(0x80, 0x80, 0x80));
+          fill(x - 1, y - 1, 218, 34, 0);
+        }
+        text(wi.name, x + 2, y + 1, 0xFFFF, true);
+        char f[4] = {'n', 'b', (char)('0' + wlist[k]), 0};
+        text(f, x + 2, y + 12, RGB(0x80, 0x80, 0x80), true);
+        text(wi.mode == 1 ? "Creative Mode" : "Survival Mode", x + 2, y + 22, RGB(0x80, 0x80, 0x80), true);
+      }
+      if (!nworlds) text_center("No worlds yet", w / 2, 60, RGB(0x80, 0x80, 0x80));
+      char t[40], n[12];
+      number((int)(plat_storage_free() / 1024), n);
+      cat(t, "Storage free: ", n);
+      cat(t + strlen(t), " KB", "");
+      text_center(t, w / 2, h - 63, RGB(0x80, 0x80, 0x80));
       break;
+    }
     case GUI_CREATE:
       text_center("Create New World", w / 2, 20, 0xFFFF);
       text("World Name", w / 2 - 100, 47, RGB(0xA0, 0xA0, 0xA0), true);
-      fill(w / 2 - 101, 59, 202, 22, RGB(0xA0, 0xA0, 0xA0));
-      fill(w / 2 - 100, 60, 200, 20, 0);
-      text("New World", w / 2 - 96, 66, RGB(0xE0, 0xE0, 0xE0), true);
       text_center(create_mode ? "Unlimited resources, free flying and" : "Search for resources, crafting, gain",
                   w / 2, 122, RGB(0xA0, 0xA0, 0xA0));
       text_center(create_mode ? "destroy blocks instantly" : "levels, health and hunger", w / 2, 134,
                   RGB(0xA0, 0xA0, 0xA0));
-      text_center(seed_focus ? "Type with the digits, then OK" : "Leave blank for a random seed", w / 2, 174,
-                  RGB(0xA0, 0xA0, 0xA0));
+      text_center(field ? "alpha: letters or digits, shift: capitals, OK: done" : "Leave blank for a random seed",
+                  w / 2, 174, RGB(0xA0, 0xA0, 0xA0));
       break;
-    case GUI_CONFIRM:
+    case GUI_RENAME:
+      text_center("Rename World", w / 2, 20, 0xFFFF);
+      text("Enter Name", w / 2 - 100, 47, RGB(0xA0, 0xA0, 0xA0), true);
+      if (field) text_center("alpha: letters or digits, shift: capitals, OK: done", w / 2, 90, RGB(0xA0, 0xA0, 0xA0));
+      break;
+    case GUI_CONFIRM: {
+      WorldInfo wi;
+      char t[64];
       text_center("Are you sure you want to delete this world?", w / 2, 70, 0xFFFF);
-      text_center("'New World' will be lost forever! (A long time!)", w / 2, 90, 0xFFFF);
+      cat(t, "'", nworlds && world_info(wlist[wsel], &wi) ? wi.name : "");
+      cat(t + strlen(t), "' will be lost forever! (A long time!)", "");
+      text_center(t, w / 2, 90, 0xFFFF);
       break;
+    }
     case GUI_OPTIONS: text_center("Options", w / 2, 15, 0xFFFF); break;
     case GUI_CONTROLS: key_sheet(); break;
     case GUI_PAUSE: text_center("Game menu", w / 2, 40, 0xFFFF); break;
@@ -1128,10 +1280,12 @@ static void menu_screen(void) {
       text_center("Building terrain", w / 2, h / 2 - 20, 0xFFFF);
       break;
   }
-  for (int i = 0; i < nbuttons; i++) button(&buttons[i], i == bcur && !seed_focus);
-  if (seed_focus && gui == GUI_CREATE) {
+  for (int i = 0; i < nbuttons; i++)
+    if (buttons[i].id == B_NAME) text_field(&buttons[i], i == bcur, field == F_NAME);
+    else button(&buttons[i], i == bcur && !field);
+  if (field == F_SEED && gui == GUI_CREATE) {
     /* the field being typed in: a white frame and a blinking cursor */
-    Button *b = &buttons[1];
+    Button *b = &buttons[2];
     fill(b->x, b->y, b->w, 1, 0xFFFF);
     fill(b->x, b->y + 19, b->w, 1, 0xFFFF);
     fill(b->x, b->y, 1, 20, 0xFFFF);
@@ -1342,7 +1496,7 @@ void hud_strip(uint16_t *buf, int y0, int rows) {
     case GUI_TITLE:
       menu_screen();
       break;
-    case GUI_WORLDS: case GUI_CREATE: case GUI_CONFIRM: case GUI_LOADING:
+    case GUI_WORLDS: case GUI_CREATE: case GUI_CONFIRM: case GUI_LOADING: case GUI_RENAME:
       dirt_background();
       menu_screen();
       break;

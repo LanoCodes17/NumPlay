@@ -10,6 +10,8 @@ uint32_t host_time;               /* ms */
 uint32_t host_keys;
 
 uint32_t plat_keys(void) { return host_keys; }
+uint64_t host_raw;                 /* (tests: keys as the calculator numbers them) */
+uint64_t plat_scan(void) { return host_raw; }
 uint32_t plat_millis(void) { return host_time; }
 void plat_sleep(uint32_t ms) { host_time += ms; }
 void plat_push(int x, int y, int w, int h, const uint16_t *px) {

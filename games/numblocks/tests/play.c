@@ -144,12 +144,17 @@ int main(int argc, char **argv) {
   if (hurt > 0) pl.health -= hurt, pl.food -= 7, pl.xp_level = 7, pl.xp = 0.4f;
   double init_ms = (clock() - c0) * 1000.0 / CLOCKS_PER_SEC;
   c0 = clock();
+  double slowest = 0;
+  int slowest_at = 0;
   for (int f = 0; f < frames; f++) {
     host_keys = 0;
     for (int i = 0; i < nholds; i++)
       if (f >= holds[i].a && f <= holds[i].b) host_keys |= holds[i].k;
     host_time += mspf;
+    clock_t f0 = clock();
     if (!game_frame()) break;
+    double fms = (clock() - f0) * 1000.0 / CLOCKS_PER_SEC;
+    if (fms > slowest) slowest = fms, slowest_at = f;
     for (const char *s = shots; *s;) {
       if (atoi(s) == f) {
         char p[512];
@@ -166,6 +171,7 @@ int main(int argc, char **argv) {
   extern unsigned long st_dis, st_k0, st_fpfail, st_fpok, st_sky;
   printf("between per frame: %.0f disagree, %.0f kind0, %.0f face fail, %.0f face ok, %.0f sky\n", (double)st_dis / frames, (double)st_k0 / frames, (double)st_fpfail / frames, (double)st_fpok / frames, (double)st_sky / frames);
   printf("per pixel: %.1f steps, %.2f texels, %.2f jumps\n", (double)st_steps / st_pixels, (double)st_texels / st_pixels, (double)st_jumps / st_pixels);
-  printf("init %.1f ms, %.2f ms a frame (host)\n", init_ms, (clock() - c0) * 1000.0 / CLOCKS_PER_SEC / frames);
+  printf("init %.1f ms, %.2f ms a frame (host), the slowest %.1f ms (frame %d)\n", init_ms,
+         (clock() - c0) * 1000.0 / CLOCKS_PER_SEC / frames, slowest, slowest_at);
   return 0;
 }

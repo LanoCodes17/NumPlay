@@ -50,6 +50,7 @@ build/unit: $(GAME) src/plat_host.c tests/unit.c $(HEADERS)
 	$(Q) mkdir -p build
 	$(Q) cc $(HOST_FLAGS) $(filter-out src/main.c,$(GAME)) src/plat_host.c tests/unit.c tests/stubs.c -lm -o $@
 test: build/unit
+	@mkdir -p build/unit-saves
 	./build/unit
 # every pixel traced: the reference the adaptive picture is checked against
 build/play_ref: $(GAME) src/plat_host.c tests/play.c $(HEADERS)

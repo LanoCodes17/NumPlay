@@ -71,7 +71,8 @@ extern uint8_t vl[VCY * VCZ * VCX];      /* light: sky light (low 4 bits), block
 extern uint8_t vbiome[VCZ * VCX];        /* biome of each column */
 extern int vc_x0, vc_y0, vc_z0;          /* world position of vc[0] */
 #define VC_I(x, y, z) (((y) * VCZ + (z)) * VCX + (x))
-/* 4 x 4 x 4 regions of the cache: non-zero if any block in it is not air (rays skip empty ones) */
+/* 4 x 4 x 4 regions of the cache: 0 all air, 2 only water and air, 1 anything else (rays skip
+ * the empty ones, and once in water, which sees through both, the water ones) */
 #define MCX (VCX / 4)
 #define MCY (VCY / 4)
 #define MCZ (VCZ / 4)

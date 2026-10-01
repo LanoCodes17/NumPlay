@@ -125,12 +125,14 @@ static void mac_box(int x0, int y0, int z0, int x1, int y1, int z1) {
     for (int mz = z0 >> 2; mz <= (z1 - 1) >> 2 && mz < MCZ; mz++)
       for (int mx = x0 >> 2; mx <= (x1 - 1) >> 2 && mx < MCX; mx++) {
         uint8_t any = 0;
-        for (int y = my * 4; y < my * 4 + 4 && !any; y++)
-          for (int z = mz * 4; z < mz * 4 + 4 && !any; z++) {
+        bool water = true;
+        for (int y = my * 4; y < my * 4 + 4; y++)
+          for (int z = mz * 4; z < mz * 4 + 4; z++) {
             const uint8_t *r = &vc[VC_I(mx * 4, y, z)];
-            any = (uint8_t)(r[0] | r[1] | r[2] | r[3]);
+            any |= (uint8_t)(r[0] | r[1] | r[2] | r[3]);
+            for (int k = 0; k < 4; k++) water = water && (r[k] == B_AIR || is_water(r[k]));
           }
-        vmac[(my * MCZ + mz) * MCX + mx] = any != 0;
+        vmac[(my * MCZ + mz) * MCX + mx] = !any ? 0 : water ? 2 : 1;
       }
 }
 

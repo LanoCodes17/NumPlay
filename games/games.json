@@ -139,7 +139,7 @@
     "id": "flappybird",
     "title": "Flappy Bird",
     "tagline": "Flap through the pipes",
-    "credit": "From All the Apps by Tatone26",
+    "credit": "Inspired by Tatone26's All the Apps",
     "top": "0x4EC0CA",
     "bottom": "0x10474C",
     "accent": "0xF8B733",
@@ -156,7 +156,7 @@
     "id": "pacman",
     "title": "Pac-Man",
     "tagline": "Eat dots, dodge ghosts",
-    "credit": "From All the Apps by Tatone26",
+    "credit": "Inspired by Tatone26's All the Apps",
     "top": "0x2A2AE0",
     "bottom": "0x05052A",
     "accent": "0xFFD800",
@@ -173,7 +173,7 @@
     "id": "snake",
     "title": "Snake",
     "tagline": "Eat apples, grow long",
-    "credit": "From All the Apps by Tatone26",
+    "credit": "Inspired by Tatone26's All the Apps",
     "top": "0x5B9A36",
     "bottom": "0x16330B",
     "accent": "0x4E7CF6",
@@ -190,7 +190,7 @@
     "id": "connectfour",
     "title": "Connect Four",
     "tagline": "Four in a row wins",
-    "credit": "From All the Apps by Tatone26",
+    "credit": "Inspired by Tatone26's All the Apps",
     "top": "0x2A66D0",
     "bottom": "0x0A1F4A",
     "accent": "0xF4C20D",
@@ -207,7 +207,7 @@
     "id": "solitaire",
     "title": "Solitaire",
     "tagline": "The classic card game",
-    "credit": "From All the Apps by Tatone26",
+    "credit": "Inspired by Tatone26's All the Apps",
     "top": "0x34A249",
     "bottom": "0x123F20",
     "accent": "0x1A73E8",
@@ -219,23 +219,6 @@
     ],
     "app": "Solitaire.nwa",
     "repo": "https://github.com/Mason363/NumPlay/tree/main/games/solitaire"
-  },
-  {
-    "id": "numdance",
-    "title": "NumDance",
-    "tagline": "Hit the arrows on the beat",
-    "credit": null,
-    "top": "0x1E5A6E",
-    "bottom": "0x0A1030",
-    "accent": "0xFFC23F",
-    "records": [
-      "numdance.sav"
-    ],
-    "shots": [
-      "docs/shot.png"
-    ],
-    "app": "NumDance.nwa",
-    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/numdance"
   },
   {
     "id": "g2048",

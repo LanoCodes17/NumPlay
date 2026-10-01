@@ -27,7 +27,7 @@ In the menu, Up and Down pick a line and Left / Right change it.
 
 ## Credits
 
-Rewritten in C for NumPlay from **[Tatone26](https://github.com/Tatone26)**'s version in [Numworks-games](https://github.com/Tatone26/Numworks-games/tree/main/apps/connectfour) (All the Apps), which is released into the public domain ([UNLICENSE](UNLICENSE)). Its modes are all here: solo or not, two or three players on the same grid sizes, three computer levels, and the dark mode. What changed:
+Written in C for NumPlay, inspired by **[Tatone26](https://github.com/Tatone26)**'s version in [Numworks-games](https://github.com/Tatone26/Numworks-games/tree/main/apps/connectfour) (All the Apps), with no code copied from it. Its modes are all here: solo or not, two or three players on the same grid sizes, three computer levels, and the dark mode. Compared with that one:
 
 - It looks like the Milton Bradley / Hasbro game (invented by Howard Wexler and Ned Strongin, 1974): the blue grid, embossed discs that fall with gravity, instead of flat discs on a plain grid.
 - A new computer player: bitboards, alpha-beta search with a transposition table, moves that make threats tried first, and an evaluation that knows which rows win endgames. It answers in under a second (the original's strongest level could take many seconds), and a disc sways over the board while it thinks.

@@ -246,19 +246,6 @@ Klondike the way Google Solitaire looks and plays: **Easy** draws 1 card, **Hard
 
 <br clear="right">
 
-## NumDance
-
-<img src="../games/numdance/docs/shot.png" width="320" align="right" alt="NumDance">
-
-| Key | What it does |
-| --- | --- |
-| **Arrows**, or **4 5 8 6**, or **1 2 3 +** | Hit the arrows as they land on their rings |
-| **Back** | Pause (with Quit game) |
-
-Arrows fall down four lanes: press the matching key as each one reaches its ring, while a robot, a fox, a penguin and a frog dance on a rooftop. **Perfect!** is 100 points, **Good!** 50, a miss takes 5 and turns the sky red. 7 songs, each in Easy, Normal, Hard and Expert, and an Endless mode. The calculator has no speaker, so the beat is in the dancers and the stars. Options: scroll speed, timing offset (with a calibration), direction, no-fail.
-
-<br clear="right">
-
 ## 2048
 
 <img src="../games/g2048/docs/shot.png" width="320" align="right" alt="2048">

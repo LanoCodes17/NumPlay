@@ -36,7 +36,7 @@ Google's Snake, the game you get when you search for "snake", on the NumWorks ca
 
 The look, the modes and the settings follow **Google's Snake** (Google Search, 2017 onwards). This is an independent fan version, drawn from shapes as it goes (no images from Google), and it isn't affiliated with or endorsed by Google.
 
-The code started from **[Tatone26](https://github.com/Tatone26)**'s Snake in [Numworks-games](https://github.com/Tatone26/Numworks-games/tree/main/apps/snake) (All the Apps), which is released into the public domain ([UNLICENSE](UNLICENSE)), rewritten in C for NumPlay. Its options (speed, board size, walls, wrapping) are all here, as Google's.
+It is written in C for NumPlay, inspired by **[Tatone26](https://github.com/Tatone26)**'s Snake in [Numworks-games](https://github.com/Tatone26/Numworks-games/tree/main/apps/snake) (All the Apps), with no code copied from it. Its options (speed, board size, walls, wrapping) are all here, as Google's.
 
 Snake itself goes back to the arcade game Blockade (Gremlin, 1976) and was made famous by Nokia's phones.
 

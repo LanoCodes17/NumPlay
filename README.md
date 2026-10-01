@@ -5,8 +5,8 @@
 <h1 align="center">NumPlay</h1>
 
 <p align="center">
-  <b>17 free games for your NumWorks calculator, in one app.</b><br>
-  NumDash, Crossy Road, NumDrive, Balatro, Buckshot Roulette, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, NumDance, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.<br>
+  <b>16 free games for your NumWorks calculator, in one app.</b><br>
+  NumDash, Crossy Road, NumDrive, Balatro, Buckshot Roulette, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.<br>
   And <b>Champion Island</b>, the Doodle Champion Island Games, as an app of its own.
 </p>
 
@@ -23,6 +23,10 @@
 </p>
 
 <p align="center">
+  Also try <a href="https://github.com/yannis300307/NumcraftRust"><b>Numcraft</b></a> and this <a href="https://gist.github.com/yannis300307/9123136f90877107ec0d49ba96b303e5"><b>great list of NumWorks games and apps</b></a>, made by others!
+</p>
+
+<p align="center">
   <img src="docs/media/launcher.gif" width="640" alt="The NumPlay launcher on a NumWorks calculator, scrolling through its games">
 </p>
 
@@ -33,7 +37,7 @@ Click a file to download it. Not sure which one? Take the first.
 <table>
   <tr>
     <td width="120" align="center"><img src="docs/media/icon.png" width="64" alt="NumPlay icon"></td>
-    <td><b><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay.nwa">NumPlay.nwa</a></b><br><b>All 14 games and NumVisuals in one app. Start here!</b></td>
+    <td><b><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay.nwa">NumPlay.nwa</a></b><br><b>All 16 games and NumVisuals in one app. Start here!</b></td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/icon-invisible.png" width="64" alt="A blank white icon"></td>
@@ -102,10 +106,6 @@ Click a file to download it. Not sure which one? Take the first.
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_solitaire.png" width="112" alt="Solitaire"></td>
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Solitaire.nwa">Solitaire.nwa</a><br>Only Solitaire: the classic card game, the way Google plays it</td>
-  </tr>
-  <tr>
-    <td width="120" align="center"><img src="docs/media/thumb_numdance.png" width="112" alt="NumDance"></td>
-    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumDance.nwa">NumDance.nwa</a><br>Only NumDance: hit the arrows on the beat</td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_g2048.png" width="112" alt="2048"></td>
@@ -181,23 +181,28 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
     <td><img src="games/solitaire/docs/shot.png" width="100%" alt="Solitaire"></td>
   </tr>
   <tr>
-    <td><img src="games/numdance/docs/shot.png" width="100%" alt="NumDance"></td>
     <td><img src="games/g2048/docs/shot.png" width="100%" alt="2048"></td>
-  </tr>
-  <tr>
     <td><img src="games/minesweeper/docs/shot.png" width="100%" alt="Minesweeper"></td>
-    <td><img src="games/breakout/docs/shot.png" width="100%" alt="Block Breaker"></td>
   </tr>
   <tr>
-    <td colspan="2" align="center"><img src="docs/media/uninstall.gif" width="50%" alt="Uninstalling a game from NumPlay's settings to free up space"></td>
+    <td><img src="games/breakout/docs/shot.png" width="100%" alt="Block Breaker"></td>
+    <td><img src="docs/media/uninstall.gif" width="100%" alt="Uninstalling a game from NumPlay's settings to free up space"></td>
   </tr>
 </table>
 
+## Go support the original games!
+
+NumPlay is a fan project, made out of love for these games and for the NumWorks calculator. It is not meant to replace any of them. If you enjoy a game here, go play the original and support the people who made it.
+
+If you made one of these games and would rather it not be here, email me at [masonchen204@gmail.com](mailto:masonchen204@gmail.com) or open an issue, and I'll take it down.
+
+NumWorks also has a great community of people making games by hand, some of them over years. Go try their work too: [Numcraft](https://github.com/yannis300307/NumcraftRust), [Celeste Classic](https://github.com/BenchatonDev/Celeste-Numworks), [Tatone26's All the Apps](https://github.com/Tatone26/Numworks-games), the apps on [Nwagyu](https://nwagyu.org/guide/) and many more in [yannis300307's list](https://gist.github.com/yannis300307/9123136f90877107ec0d49ba96b303e5).
+
 ## Acknowledgements
 
-- **[Tatone26](https://github.com/Tatone26/Numworks-games)** made Tetris and **All the Apps**, and released them into the public domain. NumPlay's Flappy Bird, Pac-Man, Snake, Connect Four and Solitaire are rewritten in C from All the Apps and keep its options, and our 2048 started from Tatone26's Python version.
+- **[Tatone26](https://github.com/Tatone26/Numworks-games)**'s **All the Apps** inspired NumPlay's list of classics. Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire and 2048 are written in C for NumPlay and keep its options, with no code copied from it. Tetris is Tatone26's own, which they released into the public domain, adapted for NumPlay.
 - **[Gabriele Cirulli](https://github.com/gabrielecirulli/2048)** made 2048.
-- Snake, Solitaire and Block Breaker look and play like **Google's games** in Search, and NumDance takes its idea and scoring from the Artistic Swimming event of Google's **Doodle Champion Island Games**. They are drawn from scratch; nothing is taken from Google.
+- Snake, Solitaire and Block Breaker look and play like **Google's games** in Search. They are drawn from scratch; nothing is taken from Google.
 - **[gd3ds](https://github.com/AleFunky/gd3ds)** by AleFunky and friends, whose research into Geometry Dash made NumDash possible. Clubstep, Deadlocked and Dash also rely on [gdsolver](https://github.com/gdsolver/gdsolver)'s measurements of Geometry Dash 2.2, level data from [gmdkit](https://github.com/UHDanke/gmdkit) by HDanke and checks against [GDRWeb](https://github.com/iliasHDZ/GDRWeb) by IliasHDZ.
 - **Balatro** by LocalThunk inspired NumPlay's Balatro, which uses art adapted from the game and the **m6x11** font by Daniel Linssen.
 - **Buckshot Roulette** by Mike Klubnika inspired NumPlay's Buckshot Roulette, whose scenes are rendered from the game through the Open Buckshot Roulette project (1503Dev). Fonts: Fake Receipt by Ray Larabie and Dot Matrix by Dionaea.

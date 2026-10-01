@@ -71,6 +71,26 @@ def first_frame(im):
     return im.crop((0, 0, w, w)).resize((16, 16), Image.NEAREST) if w != 16 or h != 16 else im
 
 
+def custom_texture(jar, n):
+    """textures made from an entity's: the chest's faces (ModelChest: a 14 x 14 x 14 box)"""
+    ch = jar.image('entity/chest/normal')
+    out = Image.new('RGBA', (16, 16), (0, 0, 0, 0))
+    if n == '@chest_top':
+        out.paste(ch.crop((14, 0, 28, 14)), (1, 1))
+    elif n in ('@chest_front', '@chest_side'):
+        lid = ch.crop((14, 14, 28, 19) if n == '@chest_front' else (0, 14, 14, 19))
+        base = ch.crop((14, 34, 28, 43) if n == '@chest_front' else (0, 34, 14, 43))
+        out.paste(lid, (1, 2))
+        out.paste(base, (1, 7))
+        if n == '@chest_front':
+            out.paste(ch.crop((1, 1, 3, 5)), (7, 5))   # the latch
+    return out
+
+
+def tex_image(jar, n):
+    return custom_texture(jar, n) if n.startswith('@') else first_frame(jar.image('blocks/' + n))
+
+
 def pack_textures(jar):
     """Textures in the order blocks.py first names them."""
     names = []
@@ -95,7 +115,7 @@ def pack_textures(jar):
     tinted.discard('grass_side_snowed')
     px, pals, flags = [], [], []
     for n in names:
-        im = first_frame(jar.image('blocks/' + n))
+        im = custom_texture(jar, n) if n.startswith('@') else first_frame(jar.image('blocks/' + n))
         if n == 'grass_side':
             # the dirt side keeps its colours; the fringe (the overlay's texels)
             # becomes grey levels tinted by the biome: palette indices from 8
@@ -145,10 +165,32 @@ def faces(s, names):
         if f in ('north', 'south') and 'z' in t:
             n = t['z']
         out.append(names.index(n))
-    # a front: furnaces and chests face north (meta 2), pumpkins south (meta 0)
-    if 'front' in t:
-        out[2 if s['meta'] == 2 else 3] = names.index(t['front'])
     return out
+
+
+# shapes in sixteenths (x0 y0 z0 x1 y1 z1), up to two boxes; models not listed are whole cubes or
+# drawn their own way (cross, liquid); ladders, vines, fences and panes are shaped by their neighbours
+BOX = {'slab': [(0, 0, 0, 16, 8, 16)], 'layer': [(0, 0, 0, 16, 2, 16)], 'torch': [(7, 0, 7, 9, 10, 9)],
+       'cactus': [(1, 0, 1, 15, 16, 15)], 'flat': [(0, 0, 0, 16, 1, 16)], 'fence': [(6, 0, 6, 10, 16, 10)],
+       'pane': [(7, 0, 7, 9, 16, 9)], 'ladder': [(0, 0, 14, 16, 16, 16)], 'vine': [(0, 0, 15, 16, 16, 16)],
+       'bed': [(0, 0, 0, 16, 9, 16)], 'chest': [(1, 0, 1, 15, 14, 15)], 'liquid': [(0, 0, 0, 16, 14, 16)]}
+STAIR_TOP = [(8, 8, 0, 16, 16, 16), (0, 8, 0, 8, 16, 16), (0, 8, 8, 16, 16, 16), (0, 8, 0, 16, 16, 8)]
+# BlockDoor's bounds: facing east, south, west, north; closed, then open
+DOOR = [(0, 0, 0, 3, 16, 16), (0, 0, 0, 16, 16, 3), (13, 0, 0, 16, 16, 16), (0, 0, 13, 16, 16, 16),
+        (0, 0, 13, 16, 16, 16), (0, 0, 0, 3, 16, 16), (0, 0, 0, 16, 16, 3), (13, 0, 0, 16, 16, 16)]
+WALL_TORCH = {'TORCH_E': (1, 3, 7, 3, 14, 9), 'TORCH_W': (13, 3, 7, 15, 14, 9), 'TORCH_S': (7, 3, 1, 9, 14, 3),
+              'TORCH_N': (7, 3, 13, 9, 14, 15)}
+
+
+def boxes_of(s):
+    m = s['model']
+    if m == 'stairs':
+        return [(0, 0, 0, 16, 8, 16), STAIR_TOP[s['meta'] & 3]]
+    if m == 'door':
+        return [DOOR[s['meta'] & 7]] if s['meta'] < 8 else [DOOR[0]]
+    if s['name'] in WALL_TORCH:
+        return [WALL_TORCH[s['name']]]
+    return BOX.get(m, [])
 
 
 TINT = {None: 0, 'grass': 1, 'foliage': 2, 'spruce': 3, 'birch': 4, 'water': 5, 'lily': 6}
@@ -220,15 +262,15 @@ def iso_icon(jar, s, names_px):
     t = s['tex']
     if s['model'] in ('cross', 'flat', 'torch', 'vine', 'ladder', 'door', 'pane'):
         n = t if isinstance(t, str) else t.get('side')
-        im = first_frame(jar.image('blocks/' + n))
+        im = tex_image(jar, n)
         return im
     top = t if isinstance(t, str) else t['top']
     left = t if isinstance(t, str) else t.get('front', t['side']) if s['meta'] in (0,) else t['side']
     right = t if isinstance(t, str) else t['side']
     out = Image.new('RGBA', (16, 16), (0, 0, 0, 0))
-    timg = first_frame(jar.image('blocks/' + top))
-    limg = first_frame(jar.image('blocks/' + (t.get('front', t['side']) if isinstance(t, dict) and 'front' in t else left)))
-    rimg = first_frame(jar.image('blocks/' + right))
+    timg = tex_image(jar, top)
+    limg = tex_image(jar, (t.get('front', t['side']) if isinstance(t, dict) and 'front' in t else left))
+    rimg = tex_image(jar, right)
     tint = s['tint']
     def tinted(im, shade, tint_on):
         px = []
@@ -242,7 +284,7 @@ def iso_icon(jar, s, names_px):
     timg = tinted(timg, 1.0, tint in ('grass', 'foliage'))
     limg = tinted(limg, 0.8, tint == 'foliage')
     rimg = tinted(rimg, 0.6, tint == 'foliage')
-    h = 0.5 if s['model'] == 'slab' else 1.0
+    h = 0.5 if s['model'] == 'slab' else 0.5625 if s['model'] == 'bed' else 1.0
     for y in range(16):
         for x in range(16):
             px, py = x + 0.5, y + 0.5
@@ -439,12 +481,28 @@ def main():
     models = blocks.MODELS
     out.append('const uint8_t blk_model[B_COUNT] = {' + ','.join(str(models.index(s['model'])) for s in blocks.S) + '};')
     out.append('const uint8_t blk_light[B_COUNT] = {' + ','.join(str(s['light']) for s in blocks.S) + '};')
+    # shapes
+    nb, bx = [], []
+    for st in blocks.S:
+        b = boxes_of(st)
+        nb.append(len(b))
+        b = (b + [(0, 0, 0, 0, 0, 0)] * 2)[:2]
+        bx.append('{' + ','.join('{' + ','.join(str(v) for v in box) + '}' for box in b) + '}')
+    out.append('const uint8_t blk_nbox[B_COUNT] = {' + ','.join(str(v) for v in nb) + '};')
+    out.append('const int8_t blk_box[B_COUNT][2][6] = {' + ','.join(bx) + '};')
+    # a front (furnaces, pumpkins, chests: turned to the open side) or a bed's end
+    fr = []
+    for st in blocks.S:
+        t = st['tex']
+        fr.append(names.index(t['front']) if isinstance(t, dict) and 'front' in t else 0)
+    out.append('const uint8_t blk_front[B_COUNT] = {' + ','.join(str(v) for v in fr) + '};')
     fl = []
     for s in blocks.S:
         f = TINT[s['tint']]
         if s['model'] in ('cube',):
             f |= BF_OPAQUE
-        if s['model'] in ('cube', 'leaves', 'glass', 'slab', 'cactus', 'fence', 'pane', 'door', 'layer'):
+        if s['model'] in ('cube', 'leaves', 'glass', 'slab', 'cactus', 'fence', 'pane', 'door', 'layer', 'stairs',
+                          'chest', 'bed'):
             f |= BF_SOLID
         fl.append(f)
     out.append('const uint8_t blk_flags[B_COUNT] = {' + ','.join(str(v) for v in fl) + '};')
@@ -636,13 +694,16 @@ def main():
          'extern const uint8_t tex_flags[NTEX];', '',
          '/* faces: -Y +Y -Z +Z -X +X */', 'extern const uint8_t blk_tex[B_COUNT][6];',
          'extern const uint8_t blk_model[B_COUNT], blk_light[B_COUNT], blk_flags[B_COUNT], blk_tool[B_COUNT];',
+         'extern const uint8_t blk_nbox[B_COUNT];   /* how many boxes it is made of (0: a whole cube) */',
+         'extern const int8_t blk_box[B_COUNT][2][6];   /* the boxes, sixteenths: x0 y0 z0 x1 y1 z1 */',
+         'extern const uint8_t blk_front[B_COUNT];   /* the texture of its front (0: none) */',
          'extern const uint8_t blk_level[B_COUNT], blk_hard[B_COUNT], blk_id[B_COUNT], blk_meta[B_COUNT];',
          '/* blk_flags: bits 0-2 the tint (1 grass, 2 foliage, 3 spruce, 4 birch, 5 water, 6 lily pad) */',
          'extern const uint16_t biome_grass[256], biome_foliage[256], biome_water[256];',
          'extern const int8_t biome_temp[256];   /* temperature x 50 */',
          f'#define BF_OPAQUE {BF_OPAQUE}', f'#define BF_SOLID {BF_SOLID}', '#define BF_TINT 7', '']
     for i, n in enumerate(names):
-        h.append(f'#define TX_{n.upper()} {i}')
+        h.append(f'#define TX_{n.upper().replace("@", "")} {i}')
     h += ['', 'extern const uint8_t spr_px[], spr_w[], spr_h[], spr_alpha[];', 'extern const uint32_t spr_off[];',
           'extern const uint16_t spr_pal[][16];', 'extern const uint16_t blk_icon[B_COUNT];   /* sprite of its icon */']
     for i, sp in enumerate(SPRITES):

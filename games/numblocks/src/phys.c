@@ -4,22 +4,87 @@
 
 static inline int ifloor(float v) { int i = (int)v; return v < (float)i ? i - 1 : i; }
 
-/* the collision box of the block at (x, y, z), in world coordinates; false if none */
-bool block_box(int x, int y, int z, float *b) {
+/* the boxes (sixteenths) block b at (x, y, z) is made of: its own (blocks.py),
+ * or for ladders and vines the side they hang on, for fences, walls and panes
+ * their post and an arm to each neighbour they join, for a door's upper half
+ * the lower half's; 0 if a whole cube (or nothing) */
+int block_boxes(int b, int x, int y, int z, int8_t (*o)[6]) {
+  int m = blk_model[b];
+  if (m == M_LADDER || m == M_VINE) {
+    int th = m == M_VINE ? 1 : 2;
+    static const int8_t at[4][3] = {{0, 0, 1}, {0, 0, -1}, {1, 0, 0}, {-1, 0, 0}};
+    for (int k = 0; k < 4; k++)
+      if (blk_flags[world_get(x + at[k][0], y, z + at[k][2])] & BF_OPAQUE) {
+        int8_t *q = o[0];
+        q[0] = 0, q[1] = 0, q[2] = 0, q[3] = 16, q[4] = 16, q[5] = 16;
+        if (k == 0) q[2] = (int8_t)(16 - th);
+        if (k == 1) q[5] = (int8_t)th;
+        if (k == 2) q[0] = (int8_t)(16 - th);
+        if (k == 3) q[3] = (int8_t)th;
+        return 1;
+      }
+    memcpy(o[0], blk_box[b][0], 6);
+    return 1;
+  }
+  if (m == M_FENCE || m == M_PANE) {
+    bool wall = b == B_COBBLESTONE_WALL;
+    int p0 = m == M_PANE ? 7 : wall ? 4 : 6, p1 = 16 - p0, a0 = m == M_PANE ? 7 : wall ? 5 : 7, a1 = 16 - a0;
+    int ay0 = m == M_PANE ? 0 : 6, ay1 = m == M_PANE ? 16 : wall ? 13 : 15;
+    int n = 0;
+    int8_t *q = o[n++];
+    q[0] = (int8_t)p0, q[1] = 0, q[2] = (int8_t)p0, q[3] = (int8_t)p1, q[4] = 16, q[5] = (int8_t)p1;
+    static const int8_t dir[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+    for (int k = 0; k < 4; k++) {
+      int nb = world_get(x + dir[k][0], y, z + dir[k][1]);
+      if (!(blk_model[nb] == m || (blk_flags[nb] & BF_OPAQUE))) continue;
+      q = o[n++];
+      q[1] = (int8_t)ay0, q[4] = (int8_t)ay1;
+      if (dir[k][0]) q[0] = (int8_t)(dir[k][0] > 0 ? p1 : 0), q[3] = (int8_t)(dir[k][0] > 0 ? 16 : p0), q[2] = (int8_t)a0,
+                     q[5] = (int8_t)a1;
+      else q[2] = (int8_t)(dir[k][1] > 0 ? p1 : 0), q[5] = (int8_t)(dir[k][1] > 0 ? 16 : p0), q[0] = (int8_t)a0,
+           q[3] = (int8_t)a1;
+    }
+    return n;
+  }
+  if (b == B_DOOR_OAK_UPPER) {
+    int lo = world_get(x, y - 1, z);
+    if (blk_model[lo] == M_DOOR && lo != B_DOOR_OAK_UPPER) b = lo;
+  }
+  int n = blk_nbox[b];
+  memcpy(o, blk_box[b], (size_t)n * 6);
+  return n;
+}
+
+/* the collision boxes of the block at (x, y, z), in world coordinates (b: up to 5 x 6) */
+static int block_cboxes(int x, int y, int z, float *b) {
   int s = world_get(x, y, z);
-  if (!(blk_flags[s] & BF_SOLID)) return false;
-  float y1 = 1;
-  int m = blk_model[s];
-  if (m == M_SLAB) y1 = 0.5f;
-  else if (m == M_LAYER) y1 = 0.125f;
-  else if (m == M_FENCE) y1 = 1.5f;
-  b[0] = (float)x;
-  b[1] = (float)y;
-  b[2] = (float)z;
-  b[3] = x + 1.0f;
-  b[4] = y + y1;
-  b[5] = z + 1.0f;
-  if (m == M_CACTUS) b[0] += 1 / 16.0f, b[2] += 1 / 16.0f, b[3] -= 1 / 16.0f, b[5] -= 1 / 16.0f;
+  if (!(blk_flags[s] & BF_SOLID)) return 0;
+  int8_t bx[5][6];
+  int n = block_boxes(s, x, y, z, bx);
+  if (!n) {
+    b[0] = (float)x, b[1] = (float)y, b[2] = (float)z, b[3] = x + 1.0f, b[4] = y + 1.0f, b[5] = z + 1.0f;
+    return 1;
+  }
+  for (int k = 0; k < n; k++) {
+    float *q = b + k * 6;
+    q[0] = x + bx[k][0] / 16.0f, q[1] = y + bx[k][1] / 16.0f, q[2] = z + bx[k][2] / 16.0f;
+    q[3] = x + bx[k][3] / 16.0f, q[4] = y + bx[k][4] / 16.0f, q[5] = z + bx[k][5] / 16.0f;
+    /* fences and walls are 1.5 blocks high to jump over (BlockFence) */
+    if (blk_model[s] == M_FENCE) q[4] = y + 1.5f;
+  }
+  return n;
+}
+
+/* the block's first collision box (for "is something solid here"); false if none */
+bool block_box(int x, int y, int z, float *b) {
+  float all[30];
+  int n = block_cboxes(x, y, z, all);
+  if (!n) return false;
+  memcpy(b, all, 6 * sizeof(float));
+  for (int k = 1; k < n; k++) {
+    for (int i = 0; i < 3; i++) if (all[k * 6 + i] < b[i]) b[i] = all[k * 6 + i];
+    for (int i = 3; i < 6; i++) if (all[k * 6 + i] > b[i]) b[i] = all[k * 6 + i];
+  }
   return true;
 }
 
@@ -31,19 +96,22 @@ float phys_clip(const float *a, int axis, float d) {
   for (int y = y0; y <= y1; y++)
     for (int z = z0; z <= z1; z++)
       for (int x = x0; x <= x1; x++) {
-        float b[6];
-        if (!block_box(x, y, z, b)) continue;
-        /* overlapping on the other two axes? */
-        bool ov = true;
-        for (int k = 0; k < 3; k++)
-          if (k != axis && (a[k + 3] <= b[k] || a[k] >= b[k + 3])) ov = false;
-        if (!ov) continue;
-        if (d > 0 && a[axis + 3] <= b[axis]) {
-          float m = b[axis] - a[axis + 3];
-          if (m < d) d = m;
-        } else if (d < 0 && a[axis] >= b[axis + 3]) {
-          float m = b[axis + 3] - a[axis];
-          if (m > d) d = m;
+        float bs[30];
+        int nb = block_cboxes(x, y, z, bs);
+        for (int q = 0; q < nb; q++) {
+          const float *b = bs + q * 6;
+          /* overlapping on the other two axes? */
+          bool ov = true;
+          for (int k = 0; k < 3; k++)
+            if (k != axis && (a[k + 3] <= b[k] || a[k] >= b[k + 3])) ov = false;
+          if (!ov) continue;
+          if (d > 0 && a[axis + 3] <= b[axis]) {
+            float m = b[axis] - a[axis + 3];
+            if (m < d) d = m;
+          } else if (d < 0 && a[axis] >= b[axis + 3]) {
+            float m = b[axis + 3] - a[axis];
+            if (m > d) d = m;
+          }
         }
       }
   return d;

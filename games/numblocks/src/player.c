@@ -229,8 +229,14 @@ static bool can_stay(int b, int x, int y, int z) {
   if (b == B_TORCH_S) return blk_flags[world_get(x, y, z - 1)] & BF_OPAQUE;
   if (b == B_TORCH_N) return blk_flags[world_get(x, y, z + 1)] & BF_OPAQUE;
   if (b == B_SNOW_LAYER || b == B_RAIL) return solid_top(below);
-  if (b == B_DOOR_OAK_UPPER) return world_get(x, y - 1, z) == B_DOOR_OAK_LOWER;
-  if (b == B_DOOR_OAK_LOWER) return solid_top(below) && world_get(x, y + 1, z) == B_DOOR_OAK_UPPER;
+  if (b == B_DOOR_OAK_UPPER) return is_door_lower(world_get(x, y - 1, z));
+  if (is_door_lower(b)) return solid_top(below) && world_get(x, y + 1, z) == B_DOOR_OAK_UPPER;
+  if (b == B_BED_FOOT || b == B_BED_HEAD) {
+    int other = b == B_BED_FOOT ? B_BED_HEAD : B_BED_FOOT;
+    for (int f = 2; f < 6; f++)
+      if (world_get(x + NX[f], y, z + NZ[f]) == other) return true;
+    return false;
+  }
   if (m == M_LADDER) return true;
   return true;
 }
@@ -272,10 +278,24 @@ static void break_block(int x, int y, int z, bool drops) {
                false);
   }
   /* the other half of a two-block thing goes too */
-  if (b == B_DOOR_OAK_LOWER || (b >= B_SUNFLOWER_LOWER && b <= B_PEONY_UPPER && !((b - B_SUNFLOWER_LOWER) & 1)))
+  if (b >= B_SUNFLOWER_LOWER && b <= B_PEONY_UPPER && !((b - B_SUNFLOWER_LOWER) & 1))
     if (world_get(x, y + 1, z) == b + 1) world_set(x, y + 1, z, B_AIR);
-  if (b == B_DOOR_OAK_UPPER || (b >= B_SUNFLOWER_LOWER && b <= B_PEONY_UPPER && ((b - B_SUNFLOWER_LOWER) & 1)))
+  if (b >= B_SUNFLOWER_LOWER && b <= B_PEONY_UPPER && ((b - B_SUNFLOWER_LOWER) & 1))
     if (world_get(x, y - 1, z) == b - 1) world_set(x, y - 1, z, B_AIR);
+  if (is_door_lower(b) && world_get(x, y + 1, z) == B_DOOR_OAK_UPPER) world_set(x, y + 1, z, B_AIR);
+  if (b == B_DOOR_OAK_UPPER && is_door_lower(world_get(x, y - 1, z))) {
+    if (drops && pl.mode == 0) ent_drop(I_WOODEN_DOOR, 1, 0, x + 0.5f, y - 0.5f, z + 0.5f, false);
+    world_set(x, y - 1, z, B_AIR);
+  }
+  if (b == B_BED_FOOT || b == B_BED_HEAD)
+    for (int f = 2; f < 6; f++) {
+      int o = world_get(x + NX[f], y, z + NZ[f]);
+      if (o == (b == B_BED_FOOT ? B_BED_HEAD : B_BED_FOOT)) {
+        if (b == B_BED_HEAD && drops && pl.mode == 0) ent_drop(I_BED, 1, 0, x + 0.5f, y + 0.5f, z + 0.5f, false);
+        world_set(x + NX[f], y, z + NZ[f], B_AIR);
+        break;
+      }
+    }
   neighbours_changed(x, y, z);
   depth--;
 }
@@ -356,12 +376,33 @@ static bool place(int b) {
     if (f == 0) return false;
     b = tf[f];
   }
-  if (!can_stay(b, x, y, z) && b != B_DOOR_OAK_LOWER) return false;
+  /* the way the player looks: 0 south, 1 west, 2 north, 3 east */
+  int way = (int)floorf(pl.yaw / 90 + 0.5f) & 3;
+  if (b == B_OAK_STAIRS || b == B_COBBLESTONE_STAIRS) {
+    /* BlockStairs: rising the way the player looks */
+    static const int8_t off[4] = {2, 1, 3, 0};   /* _S, _W, _N, (east) */
+    if (way != 3) b = (b == B_OAK_STAIRS ? B_OAK_STAIRS_W : B_COBBLESTONE_STAIRS_W) + 2 * (off[way] - 1);
+  }
+  if (b == B_DOOR_OAK_LOWER) {
+    static const uint8_t door[4] = {B_DOOR_OAK_LOWER_S, B_DOOR_OAK_LOWER_W, B_DOOR_OAK_LOWER_N, B_DOOR_OAK_LOWER};
+    b = door[way];
+  }
+  bool door = is_door_lower(b);
+  if (!can_stay(b, x, y, z) && !door && b != B_BED_FOOT) return false;
   if ((blk_flags[b] & BF_SOLID) && !box_free(x, y, z)) return false;
-  if (b == B_DOOR_OAK_LOWER || (b >= B_SUNFLOWER_LOWER && b <= B_PEONY_UPPER)) {
+  if (door || (b >= B_SUNFLOWER_LOWER && b <= B_PEONY_UPPER)) {
     if (!replaceable(world_get(x, y + 1, z)) || !solid_top(world_get(x, y - 1, z))) return false;
-    if (!box_free(x, y + 1, z) && b == B_DOOR_OAK_LOWER) return false;
-    world_set(x, y + 1, z, b + 1);
+    if (!box_free(x, y + 1, z) && door) return false;
+    world_set(x, y + 1, z, door ? B_DOOR_OAK_UPPER : b + 1);
+  }
+  if (b == B_BED_FOOT) {
+    /* ItemBed: the head one block further, the way the player looks */
+    static const int8_t wx[4] = {0, -1, 0, 1}, wz[4] = {1, 0, -1, 0};
+    int hx = x + wx[way], hz = z + wz[way];
+    if (!replaceable(world_get(hx, y, hz)) || !solid_top(world_get(x, y - 1, z)) || !solid_top(world_get(hx, y - 1, hz)) ||
+        !box_free(hx, y, hz))
+      return false;
+    world_set(hx, y, hz, B_BED_HEAD);
   }
   set_block(x, y, z, b);
   return true;
@@ -380,6 +421,28 @@ static void eat_done(void) {
   }
   if (h->id == I_GOLDEN_APPLE) pl.health = pl.health + 4 > 20 ? 20 : pl.health + 4;   /* regeneration II, 5 s */
   use_up();
+}
+
+/* EntityPlayer.trySleep: at night, with no monster within 8 blocks; the bed is the new spawn point */
+extern uint32_t game_time;
+static void sleep_in(int x, int y, int z) {
+  int t = (int)(game_time % 24000);
+  if (t < 12541 || t > 23458) {
+    gui_message("You can only sleep at night");
+    return;
+  }
+  for (int i = 0; i < N_ENT; i++) {
+    const Entity *e = &ents[i];
+    if (e->type >= E_ZOMBIE && e->type <= E_SPIDER && fabsf(e->x - x) < 8 && fabsf(e->y - y) < 5 &&
+        fabsf(e->z - z) < 8) {
+      gui_message("You may not rest now, there are monsters nearby");
+      return;
+    }
+  }
+  pl.spawn_x = x, pl.spawn_y = y + 1, pl.spawn_z = z;
+  pl.x = x + 0.5f, pl.y = y + 0.5625f, pl.z = z + 0.5f;
+  pl.vx = pl.vy = pl.vz = 0;
+  pl.sleep_timer = 1;
 }
 
 /* OK pressed: use the block looked at, else the held item */
@@ -401,6 +464,20 @@ static void use(uint32_t pressed) {
     }
     if (b == B_CHEST) {
       gui_open(GUI_CHEST, x, y, z);
+      return;
+    }
+    if (is_door_lower(b) || b == B_DOOR_OAK_UPPER) {
+      /* BlockDoor.onBlockActivated: open or close (the lower half keeps it) */
+      int ly = b == B_DOOR_OAK_UPPER ? y - 1 : y, lb = world_get(x, ly, z);
+      if (!is_door_lower(lb)) return;
+      int st = lb == B_DOOR_OAK_LOWER ? 0 : lb - B_DOOR_OAK_LOWER_S + 1;   /* 0-3 closed, 4-7 open */
+      st ^= 4;
+      set_block(x, ly, z, st == 0 ? B_DOOR_OAK_LOWER : B_DOOR_OAK_LOWER_S + st - 1);
+      player_swing();
+      return;
+    }
+    if (b == B_BED_FOOT || b == B_BED_HEAD) {
+      sleep_in(x, y, z);
       return;
     }
   }
@@ -542,6 +619,15 @@ static void hazards(float fell_from) {
 
 void player_tick(uint32_t keys, uint32_t pressed) {
   if (pl.dead) return;
+  if (pl.sleep_timer) {
+    /* asleep: after 100 ticks the night is over (WorldServer.wakeAllPlayers); a key gets you up */
+    if (++pl.sleep_timer >= 100) {
+      game_time += 24000 - game_time % 24000;
+      pl.sleep_timer = 0;
+      pl.y += 0.5f;
+    } else if (pressed & (K_USE | K_ATTACK | K_JUMP)) pl.sleep_timer = 0, pl.y += 0.5f;
+    return;
+  }
   if (pl.invuln > 0) pl.invuln--;
   if (pl.hurt_time > 0) pl.hurt_time--;
   float fwd = (keys & K_FWD ? 1.0f : 0) - (keys & K_BACKW ? 1.0f : 0);

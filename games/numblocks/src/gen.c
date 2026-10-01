@@ -1604,7 +1604,7 @@ static void chunk_density(int cx, int cz) {
             colD2[i1] = f2;
         }
     /* sign classes of the grid points from the bounds: 1 solid, 2 empty, 0 undecided */
-    uint8_t *dec = T->cls; /* reused: cls is rebuilt below for the needed points */
+    uint8_t dec[825];
     for (int c = 0; c < 25; c++)
         for (int j2 = 0; j2 < 33; j2++) {
             float d4 = ((float)j2 - colD3[c]) * 12.0f * 128.0f / 256.0f / colD2[c];
@@ -1636,7 +1636,7 @@ static void chunk_density(int cx, int cz) {
             }
     float d4s[825];
     memcpy(d4s, T->acc, sizeof d4s);
-    for (int i = 0; i < 825; i++) T->cls[i] = need[i];
+    memcpy(T->cls, need, sizeof need);
     /* main noise (8 octaves) */
     memset(T->grid, 0, sizeof T->grid);
     for (int o = 0; o < 8; o++) {

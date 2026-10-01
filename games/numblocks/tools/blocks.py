@@ -124,8 +124,9 @@ b('TORCH_W', 50, 2, model='torch', tex='torch_on', light=14, hard=0)
 b('TORCH_S', 50, 3, model='torch', tex='torch_on', light=14, hard=0)
 b('TORCH_N', 50, 4, model='torch', tex='torch_on', light=14, hard=0)
 b('MOB_SPAWNER', 52, model='glass', tex='mob_spawner', hard=5.0, tool='pickaxe')
-b('OAK_STAIRS', 53, model='cube', tex='planks_oak', hard=2.0, tool='axe')
-b('CHEST', 54, 2, tex={'top': 'planks_oak', 'side': 'planks_oak', 'bottom': 'planks_oak'}, hard=2.5, tool='axe')
+b('OAK_STAIRS', 53, model='stairs', tex='planks_oak', hard=2.0, tool='axe')
+b('CHEST', 54, 2, model='chest', tex={'top': '@chest_top', 'side': '@chest_side', 'front': '@chest_front',
+                                     'bottom': '@chest_top'}, hard=2.5, tool='axe')
 b('DIAMOND_ORE', 56, tex='diamond_ore', hard=3.0, tool='pickaxe', level=2)
 b('DIAMOND_BLOCK', 57, tex='diamond_block', hard=5.0, tool='pickaxe', level=2)
 b('CRAFTING_TABLE', 58, tex={'top': 'crafting_table_top', 'side': 'crafting_table_side', 'front': 'crafting_table_front',
@@ -142,7 +143,7 @@ b('DOOR_OAK_LOWER', 64, 0, model='door', tex='door_wood_lower', hard=3.0, tool='
 b('DOOR_OAK_UPPER', 64, 8, model='door', tex='door_wood_upper', hard=3.0, tool='axe')
 b('LADDER', 65, 2, model='ladder', tex='ladder', hard=0.4, tool='axe')
 b('RAIL', 66, 0, model='flat', tex='rail_normal', hard=0.7, tool='pickaxe')
-b('COBBLESTONE_STAIRS', 67, model='cube', tex='cobblestone', hard=2.0, tool='pickaxe')
+b('COBBLESTONE_STAIRS', 67, model='stairs', tex='cobblestone', hard=2.0, tool='pickaxe')
 b('REDSTONE_ORE', 73, tex='redstone_ore', hard=3.0, tool='pickaxe', level=2)
 b('SNOW_LAYER', 78, 0, model='layer', tex='snow', hard=0.1, tool='shovel')
 b('ICE', 79, model='glass', tex='ice', hard=0.5, tool='pickaxe')
@@ -200,8 +201,10 @@ for v, (n, t, tint) in enumerate([('SUNFLOWER', 'sunflower', None), ('LILAC', 's
 b('RED_SANDSTONE', 179, 0, tex=tsb('red_sandstone_top', 'red_sandstone_normal', 'red_sandstone_bottom'), hard=0.8,
   tool='pickaxe')
 b('GLOWSTONE', 89, tex='glowstone', light=15, hard=0.3)
-b('BED_FOOT', 26, 0, model='slab', tex=tsb('bed_feet_top', 'bed_feet_side'), hard=0.2)
-b('BED_HEAD', 26, 8, model='slab', tex=tsb('bed_head_top', 'bed_head_side'), hard=0.2)
+b('BED_FOOT', 26, 0, model='bed', tex={'top': 'bed_feet_top', 'side': 'bed_feet_side', 'bottom': 'planks_oak',
+                                      'front': 'bed_feet_end'}, hard=0.2)
+b('BED_HEAD', 26, 8, model='bed', tex={'top': 'bed_head_top', 'side': 'bed_head_side', 'bottom': 'planks_oak',
+                                      'front': 'bed_head_end'}, hard=0.2)
 b('FLOWING_WATER', 8, 1, model='liquid', tex='water_flow', tint='water', hard=100)
 b('FLOWING_LAVA', 10, 2, model='liquid', tex='lava_flow', light=15, hard=100)
 # added after the first generator port: keep new states at the end so ids stay stable
@@ -221,11 +224,18 @@ b('FALLING_WATER', 8, 8, model='liquid', tex='water_flow', tint='water', hard=10
 for lv in (4, 6):
     b(f'FLOWING_LAVA_{lv}', 10, lv, model='liquid', tex='lava_flow', light=15, hard=100)
 b('FALLING_LAVA', 10, 8, model='liquid', tex='lava_flow', light=15, hard=100)
+# stairs facing the other ways (BlockStairs: 0 east, 1 west, 2 south, 3 north), doors (BlockDoor: lower half,
+# facing 0 east 1 south 2 west 3 north, + 4 open; the upper half takes its shape from the lower)
+for v, d in [(1, 'W'), (2, 'S'), (3, 'N')]:
+    b(f'OAK_STAIRS_{d}', 53, v, model='stairs', tex='planks_oak', hard=2.0, tool='axe')
+    b(f'COBBLESTONE_STAIRS_{d}', 67, v, model='stairs', tex='cobblestone', hard=2.0, tool='pickaxe')
+for v, d in [(1, 'S'), (2, 'W'), (3, 'N'), (4, 'E_OPEN'), (5, 'S_OPEN'), (6, 'W_OPEN'), (7, 'N_OPEN')]:
+    b(f'DOOR_OAK_LOWER_{d}', 64, v, model='door', tex='door_wood_lower', hard=3.0, tool='axe')
 
 assert len(S) <= 255, len(S)
 
 MODELS = ['none', 'cube', 'cross', 'liquid', 'torch', 'slab', 'layer', 'cactus', 'leaves', 'glass', 'flat', 'vine',
-          'pane', 'fence', 'door', 'ladder']
+          'pane', 'fence', 'door', 'ladder', 'stairs', 'chest', 'bed']
 TOOLS = [None, 'pickaxe', 'axe', 'shovel', 'shears', 'sword']
 
 

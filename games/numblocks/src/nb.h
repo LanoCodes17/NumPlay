@@ -48,6 +48,9 @@ int plat_end(void);
 static inline bool is_water(int b) {
   return b == B_WATER || b == B_FLOWING_WATER || (b >= B_FLOWING_WATER_2 && b <= B_FALLING_WATER);
 }
+static inline bool is_door_lower(int b) {
+  return b == B_DOOR_OAK_LOWER || (b >= B_DOOR_OAK_LOWER_S && b <= B_DOOR_OAK_LOWER_N_OPEN);
+}
 static inline bool is_lava(int b) { return b == B_LAVA || b == B_FLOWING_LAVA || (b >= B_FLOWING_LAVA_4 && b <= B_FALLING_LAVA); }
 
 /* ---------------------------------------------------------------- the generator (gen.c) */
@@ -104,6 +107,7 @@ float rndf(void);
 
 /* ---------------------------------------------------------------- collisions (phys.c) */
 bool block_box(int x, int y, int z, float *b);
+int block_boxes(int b, int x, int y, int z, int8_t (*o)[6]);   /* its shape, up to 5 boxes; 0: a whole cube */
 float phys_clip(const float *box, int axis, float d);
 bool phys_move(float *p, float *v, float w, float h);
 
@@ -123,6 +127,7 @@ typedef struct {
   float health, sat, exhaustion, fall, last_damage;
   int food, food_timer, air, invuln, hurt_time, fire, using_ticks;
   int xp_level, xp_total;
+  int sleep_timer;        /* ticks asleep in a bed (0: awake) */
   float xp;               /* 0..1 of the way to the next level */
   int spawn_x, spawn_y, spawn_z;
   uint8_t mode;           /* 0 survival, 1 creative */
@@ -137,6 +142,7 @@ enum { DMG_GENERIC, DMG_FALL, DMG_DROWN, DMG_LAVA, DMG_FIRE, DMG_STARVE, DMG_WAL
 void player_add_xp(int n);
 void player_swing(void);   /* the arm swings (gui.c) */
 void hand_tick(void);
+void gui_message(const char *s);   /* a line at the bottom left, as Minecraft's chat shows */
 
 /* ---------------------------------------------------------------- entities (entity.c) */
 enum { E_NONE, E_ITEM, E_ZOMBIE, E_SKELETON, E_CREEPER, E_SPIDER, E_PIG, E_COW, E_SHEEP, E_CHICKEN, E_ARROW };

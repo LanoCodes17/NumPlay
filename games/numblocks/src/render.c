@@ -127,27 +127,30 @@ static uint16_t sky(float dx, float dy, float dz, float len) {
 }
 
 /* ---------------------------------------------------------------- tracing */
-/* boxes of the shaped models, in sixteenths: x0 y0 z0 x1 y1 z1 */
-static const int8_t BOX_SLAB[6] = {0, 0, 0, 16, 8, 16}, BOX_LAYER[6] = {0, 0, 0, 16, 2, 16},
-                    BOX_TORCH[6] = {7, 0, 7, 9, 10, 9}, BOX_CACTUS[6] = {1, 0, 1, 15, 16, 15},
-                    BOX_FLAT[6] = {0, 0, 0, 16, 1, 16}, BOX_LIQUID[6] = {0, 0, 0, 16, 14, 16},
-                    BOX_POST[6] = {6, 0, 6, 10, 16, 10}, BOX_PANE[6] = {7, 0, 7, 9, 16, 9},
-                    BOX_DOOR[6] = {0, 0, 0, 16, 16, 3}, BOX_LADDER[6] = {0, 0, 15, 16, 16, 16};
-
-static const int8_t *model_box(int m) {
-  switch (m) {
-    case M_SLAB: return BOX_SLAB;
-    case M_LAYER: return BOX_LAYER;
-    case M_TORCH: return BOX_TORCH;
-    case M_CACTUS: return BOX_CACTUS;
-    case M_FLAT: return BOX_FLAT;
-    case M_LIQUID: return BOX_LIQUID;
-    case M_FENCE: return BOX_POST;
-    case M_PANE: return BOX_PANE;
-    case M_DOOR: return BOX_DOOR;
-    case M_LADDER: case M_VINE: return BOX_LADDER;
+/* blocks with a front (furnaces, pumpkins, chests) turn it to the first open
+ * side: south, north, east, west; beds lie towards their other half */
+static int front_face(int x, int y, int z) {
+  static const int8_t fx[4] = {0, 0, 1, -1}, fz[4] = {1, -1, 0, 0}, ff[4] = {3, 2, 5, 4};
+  for (int k = 0; k < 4; k++) {
+    int nx = x + fx[k], nz = z + fz[k];
+    if ((unsigned)nx >= VCX || (unsigned)nz >= VCZ || !(blk_flags[vc[VC_I(nx, y, nz)]] & BF_OPAQUE)) return ff[k];
   }
-  return NULL;
+  return 3;
+}
+/* a bed's way (the face its head end points to: 2 -z, 3 +z, 4 -x, 5 +x) */
+static int bed_way(int b, int x, int y, int z) {
+  static const int8_t fx[4] = {0, 0, -1, 1}, fz[4] = {-1, 1, 0, 0};
+  int other = b == B_BED_FOOT ? B_BED_HEAD : B_BED_FOOT;
+  for (int k = 0; k < 4; k++) {
+    int nx = x + fx[k], nz = z + fz[k];
+    if ((unsigned)nx < VCX && (unsigned)nz < VCZ && vc[VC_I(nx, y, nz)] == other) return b == B_BED_FOOT ? 2 + k : (2 + k) ^ 1;
+  }
+  return 2;
+}
+static inline int face_tex(int b, int f, int x, int y, int z) {
+  if (!blk_front[b] || f < 2) return blk_tex[b][f];
+  if (b == B_BED_FOOT || b == B_BED_HEAD) return ((bed_way(b, x, y, z) ^ f) & ~1) == 0 ? blk_front[b] : blk_tex[b][f];
+  return f == front_face(x, y, z) ? blk_front[b] : blk_tex[b][f];
 }
 
 typedef struct {
@@ -303,7 +306,7 @@ static uint16_t trace(float dx, float dy, float dz) {
         }
         u &= 15;
         v &= 15;
-        int tc = texel565(b, blk_tex[b][f], u, v, col);
+        int tc = texel565(b, blk_front[b] ? face_tex(b, f, x, y, z) : blk_tex[b][f], u, v, col);
         if (tc < 0 && m == M_LEAVES) tc = 0;   /* Fast graphics: the holes are black */
         if (tc >= 0) {
           tc = cracked(tc, i, u, v);
@@ -328,21 +331,31 @@ static uint16_t trace(float dx, float dy, float dz) {
           return c;
         }
       } else {
-        const int8_t *bx = model_box(m);
+        int8_t shp[5][6];
+        int nbx;
         if (m == M_LIQUID) {
           /* BlockLiquid: (8 - level) / 9 high, full when falling or under the same liquid */
-          static const int8_t LIQ[9][6] = {{0, 0, 0, 16, 14, 16}, {0, 0, 0, 16, 12, 16}, {0, 0, 0, 16, 11, 16},
-                                           {0, 0, 0, 16, 9, 16},  {0, 0, 0, 16, 7, 16},  {0, 0, 0, 16, 5, 16},
-                                           {0, 0, 0, 16, 4, 16},  {0, 0, 0, 16, 2, 16},  {0, 0, 0, 16, 16, 16}};
+          static const int8_t LIQH[9] = {14, 12, 11, 9, 7, 5, 4, 2, 16};
           int lv = blk_meta[b] > 8 ? 8 : blk_meta[b];
           int above = y + 1 < VCY ? vc[i + VCX * VCZ] : B_AIR;
           if (is_water(b) ? is_water(above) : is_lava(above)) lv = 8;
-          bx = LIQ[lv];
-        }
-        Hit h;
-        if (bx && hit_box(bx, lx, ly, lz, dx, dy, dz, &h)) {
+          shp[0][0] = shp[0][1] = shp[0][2] = 0, shp[0][3] = shp[0][5] = 16, shp[0][4] = LIQH[lv];
+          nbx = 1;
+        } else nbx = block_boxes(b, x + vc_x0, y + vc_y0, z + vc_z0, shp);
+        Hit h, hk;
+        h.t = 1e9f;
+        for (int k = 0; k < nbx; k++)
+          if (hit_box(shp[k], lx, ly, lz, dx, dy, dz, &hk) && hk.t < h.t) h = hk;
+        if (h.t < 1e9f) {
           int r, g, bb;
-          int tex = blk_tex[b][h.face];
+          int tex = face_tex(b, h.face, x, y, z);
+          if (m == M_BED && h.face == 1) {
+            /* the bed's top turned so the pillow is at its head */
+            int w = bed_way(b, x, y, z), u = h.u, v = h.v;
+            if (w == 3) h.u = 15 - u, h.v = 15 - v;
+            else if (w == 5) h.u = v, h.v = 15 - u;
+            else if (w == 4) h.u = 15 - v, h.v = u;
+          }
           if (texel_rgb(b, tex, h.u, h.v, col, &r, &g, &bb) == 0) {
             uint16_t c = lit(r, g, bb, h.face, vl[m == M_LIQUID || m == M_TORCH ? i : prev], (t + h.t) * len);
             if (m == M_LIQUID && !wa) {
@@ -481,7 +494,7 @@ static int face_pixel(float dx, float dy, float dz, int plane, int f) {
     default: u = 15 - (int)(lz * 16); v = 15 - (int)(ly * 16); break;
   }
   if ((unsigned)u > 15 || (unsigned)v > 15) return -1;
-  int tc = texel565(b, blk_tex[b][f], u, v, z * VCX + x);
+  int tc = texel565(b, blk_front[b] ? face_tex(b, f, x, y, z) : blk_tex[b][f], u, v, z * VCX + x);
   if (tc < 0 && m == M_LEAVES) tc = 0;
   if (tc < 0) return -1;
   tc = cracked(tc, VC_I(x, y, z), u, v);

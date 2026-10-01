@@ -13,6 +13,8 @@
 #include "nb.h"
 
 int gui;
+static char msg[64];   /* the message shown (gui_message) and for how long */
+static int msg_timer;
 static int clip_y0, clip_y1;   /* the strip: screen rows [clip_y0, clip_y1) */
 static uint16_t *clip_buf;
 static uint32_t frame_no;
@@ -174,6 +176,7 @@ void player_swing(void) {
   if (swing_t < 0 || swing_t >= 3) swing_t = 0;   /* EntityLivingBase.swingItem: 6 ticks */
 }
 void hand_tick(void) {
+  if (msg_timer) msg_timer--;
   if (swing_t >= 0 && ++swing_t >= 6) swing_t = -1;
   int id = held()->id;
   if (id != equip_id) {
@@ -244,6 +247,21 @@ static void hand(void) {
            blk_model[id] != M_VINE && blk_model[id] != M_LADDER)
     draw_held_cube(clip_buf, clip_y0, clip_y1 - clip_y0, id, 248 + dx, 182 + dy, 84, sh);
   else sprite_affine(item_icon(id), 240 + dx, 166 + dy, 5.6f, -0.35f + rot, sh);
+}
+
+/* ---------------------------------------------------------------- messages (GuiNewChat) */
+void gui_message(const char *s) {
+  int i = 0;
+  for (; s[i] && i < 63; i++) msg[i] = s[i];
+  msg[i] = 0;
+  msg_timer = 200;
+}
+static void message(void) {
+  if (!msg_timer) return;
+  /* a dark band behind, fading for the last second */
+  int y = SCREEN_H - 48, a = msg_timer < 20 ? msg_timer : 20;
+  tint_rect(2, y - 1, text_width(msg) + 4, 9, 0, a * 16 / 20);
+  if (a > 4) text(msg, 4, y, 0xFFFF, true);
 }
 
 /* ---------------------------------------------------------------- the HUD (GuiIngame) */
@@ -1207,8 +1225,14 @@ void hud_strip(uint16_t *buf, int y0, int rows) {
   clip_y0 = y0;
   clip_y1 = y0 + rows;
   if (y0 == 0) frame_no++;
-  if (gui <= GUI_PAUSE) hand();
+  if (gui <= GUI_PAUSE && !pl.sleep_timer) hand();
+  if (pl.sleep_timer) {
+    /* falling asleep: the screen darkens (GuiIngame.renderSleep) */
+    int a = pl.sleep_timer * 32 / 100;
+    tint_rect(0, y0, SCREEN_W, rows, 0x0841, a > 30 ? 30 : a);
+  }
   if (gui < GUI_PAUSE || gui == GUI_PAUSE || gui == GUI_DEATH || (gui == GUI_OPTIONS && options_from == GUI_PAUSE)) hud();
+  if (gui == GUI_NONE) message();
   if (pl.hurt_time > 0 && gui == GUI_NONE) {
     /* (Minecraft tilts the camera; a red flash says the same here) */
     tint_rect(0, y0, SCREEN_W, rows, RGB(0xFF, 0, 0), pl.hurt_time * 2 / 3);

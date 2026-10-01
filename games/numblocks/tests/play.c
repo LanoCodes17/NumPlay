@@ -33,7 +33,7 @@ static uint32_t key_bit(const char *s) {
 
 int main(int argc, char **argv) {
   const char *out = "build/play", *shots = "";
-  int give = 0, title_screen = 0, mobs = 0, start_time = -1, torches = 0, water = 0, creative = 0;
+  int give = 0, title_screen = 0, mobs = 0, start_time = -1, torches = 0, water = 0, creative = 0, build = 0;
   float hurt = 0;
   int frames = 60, mspf = 50;
   for (int i = 1; i < argc; i++) {
@@ -47,6 +47,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "--torches")) torches = 1;
     else if (!strcmp(argv[i], "--water")) water = 1;
     else if (!strcmp(argv[i], "--creative")) creative = 1;
+    else if (!strcmp(argv[i], "--build")) build = 1;
     else if (!strcmp(argv[i], "--time") && i + 1 < argc) start_time = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--hurt") && i + 1 < argc) hurt = (float)atof(argv[++i]);
     else if (!strcmp(argv[i], "--keys") && i + 1 < argc) {
@@ -79,6 +80,28 @@ int main(int argc, char **argv) {
     game_time = (uint32_t)start_time;
   }
   if (creative) pl.mode = 1;
+  if (build) {
+    /* a cleared field with the shaped blocks in a row: stairs, door, bed, chest, furnace, fence, pane, ladder */
+    int fy = (int)pl.y, px = (int)pl.x, pz = (int)pl.z;
+    for (int z = pz - 3; z < pz + 12; z++)
+      for (int x = px - 9; x < px + 10; x++)
+        for (int y = fy - 1; y < fy + 8; y++) world_set(x, y, z, y == fy - 1 ? B_GRASS : B_AIR);
+    int z = pz + 4;
+    world_set(px + 5, fy, z, B_OAK_STAIRS);
+    world_set(px + 4, fy, z, B_COBBLESTONE_STAIRS_S);
+    world_set(px + 2, fy, z, B_DOOR_OAK_LOWER_N), world_set(px + 2, fy + 1, z, B_DOOR_OAK_UPPER);
+    world_set(px + 1, fy, z, B_DOOR_OAK_LOWER_N_OPEN), world_set(px + 1, fy + 1, z, B_DOOR_OAK_UPPER);
+    world_set(px - 1, fy, z, B_BED_FOOT), world_set(px - 1, fy, z + 1, B_BED_HEAD);
+    world_set(px - 3, fy, z, B_CHEST);
+    world_set(px - 4, fy, z, B_FURNACE);
+    for (int k = 0; k < 3; k++) world_set(px - 6 - k, fy, z, B_FENCE_OAK);
+    world_set(px - 6, fy, z + 1, B_FENCE_OAK);
+    for (int k = 0; k < 2; k++) world_set(px + 7 + k, fy, z, B_GLASS_PANE), world_set(px + 7 + k, fy + 1, z, B_GLASS_PANE);
+    world_set(px + 3, fy, z + 2, B_COBBLESTONE), world_set(px + 3, fy + 1, z + 2, B_COBBLESTONE);
+    world_set(px + 3, fy, z + 1, B_LADDER), world_set(px + 3, fy + 1, z + 1, B_LADDER);
+    world_set(px - 2, fy + 1, z + 3, B_TORCH_N);
+    world_set(px - 2, fy + 1, z + 4, B_COBBLESTONE);
+  }
   if (water) {
     /* a cleared field with a water source on a step */
     int fy = (int)pl.y;

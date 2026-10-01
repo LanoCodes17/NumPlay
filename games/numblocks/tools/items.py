@@ -182,7 +182,9 @@ for c, l in zip(COLORS, CLAB):
     LABELS[f'STAINED_CLAY_{c}'] = f'{l} Stained Clay'
 
 # block states that stand for another one in the inventory
-ITEM_OF = {'GRASS_SNOWED': 'GRASS', 'FURNACE_LIT': 'FURNACE', 'TORCH_E': 'TORCH', 'TORCH_W': 'TORCH',
+ITEM_OF = {'OAK_STAIRS_W': 'OAK_STAIRS', 'OAK_STAIRS_S': 'OAK_STAIRS', 'OAK_STAIRS_N': 'OAK_STAIRS',
+           'COBBLESTONE_STAIRS_W': 'COBBLESTONE_STAIRS', 'COBBLESTONE_STAIRS_S': 'COBBLESTONE_STAIRS',
+           'COBBLESTONE_STAIRS_N': 'COBBLESTONE_STAIRS', 'GRASS_SNOWED': 'GRASS', 'FURNACE_LIT': 'FURNACE', 'TORCH_E': 'TORCH', 'TORCH_W': 'TORCH',
            'TORCH_S': 'TORCH', 'TORCH_N': 'TORCH', 'FARMLAND_WET': 'FARMLAND', 'DOOR_OAK_LOWER': 'I:WOODEN_DOOR',
            'DOOR_OAK_UPPER': 'I:WOODEN_DOOR', 'BED_FOOT': 'I:BED', 'BED_HEAD': 'I:BED', 'SUGAR_CANE': 'I:REEDS',
            'BROWN_MUSHROOM_INSIDE': 'BROWN_MUSHROOM_CAP', 'BROWN_MUSHROOM_STEM': 'BROWN_MUSHROOM_CAP',
@@ -193,6 +195,8 @@ for v in ['OAK', 'SPRUCE', 'BIRCH', 'JUNGLE', 'ACACIA', 'DARK_OAK']:
         ITEM_OF[f'LOG_{v}{s}'] = f'LOG_{v}'
 for n in ['SUNFLOWER', 'LILAC', 'DOUBLE_GRASS', 'LARGE_FERN', 'ROSE_BUSH', 'PEONY']:
     ITEM_OF[f'{n}_UPPER'] = f'{n}_LOWER'
+for d in ['S', 'W', 'N', 'E_OPEN', 'S_OPEN', 'W_OPEN', 'N_OPEN']:
+    ITEM_OF[f'DOOR_OAK_LOWER_{d}'] = 'I:WOODEN_DOOR'
 for st in range(8):
     ITEM_OF[f'WHEAT_{st}'] = 'I:WHEAT_SEEDS'
 for st in range(4):

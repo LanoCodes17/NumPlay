@@ -24,6 +24,7 @@ static float fog0, fog1;           /* fog start and end (blocks) */
 static int fog_r, fog_g, fog_b, sky_r, sky_g, sky_b;   /* 0..255 */
 static uint32_t sky_grad[129];   /* the horizon to the sky, by elevation 0..0.4 (r << 20 | g << 10 | b) */
 static int sky_top;               /* the cache is empty from this row up: rays going up end there */
+static int trace_top = -1;        /* (>= 0) rays going down start on this plane (y): see render_frame */
 static int shade[4][16];           /* face shade x sky light level -> 0..32 */
 static int shade_blk[4][16];       /* face shade x block light level -> 0..32 */
 static float sun_x, sun_y, sun_z;  /* towards the sun */
@@ -541,6 +542,20 @@ static uint16_t trace(float dx, float dy, float dz) {
    * behind), except where the ray starts (-1) or comes out of a jump (jf, at t = tj) */
   float tj = 0;
   int jf = -1;
+  if (trace_top >= 0 && dy < 0) {
+    /* start where the ray comes down through plane y = trace_top, in through the top of the cell below */
+    float t0 = (trace_top - oy) * ivy;
+    if (t0 > 0) {
+      if (t0 > tmax) goto out;
+      int x0 = (int)(ox + dx * t0), z0 = (int)(oz + dz * t0);
+      if ((unsigned)x0 < VCX && (unsigned)z0 < VCZ && (unsigned)(trace_top - 1) < VCY) {
+        x = x0, y = trace_top - 1, z = z0;
+        t = tj = t0, jf = 1;
+        tx = (x + bx - ox) * ivx, ty = (y - oy) * ivy, tz = (z + bz - oz) * ivz;
+        i = VC_I(x, y, z), mi = MC_I(x, y, z);
+      }
+    }
+  }
   if (!vmac[mi] || (vmac[mi] == 2 && is_water(R.inside))) goto jump;
   for (;;) {
     ST(st_steps++);
@@ -1990,6 +2005,8 @@ void render_frame(const Camera *c, uint32_t tod) {
     /* the rays' bases for the strip's rows (the forward and up parts) */
     float rb[SR][3];
     SkyRow skr[SR];
+    float dy_top = fwy + upy * (1 - 2 * (py + 0.5f) / RH) * TAN_V, dy_bot = fwy + upy * (1 - 2 * (py + SR + 0.5f) / RH) * TAN_V;
+    (void)dy_top, (void)dy_bot;
     for (int r = 0; r < SR; r++) {
       float sv = (1 - 2 * (py + r + 0.5f) / RH) * TAN_V;
       rb[r][0] = fwx + upx * sv, rb[r][1] = fwy + upy * sv, rb[r][2] = fwz + upz * sv;
@@ -2031,6 +2048,20 @@ void render_frame(const Camera *c, uint32_t tod) {
           }
         continue;
       }
+#ifndef FULL_TRACE
+      /* Samples that all met blocks or plants from above: whatever the rays between them meet is
+       * there too, no higher than the highest of those blocks (anything above it in the way would
+       * show in a sample, as in a cell of samples that agree), so they start on that plane */
+      if (dy_top < 0 && dy_bot < 0 && !is_water(cam_b)) {
+        const Sample *v[5] = {a, b, c, d, m};
+        int top = 0;
+        for (int q = 0; q < 5 && top >= 0; q++) {
+          int ty = v[q]->kind == 1 ? v[q]->y + 1 : v[q]->kind == 3 ? v[q]->cell / (VCX * VCZ) + 1 : -1;
+          top = ty < 0 ? -1 : ty > top ? ty : top;
+        }
+        if (top > 0 && oy > top) trace_top = top;
+      }
+#endif
       if (!et_ok[k]) sample_at(&et[k], x0 + 2, py), et_ok[k] = 1;
       if (!md_ok[2 * k]) sample_at(&md[2 * k], x0, py + 2), md_ok[2 * k] = 1;
       if (!md_ok[2 * k + 2]) sample_at(&md[2 * k + 2], x0 + 4, py + 2), md_ok[2 * k + 2] = 1;
@@ -2039,6 +2070,7 @@ void render_frame(const Camera *c, uint32_t tod) {
       quad(cbuf, zbuf, rb, 0, x0 + 2, &et[k], b, m, &md[2 * k + 2]);
       quad(cbuf, zbuf, rb, 2, x0, &md[2 * k], m, c, &eb[k]);
       quad(cbuf, zbuf, rb, 2, x0 + 2, m, &md[2 * k + 2], &eb[k], d);
+      trace_top = -1;
     }
     Sample *ts = ct;
     ct = cbt, cbt = ts;

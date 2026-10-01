@@ -5,8 +5,9 @@
  * lit by the light of the block in front of it, times its side's shade (top
  * 1.0, bottom 0.5, north/south 0.8, east/west 0.6); grass and leaves take
  * their biome's colour; linear fog fades to the sky's horizon colour at the
- * edge of the view. Leaves, glass, plants and water let the ray go on through
- * their see-through texels. The sky has its gradient, the sun or the moon, and
+ * edge of the view. Leaves are solid, their holes black, as Fast graphics
+ * draws them; glass, plants and water let the ray go on through their
+ * see-through texels. The sky has its gradient, the sun or the moon, and
  * Minecraft's flat clouds at y = 128. */
 #include <math.h>
 #include "nb.h"
@@ -24,6 +25,7 @@ static float sun_x, sun_y, sun_z;  /* towards the sun */
 static float cloud_off;
 static bool night;
 static int under_water;
+static int cam_x, cam_y, cam_z, cam_i, cam_b;   /* the camera's cell, its index (-1 outside the cache), its block */
 
 static const float TAN_V = 0.70020754f;   /* 70 degree vertical field of view */
 #define TAN_H (TAN_V * (float)RW / (float)RH)
@@ -40,7 +42,7 @@ static inline uint16_t pack(int r, int g, int b) {
 }
 
 #ifdef HOST
-unsigned long st_steps, st_texels, st_jumps, st_pixels;
+unsigned long st_steps, st_texels, st_jumps, st_pixels, st_dis, st_k0, st_fpfail, st_fpok, st_sky;
 #define ST(x) (x)
 #else
 #define ST(x) ((void)0)
@@ -66,7 +68,7 @@ static uint16_t tint_of(int b, int col) {
 }
 
 /* the colour of a texel (RGB565), or -1 if it is see-through */
-static inline int texel565(int b, int tex, int u, int v, int col) {
+static inline __attribute__((always_inline)) int texel565(int b, int tex, int u, int v, int col) {
   ST(st_texels++);
   int t = texel(tex, u, v);
   int fl = tex_flags[tex];
@@ -243,13 +245,14 @@ static inline uint16_t lit(int r, int g, int b, int face, int light, float dist)
   return lit565(pack(r, g, b), face, light, dist);
 }
 
-/* what the last trace met: 1 a face of a whole block (cell hx, hy, hz, face hf), 2 the sky, 0 anything else */
-static int hit_kind, hit_x, hit_y, hit_z, hit_f;
+/* what the last trace met: 1 a face of a whole block (cell hit_x, hit_y,
+ * hit_z, face hit_f), 2 the sky, 3 a plant (cell index hit_i), 0 anything else */
+static int hit_kind, hit_x, hit_y, hit_z, hit_f, hit_i;
 static uint16_t trace(float dx, float dy, float dz) {
   hit_kind = 0;
   ST(st_pixels++);
   float len = sqrtf(dx * dx + dy * dy + dz * dz);
-  int x = (int)floorf(ox), y = (int)floorf(oy), z = (int)floorf(oz);
+  int x = cam_x, y = cam_y, z = cam_z;
   int sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1, sz = dz > 0 ? 1 : -1;
   /* signed inverses: the ray reaches plane x = X at t = (X - ox) * ivx */
   float ivx = dx != 0 ? 1 / dx : 1e9f, ivy = dy != 0 ? 1 / dy : 1e9f, ivz = dz != 0 ? 1 / dz : 1e9f;
@@ -260,9 +263,9 @@ static uint16_t trace(float dx, float dy, float dz) {
   int face = -1;
   /* a see-through layer in front (water): its colour and how much of it */
   int wr = 0, wg = 0, wb = 0, wa = 0;
-  if ((unsigned)x >= VCX || (unsigned)y >= VCY || (unsigned)z >= VCZ) return hit_kind = 2, sky(dx, dy, dz, len);
-  int i = VC_I(x, y, z), prev = i;
-  int inside = vc[i];   /* the block the camera is in (water...) */
+  if (cam_i < 0) return hit_kind = 2, sky(dx, dy, dz, len);
+  int i = cam_i, prev = i;
+  int inside = cam_b;   /* the block the camera is in (water...) */
   int fresh = 1;        /* just entered a 4 x 4 x 4 region */
   int ex0 = sx > 0 ? 0 : 3, ey0 = sy > 0 ? 0 : 3, ez0 = sz > 0 ? 0 : 3;
   for (;;) {
@@ -286,6 +289,7 @@ static uint16_t trace(float dx, float dy, float dz) {
         u &= 15;
         v &= 15;
         int tc = texel565(b, blk_tex[b][f], u, v, col);
+        if (tc < 0 && m == M_LEAVES) tc = 0;   /* Fast graphics: the holes are black */
         if (tc >= 0) {
           uint16_t c = lit565((uint16_t)tc, f, light_at(prev), t * len);
           if (wa) c = pack((r5(c) * (256 - wa) + wr * wa) >> 8, (g6(c) * (256 - wa) + wg * wa) >> 8,
@@ -302,6 +306,7 @@ static uint16_t trace(float dx, float dy, float dz) {
           uint16_t c = lit(r, g, bb, 1, light_at(i), (t + h.t) * len);
           if (wa) c = pack((r5(c) * (256 - wa) + wr * wa) >> 8, (g6(c) * (256 - wa) + wg * wa) >> 8,
                            (b5(c) * (256 - wa) + wb * wa) >> 8);
+          else hit_kind = 3, hit_i = i;
           return c;
         }
       } else {
@@ -448,6 +453,7 @@ static int face_pixel(float dx, float dy, float dz, int plane, int f) {
   }
   if ((unsigned)u > 15 || (unsigned)v > 15) return -1;
   int tc = texel565(b, blk_tex[b][f], u, v, z * VCX + x);
+  if (tc < 0 && m == M_LEAVES) tc = 0;
   if (tc < 0) return -1;
   float d2 = t * t * (dx * dx + dy * dy + dz * dz);
   return lit565((uint16_t)tc, f, light, d2 > fog0 * fog0 ? sqrtf(d2) : 0);
@@ -457,7 +463,8 @@ static int face_pixel(float dx, float dy, float dz, int plane, int f) {
 typedef struct {
   uint16_t c;
   uint8_t kind, f;
-  int8_t plane;   /* the face's plane: its coordinate along the face's axis */
+  int8_t plane;   /* a face's plane: its coordinate along the face's axis */
+  uint16_t cell;  /* a plant's cell */
 } Sample;
 static Sample rows[3][RW / 2 + 1];
 
@@ -471,23 +478,46 @@ static void sample_row(Sample *s, int py) {
     s[k].f = (uint8_t)hit_f;
     int f = hit_f;
     s[k].plane = (int8_t)((f >> 1) == 0 ? hit_y + (f & 1) : (f >> 1) == 1 ? hit_z + (f & 1) : hit_x + (f & 1));
+    s[k].cell = (uint16_t)hit_i;
   }
 }
 
 static inline bool same(const Sample *a, const Sample *b) {
-  return a->kind == b->kind && (a->kind == 2 || (a->kind == 1 && a->f == b->f && a->plane == b->plane));
+  if (a->kind != b->kind) return false;
+  switch (a->kind) {
+    case 1: return a->f == b->f && a->plane == b->plane;
+    case 2: return true;
+    case 3: return a->cell == b->cell;
+  }
+  return false;
 }
 
 /* the pixel (px, py) knowing the samples around it agree (a, b) or not */
 static uint16_t between(int px, int py, const Sample *a, const Sample *b, const Sample *c, const Sample *d) {
   float sv = (1 - 2 * (py + 0.5f) / RH) * TAN_V, su = (2 * (px + 0.5f) / RW - 1) * TAN_H;
   float dx = fwx + upx * sv + rgx * su, dy = fwy + upy * sv, dz = fwz + upz * sv + rgz * su;
+#ifdef FULL_TRACE
+  return trace(dx, dy, dz);   /* the reference picture, for the tests */
+#endif
   bool agree = same(a, b) && (!c || (same(a, c) && same(a, d)));
+  ST(agree ? 0 : st_dis++);
+  ST(agree && a->kind == 0 ? st_k0++ : 0);
   if (agree && a->kind == 1) {
     int r = face_pixel(dx, dy, dz, a->plane, a->f);
-    if (r >= 0) return (uint16_t)r;
+    if (r >= 0) return ST(st_fpok++), (uint16_t)r;
+    ST(st_fpfail++);
   }
-  if (agree && a->kind == 2) return sky(dx, dy, dz, sqrtf(dx * dx + dy * dy + dz * dz));
+  if (agree && a->kind == 3) {
+    /* the same plant: its two planes, from the camera */
+    int i = a->cell, x = i % VCX, z = i / VCX % VCZ, y = i / (VCX * VCZ), b = vc[i];
+    Hit h;
+    if (hit_cross(blk_tex[b][3], ox - x, oy - y, oz - z, dx, dy, dz, 0, 1e9f, &h)) {
+      int r, g, bb;
+      texel_rgb(b, blk_tex[b][3], h.u, h.v, z * VCX + x, &r, &g, &bb);
+      return lit(r, g, bb, 1, light_at(i), h.t * sqrtf(dx * dx + dy * dy + dz * dz));
+    }
+  }
+  if (agree && a->kind == 2) return ST(st_sky++), sky(dx, dy, dz, sqrtf(dx * dx + dy * dy + dz * dz));
   return trace(dx, dy, dz);
 }
 
@@ -570,10 +600,10 @@ void render_frame(const Camera *c, uint32_t tod) {
   fog_b = (int)(fb * 255);
   fog1 = MAX_T;
   fog0 = MAX_T * 0.75f;
-  int ci = (unsigned)(int)floorf(ox) < VCX && (unsigned)(int)floorf(oy) < VCY && (unsigned)(int)floorf(oz) < VCZ
-               ? vc[VC_I((int)floorf(ox), (int)floorf(oy), (int)floorf(oz))]
-               : B_AIR;
-  under_water = ci == B_WATER || ci == B_FLOWING_WATER;
+  cam_x = (int)floorf(ox), cam_y = (int)floorf(oy), cam_z = (int)floorf(oz);
+  cam_i = (unsigned)cam_x < VCX && (unsigned)cam_y < VCY && (unsigned)cam_z < VCZ ? VC_I(cam_x, cam_y, cam_z) : -1;
+  cam_b = cam_i < 0 ? B_AIR : vc[cam_i];
+  under_water = cam_b == B_WATER || cam_b == B_FLOWING_WATER;
   if (under_water) {
     fog_r = 10, fog_g = 30, fog_b = 110;
     fog0 = 0;

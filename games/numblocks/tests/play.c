@@ -71,6 +71,9 @@ int main(int argc, char **argv) {
     }
   }
   extern unsigned long st_steps, st_texels, st_jumps, st_pixels;
+  printf("per frame: %.0f traces, %.0f steps\n", (double)st_pixels / frames, (double)st_steps / frames);
+  extern unsigned long st_dis, st_k0, st_fpfail, st_fpok, st_sky;
+  printf("between per frame: %.0f disagree, %.0f kind0, %.0f face fail, %.0f face ok, %.0f sky\n", (double)st_dis / frames, (double)st_k0 / frames, (double)st_fpfail / frames, (double)st_fpok / frames, (double)st_sky / frames);
   printf("per pixel: %.1f steps, %.2f texels, %.2f jumps\n", (double)st_steps / st_pixels, (double)st_texels / st_pixels, (double)st_jumps / st_pixels);
   printf("init %.1f ms, %.2f ms a frame (host)\n", init_ms, (clock() - c0) * 1000.0 / CLOCKS_PER_SEC / frames);
   return 0;

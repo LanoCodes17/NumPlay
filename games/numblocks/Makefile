@@ -41,10 +41,15 @@ $(BUILD_DIR):
 	$(Q) mkdir -p $@
 
 HOST_FLAGS = -std=gnu11 -O2 -g -Wall -Wextra -Wno-unused-parameter -Isrc -DHOST
-host: build/play
+host: build/play build/play_ref
 build/play: $(GAME) src/plat_host.c tests/play.c $(HEADERS)
 	$(Q) mkdir -p build
 	$(Q) cc $(HOST_FLAGS) $(GAME) src/plat_host.c tests/play.c -lm -o $@
+	@echo "HOST    $@"
+# every pixel traced: the reference the adaptive picture is checked against
+build/play_ref: $(GAME) src/plat_host.c tests/play.c $(HEADERS)
+	$(Q) mkdir -p build
+	$(Q) cc $(HOST_FLAGS) -DFULL_TRACE $(GAME) src/plat_host.c tests/play.c -lm -o $@
 	@echo "HOST    $@"
 
 data:

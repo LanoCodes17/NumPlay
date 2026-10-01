@@ -105,7 +105,7 @@ GAMES = {
     # Play Selected World
     "numblocks": ("NumBlocks.nwa", "nb1.nbw",
                   presses((3000, "ok"), (3600, "ok"), (4200, "ok"), (4800, "down"), (5100, "down"), (5400, "down"),
-                          (5700, "down"), (6000, "ok"), (8400, "comma", 1500)), 11900,
+                          (5700, "down"), (6000, "down"), (6300, "ok"), (8700, "comma", 1500)), 12200,
                   presses((3000, "ok"), (3600, "ok")), 8000),
     # a level, its message, then play; then back to the level select
     "portal": ("PortalReturns.nwa", "portal.sav",

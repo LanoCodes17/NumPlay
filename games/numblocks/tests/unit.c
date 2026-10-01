@@ -340,12 +340,12 @@ int main(void) {
     WorldInfo w;
     world_unique_name("New World", n);
     CHECK(!strcmp(n, "New World"));
-    new_world(world_free_slot(), 5, 0, false, n);
+    new_world(world_free_slot(), 5, 0, false, WT_DEFAULT, n);
     save_world();
     world_unique_name("New World", n);
     CHECK(!strcmp(n, "New World (2)"));
     int s2 = world_free_slot();
-    new_world(s2, 6, 1, true, n);
+    new_world(s2, 6, 1, true, WT_DEFAULT, n);
     save_world();
     CHECK(s2 == 2 && world_info(1, &w) && !strcmp(w.name, "New World") && w.mode == 0 && w.seed == 5);
     CHECK(world_info(2, &w) && !strcmp(w.name, "New World (2)") && w.mode == 1 && w.seed == 6);
@@ -385,7 +385,7 @@ int main(void) {
   {
     /* commands: what they do; most need cheats */
     extern uint32_t game_time;
-    new_world(1, 9, 0, false, "Commands");
+    new_world(1, 9, 0, false, WT_DEFAULT, "Commands");
     world_follow(pl.x, pl.y, pl.z);
     while (world_pending()) world_follow(pl.x, pl.y, pl.z);
     command_run("/gamemode 1");
@@ -494,6 +494,24 @@ int main(void) {
     player_tick(K_USE, K_USE);
     CHECK(world_get(16, 70, 17) == B_FIRE && pl.inv[0].aux == 1);
     plat_remove_prefix("ut12");
+  }
+  {
+    /* superflat: bedrock, two dirt, grass; the player on it; kept as superflat */
+    new_world(2, 77, 0, false, WT_FLAT, "Flat");
+    world_follow(pl.x, pl.y, pl.z);
+    while (world_pending()) world_follow(pl.x, pl.y, pl.z);
+    int x = (int)floorf(pl.x) + 7, z = (int)floorf(pl.z) - 5;
+    CHECK(pl.y == 4 && world_get(x, 0, z) == B_BEDROCK && world_get(x, 1, z) == B_DIRT && world_get(x, 2, z) == B_DIRT &&
+          world_get(x, 3, z) == B_GRASS && world_get(x, 4, z) == B_AIR && world_get(x, 40, z) == B_AIR);
+    save_world();
+    world_type = WT_DEFAULT;
+    WorldInfo wi;
+    CHECK(load_world(2) && world_type == WT_FLAT && world_info(2, &wi) && wi.type == WT_FLAT);
+    world_follow(pl.x, pl.y, pl.z);
+    while (world_pending()) world_follow(pl.x, pl.y, pl.z);
+    CHECK(world_get(x + 30, 3, z) == B_GRASS || !world_loaded(x + 30, 3, z));
+    delete_world(2);
+    world_type = WT_DEFAULT;
   }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;

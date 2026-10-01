@@ -16,6 +16,7 @@ uint32_t ticks_run;   /* ticks played (what waits a few ticks counts these: the 
 uint32_t game_time = 1000;                    /* Minecraft's time of day: 0 sunrise, 6000 noon */
 bool start_in_world;                          /* tests: straight into a new world */
 int64_t start_seed;                           /* (its seed) */
+int start_type;                               /* (and type) */
 
 static uint32_t last, acc, keys_held, autosave;
 static float px, py, pz;
@@ -31,6 +32,7 @@ void camera_reset(void) {
 static void title(void) {
   in_world = false;
   if (!opt.last_world || !load_world(opt.last_world)) {
+    world_type = WT_DEFAULT;
     world_new(0, "nbt");
     player_spawn();
   }
@@ -93,7 +95,7 @@ void game_init(void) {
 #endif
   last = plat_millis();
   if (start_in_world) {
-    new_world(1, start_seed, 0, false, "New World");
+    new_world(1, start_seed, 0, false, start_type, "New World");
     game_time = 1000;
 #ifdef BENCH_FALL
     pl.mode = 1, pl.y += BENCH_FALL;   /* (timing a fall from that high, in Creative: no harm) */
@@ -146,7 +148,7 @@ bool game_frame(void) {
         while (b > a && name_text[b - 1] == ' ') b--;
         name_text[b] = 0;
         world_unique_name(name_text + a, name);
-        new_world(slot, parse_seed(), create_mode, create_cheats, name);
+        new_world(slot, parse_seed(), create_mode, create_cheats, create_type, name);
         game_time = 0;
         loading();
         save_world();

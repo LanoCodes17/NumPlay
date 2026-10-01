@@ -12,6 +12,7 @@
 
 Options opt = {2, 0, 100, 1, 1, 0, 0, 0, {0}};
 int64_t world_seed;
+uint8_t world_type;
 
 /* the record's head: version 1 had no name (it was "New World") */
 typedef struct {
@@ -28,7 +29,7 @@ typedef struct {
 } Head2;   /* version 2 had no cheats or game rules */
 typedef struct {
   Head2 h2;
-  uint8_t cheats, rules, pad[2];
+  uint8_t cheats, rules, type, pad;   /* (type: 0 in worlds from before there were others) */
 } Head;
 
 extern uint32_t game_time;
@@ -90,6 +91,7 @@ bool world_info(int s, WorldInfo *w) {
   copy_name(w->name, h.h2.name);
   w->mode = p.mode;
   w->cheats = h.cheats;
+  w->type = h.type;
   w->seed = h.h2.h.seed;
   w->played = h.h2.played;
   return true;
@@ -135,7 +137,7 @@ bool save_world(void) {
   h.h2.h = (Head1){{'N', 'B', 'W', '3'}, (uint16_t)sizeof pl, (uint16_t)tl, world_seed, game_time, weather};
   copy_name(h.h2.name, cur_name);
   h.h2.played = cur_played;
-  h.cheats = world_cheats, h.rules = game_rules;
+  h.cheats = world_cheats, h.rules = game_rules, h.type = world_type;
   /* one record: the head, the player, the tiles (written from a buffer made in the merge scratch) */
   uint32_t n = sizeof h + sizeof pl + tl;
   uint8_t *b = (uint8_t *)edits_scratch(n);
@@ -168,7 +170,7 @@ bool load_world(int s) {
   cur_played = h.h2.played;
   world_seed = h.h2.h.seed;
   game_time = h.h2.h.time;
-  world_cheats = h.cheats, lan_open = lan_cheats = false, game_rules = h.rules;
+  world_cheats = h.cheats, lan_open = lan_cheats = false, game_rules = h.rules, world_type = h.type;
   /* World.calculateInitialWeather */
   weather = h.h2.h.weather;
   rain_str = weather.raining ? 1 : 0;
@@ -183,7 +185,7 @@ bool load_world(int s) {
   return true;
 }
 
-void new_world(int s, int64_t seed, int mode, bool cheats, const char *name) {
+void new_world(int s, int64_t seed, int mode, bool cheats, int type, const char *name) {
   char pre[4];
   prefix_of(s, pre);
   plat_remove_prefix(pre);
@@ -195,7 +197,7 @@ void new_world(int s, int64_t seed, int mode, bool cheats, const char *name) {
   memset(ents, 0, sizeof ents);
   world_seed = seed;
   game_time = 0;
-  world_cheats = cheats, lan_open = lan_cheats = false, game_rules = GR_DEFAULT;
+  world_cheats = cheats, lan_open = lan_cheats = false, game_rules = GR_DEFAULT, world_type = (uint8_t)type;
   memset(&weather, 0, sizeof weather);
   rain_str = thunder_str = 0;
   world_new(seed, pre);

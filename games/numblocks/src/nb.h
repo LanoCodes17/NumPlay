@@ -60,6 +60,7 @@ static inline bool is_lava(int b) { return b == B_LAVA || b == B_FLOWING_LAVA ||
 
 /* ---------------------------------------------------------------- the generator (gen.c) */
 void gen_init(int64_t seed);
+void gen_set_flat(int flat);   /* superflat (kept across gen_init) */
 void gen_slab(int cx, int cz, int y0, int h, uint8_t *out);   /* out[(y - y0) * 256 + z * 16 + x] */
 int gen_prepare(int cx, int cz);   /* a slice of the work for gen_slab(cx, cz) ahead; 0: nothing left */
 int gen_biome(int x, int z);
@@ -265,6 +266,7 @@ extern int play_slot;      /* (ACT_PLAY) the world chosen */
 extern char name_text[];   /* (ACT_NEW) the new world's name, as typed */
 extern int create_mode;
 extern bool create_cheats;
+extern int create_type;
 extern char seed_text[21];
 
 /* ---------------------------------------------------------------- saves and options (save.c) */
@@ -286,6 +288,8 @@ void keys_reset(void);            /* the keys as they start */
 #define KEY_SHEET 3       /* (2: jump and sneak on shift and alpha; 3: chat and commands) */
 extern Options opt;
 extern int64_t world_seed;
+enum { WT_DEFAULT, WT_FLAT };
+extern uint8_t world_type;   /* the world type (WT_*): Default, or Superflat */
 /* Worlds: up to MAX_WORLDS, each in a slot (1..MAX_WORLDS) whose records start "nb<slot>" */
 #define MAX_WORLDS 9
 #define WORLD_NAME 24   /* the longest name */
@@ -293,6 +297,7 @@ typedef struct {
   char name[WORLD_NAME + 1];
   int mode;          /* 0 survival, 1 creative */
   bool cheats;
+  int type;          /* WT_* */
   int64_t seed;
   uint32_t played;   /* opt.plays when it was last played (the latest first in the list) */
 } WorldInfo;
@@ -301,7 +306,7 @@ int world_free_slot(void);                 /* 0: all taken */
 void world_unique_name(const char *base, char *out);   /* base, or "base (2)"... if taken */
 bool save_world(void);
 bool load_world(int slot);
-void new_world(int slot, int64_t seed, int mode, bool cheats, const char *name);
+void new_world(int slot, int64_t seed, int mode, bool cheats, int type, const char *name);
 bool rename_world(int slot, const char *name);
 void delete_world(int slot);
 void load_options(void);

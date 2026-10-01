@@ -849,10 +849,11 @@ static int nbuttons, bcur;
 enum { B_NO, B_SINGLE, B_OPTIONS, B_QUITAPP, B_PLAY, B_CREATE, B_DELETE, B_CANCEL, B_MODE, B_SEED, B_DOCREATE,
        B_DODELETE, B_DIFF, B_GFX, B_LOOK, B_CLOUDS, B_BOB, B_DONE, B_BACK_GAME, B_SAVEQUIT, B_RESPAWN, B_TITLE,
        B_CONTROLS, B_CONTROLS_DONE, B_NAME, B_RENAME, B_DORENAME, B_RECREATE, B_CHEATS, B_LAN, B_LAN_MODE,
-       B_LAN_CHEATS, B_LAN_START };
+       B_LAN_CHEATS, B_LAN_START, B_TYPE };
 int menu_choice;            /* an action for main.c (ACT_*) */
 int create_mode;            /* the new world's game mode */
 bool create_cheats;         /* and whether it allows cheats */
+int create_type;            /* and its type (WT_*) */
 static bool cheats_set;     /* (chosen, not following the game mode) */
 static bool lan_mode, lan_allow;   /* Open to LAN's settings: the game mode for others, cheats */
 char seed_text[21];         /* the new world's seed, as typed */
@@ -1123,7 +1124,9 @@ static void menu(int screen) {
       cat(t, "Allow Cheats: ", create_cheats ? "ON" : "OFF");
       add_button(w / 2 + 5, 100, 150, 1, B_CHEATS, t);
       cat(t, "Seed: ", seed_text[0] ? seed_text : (field == F_SEED ? "" : "(random)"));
-      add_button(w / 2 - 100, 150, 200, 1, B_SEED, t);
+      add_button(w / 2 - 100, 146, 200, 1, B_SEED, t);
+      cat(t, "World Type: ", create_type == WT_FLAT ? "Superflat" : "Default");
+      add_button(w / 2 - 100, 182, 200, 1, B_TYPE, t);
       add_button(w / 2 - 155, h - 28, 150, 1, B_DOCREATE, "Create New World");
       add_button(w / 2 + 5, h - 28, 150, 1, B_CANCEL, "Cancel");
       break;
@@ -1222,7 +1225,7 @@ static void press(int id) {
       if (selected(&wi)) play_slot = wlist[wsel], menu_choice = ACT_PLAY;
       break;
     case B_CREATE:
-      create_mode = 0;
+      create_mode = 0, create_type = WT_DEFAULT;
       create_cheats = cheats_set = false;
       seed_text[0] = 0;
       world_unique_name("New World", name_text);
@@ -1236,7 +1239,7 @@ static void press(int id) {
       n[WORLD_NAME] = 0;
       world_unique_name(n, name_text);
       create_mode = wi.mode;
-      create_cheats = wi.cheats, cheats_set = false;
+      create_cheats = wi.cheats, cheats_set = false, create_type = wi.type;
       /* (its seed, as it would be typed) */
       uint64_t v = wi.seed < 0 ? 0 - (uint64_t)wi.seed : (uint64_t)wi.seed;
       char d[21];
@@ -1272,6 +1275,7 @@ static void press(int id) {
       if (!cheats_set) create_cheats = create_mode;
       break;
     case B_CHEATS: create_cheats = !create_cheats, cheats_set = true; break;
+    case B_TYPE: create_type = create_type == WT_FLAT ? WT_DEFAULT : WT_FLAT; break;
     case B_LAN:
       lan_mode = lan_allow = false;
       gui_menu(GUI_LAN);
@@ -1710,7 +1714,7 @@ static void menu_screen(void) {
       text_center(create_mode ? "destroy blocks instantly" : "levels, health and hunger", w / 2, 134,
                   RGB(0xA0, 0xA0, 0xA0));
       text_center(field ? "alpha: letters or digits, shift: capitals, OK: done" : "Leave blank for a random seed",
-                  w / 2, 174, RGB(0xA0, 0xA0, 0xA0));
+                  w / 2, 169, RGB(0xA0, 0xA0, 0xA0));
       break;
     case GUI_RENAME:
       text_center("Rename World", w / 2, 20, 0xFFFF);
@@ -1743,7 +1747,8 @@ static void menu_screen(void) {
     else button(&buttons[i], i == bcur && !field);
   if (field == F_SEED && gui == GUI_CREATE) {
     /* the field being typed in: a white frame and a blinking cursor */
-    Button *b = &buttons[2];
+    Button *b = &buttons[0];
+    while (b->id != B_SEED) b++;
     fill(b->x, b->y, b->w, 1, 0xFFFF);
     fill(b->x, b->y + 19, b->w, 1, 0xFFFF);
     fill(b->x, b->y, 1, 20, 0xFFFF);

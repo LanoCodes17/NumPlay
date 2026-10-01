@@ -334,6 +334,7 @@ static void recenter(int nx0, int ny0, int nz0, int px, int pz) {
 }
 
 void world_new(int64_t seed, const char *name) {
+  gen_set_flat(world_type == WT_FLAT);
   gen_init(seed);
   edits_setup(name, slab32, sizeof slab32 / 4);
   edits_clear();

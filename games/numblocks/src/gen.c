@@ -5451,7 +5451,13 @@ static void slab_caves(int cx, int cz, const ColSum *sum, uint8_t *out, int y0, 
 /* Ahead of gen_slab(cx, cz): one of the summaries of the chunks around it that it will need, if
  * one is not kept (each is a chunk's terrain, so the work of a chunk can be spread over frames).
  * 0 when they are all there. */
+/* ---------------------------------------------------------------- superflat (ChunkProviderFlat) */
+static int g_flat;
+void gen_set_flat(int flat) { g_flat = flat; }
+static int flat_block(int y) { return y == 0 ? B_BEDROCK : y < 3 ? B_DIRT : y == 3 ? B_GRASS : B_AIR; }
+
 int gen_prepare(int cx, int cz) {
+    if (g_flat) return 0;
     for (int dz = -1; dz <= 1; dz++)
         for (int dx = -1; dx <= 1; dx++)
             if ((dx || dz) && !sum_find(cx + dx, cz + dz)) {
@@ -5468,6 +5474,10 @@ void gen_slab(int cx, int cz, int y0, int h, uint8_t *out) {
     }
     if (y0 + h > 128) h = 128 - y0;
     if (h <= 0) return;
+    if (g_flat) {
+        for (int y = 0; y < h; y++) memset(out + y * 256, flat_block(y0 + y), 256);
+        return;
+    }
     c_out = out;
     c_y0 = y0;
     c_h = h;
@@ -5511,6 +5521,7 @@ void gen_slab(int cx, int cz, int y0, int h, uint8_t *out) {
 }
 
 int gen_biome(int x, int z) {
+    if (g_flat) return BI_PLAINS;
     int cx = x >> 4, cz = z >> 4, i = (x & 15) + (z & 15) * 16;
     if (cx == last_cx && cz == last_cz) return c_b16[i];
     if (cx != bc_cx || cz != bc_cz) chunk_biomes(cx, cz);
@@ -5518,6 +5529,7 @@ int gen_biome(int x, int z) {
 }
 
 int gen_top(int x, int z) {
+    if (g_flat) return 3;
     int cx = x >> 4, cz = z >> 4, i = (x & 15) + (z & 15) * 16;
     if (cx != last_cx || cz != last_cz) gen_slab(cx, cz, 127, 1, col_tmp);
     int t = c_top[i];
@@ -5537,6 +5549,13 @@ static int can_spawn(int x, int z) {
 void gen_spawn(int *px, int *py, int *pz) {
     JRand r;
     jr_seed(&r, g_seed);
+    if (g_flat) {
+        /* WorldChunkManagerHell.findBiomePosition(0, 0, 256): anywhere within 256, all of it grass */
+        *px = -256 + jr_int(&r, 513);
+        *pz = -256 + jr_int(&r, 513);
+        *py = 4;
+        return;
+    }
     /* WorldChunkManager.a(0, 0, 256, spawn biomes, random): 129 x 129 cells of rivermix */
     int found = 0, fx = 0, fz = 0, j2 = 0;
     uint8_t *rows = (uint8_t *)U.lay + sizeof(i32) * LAY_INTS; /* 8 rows x 129, after the layer scratch */

@@ -9,6 +9,10 @@
 /* Starts a world: seed as a Java long (what /seed prints). Call before anything else. */
 void gen_init(int64_t seed);
 
+/* The world type: 0 Minecraft's default, 1 superflat (FlatGeneratorInfo's default preset
+ * "2;7,2x3,2;1": bedrock, two dirt, grass, all plains, nothing else). Kept across gen_init. */
+void gen_set_flat(int flat);
+
 /* Blocks of chunk (cx, cz) for y in [y0, y0 + h), after terrain, caves, ravines
  * and the decoration (population) that Minecraft would put in this chunk:
  * out[(y - y0) * 256 + z * 16 + x], x and z in 0..15, values from blocks.h (B_*).

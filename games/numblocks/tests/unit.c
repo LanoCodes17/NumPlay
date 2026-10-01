@@ -125,6 +125,30 @@ int main(void) {
     CHECK(world_get(5, y, 4) == B_OBSIDIAN);
     plat_remove_prefix("ut2");
   }
+  /* two cows fed wheat make a calf (EntityAIMate) */
+  {
+    extern uint32_t game_time;
+    world_new(0, "ut3");
+    world_follow(8, 70, 8);
+    int y = 70;
+    for (int z = 0; z <= 16; z++)
+      for (int x = 0; x <= 16; x++) {
+        world_set(x, y - 1, z, B_STONE);
+        for (int k = 0; k < 3; k++) world_set(x, y + k, z, B_AIR);
+      }
+    memset(ents, 0, sizeof ents);
+    opt.difficulty = 0;   /* (no monsters) */
+    Entity *a = ent_new(E_COW, 6.5f, (float)y, 8.5f), *b = ent_new(E_COW, 9.5f, (float)y, 8.5f);
+    a->health = b->health = 10;
+    pl.inv[0].id = I_WHEAT, pl.inv[0].aux = 5, pl.slot = 0, pl.mode = 0;
+    CHECK(mob_use(a) && mob_use(b) && pl.inv[0].aux == 3);
+    int calves = 0;
+    for (int t = 0; t < 400; t++) ents_tick(), game_time++;
+    for (int i = 0; i < N_ENT; i++)
+      if (ents[i].type == E_COW && ents[i].growth < 0) calves++;
+    CHECK(calves == 1);
+    plat_remove_prefix("ut3");
+  }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;
 }

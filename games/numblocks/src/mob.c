@@ -27,6 +27,7 @@ float mob_height(int t) { return t >= E_ZOMBIE && t <= E_CHICKEN ? info[t].h : 0
 static bool hostile(int t) { return t >= E_ZOMBIE && t <= E_SPIDER; }
 
 float mob_scale(const Entity *e, float pt) {
+  if (e->growth < 0) return 0.5f;   /* a baby */
   if (e->type != E_CREEPER || e->delay <= 0) return 1;
   /* RenderCreeper: swells by up to 40% (and flickers) over the fuse */
   float f = (e->delay + pt) / 28.0f;
@@ -256,6 +257,7 @@ static void drop(int id, int n, const Entity *e) {
   if (n > 0) ent_drop(id, n, 0, e->x, e->y + 0.5f, e->z, false);
 }
 static void loot(Entity *e) {
+  if (e->growth < 0) return;   /* babies drop nothing */
   switch (e->type) {
     case E_ZOMBIE: drop(I_ROTTEN_FLESH, rnd(3), e); break;
     case E_SKELETON:
@@ -356,8 +358,30 @@ bool mob_attack(const Entity *ce) {
   return true;
 }
 
+/* what each animal is fed to breed (EntityAnimal.isBreedingItem) */
+static int food_of(int type) {
+  switch (type) {
+    case E_COW: case E_SHEEP: return I_WHEAT;
+    case E_PIG: return I_CARROT;
+    case E_CHICKEN: return I_WHEAT_SEEDS;
+  }
+  return 0;
+}
+
 bool mob_use(Entity *e) {
   Stack *h = held();
+  if (h->id && h->id == food_of(e->type) && e->state != 255 && e->growth >= 0 && !e->love && e->timer <= 0) {
+    /* fed: in love for 30 seconds */
+    e->love = 600;
+    if (pl.mode == 0) stack_take(h, 1);
+    return true;
+  }
+  if (h->id && h->id == food_of(e->type) && e->growth < 0) {
+    /* a baby fed grows up a tenth faster */
+    e->growth = (int16_t)(e->growth / 10 * 9);
+    if (pl.mode == 0) stack_take(h, 1);
+    return true;
+  }
   if (e->type == E_SHEEP && h->id == I_SHEARS && !e->sheared && e->state != 255) {
     e->sheared = 1;
     drop(B_WOOL_WHITE, 1 + rnd(3), e);
@@ -587,6 +611,27 @@ void mob_tick(Entity *e) {
     e->fire--;
   }
   if (e->panic > 0) e->panic--;
+  if (e->growth < 0) e->growth++;
+  if (e->timer > 0 && !hostile(e->type) && e->state != 255) e->timer--;   /* (animals: time before breeding again) */
+  if (e->love > 0) {
+    e->love--;
+    /* EntityAIMate: to the nearest other one in love; close together for 3 seconds: a baby */
+    for (int i = 0; i < N_ENT; i++) {
+      Entity *o = &ents[i];
+      if (o == e || o->type != e->type || o->love <= 0 || o->state == 255) continue;
+      float mx = o->x - e->x, mz = o->z - e->z;
+      if (mx * mx + mz * mz > 64) continue;
+      e->gx = o->x, e->gz = o->z;
+      if (mx * mx + mz * mz < 2.5f && ++e->item.aux >= 60) {
+        Entity *b = spawn(e->type, e->x, e->y, e->z);
+        if (b) b->growth = -24000;
+        e->love = o->love = 0, e->item.aux = o->item.aux = 0;
+        e->timer = o->timer = 6000;
+        player_add_xp(1 + rnd(7));
+      }
+      break;
+    }
+  }
   if (e->delay > 0 && e->type != E_CREEPER) e->delay--;
   /* where to go */
   bool chase = false, go = false;
@@ -616,8 +661,8 @@ void mob_tick(Entity *e) {
       go = true;
       speed *= e->type == E_COW ? 2.0f : e->type == E_CHICKEN ? 1.4f : 1.25f;
     } else {
-      /* EntityAIWander: now and then, somewhere within 10 blocks */
-      if (rnd(120) == 0) e->gx = e->x + rnd(21) - 10, e->gz = e->z + rnd(21) - 10;
+      /* EntityAIWander: now and then, somewhere within 10 blocks (in love: to the other one) */
+      if (rnd(120) == 0 && !e->love) e->gx = e->x + rnd(21) - 10, e->gz = e->z + rnd(21) - 10;
       float gx = e->gx - e->x, gz = e->gz - e->z;
       go = gx * gx + gz * gz > 1;
     }

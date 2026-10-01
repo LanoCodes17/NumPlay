@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Builds bench.c + gen.c for the Cortex-M7 (-Os, hard float) and runs it in Unicorn,
 counting instructions per gen_slab call (1 instruction ~ 1 cycle at 216 MHz, the same
-convention as tools/emu.py). Also reports the deepest stack use (painted stack).
-Usage: bench.py [OUTDIR] [--side N] [--no-spawn] [--profile]"""
+convention as tools/emu.py) in the game's calling pattern (see bench.c). Also reports the
+deepest stack use (painted stack) and gen.c's own static RAM.
+Usage: bench.py [OUTDIR] [--no-spawn] [--profile] [--y0 N] [--h N]"""
 import os
 import subprocess
 import sys
@@ -15,9 +16,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "..", "..", "src")
 args = [a for a in sys.argv[1:] if not a.startswith("--")]
 OUT = args[0] if args else "/tmp"
-SIDE = int(sys.argv[sys.argv.index("--side") + 1]) if "--side" in sys.argv else 4
-if "--side" in sys.argv:
-    args = [a for a in args if a != str(SIDE)]
+def opt(name, default):
+    global args
+    if name not in sys.argv:
+        return default
+    v = sys.argv[sys.argv.index(name) + 1]
+    args = [a for a in args if a != v]
+    return int(v)
+
+
+Y0 = opt("--y0", 56)
+H = opt("--h", 24)
 NO_SPAWN = "--no-spawn" in sys.argv
 PROFILE = "--profile" in sys.argv
 ELF = os.path.join(OUT, "gen_bench.elf")
@@ -26,8 +35,11 @@ CFLAGS = ["-mcpu=cortex-m7", "-mfpu=fpv5-sp-d16", "-mfloat-abi=hard", "-mthumb",
 subprocess.check_call(["arm-none-eabi-gcc", *CFLAGS, "-nostartfiles", "--specs=nano.specs", "--specs=nosys.specs",
                        "-T", os.path.join(HERE, "bench.ld"), "-Wl,--gc-sections",
                        os.path.join(HERE, "bench.c"), os.path.join(SRC, "gen.c"), "-lm", "-o", ELF,
-                       f"-DNSIDE={SIDE}"] + (["-DNO_SPAWN"] if NO_SPAWN else []))
-subprocess.call(["arm-none-eabi-size", ELF])
+                       f"-DY0={Y0}", f"-DH={H}"] + (["-DNO_SPAWN"] if NO_SPAWN else []))
+OBJ = os.path.join(OUT, "gen_arm.o")
+subprocess.check_call(["arm-none-eabi-gcc", *CFLAGS, "-c", os.path.join(SRC, "gen.c"), "-o", OBJ])
+print("gen.c alone:")
+subprocess.call(["arm-none-eabi-size", OBJ])
 
 syms = {}
 funcs = []
@@ -87,17 +99,20 @@ while True:
         break
 
 prev = 0
-names = ["gen_init"] + [f"gen_slab 0..128 #{i}" for i in range(SIDE * SIDE)] + ["gen_slab 32..64", "gen_spawn"]
+NCALLS = 12 + 9 + 8
+names = ["gen_init"] + [f"gen_slab {Y0}..{Y0 + H} #{i}" for i in range(NCALLS)] + ["gen_spawn"]
 slabs = []
 for i, (ph, n) in enumerate(marks):
     d = n - prev
     prev = n
     name = names[i] if i < len(names) else f"phase {ph}"
-    if name.startswith("gen_slab 0"):
+    if name.startswith("gen_slab"):
         slabs.append(d)
     print(f"{name:22s} {d / 1e6:8.2f} M insns  ~{d / 216e3:7.1f} ms at 216 MHz")
 if slabs:
-    print(f"gen_slab 0..128: avg {sum(slabs) / len(slabs) / 216e3:.1f} ms, max {max(slabs) / 216e3:.1f} ms")
+    print(f"gen_slab (+ 256 gen_top): avg {sum(slabs) / len(slabs) / 1e6:.2f} M insns = "
+          f"{sum(slabs) / len(slabs) / 216e3:.1f} ms; load (12 calls) avg {sum(slabs[:12]) / 12 / 216e3:.1f} ms, "
+          f"moves (17 calls) avg {sum(slabs[12:]) / max(1, len(slabs) - 12) / 216e3:.1f} ms, max {max(slabs) / 216e3:.1f} ms")
 st = uc.mem_read(STACK_TOP - PAINT, PAINT)
 used = PAINT - next(i for i in range(PAINT) if st[i] != 0xA5)
 print(f"deepest stack: {used} bytes")

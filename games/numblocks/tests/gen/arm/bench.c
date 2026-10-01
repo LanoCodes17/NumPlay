@@ -1,34 +1,47 @@
 /* Bare-metal Cortex-M7 benchmark of the generator, run by bench.py in Unicorn.
- * phase is bumped after each step so the runner can count instructions per step. */
+ * It follows the game's pattern: 24-high slabs (y0 a multiple of 4), a 4 x 3 chunk area at
+ * world load, then moves that add a row of 3 or 4 neighbouring chunks.
+ * phase is bumped after each call so the runner can count instructions per call. */
 #include <stdint.h>
 #include <string.h>
 #include "../../../src/gen.h"
 
+#ifndef Y0
+#define Y0 56
+#endif
+#ifndef H
+#define H 24
+#endif
+
 volatile uint32_t phase;
 volatile uint32_t sums[64];
 volatile int32_t spawn[3];
-static uint8_t out[128 * 256];
+static uint8_t out[H * 256];
 
-#ifndef NSIDE
-#define NSIDE 4
-#endif
+static int k;
+static void slab(int cx, int cz) {
+    gen_slab(cx, cz, Y0, H, out);
+    uint32_t s = 0;
+    for (unsigned i = 0; i < sizeof out; i++) s = s * 31 + out[i];
+    for (int i = 0; i < 256; i++) s = s * 31 + (uint32_t)gen_top(cx * 16 + (i & 15), cz * 16 + (i >> 4));
+    if (k < 64) sums[k] = s;
+    k++;
+    phase = phase + 1;
+}
 
 int main(void) {
     gen_init(12345);
     phase = 1;
-    int k = 0;
-    for (int cz = -2; cz < -2 + NSIDE; cz++)
-        for (int cx = -2; cx < -2 + NSIDE; cx++) {
-            gen_slab(cx, cz, 0, 128, out);
-            uint32_t s = 0;
-            for (unsigned i = 0; i < sizeof out; i++) s = s * 31 + out[i];
-            sums[k++] = s;
-            phase = phase + 1;
-        }
+    /* world load: 4 x 3 chunks */
+    for (int cz = -2; cz <= 0; cz++)
+        for (int cx = -2; cx <= 1; cx++) slab(cx, cz);
+    /* walking +x: rows of 3 chunks */
+    for (int cx = 2; cx <= 4; cx++)
+        for (int cz = -2; cz <= 0; cz++) slab(cx, cz);
+    /* walking +z: rows of 4 chunks */
+    for (int cz = 1; cz <= 2; cz++)
+        for (int cx = 1; cx <= 4; cx++) slab(cx, cz);
 #ifndef NO_SPAWN
-    /* a 32-high slab as the engine asks */
-    gen_slab(5, 5, 32, 32, out);
-    phase = phase + 1;
     int x, y, z;
     gen_spawn(&x, &y, &z);
     spawn[0] = x, spawn[1] = y, spawn[2] = z;

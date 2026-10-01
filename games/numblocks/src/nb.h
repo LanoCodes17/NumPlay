@@ -156,6 +156,7 @@ typedef struct {
   float limb, limb_amt;   /* the walk's swing */
   float gx, gz;           /* where it is going */
   int16_t panic, fire;
+  int16_t love, growth;   /* animals: in love (ticks), a baby's growing up (negative: ticks left) */
   uint8_t invuln, sheared;
   Stack item;
 } Entity;

@@ -149,6 +149,7 @@ bool save_world(void) {
   record_of(slot, rec);
   ok = plat_save(rec, b, n) && ok;
   edits_forget();
+  copy_write();
   return ok;
 }
 
@@ -224,6 +225,7 @@ bool rename_world(int s, const char *name) {
   bool ok = plat_save(rec, b, n);
   edits_forget();
   if (s == slot) copy_name(cur_name, name);
+  copy_write();
   return ok;
 }
 
@@ -231,7 +233,94 @@ void delete_world(int s) {
   char pre[4];
   prefix_of(s, pre);
   plat_remove_prefix(pre);
-  if (opt.last_world == s) opt.last_world = 0, save_options();
+  if (opt.last_world == s) opt.last_world = 0;
+  save_options();   /* (and the copy, without that world) */
+}
+
+/* ---------------------------------------------------------------- the copy
+ * Installing an app from the NumWorks website empties the calculator's files but the Python scripts.
+ * So NumBlocks keeps its saves in one too, as comment lines "#>name:base64" (the way NumPlay keeps its
+ * games' saves, and in NumPlay it leaves that to NumPlay), and when none of its saves are left, they
+ * come back from it. */
+#define COPY_REC "numblocks_saves.py"
+static const char copy_head[] =
+    "# NumBlocks keeps a copy of your worlds here, so that installing\n"
+    "# it again doesn't erase them. If you delete this file, NumBlocks\n"
+    "# writes it again: your worlds stay either way.\n";
+static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static bool ours(const char *n) { return !strcmp(n, OPTIONS_REC) || (n[0] == 'n' && n[1] == 'b' && n[2] >= '1' && n[2] <= '9'); }
+
+void copy_write(void) {
+  if (plat_in_launcher()) return;
+  char name[40];
+  uint32_t total = 1 + sizeof copy_head - 1 + 1, len;
+  for (int i = 0; plat_record(i, name, sizeof name); i++)
+    if (ours(name) && plat_load(name, &len)) total += 2 + (uint32_t)strlen(name) + 1 + (len + 2) / 3 * 4 + 1;
+  uint8_t *o = plat_save_open(COPY_REC, total), *end = o + total;
+  if (!o) return;   /* (no room: the copy there stays) */
+  *o++ = 0;         /* the script's status byte: not imported by the shell */
+  memcpy(o, copy_head, sizeof copy_head - 1);
+  o += sizeof copy_head - 1;
+  for (int i = 0; plat_record(i, name, sizeof name); i++) {
+    const uint8_t *d = ours(name) ? plat_load(name, &len) : NULL;
+    uint32_t nl = (uint32_t)strlen(name);
+    if (!d || o + 2 + nl + 1 + (len + 2) / 3 * 4 + 1 >= end) continue;
+    *o++ = '#', *o++ = '>';
+    memcpy(o, name, nl);
+    o += nl;
+    *o++ = ':';
+    for (uint32_t k = 0; k < len; k += 3, o += 4) {
+      /* (written out: GCC 15.2 for the calculator got a loop over the four wrong, see launcher/src/storage.c) */
+      uint32_t left = len - k, v = (uint32_t)d[k] << 16 | (left > 1 ? d[k + 1] << 8 : 0) | (left > 2 ? d[k + 2] : 0);
+      o[0] = (uint8_t)b64[v >> 18 & 63];
+      o[1] = (uint8_t)b64[v >> 12 & 63];
+      o[2] = left > 1 ? (uint8_t)b64[v >> 6 & 63] : '=';
+      o[3] = left > 2 ? (uint8_t)b64[v & 63] : '=';
+    }
+    *o++ = '\n';
+  }
+  while (o < end) *o++ = 0;
+  plat_save_close(COPY_REC);
+}
+
+static int b64_value(uint8_t c) {
+  for (int i = 0; i < 64; i++)
+    if ((uint8_t)b64[i] == c) return i;
+  return -1;
+}
+void copy_restore(void) {
+  char name[40];
+  for (int i = 0; plat_record(i, name, sizeof name); i++)
+    if (ours(name)) return;   /* (saves are here: they are the newest) */
+  uint32_t n, at = 1;
+  const uint8_t *c = plat_load(COPY_REC, &n);
+  while (c && at < n) {
+    /* a line: "#>name:base64" */
+    const uint8_t *l = c + at, *e = l;
+    while (e < c + n && *e != '\n' && *e) e++;
+    uint32_t next = (uint32_t)(e - c) + 1;
+    const uint8_t *colon = l;
+    while (colon < e && *colon != ':') colon++;
+    uint32_t nl = (uint32_t)(colon - l - 2), len = (uint32_t)(e - colon - 1);
+    if (e - l > 3 && l[0] == '#' && l[1] == '>' && colon < e && nl < sizeof name && len && !(len % 4)) {
+      memcpy(name, l + 2, nl), name[nl] = 0;
+      uint32_t size = len / 4 * 3 - (colon[len] == '=') - (colon[len - 1] == '='), off = (uint32_t)(colon + 1 - c);
+      uint8_t *out = ours(name) ? plat_save_open(name, size) : NULL;
+      c = plat_load(COPY_REC, &n);   /* (the files moved about) */
+      if (out && c) {
+        const uint8_t *data = c + off;
+        for (uint32_t i = 0, k = 0; i < len; i += 4) {
+          int v[4];
+          for (int q = 0; q < 4; q++) v[q] = data[i + q] == '=' ? 0 : b64_value(data[i + q]);
+          uint32_t w = (uint32_t)((v[0] & 63) << 18 | (v[1] & 63) << 12 | (v[2] & 63) << 6 | (v[3] & 63));
+          for (int q = 0; q < 3 && k < size; q++) out[k++] = (uint8_t)(w >> (16 - 8 * q));
+        }
+        plat_save_close(name);
+        c = plat_load(COPY_REC, &n);
+      }
+    }
+    at = next;
+  }
 }
 
 void load_options(void) {
@@ -240,5 +329,9 @@ void load_options(void) {
   const uint8_t *d = plat_load(OPTIONS_REC, &len);
   /* (an older, shorter record: what it has; the rest stays as it was) */
   if (d && len <= sizeof opt) memcpy(&opt, d, len);
+  keys_update(opt.keys_seen);
 }
-void save_options(void) { plat_save(OPTIONS_REC, &opt, sizeof opt); }
+void save_options(void) {
+  plat_save(OPTIONS_REC, &opt, sizeof opt);
+  copy_write();
+}

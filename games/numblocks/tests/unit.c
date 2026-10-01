@@ -513,6 +513,63 @@ int main(void) {
     delete_world(2);
     world_type = WT_DEFAULT;
   }
+  {
+    /* the copy in numblocks_saves.py: every save, and after an install (only scripts left) they come back */
+    for (int s = 1; s <= MAX_WORLDS; s++) delete_world(s);
+    new_world(3, 42, 0, false, WT_DEFAULT, "Kept");
+    world_follow(pl.x, pl.y, pl.z);
+    while (world_pending()) world_follow(pl.x, pl.y, pl.z);
+    for (int k = 0; k < 40; k++) world_set((int)pl.x + k, 70, (int)pl.z + 200, B_GOLD_BLOCK);   /* (another region too) */
+    for (int k = 0; k < 40; k++) world_set((int)pl.x + k, 70, (int)pl.z, B_DIAMOND_BLOCK);
+    save_world();
+    char name[40];
+    static uint8_t before[8][4096];
+    static char names[8][40];
+    uint32_t lens[8];
+    int n = 0;
+    for (int i = 0; plat_record(i, name, sizeof name) && n < 8; i++) {
+      uint32_t len;
+      const uint8_t *d = plat_load(name, &len);
+      if (!d || (strncmp(name, "nb3", 3) && strcmp(name, "numblocks.cfg"))) continue;
+      if (len > sizeof before[0]) continue;
+      memcpy(before[n], d, len), lens[n] = len, strcpy(names[n], name), n++;
+    }
+    CHECK(n >= 3);   /* options, the world, its regions */
+    uint32_t cl;
+    CHECK(plat_load("numblocks_saves.py", &cl) && cl > 100);
+    /* the install: every save gone, the script left */
+    for (int i = 0; i < n; i++) plat_remove_prefix(names[i]);
+    copy_restore();
+    for (int i = 0; i < n; i++) {
+      uint32_t len;
+      const uint8_t *d = plat_load(names[i], &len);
+      CHECK(d && len == lens[i] && !memcmp(d, before[i], len));
+    }
+    /* inside NumPlay, NumPlay keeps the copy */
+    extern bool host_launcher;
+    plat_remove_prefix("numblocks_saves.py");
+    host_launcher = true;
+    save_world();
+    CHECK(!plat_load("numblocks_saves.py", &cl));
+    host_launcher = false;
+    delete_world(3);
+    plat_remove_prefix("numblocks_saves.py");
+  }
+  {
+    /* keys saved as they first were (Back mining, OK placing) become OK mining, Back placing; set ones stay */
+    keys_reset();
+    CHECK(opt.keys[A_ATTACK] == 4 && opt.keys[A_USE] == 5);
+    opt.keys[A_ATTACK] = 5, opt.keys[A_USE] = 4;
+    keys_update(3);
+    CHECK(opt.keys[A_ATTACK] == 4 && opt.keys[A_USE] == 5);
+    opt.keys[A_ATTACK] = 12, opt.keys[A_USE] = 4;
+    keys_update(3);
+    CHECK(opt.keys[A_ATTACK] == 12 && opt.keys[A_USE] == 4);
+    opt.keys[A_ATTACK] = 5, opt.keys[A_USE] = 4;
+    keys_update(KEY_SHEET);   /* (chosen with this version: kept) */
+    CHECK(opt.keys[A_ATTACK] == 5 && opt.keys[A_USE] == 4);
+    keys_reset();
+  }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;
 }

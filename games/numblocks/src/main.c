@@ -88,6 +88,9 @@ static int64_t parse_seed(void) {
 }
 
 void game_init(void) {
+  /* just installed again? the saves come back from their copy; and the copy is made if there is none */
+  copy_restore();
+  copy_write();
   load_options();
 #ifdef BENCH
   /* (a build for timing: straight into a new world of seed BENCH) */

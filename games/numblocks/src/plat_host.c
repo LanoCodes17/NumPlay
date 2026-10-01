@@ -48,6 +48,31 @@ const uint8_t *plat_load(const char *name, uint32_t *len) {
   return loaded;
 }
 #include <dirent.h>
+static uint8_t *open_buf;
+static uint32_t open_len;
+uint8_t *plat_save_open(const char *name, uint32_t len) {
+  (void)name;
+  free(open_buf);
+  open_buf = calloc(1, len ? len : 1), open_len = len;
+  return open_buf;
+}
+void plat_save_close(const char *name) { plat_save(name, open_buf, open_len); }
+bool plat_record(int i, char *name, int max) {
+  DIR *d = opendir(save_dir);
+  if (!d) return false;
+  struct dirent *e;
+  bool found = false;
+  while ((e = readdir(d)))
+    if (e->d_name[0] != '.' && i-- == 0) {
+      snprintf(name, (size_t)max, "%s", e->d_name);
+      found = true;
+      break;
+    }
+  closedir(d);
+  return found;
+}
+bool host_launcher;
+bool plat_in_launcher(void) { return host_launcher; }
 void plat_remove_prefix(const char *prefix) {
   DIR *d = opendir(save_dir);
   if (!d) return;

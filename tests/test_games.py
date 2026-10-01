@@ -133,7 +133,7 @@ SEEDS = {
 # games that keep a copy of their save in a Python script (the only files the
 # NumWorks installer keeps): before the second session, as after installing
 # the app again, only the scripts are left, and the save must come back
-COPIES = {"championisland": "champion_saves.py"}
+COPIES = {"championisland": "champion_saves.py", "numblocks": "numblocks_saves.py"}
 CHECKS = {
     # the island remembers where Lucky was; after the reinstall, from the copy
     "championisland": (lambda v: v[:3] == b"CI1" and b"PLAYER_LOC" in v,) * 2,

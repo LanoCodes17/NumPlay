@@ -13,7 +13,7 @@ Mine, craft and survive on your NumWorks calculator, in a world like Minecraft 1
 - **Fire:** light it with flint and steel. It spreads and burns wood, leaves and wool, like in 1.8.
 - **Creative mode:** fly, every block and item, break things at once, and search for any block.
 - **Commands:** /gamemode, /give, /time, /weather, /tp and more, with cheats on (Allow Cheats, or Open to LAN).
-- **Your worlds:** keep several, give them names, and they save as you play and when you quit.
+- **Your worlds:** keep several, give them names, and they save as you play and when you quit. A copy also goes into `numblocks_saves.py`, so installing the game again doesn't erase them.
 
 ## Controls
 
@@ -24,8 +24,8 @@ Mine, craft and survive on your NumWorks calculator, in a world like Minecraft 1
 | shift | Jump (twice in Creative: fly) |
 | alpha | Sneak |
 | ⌫ | Sprint (or press forward twice) |
-| Back | Mine, attack |
-| OK | Place, use, eat |
+| OK | Mine, attack (like the left mouse button) |
+| Back | Place, use, eat (like the right mouse button) |
 | var | Inventory |
 | 1 to 9 | Pick a hotbar slot |
 | x,n,t | Drop the item |

@@ -43,6 +43,10 @@ bool plat_save(const char *name, const void *data, uint32_t len);
 const uint8_t *plat_load(const char *name, uint32_t *len);   /* unaligned, valid until storage changes */
 void plat_remove_prefix(const char *prefix);
 uint32_t plat_storage_free(void);
+bool plat_record(int i, char *name, int max);   /* the i-th record's name; false past the last */
+uint8_t *plat_save_open(const char *name, uint32_t len);   /* a record of len bytes to fill (NULL: no room, nothing changed) */
+void plat_save_close(const char *name);         /* (done filling it) */
+bool plat_in_launcher(void);                    /* running inside NumPlay (which keeps its own copy of the saves) */
 void plat_begin(void);
 int plat_end(void);
 
@@ -285,7 +289,8 @@ enum { A_ATTACK, A_PICK, A_USE, A_DROP, A_SLOT1, A_INVENTORY = A_SLOT1 + 9, A_PA
        A_LEFT, A_RIGHT, A_BACK, A_FORWARD, A_CHAT, A_COMMAND, N_ACTIONS };
 uint32_t keys_of(uint64_t raw);   /* the K_ bits of the keys held (the calculator's keys, as bound) */
 void keys_reset(void);            /* the keys as they start */
-#define KEY_SHEET 3       /* (2: jump and sneak on shift and alpha; 3: chat and commands) */
+void keys_update(int seen);       /* keys saved by an older version (seen: its key sheet) brought up to date */
+#define KEY_SHEET 4       /* (2: jump and sneak on shift and alpha; 3: chat and commands; 4: OK mines, Back places) */
 extern Options opt;
 extern int64_t world_seed;
 enum { WT_DEFAULT, WT_FLAT };
@@ -311,6 +316,8 @@ bool rename_world(int slot, const char *name);
 void delete_world(int slot);
 void load_options(void);
 void save_options(void);
+void copy_restore(void);   /* the saves from numblocks_saves.py, when none are left (installed again) */
+void copy_write(void);     /* and the copy, up to date (not inside NumPlay, which keeps its own) */
 /* the world's settings, saved with it: cheats (Allow Cheats; or opened to LAN with them, until it
  * is left) and the game rules (GameRules) */
 extern bool world_cheats, lan_open, lan_cheats;

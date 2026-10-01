@@ -1464,8 +1464,8 @@ static void arrow_pad(int cx, int cy, int r) {
 typedef struct { uint32_t bit; uint8_t key; const char *name, *what; } Action;
 /* (what: the key sheet's word for it; key: where it starts) */
 static const Action actions[N_ACTIONS] = {
-    {K_ATTACK, 5, "Attack/Destroy", "Mine, attack"}, {0, 20, "Pick Block", "Pick block"},
-    {K_USE, 4, "Use Item/Place Block", "Place, use"}, {K_DROP, 14, "Drop Item", "Drop"},
+    {K_ATTACK, 4, "Attack/Destroy", "Mine, attack"}, {0, 20, "Pick Block", "Pick block"},
+    {K_USE, 5, "Use Item/Place Block", "Place, use"}, {K_DROP, 14, "Drop Item", "Drop"},
     {K_SLOT1, 42, "Hotbar Slot 1", "Slot 1"}, {K_SLOT1 << 1, 43, "Hotbar Slot 2", "Slot 2"},
     {K_SLOT1 << 2, 44, "Hotbar Slot 3", "Slot 3"}, {K_SLOT1 << 3, 36, "Hotbar Slot 4", "Slot 4"},
     {K_SLOT1 << 4, 37, "Hotbar Slot 5", "Slot 5"}, {K_SLOT1 << 5, 38, "Hotbar Slot 6", "Slot 6"},
@@ -1481,6 +1481,11 @@ static const uint8_t category_at[5] = {A_ATTACK, A_DROP, A_PAUSE, A_JUMP, A_CHAT
 
 void keys_reset(void) {
   for (int a = 0; a < N_ACTIONS; a++) opt.keys[a] = actions[a].key;
+}
+/* Saved with the keys as they were first (Back mining, OK placing): as they are now, OK the left mouse
+ * button and Back the right; keys someone set stay as they set them */
+void keys_update(int seen) {
+  if (seen < 4 && opt.keys[A_ATTACK] == 5 && opt.keys[A_USE] == 4) opt.keys[A_ATTACK] = 4, opt.keys[A_USE] = 5;
 }
 /* the keys that can be set: not the arrows (they look), Home (it leaves), On/Off or EXE (it does what OK does) */
 static bool settable(int k) { return k == 4 || k == 5 || (k >= 12 && k <= 51 && k != 35 && k != 41 && k != 47); }

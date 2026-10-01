@@ -6,8 +6,12 @@
 
 <p align="center">
   <b>17 free games for your NumWorks calculator, in one app.</b><br>
-  NumDash, Crossy Road, NumDrive, Balatro, Buckshot Roulette, NumBlocks, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.<br>
+  NumDash, Crossy Road, NumBlocks, NumDrive, Balatro, Buckshot Roulette, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.<br>
   And <b>Champion Island</b>, the Doodle Champion Island Games, as an app of its own.
+</p>
+
+<p align="center">
+  <b>New: <a href="#new-numblocks">NumBlocks</a></b>. Mine, craft and survive in a world like Minecraft 1.8.
 </p>
 
 <p align="center">
@@ -28,6 +32,27 @@
 
 <p align="center">
   <img src="docs/media/launcher.gif" width="640" alt="The NumPlay launcher on a NumWorks calculator, scrolling through its games">
+</p>
+
+## New: NumBlocks
+
+<p align="center">
+  <img src="docs/media/numblocks.gif" width="640" alt="NumBlocks: chopping a birch tree, then building a pillar of planks and looking out over the forest">
+</p>
+
+Mine, craft and survive in a world like Minecraft 1.8, right on your calculator.
+
+- **Endless worlds:** the same biomes, caves and trees as Minecraft 1.8.8, for any seed.
+- **Survival:** chop trees, craft tools, build a shelter, and fight zombies, skeletons, creepers and spiders at night.
+- **Creative:** fly around and build with every block.
+- **Your worlds stay:** keep several, and they come back even after you install again.
+
+<p align="center">
+  <a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumBlocks.nwa"><img src="https://img.shields.io/badge/Download-NumBlocks.nwa-5B8C32?style=for-the-badge" alt="Download NumBlocks.nwa"></a>
+</p>
+
+<p align="center">
+  It's in NumPlay too. &nbsp;<a href="games/numblocks/README.md"><b>More about NumBlocks</b></a> &nbsp;·&nbsp; <a href="docs/play.md#numblocks"><b>How to play</b></a>
 </p>
 
 
@@ -71,6 +96,10 @@ Click a file to download it. Not sure which one? Take the first.
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/CrossyRoad.nwa">CrossyRoad.nwa</a><br>Only Crossy Road: hop, dodge, survive</td>
   </tr>
   <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_numblocks.png" width="112" alt="NumBlocks"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumBlocks.nwa">NumBlocks.nwa</a><br>Only NumBlocks: mine, craft, survive (<a href="games/numblocks/README.md">more</a>)</td>
+  </tr>
+  <tr>
     <td width="120" align="center"><img src="docs/media/thumb_numdrive.png" width="112" alt="NumDrive"></td>
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumDrive.nwa">NumDrive.nwa</a><br>Only NumDrive: drive, flip, finish</td>
   </tr>
@@ -81,10 +110,6 @@ Click a file to download it. Not sure which one? Take the first.
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_buckshot.png" width="112" alt="Buckshot Roulette"></td>
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/BuckshotRoulette.nwa">BuckshotRoulette.nwa</a><br>Only Buckshot Roulette: you, the Dealer, one shotgun</td>
-  </tr>
-  <tr>
-    <td width="120" align="center"><img src="docs/media/thumb_numblocks.png" width="112" alt="NumBlocks"></td>
-    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumBlocks.nwa">NumBlocks.nwa</a><br>Only NumBlocks: mine, craft, survive (<a href="games/numblocks/README.md">more</a>)</td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_championisland.png" width="112" alt="Champion Island"></td>
@@ -168,16 +193,16 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
     <td><img src="docs/media/crossyroad.gif" alt="Crossy Road gameplay"></td>
   </tr>
   <tr>
+    <td><img src="docs/media/numblocks.gif" alt="NumBlocks: chopping a birch tree, then building a pillar of planks"></td>
+    <td><img src="docs/media/numblocks_night.gif" alt="NumBlocks: sunset, then a zombie walks up and is beaten with an iron sword"></td>
+  </tr>
+  <tr>
     <td><img src="docs/media/numdrive.gif" alt="NumDrive gameplay"></td>
     <td><img src="docs/media/balatro.gif" alt="Balatro: a Four of a Kind scoring with five Jokers"></td>
   </tr>
   <tr>
     <td><img src="docs/media/buckshot.gif" alt="Buckshot Roulette: a round against the Dealer"></td>
     <td><img src="docs/media/portal.gif" alt="Portal Returns: falling through a portal and flying across a test chamber"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/media/numblocks.gif" alt="NumBlocks: walking through a forest, mining and building"></td>
-    <td><img src="docs/media/numblocks_night.gif" alt="NumBlocks: nightfall, and a zombie"></td>
   </tr>
   <tr>
     <td><img src="docs/media/championisland.gif" alt="Champion Island: Lucky crossing the island, then the island map"></td>

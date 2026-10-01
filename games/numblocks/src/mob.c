@@ -880,10 +880,7 @@ void mob_tick(Entity *e) {
   e->x = p[0], e->y = p[1], e->z = p[2];
   e->vx = v[0], e->vy = v[1], e->vz = v[2];
   e->on_ground = ground;
-  if (blocked && go) {
-    if (e->type == E_SPIDER) e->vy = 0.2f;   /* climbing */
-    else if (ground) e->vy = 0.42f;
-  }
+  if (blocked && go && e->type == E_SPIDER) e->vy = 0.2f;   /* climbing */
   if (in_water) e->vx *= 0.8f, e->vy *= 0.8f, e->vz *= 0.8f, e->vy -= 0.02f;
   else {
     e->vy -= 0.08f;
@@ -892,6 +889,9 @@ void mob_tick(Entity *e) {
     e->vx *= fr, e->vz *= fr;
     if (e->type == E_CHICKEN && !ground && e->vy < 0) e->vy *= 0.6f;   /* flapping */
   }
+  /* against a wall: a jump (EntityJumpHelper), set for the next move as Minecraft sets it before
+   * moving, so the first rise is the whole 0.42 and a block is climbed */
+  if (blocked && go && ground && e->type != E_SPIDER) e->vy = 0.42f;
   /* the walk's swing (limbSwingAmount follows how fast it moves) */
   float target = moved * 4;
   if (target > 1) target = 1;

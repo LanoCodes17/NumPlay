@@ -48,6 +48,31 @@ Keep moving, or the eagle gets you. Coins add up across every run and stay saved
 
 <br clear="right">
 
+## NumBlocks
+
+<img src="media/numblocks.gif" width="320" align="right" alt="NumBlocks: chopping a birch tree, then building a pillar of planks">
+
+| Key | What it does |
+| --- | --- |
+| **Arrows** | Look around |
+| **,** / **π** / **√** / **x²** | Walk forward / left / back / right (like W, A, S, D) |
+| **shift** | Jump (twice in Creative: fly) |
+| **alpha** | Sneak |
+| **⌫** | Sprint (or press forward twice) |
+| **OK** or **EXE** | Mine and attack, like the left mouse button (hold it to mine) |
+| **Back** | Place a block, use, eat, like the right mouse button |
+| **var** | Inventory (in Creative: every block and item) |
+| **1** to **9** | Pick a hotbar slot |
+| **x,n,t** | Drop the item |
+| **log** | Pick the block you look at |
+| **×** / **÷** | Chat / type a command |
+| **ans** | Pause |
+| **Home** | Save and quit |
+
+The left thumb looks with the arrows (shift and alpha are just under them), the right one walks. The first time you open NumBlocks it shows these keys. You can change them in Options, then Controls, which also shows the key sheet again. In NumBlocks, Back places blocks, so **ans** pauses. In the inventory, the arrows move between slots, **OK** picks up or puts down a stack, **EXE** one item, and **shift** with **OK** sends a stack to the other side. To spread a stack, hold **OK** and move over the slots: it splits evenly when you let go (hold **EXE** instead to drop one in each). In Creative, the Search Items tab finds blocks as you type, and **shift** with up or down jumps to the top or bottom of a tab. Commands like /gamemode and /give work in worlds with Allow Cheats on (or after Open to LAN in the pause menu); **toolbox** finishes a word as you type it. Your world saves as you play and when you quit, and on its own NumBlocks keeps a copy in `numblocks_saves.py` (inside NumPlay, `numplay_saves.py` holds it), so installing again doesn't erase your worlds.
+
+<br clear="right">
+
 ## NumDrive
 
 <img src="media/numdrive.gif" width="320" align="right" alt="NumDrive gameplay">
@@ -95,31 +120,6 @@ Hold **OK** or **EXE** to speed up the scoring.
 | **Back** | Pause |
 
 Shooting yourself with a blank keeps your turn.
-
-<br clear="right">
-
-## NumBlocks
-
-<img src="media/numblocks.gif" width="320" align="right" alt="NumBlocks: walking through a forest, mining and building">
-
-| Key | What it does |
-| --- | --- |
-| **Arrows** | Look around |
-| **,** / **π** / **√** / **x²** | Walk forward / left / back / right (like W, A, S, D) |
-| **shift** | Jump (twice in Creative: fly) |
-| **alpha** | Sneak |
-| **⌫** | Sprint (or press forward twice) |
-| **OK** or **EXE** | Mine and attack, like the left mouse button (hold it to mine) |
-| **Back** | Place a block, use, eat, like the right mouse button |
-| **var** | Inventory (in Creative: every block and item) |
-| **1** to **9** | Pick a hotbar slot |
-| **x,n,t** | Drop the item |
-| **log** | Pick the block you look at |
-| **×** / **÷** | Chat / type a command |
-| **ans** | Pause |
-| **Home** | Save and quit |
-
-The left thumb looks with the arrows (shift and alpha are just under them), the right one walks. The first time you open NumBlocks it shows these keys. You can change them in Options, then Controls, which also shows the key sheet again. In NumBlocks, Back places blocks, so **ans** pauses. In the inventory, the arrows move between slots, **OK** picks up or puts down a stack, **EXE** one item, and **shift** with **OK** sends a stack to the other side. To spread a stack, hold **OK** and move over the slots: it splits evenly when you let go (hold **EXE** instead to drop one in each). In Creative, the Search Items tab finds blocks as you type, and **shift** with up or down jumps to the top or bottom of a tab. Commands like /gamemode and /give work in worlds with Allow Cheats on (or after Open to LAN in the pause menu); **toolbox** finishes a word as you type it. Your world saves as you play and when you quit, and on its own NumBlocks keeps a copy in `numblocks_saves.py` (inside NumPlay, `numplay_saves.py` holds it), so installing again doesn't erase your worlds.
 
 <br clear="right">
 

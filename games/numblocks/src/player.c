@@ -378,7 +378,7 @@ static bool ray_block(int b, int x, int y, int z, float *t, int *face) {
 }
 
 /* the first block the eyes' ray meets within reach (4.5, 5 in creative) */
-static void pick(void) {
+static void pick_block(void) {
   float ex = look_ray[0], ey = look_ray[1], ez = look_ray[2], dx = look_ray[3], dy = look_ray[4], dz = look_ray[5];
   int x = ifloor(ex), y = ifloor(ey), z = ifloor(ez);
   int sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1, sz = dz > 0 ? 1 : -1;
@@ -404,6 +404,13 @@ static void pick(void) {
     else if (ty < tz) t = ty, ty += idy, y += sy, face = sy > 0 ? 0 : 1;
     else t = tz, tz += idz, z += sz, face = sz > 0 ? 2 : 3;
   }
+}
+
+/* what the crosshair is on (EntityRenderer.getMouseOver): a mob in front of the block takes it, so the
+ * block has no outline; past 3 blocks, in survival, nothing is in reach */
+static void pick(void) {
+  pick_block();
+  if (entity_looked_at(pl.mode ? 5.0f : 4.5f, pl.hit_face >= 0 ? hit_t : 1e9f)) pl.hit_face = -1;
 }
 
 void player_look(float ex, float ey, float ez, float yaw, float pitch) {
@@ -919,7 +926,7 @@ void player_tick(uint32_t keys, uint32_t pressed) {
   if (pl.mode == 0) food_tick();
   if (pl.dead) return;
   pick();
-  /* a mob under the crosshair, nearer than the block: Back hits it, OK uses on it */
+  /* a mob under the crosshair, nearer than the block: attacking hits it, using uses on it */
   Entity *target = entity_looked_at(pl.mode ? 5.0f : 3.0f, pl.hit_face >= 0 ? hit_t : 1e9f);
   if (target) {
     if (pressed & K_ATTACK) mob_attack(target), player_swing();
@@ -927,7 +934,7 @@ void player_tick(uint32_t keys, uint32_t pressed) {
     keys &= ~K_ATTACK;
     pl.breaking = 0;
   }
-  /* mining (Back held) */
+  /* mining (attack held) */
   if (break_cooldown) break_cooldown--;
   if ((pressed & K_ATTACK) && pl.hit_face < 0 && !target) player_swing();
   if ((pressed & K_ATTACK) && pl.hit_face >= 0 && !target) {

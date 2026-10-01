@@ -455,6 +455,8 @@ void gui_tick(void) {
 enum { SL_NORMAL, SL_RESULT, SL_OUTPUT, SL_ARMOR, SL_FUEL, SL_CREATIVE, SL_TAB };
 typedef struct { int16_t x, y; uint8_t kind, k; Stack *s; } Slot;
 static Slot slots[72];
+static int drag;                      /* spreading a stack (below): 0, 1 even shares (OK), 2 one each (EXE) */
+static uint8_t dragged[72], ndragged;
 static int nslots, cur, panel_x, panel_y, panel_h, grid_w;
 static Stack result;           /* what the crafting grid makes */
 static Stack table_grid[9];    /* the crafting table's grid */
@@ -497,7 +499,7 @@ static int origin_x, origin_y, origin_z;
 void gui_open(int screen, int x, int y, int z) {
   gui = screen;
   nslots = 0;
-  cur = 0;
+  cur = 0, drag = 0, ndragged = 0;
   grid = NULL;
   origin_x = x, origin_y = y, origin_z = z;
   panel_h = 166;
@@ -558,6 +560,7 @@ void gui_open(int screen, int x, int y, int z) {
 }
 
 void gui_close(void) {
+  drag = 0, ndragged = 0;
   /* what is left in a crafting grid and on the cursor goes back to the inventory (or falls) */
   Stack *back[10];
   int n = 0;
@@ -682,6 +685,53 @@ static void click(Slot *sl, int button) {
     }
   }
   if (grid) update_result();
+}
+
+/* spreading a held stack over slots (GuiContainer's drag): OK held while the cursor goes over slots
+ * shares the stack out evenly between them, EXE held puts one in each; it happens when the key is
+ * let go, what is left stays held. Over one slot only, it is a plain click. */
+static bool can_drag(int i) {
+  const Slot *sl = &slots[i];
+  const Stack *s = sl->s, *c = &pl.cursor;
+  if (sl->kind == SL_RESULT || sl->kind == SL_OUTPUT || sl->kind >= SL_CREATIVE) return false;
+  if (sl->kind == SL_ARMOR && (s->id || !armor_fits(sl->k, c->id))) return false;
+  return !s->id || (s->id == c->id && !item_dur(c->id));
+}
+static bool in_drag(int i) {
+  for (int k = 0; k < ndragged; k++)
+    if (dragged[k] == i) return true;
+  return false;
+}
+static void drag_add(int i) {
+  if (!in_drag(i) && can_drag(i) && item_count(&pl.cursor) > ndragged) dragged[ndragged++] = (uint8_t)i;
+}
+/* Container.computeStackSize: what slot i holds once shared out; returns how many it gained */
+static int drag_share(int i, Stack *out) {
+  const Stack *c = &pl.cursor;
+  int had = slots[i].s->id ? item_count(slots[i].s) : 0;
+  int max = slots[i].kind == SL_ARMOR ? 1 : item_max(c->id);
+  int n = had + (drag == 1 ? item_count(c) / ndragged : 1);
+  if (n > max) n = max;
+  *out = *c;
+  if (!item_dur(c->id)) out->aux = (uint16_t)n;
+  return n - had;
+}
+static int drag_left(void) {
+  int left = item_count(&pl.cursor);
+  Stack t;
+  for (int k = 0; k < ndragged; k++) left -= drag_share(dragged[k], &t);
+  return left;
+}
+static void drag_end(void) {
+  if (ndragged == 1) click(&slots[dragged[0]], drag - 1);
+  else if (ndragged > 1) {
+    int left = drag_left();
+    for (int k = 0; k < ndragged; k++) drag_share(dragged[k], slots[dragged[k]].s);
+    if (left > 0) pl.cursor.aux = (uint16_t)left;
+    else pl.cursor.id = 0, pl.cursor.aux = 0;
+    if (grid) update_result();
+  }
+  drag = 0, ndragged = 0;
 }
 
 /* moves a stack into slots [a, b) (stacks first, then empty slots); true if all of it went */
@@ -857,7 +907,7 @@ static void menu(int screen) {
       add_button(w / 2 - 100, h / 6 + 168, 200, 1, B_DONE, "Done");
       break;
     case GUI_CONTROLS:
-      add_button(w / 2 - 100, h - 26, 200, 1, B_CONTROLS_DONE, "Done");
+      add_button(w / 2 - 100, h - 22, 200, 1, B_CONTROLS_DONE, "Done");
       break;
     }
     case GUI_PAUSE:
@@ -1099,9 +1149,11 @@ static void key_sheet(void) {
   for (int r = 0; r < 3; r++)
     for (int c = 0; c < 6; c++)
       key(c < 2 ? 5 + c * 37 : 79 + (c - 2) * 60, 80 + r * 32, c < 2 ? 34 : 57, caps[r][c], acts[r][c]);
-  text_center("1 to 9: hotbar slot.   EXE: same as OK.", SCREEN_W / 2, 178, 0xFFFF);
-  text_center("Forward twice: sprint.   Jump twice: fly (Creative).", SCREEN_W / 2, 189, 0xFFFF);
-  text_center("Menus: OK moves a stack, EXE one item, Back closes.", SCREEN_W / 2, 200, 0xFFFF);
+  static const char *const notes[4] = {"1 to 9: hotbar slot.   EXE: same as OK.",
+                                       "Forward twice: sprint.   Jump twice: fly (Creative).",
+                                       "Menus: OK takes or puts, EXE one, shift+OK moves.",
+                                       "Hold OK and move over slots to spread a stack out."};
+  for (int i = 0; i < 4; i++) text_center(notes[i], SCREEN_W / 2, 177 + i * 10, 0xFFFF);
 }
 
 static void menu_screen(void) {
@@ -1210,10 +1262,15 @@ void gui_input(uint32_t keys, uint32_t pressed) {
     if (pressed & K_UP) move_cursor(0, -1);
     if (pressed & K_DOWN) move_cursor(0, 1);
   }
-  if (pressed & K_OK) {
-    if (keys & K_SHIFT) shift_click(cur);
-    else click(&slots[cur], 0);
-  } else if (pressed & K_EXE) click(&slots[cur], 1);
+  if (drag) {
+    drag_add(cur);
+    if (!(keys & (drag == 1 ? K_OK : K_EXE))) drag_end();
+  } else if (pressed & K_OK && keys & K_SHIFT) shift_click(cur);
+  else if (pressed & (K_OK | K_EXE)) {
+    int b = pressed & K_OK ? 0 : 1;
+    if (pl.cursor.id && can_drag(cur)) drag = b + 1, drag_add(cur);   /* (given out when let go) */
+    else click(&slots[cur], b);
+  }
   /* a digit: swap with that hotbar slot */
   for (int n = 0; n < 9; n++)
     if (pressed & (K_SLOT1 << n)) {
@@ -1308,11 +1365,27 @@ static void container(void) {
       text("Inventory", px + 8, py + panel_h - 96 + 2, label, false);
       break;
   }
-  for (int i = 0; i < nslots; i++) draw_stack(slots[i].s, px + slots[i].x, py + slots[i].y);
+  bool spread = drag && ndragged > 1;
+  for (int i = 0; i < nslots; i++) {
+    const Stack *st = slots[i].s;
+    Stack t;
+    if (spread && in_drag(i)) {
+      /* a slot being spread over: lightened, holding its share already */
+      tint_rect(px + slots[i].x, py + slots[i].y, 16, 16, 0xFFFF, 16);
+      drag_share(i, &t), st = &t;
+    }
+    draw_stack(st, px + slots[i].x, py + slots[i].y);
+  }
   /* the slot under the cursor: lightened (drawGradientRect 0x80FFFFFF) */
   Slot *sl = &slots[cur];
   tint_rect(px + sl->x, py + sl->y, 16, 16, 0xFFFF, 16);
-  if (pl.cursor.id) draw_stack(&pl.cursor, px + sl->x + 4, py + sl->y + 4);
+  Stack held_now = pl.cursor;
+  if (spread) {
+    int left = drag_left();
+    if (left > 0) held_now.aux = (uint16_t)left;
+    else held_now.id = 0;
+  }
+  if (held_now.id) draw_stack(&held_now, px + sl->x + 4, py + sl->y + 4);
   else if (sl->kind == SL_TAB) tooltip(tab_name[sl->k], px + sl->x + 8, py + sl->y + 8);
   else if (sl->s->id) tooltip(item_label(sl->s->id), px + sl->x + 8, py + sl->y + 8);
 }

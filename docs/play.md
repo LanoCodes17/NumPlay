@@ -117,7 +117,7 @@ Shooting yourself with a blank keeps your turn.
 | **Toolbox** | Pause |
 | **Home** | Save and quit |
 
-The left thumb looks with the arrows, the right one walks. The first time you open NumBlocks it shows these keys, and Options, then Controls, shows them again. In NumBlocks, Back mines, so **Toolbox** pauses. In the inventory, the arrows move between slots, **OK** picks up or puts down a stack, **EXE** one item, and **shift** with **OK** sends a stack to the other side. Your world saves as you play and when you quit.
+The left thumb looks with the arrows, the right one walks. The first time you open NumBlocks it shows these keys, and Options, then Controls, shows them again. In NumBlocks, Back mines, so **Toolbox** pauses. In the inventory, the arrows move between slots, **OK** picks up or puts down a stack, **EXE** one item, and **shift** with **OK** sends a stack to the other side. To spread a stack, hold **OK** and move over the slots: it splits evenly when you let go (hold **EXE** instead to drop one in each). Your world saves as you play and when you quit.
 
 <br clear="right">
 

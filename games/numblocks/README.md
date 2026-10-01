@@ -30,7 +30,7 @@ Mine, craft and survive on your NumWorks calculator, in a world like Minecraft 1
 | Toolbox | Pause |
 | Home | Save and quit |
 
-In the inventory, the arrows move between slots, OK picks up or puts down, EXE takes or leaves one, and shift with OK moves a whole stack. The game shows these keys the first time you open it, and again from Options, then Controls.
+In the inventory, the arrows move between slots, OK picks up or puts down, EXE takes or leaves one, and shift with OK moves a whole stack. To spread a stack, hold OK and move over the slots: it splits evenly when you let go (hold EXE to drop one in each). The game shows these keys the first time you open it, and again from Options, then Controls.
 
 ## Get it
 

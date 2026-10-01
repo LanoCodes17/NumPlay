@@ -144,6 +144,7 @@ bool game_frame(void) {
     player_tick(game_keys, game_pressed);
     game_pressed = 0;
     ents_tick();
+    world_tick();
     gui_tick();
     hand_tick();
     game_time++;

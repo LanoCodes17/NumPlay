@@ -513,7 +513,7 @@ void mob_tick(Entity *e) {
   }
   int bx = ifl(e->x), by = ifl(e->y), bz = ifl(e->z);
   bool in_water = blk_model[world_get(bx, ifl(e->y + 0.4f), bz)] == M_LIQUID;
-  bool in_lava = world_get(bx, ifl(e->y + 0.4f), bz) == B_LAVA;
+  bool in_lava = is_lava(world_get(bx, ifl(e->y + 0.4f), bz));
   /* daylight burns zombies and skeletons (EntityZombie.onLivingUpdate) */
   if ((e->type == E_ZOMBIE || e->type == E_SKELETON) && daylight() && !in_water &&
       light_there(bx, ifl(e->y + 1.6f), bz) >= 15 && world_get(bx, ifl(e->y + 1.6f), bz) == B_AIR) {
@@ -576,7 +576,7 @@ void mob_tick(Entity *e) {
       bool ground = false;
       for (int k = 1; k <= 3 && !ground; k++) ground = (blk_flags[world_get(ax, by - k + 1, az)] & BF_SOLID) != 0;
       int ahead = world_get(ax, by, az);
-      if ((!ground && !in_water) || ahead == B_LAVA || ahead == B_FLOWING_LAVA) go = false, e->gx = e->x, e->gz = e->z;
+      if ((!ground && !in_water) || is_lava(ahead)) go = false, e->gx = e->x, e->gz = e->z;
     }
   }
   if (chase) {

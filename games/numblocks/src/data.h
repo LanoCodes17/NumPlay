@@ -250,22 +250,22 @@ extern const uint16_t blk_icon[B_COUNT];   /* sprite of its icon */
 #define SP_XP_BG 10
 #define SP_XP 11
 #define SP_BUBBLE 12
-#define SP_FLAME 364
-#define SP_ARROW 365
-#define SP_ARMOR_FULL 366
-#define SP_ARMOR_HALF 367
-#define SP_BUBBLE_POP 368
-#define SP_HEART_HIT 369
-#define SP_BUTTON 370
-#define SP_BUTTON_HOVER 371
-#define SP_BUTTON_OFF 372
-#define SP_SLOT_HELMET 373
-#define SP_SLOT_CHESTPLATE 374
-#define SP_SLOT_LEGGINGS 375
-#define SP_SLOT_BOOTS 376
-#define SP_STEVE 377
-#define SP_ARM 378
-#define SP_DIRT_BG 379
+#define SP_FLAME 374
+#define SP_ARROW 375
+#define SP_ARMOR_FULL 376
+#define SP_ARMOR_HALF 377
+#define SP_BUBBLE_POP 378
+#define SP_HEART_HIT 379
+#define SP_BUTTON 380
+#define SP_BUTTON_HOVER 381
+#define SP_BUTTON_OFF 382
+#define SP_SLOT_HELMET 383
+#define SP_SLOT_CHESTPLATE 384
+#define SP_SLOT_LEGGINGS 385
+#define SP_SLOT_BOOTS 386
+#define SP_STEVE 387
+#define SP_ARM 388
+#define SP_DIRT_BG 389
 
 #include "items.h"
 extern const uint16_t blk_item[B_COUNT];   /* the item a block state counts as (0xFFFF: none) */

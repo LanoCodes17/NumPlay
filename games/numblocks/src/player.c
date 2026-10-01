@@ -196,7 +196,7 @@ static bool is_plant(int b) { return blk_model[b] == M_CROSS && b != B_COBWEB; }
 static bool near_water(int x, int y, int z) {
   for (int f = 2; f < 6; f++) {
     int n = world_get(x + NX[f], y, z + NZ[f]);
-    if (n == B_WATER || n == B_FLOWING_WATER) return true;
+    if (is_water(n)) return true;
   }
   return false;
 }
@@ -236,12 +236,15 @@ static bool can_stay(int b, int x, int y, int z) {
 }
 
 static void break_block(int x, int y, int z, bool drops);
+void break_block_at(int x, int y, int z, bool drops) { break_block(x, y, z, drops); }
 
 /* a block changed at (x, y, z): what stood on it or hung on it may fall off */
-static void neighbours_changed(int x, int y, int z) {
+void neighbours_changed(int x, int y, int z) {
+  fluid_schedule(x, y, z);
   for (int f = 0; f < 6; f++) {
     int nx = x + NX[f], ny = y + NY[f], nz = z + NZ[f];
     int b = world_get(nx, ny, nz);
+    if (blk_model[b] == M_LIQUID) fluid_schedule(nx, ny, nz);
     if (b != B_AIR && blk_model[b] != M_LIQUID && !can_stay(b, nx, ny, nz)) break_block(nx, ny, nz, true);
     /* sand and gravel fall (straight down, at once) */
     if ((b == B_SAND || b == B_RED_SAND || b == B_GRAVEL) && replaceable(world_get(nx, ny - 1, nz)) && ny > 0) {
@@ -316,7 +319,7 @@ static bool pick_liquid(int *ox, int *oy, int *oz) {
   for (float t = 0; t < 4.5f; t += 0.1f) {
     int x = ifloor(ex + dx * t), y = ifloor(ey + dy * t), z = ifloor(ez + dz * t);
     int b = world_get(x, y, z);
-    if (b == B_WATER || b == B_LAVA) {
+    if (b == B_WATER || b == B_LAVA) {   /* sources only */
       *ox = x, *oy = y, *oz = z;
       return true;
     }
@@ -513,13 +516,13 @@ static void hazards(float fell_from) {
     pl.fall = 0;
   }
   /* air: 300 ticks under water, then 2 damage every 20 */
-  if (head == B_WATER || head == B_FLOWING_WATER) {
+  if (is_water(head)) {
     if (pl.mode == 0 && --pl.air <= -20) {
       pl.air = 0;
       player_hurt(2, DMG_DROWN);
     }
   } else pl.air = 300;
-  bool lava = feet == B_LAVA || feet == B_FLOWING_LAVA || head == B_LAVA || head == B_FLOWING_LAVA;
+  bool lava = is_lava(feet) || is_lava(head);
   if (lava) {
     player_hurt(4, DMG_LAVA);
     pl.fire = 300;

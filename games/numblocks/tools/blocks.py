@@ -213,6 +213,14 @@ for st in range(4):
     b(f'CARROTS_{st}', 141, (0, 2, 4, 7)[st], model='cross', tex=f'carrots_stage_{st}', hard=0)
 for st in range(4):
     b(f'POTATOES_{st}', 142, (0, 2, 4, 7)[st], model='cross', tex=f'potatoes_stage_{st}', hard=0)
+# liquid levels (BlockDynamicLiquid: 1-7 away from the source, 8 falling); FLOWING_WATER is level 1,
+# FLOWING_LAVA level 2
+for lv in range(2, 8):
+    b(f'FLOWING_WATER_{lv}', 8, lv, model='liquid', tex='water_flow', tint='water', hard=100)
+b('FALLING_WATER', 8, 8, model='liquid', tex='water_flow', tint='water', hard=100)
+for lv in (4, 6):
+    b(f'FLOWING_LAVA_{lv}', 10, lv, model='liquid', tex='lava_flow', light=15, hard=100)
+b('FALLING_LAVA', 10, 8, model='liquid', tex='lava_flow', light=15, hard=100)
 
 assert len(S) <= 255, len(S)
 

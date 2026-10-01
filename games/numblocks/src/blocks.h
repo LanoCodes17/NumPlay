@@ -232,7 +232,17 @@ enum {
   B_POTATOES_1 = 225,   /* 142:2 */
   B_POTATOES_2 = 226,   /* 142:4 */
   B_POTATOES_3 = 227,   /* 142:7 */
-  B_COUNT = 228
+  B_FLOWING_WATER_2 = 228,   /* 8:2 */
+  B_FLOWING_WATER_3 = 229,   /* 8:3 */
+  B_FLOWING_WATER_4 = 230,   /* 8:4 */
+  B_FLOWING_WATER_5 = 231,   /* 8:5 */
+  B_FLOWING_WATER_6 = 232,   /* 8:6 */
+  B_FLOWING_WATER_7 = 233,   /* 8:7 */
+  B_FALLING_WATER = 234,   /* 8:8 */
+  B_FLOWING_LAVA_4 = 235,   /* 10:4 */
+  B_FLOWING_LAVA_6 = 236,   /* 10:6 */
+  B_FALLING_LAVA = 237,   /* 10:8 */
+  B_COUNT = 238
 };
 
 enum { M_NONE, M_CUBE, M_CROSS, M_LIQUID, M_TORCH, M_SLAB, M_LAYER, M_CACTUS, M_LEAVES, M_GLASS, M_FLAT, M_VINE, M_PANE, M_FENCE, M_DOOR, M_LADDER };

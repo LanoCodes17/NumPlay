@@ -44,6 +44,12 @@ int plat_end(void);
 #define SCREEN_W 320
 #define SCREEN_H 240
 
+/* ---------------------------------------------------------------- liquids */
+static inline bool is_water(int b) {
+  return b == B_WATER || b == B_FLOWING_WATER || (b >= B_FLOWING_WATER_2 && b <= B_FALLING_WATER);
+}
+static inline bool is_lava(int b) { return b == B_LAVA || b == B_FLOWING_LAVA || (b >= B_FLOWING_LAVA_4 && b <= B_FALLING_LAVA); }
+
 /* ---------------------------------------------------------------- the generator (gen.c) */
 void gen_init(int64_t seed);
 void gen_slab(int cx, int cz, int y0, int h, uint8_t *out);   /* out[(y - y0) * 256 + z * 16 + x] */
@@ -158,6 +164,12 @@ Entity *entity_looked_at(float reach, float block_t);   /* the mob under the cro
 extern float tick_frac;
 
 void player_respawn(void);
+
+/* ---------------------------------------------------------------- liquids and growing (tick.c) */
+void fluid_schedule(int x, int y, int z);   /* a liquid there may move */
+void world_tick(void);                      /* 20 a second: liquids, random block ticks */
+void neighbours_changed(int x, int y, int z);
+void break_block_at(int x, int y, int z, bool drops);
 
 /* ---------------------------------------------------------------- screens (gui.c) */
 enum { GUI_NONE, GUI_INVENTORY, GUI_CRAFTING, GUI_FURNACE, GUI_CHEST,

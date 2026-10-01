@@ -95,6 +95,36 @@ int main(void) {
     world_follow(8, 70, 8);
     CHECK(world_get(5, 62, 5) == base);
   }
+  /* water: 7 blocks out on a flat floor, then dry when the source is gone; lava meets water */
+  {
+    extern uint32_t game_time;
+    world_new(0, "ut2");
+    world_follow(8, 70, 8);
+    int y = 70;
+    for (int z = -12; z <= 12; z++)
+      for (int x = -12; x <= 12; x++) {
+        world_set(x + 8, y - 1, z + 8, B_STONE);
+        for (int k = 0; k < 3; k++) world_set(x + 8, y + k, z + 8, B_AIR);
+      }
+    world_set(8, y, 8, B_WATER);
+    neighbours_changed(8, y, 8);
+    for (int t = 0; t < 400; t++) game_time++, world_tick();
+    CHECK(world_get(9, y, 8) == B_FLOWING_WATER);
+    CHECK(world_get(15, y, 8) == B_FLOWING_WATER_7);
+    CHECK(world_get(16, y, 8) == B_AIR);
+    CHECK(world_get(11, y, 10) == B_FLOWING_WATER_5);
+    world_set(8, y, 8, B_AIR);
+    neighbours_changed(8, y, 8);
+    for (int t = 0; t < 600; t++) game_time++, world_tick();
+    CHECK(world_get(9, y, 8) == B_AIR && world_get(12, y, 8) == B_AIR);
+    /* lava source next to water: obsidian */
+    world_set(4, y, 4, B_WATER);
+    world_set(5, y, 4, B_LAVA);
+    neighbours_changed(5, y, 4);
+    for (int t = 0; t < 60; t++) game_time++, world_tick();
+    CHECK(world_get(5, y, 4) == B_OBSIDIAN);
+    plat_remove_prefix("ut2");
+  }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;
 }

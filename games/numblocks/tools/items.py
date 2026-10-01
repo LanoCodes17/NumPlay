@@ -201,7 +201,7 @@ for st in range(4):
 for n in ['WATER', 'LAVA', 'FLOWING_WATER', 'FLOWING_LAVA']:
     ITEM_OF[n] = None
 for s in blocks.S:
-    if s['name'].startswith(('FLOWING_WATER', 'FLOWING_LAVA')):
+    if s['name'].startswith(('FLOWING_WATER', 'FLOWING_LAVA', 'FALLING_')):
         ITEM_OF[s['name']] = None
 ITEM_OF['AIR'] = None
 

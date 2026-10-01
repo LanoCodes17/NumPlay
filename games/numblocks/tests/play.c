@@ -33,7 +33,7 @@ static uint32_t key_bit(const char *s) {
 
 int main(int argc, char **argv) {
   const char *out = "build/play", *shots = "";
-  int give = 0, title_screen = 0, mobs = 0, start_time = -1, torches = 0;
+  int give = 0, title_screen = 0, mobs = 0, start_time = -1, torches = 0, water = 0;
   float hurt = 0;
   int frames = 60, mspf = 50;
   for (int i = 1; i < argc; i++) {
@@ -45,6 +45,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "--title")) title_screen = 1;
     else if (!strcmp(argv[i], "--mobs")) mobs = 1;
     else if (!strcmp(argv[i], "--torches")) torches = 1;
+    else if (!strcmp(argv[i], "--water")) water = 1;
     else if (!strcmp(argv[i], "--time") && i + 1 < argc) start_time = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--hurt") && i + 1 < argc) hurt = (float)atof(argv[++i]);
     else if (!strcmp(argv[i], "--keys") && i + 1 < argc) {
@@ -75,6 +76,16 @@ int main(int argc, char **argv) {
   if (start_time >= 0) {
     extern uint32_t game_time;
     game_time = (uint32_t)start_time;
+  }
+  if (water) {
+    /* a cleared field with a water source on a step */
+    int fy = (int)pl.y;
+    for (int z = (int)pl.z - 3; z < (int)pl.z + 12; z++)
+      for (int x = (int)pl.x - 9; x < (int)pl.x + 10; x++)
+        for (int y = fy - 1; y < fy + 8; y++) world_set(x, y, z, y == fy - 1 ? B_GRASS : B_AIR);
+    world_set((int)pl.x, fy, (int)pl.z + 6, B_COBBLESTONE);
+    world_set((int)pl.x, fy + 1, (int)pl.z + 6, B_WATER);
+    neighbours_changed((int)pl.x, fy + 1, (int)pl.z + 6);
   }
   if (mobs) {
     /* a row of every mob, 4 blocks ahead, facing the player, on a cleared grass field */

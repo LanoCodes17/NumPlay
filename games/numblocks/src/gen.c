@@ -76,6 +76,9 @@ typedef uint32_t u32;
 
 #define SEA 63
 
+/* left shifts of possibly negative values, without undefined behaviour */
+#define SHL(v, k) ((i64)((u64)(i64)(v) << (k)))
+
 /* ======================================================================== */
 /* java.util.Random                                                          */
 /* ======================================================================== */
@@ -712,7 +715,7 @@ static void layer_apply(const LayerDef *L, const i32 *in, const i32 *in2, i32 *o
                 int ix = cx - px, iz = cz - pz;
                 int a = in[ix + iz * ppw], b = in[ix + (iz + 1) * ppw];
                 int c = in[ix + 1 + iz * ppw], d = in[ix + 1 + (iz + 1) * ppw];
-                lr_chunk(&r, (i64)cx << 1, (i64)cz << 1);
+                lr_chunk(&r, SHL(cx, 1), SHL(cz, 1));
                 int v00 = a;
                 int v01 = lr_int(&r, 2) ? b : a;
                 int v10 = lr_int(&r, 2) ? c : a;
@@ -723,7 +726,7 @@ static void layer_apply(const LayerDef *L, const i32 *in, const i32 *in2, i32 *o
                 } else {
                     v11 = sel_mode(&r, a, c, b, d);
                 }
-                int bx = (cx << 1) - x, bz = (cz << 1) - z;
+                int bx = cx * 2 - x, bz = cz * 2 - z;
                 if (bx >= 0 && bz >= 0) out[bx + bz * w] = v00;
                 if (bx >= 0 && bz + 1 < h) out[bx + (bz + 1) * w] = v01;
                 if (bx + 1 < w && bz >= 0) out[bx + 1 + bz * w] = v10;
@@ -1029,24 +1032,19 @@ static i32 *run_chain(const LayerDef *const *defs, int n, int x, int z, int w, i
     for (int i = n - 1; i > 0; i--)
         layer_parent_win(defs[i]->type, win[i].x, win[i].z, win[i].w, win[i].h, &win[i - 1].x, &win[i - 1].z,
                          &win[i - 1].w, &win[i - 1].h);
-    /* bottom up with two buffers */
+    /* bottom up: each layer's output is allocated right after its input, then moved down
+     * over it (peak = largest input + output pair) */
     int mark = lay_top;
-    int maxa = 0;
-    for (int i = 0; i < n; i++)
-        if (win[i].w * win[i].h > maxa) maxa = win[i].w * win[i].h;
-    i32 *b0 = lay_alloc(maxa), *b1 = lay_alloc(maxa);
     i32 *cur = 0;
     for (int i = 0; i < n; i++) {
-        i32 *dst = (cur == b0) ? b1 : b0;
+        i32 *dst = lay_alloc(win[i].w * win[i].h);
         layer_apply(defs[i], cur, (defs[i]->type == L_HILLS) ? second : 0, dst, win[i].x, win[i].z, win[i].w,
                     win[i].h);
-        cur = dst;
+        memmove(lay_mem + mark, dst, sizeof(i32) * (size_t)(win[i].w * win[i].h));
+        cur = lay_mem + mark;
+        lay_top = mark + win[i].w * win[i].h;
     }
-    /* move result to mark */
-    i32 *res = lay_mem + mark;
-    memmove(res, cur, sizeof(i32) * (size_t)(w * h));
-    lay_top = mark + w * h;
-    return res;
+    return cur;
 }
 
 static const LayerDef *chain_buf[40];
@@ -1081,24 +1079,24 @@ static void layers_rivermix(int x, int z, int w, int h, i32 *dst) {
     /* biome chain up to desert */
     n = chain_build(LBIOME1, 4, 1);
     i32 *bd = run_chain(chain_buf, n, hin.x, hin.z, hin.w, hin.h, 0);
-    /* hills .. smooth: run chain fed by bd */
+    /* hills .. smooth, fed by bd (the hills layer also reads hr) */
     {
-        int mark2 = lay_top;
-        int maxa = 0;
-        for (int i = 0; i < 9; i++)
-            if (wb2[i].w * wb2[i].h > maxa) maxa = wb2[i].w * wb2[i].h;
-        i32 *q0 = lay_alloc(maxa), *q1 = lay_alloc(maxa);
+        int mark2 = (int)(bd - lay_mem);
         const i32 *cur = bd;
-        i32 *dstb = q0;
         for (int i = 0; i < 9; i++) {
-            layer_apply(b2[i], cur, hr, dstb, wb2[i].x, wb2[i].z, wb2[i].w, wb2[i].h);
-            cur = dstb;
-            dstb = (dstb == q0) ? q1 : q0;
+            i32 *dst = lay_alloc(wb2[i].w * wb2[i].h);
+            layer_apply(b2[i], cur, hr, dst, wb2[i].x, wb2[i].z, wb2[i].w, wb2[i].h);
+            if (i == 0) {
+                /* hr is no longer needed: move the hills output down to mark (over hr and bd) */
+                memmove(lay_mem + mark, dst, sizeof(i32) * (size_t)(wb2[0].w * wb2[0].h));
+                cur = lay_mem + mark;
+                lay_top = mark + wb2[0].w * wb2[0].h;
+            } else {
+                memmove(lay_mem + mark, dst, sizeof(i32) * (size_t)(wb2[i].w * wb2[i].h));
+                cur = lay_mem + mark;
+                lay_top = mark + wb2[i].w * wb2[i].h;
+            }
         }
-        /* keep biome result at mark2 (overwrites q0 area, safe with memmove) */
-        i32 *keep = lay_mem + mark;
-        memmove(keep, cur, sizeof(i32) * (size_t)(w * h));
-        lay_top = mark + w * h;
         (void)mark2;
     }
     i32 *biomes = lay_mem + mark;
@@ -1138,16 +1136,16 @@ static i64 vor_c;
 static void vor_cell(i64 cx4, i64 cz4, int u[8]) {
     LRand r;
     r.c = vor_c;
-    lr_chunk(&r, cx4 << 2, cz4 << 2);
+    lr_chunk(&r, SHL(cx4, 2), SHL(cz4, 2));
     u[0] = lr_int(&r, 1024) - 512; /* d1 x */
     u[1] = lr_int(&r, 1024) - 512; /* d2 z */
-    lr_chunk(&r, (cx4 + 1) << 2, cz4 << 2);
+    lr_chunk(&r, SHL(cx4 + 1, 2), SHL(cz4, 2));
     u[2] = lr_int(&r, 1024) - 512; /* d3 x (+4) */
     u[3] = lr_int(&r, 1024) - 512; /* d4 z */
-    lr_chunk(&r, cx4 << 2, (cz4 + 1) << 2);
+    lr_chunk(&r, SHL(cx4, 2), SHL(cz4 + 1, 2));
     u[4] = lr_int(&r, 1024) - 512; /* d5 x */
     u[5] = lr_int(&r, 1024) - 512; /* d6 z (+4) */
-    lr_chunk(&r, (cx4 + 1) << 2, (cz4 + 1) << 2);
+    lr_chunk(&r, SHL(cx4 + 1, 2), SHL(cz4 + 1, 2));
     u[6] = lr_int(&r, 1024) - 512; /* d7 x (+4) */
     u[7] = lr_int(&r, 1024) - 512; /* d8 z (+4) */
 }
@@ -2141,10 +2139,14 @@ static uint8_t cv_get(int x, int y, int z) {
     return sum_block(&cv->sum[x + z * 16], y);
 }
 
+static int cave_track_on;
+static void cave_track(int x, int y, int z, uint8_t b);
+
 static void cv_set(int x, int y, int z, uint8_t b) {
     if (y < 0 || y > 255) return;
     if (cv->mode == CAVE_OUT) {
         if (y >= cv->y0 && y < cv->y0 + cv->h) cv->out[(y - cv->y0) * 256 + z * 16 + x] = b;
+        if (cave_track_on) cave_track(x, y, z, b);
         return;
     }
     int X = cv->tcx * 16 + x, Z = cv->tcz * 16 + z;
@@ -2192,14 +2194,14 @@ static int cave_carve(Q32 px, Q32 py, Q32 pz, Q32 r6, Q32 r7, int canyon) {
     if (l1 >= cv->rx1 || i2 <= cv->rx0 || l2 >= cv->rz1 || i3 <= cv->rz0 || j2 >= cv->ry1 || k2 + 1 < cv->ry0) return 1;
     float d6 = q32_to_float(r6), d7 = q32_to_float(r7);
     for (int x = l1; x < i2; x++) {
-        float d12 = q32_to_float(((Q32)(j * 16 + x) << 32) + (Q32_ONE >> 1) - px) / d6;
+        float d12 = q32_to_float(SHL(j * 16 + x, 32) + (Q32_ONE >> 1) - px) / d6;
         for (int z = l2; z < i3; z++) {
-            float d13 = q32_to_float(((Q32)(k * 16 + z) << 32) + (Q32_ONE >> 1) - pz) / d6;
+            float d13 = q32_to_float(SHL(k * 16 + z, 32) + (Q32_ONE >> 1) - pz) / d6;
             float h2 = d12 * d12 + d13 * d13;
             if (h2 >= 1.0f) continue;
             int flag3 = 0;
             for (int y = k2; y > j2; --y) {
-                float d14 = q32_to_float(((Q32)(y - 1) << 32) + (Q32_ONE >> 1) - py) / d7;
+                float d14 = q32_to_float(SHL(y - 1, 32) + (Q32_ONE >> 1) - py) / d7;
                 if (canyon) {
                     if (!(h2 * canyon_w[y - 1] + d14 * d14 / 6.0f < 1.0f)) continue;
                     uint8_t b = cv_get(x, y, z);
@@ -2268,7 +2270,7 @@ static Tunnel tstack[TSTACK];
 static void cave_tunnel(i64 seed0, Q32 x0, Q32 y0, Q32 z0, float f0, float f10, float f20, int l0, int i10, int room0) {
     int sp = 0;
     tstack[sp++] = (Tunnel){seed0, x0, y0, z0, f0, f10, f20, (int16_t)l0, (int16_t)i10, (uint8_t)room0};
-    Q32 cxq = ((Q32)(cv->tcx * 16 + 8)) << 32, czq = ((Q32)(cv->tcz * 16 + 8)) << 32;
+    Q32 cxq = SHL(cv->tcx * 16 + 8, 32), czq = SHL(cv->tcz * 16 + 8, 32);
     while (sp > 0) {
         Tunnel t = tstack[--sp];
         float f3 = 0, f4 = 0;
@@ -2336,7 +2338,7 @@ static void cave_tunnel(i64 seed0, Q32 x0, Q32 y0, Q32 z0, float f0, float f10, 
 static void canyon_tunnel(i64 seed, Q32 d0, Q32 d1, Q32 d2, float f, float f1, float f2) {
     JRand r;
     jr_seed(&r, seed);
-    Q32 cxq = ((Q32)(cv->tcx * 16 + 8)) << 32, czq = ((Q32)(cv->tcz * 16 + 8)) << 32;
+    Q32 cxq = SHL(cv->tcx * 16 + 8, 32), czq = SHL(cv->tcz * 16 + 8, 32);
     float f3 = 0, f4 = 0;
     int j1 = 8 * 16 - 16;
     int i1 = j1 - jr_int(&r, j1 / 4);
@@ -2398,7 +2400,7 @@ static void caves_run(void) {
                         int xx = j1 * 16 + jr_int(&r, 16);
                         int yy = jr_int(&r, jr_int(&r, 120) + 8);
                         int zz = k1 * 16 + jr_int(&r, 16);
-                        Q32 d0 = (Q32)xx << 32, d1 = (Q32)yy << 32, d2 = (Q32)zz << 32;
+                        Q32 d0 = SHL(xx, 32), d1 = SHL(yy, 32), d2 = SHL(zz, 32);
                         int k = 1;
                         if (jr_int(&r, 4) == 0) {
                             i64 s = jr_long(&r);
@@ -2424,7 +2426,7 @@ static void caves_run(void) {
                     float f = jr_float(&r) * 3.1415927f * 2.0f;
                     float f1 = (jr_float(&r) - 0.5f) * 2.0f / 8.0f;
                     float f2 = (jr_float(&r) * 2.0f + jr_float(&r)) * 2.0f;
-                    canyon_tunnel(jr_long(&r), (Q32)xx << 32, (Q32)yy << 32, (Q32)zz << 32, f2, f, f1);
+                    canyon_tunnel(jr_long(&r), SHL(xx, 32), SHL(yy, 32), SHL(zz, 32), f2, f, f1);
                 }
             }
     }
@@ -2619,6 +2621,8 @@ static void c_track(int i, int Y, uint8_t b) {
     }
 }
 
+static int put_skip_c; /* set: put() updates the view only */
+
 /* writes block b at world (X, Y, Z): into the view, and into C if the rule holds there */
 static void put(int X, int Y, int Z, uint8_t b, int rule) {
     if (Y < 0 || Y > 255) return;
@@ -2659,7 +2663,7 @@ static void put(int X, int Y, int Z, uint8_t b, int rule) {
         }
     }
     int cx = X - c_cx * 16, cz = Z - c_cz * 16;
-    if (cx >= 0 && cx < 16 && cz >= 0 && cz < 16) {
+    if (!put_skip_c && cx >= 0 && cx < 16 && cz >= 0 && cz < 16) {
         int i = cz * 16 + cx;
         if (Y >= c_y0 && Y < c_y0 + c_h) {
             uint8_t *o = &c_out[(Y - c_y0) * 256 + i];
@@ -3850,3 +3854,892 @@ static void tree_grow(TreeSel t, int x, int y, int z) {
     }
     if (ok && (t.type == TR_MEGA_SPRUCE || t.type == TR_MEGA_SPRUCE_H)) mega_spruce_post(x, y, z);
 }
+
+/* ---- plants ---- */
+enum { SOIL_PLANT, SOIL_DEADBUSH, SOIL_LILY, SOIL_MUSH, SOIL_GRASS, SOIL_ANY };
+
+static inline int is_replaceable(uint8_t b) {
+    return b == B_AIR || IS_RPLANT(b) || b == B_SNOW_LAYER || IS_WATER(b) || b == B_LAVA || b == B_FLOWING_LAVA;
+}
+
+/* can a plant of this soil kind stay at (x, y, z) given the block below and above, using rd() */
+static int soil_ok(int soil, uint8_t below, int shaded) {
+    switch (soil) {
+    case SOIL_PLANT: return below == B_GRASS || IS_DIRTISH(below) || below == B_FARMLAND;
+    case SOIL_DEADBUSH: return below == B_SAND || below == B_RED_SAND || IS_CLAY(below) || IS_DIRTISH(below);
+    case SOIL_LILY: return below == B_WATER;
+    case SOIL_MUSH: return below == B_MYCELIUM || below == B_PODZOL || (shaded && IS_CUBE(below));
+    case SOIL_GRASS: return below == B_GRASS;
+    }
+    return 1;
+}
+
+/* a plant placed after a view decision: into the view; into C if C agrees */
+static void put_plant(int x, int y, int z, uint8_t b, int soil) {
+    if (in_c_range(x, y, z)) {
+        uint8_t cur = c_out[(y - c_y0) * 256 + (z - c_cz * 16) * 16 + (x - c_cx * 16)];
+        int shaded = y < c_top[(z & 15) * 16 + (x & 15)];
+        uint8_t below = cget(x, y - 1, z);
+        if (cur != B_AIR || !soil_ok(soil, below, shaded)) {
+            /* only the view */
+            put_skip_c = 1;
+            put(x, y, z, b, R_ALWAYS);
+            put_skip_c = 0;
+            return;
+        }
+    }
+    put(x, y, z, b, R_ALWAYS);
+}
+
+static inline int v_shaded(int x, int y, int z) { return y < hm(x, z) - 1; }
+
+/* the 6-draw offset of most plant features */
+#define OFS8(dx, dy, dz) do { dx = RI(8) - RI(8); dy = RI(4) - RI(4); dz = RI(8) - RI(8); } while (0)
+
+static void feat_flowers(int X, int Y, int Z, uint8_t b) {
+    for (int i = 0; i < 64; i++) {
+        int dx, dy, dz;
+        OFS8(dx, dy, dz);
+        int x = X + dx, y = Y + dy, z = Z + dz;
+        if (v_empty(x, y, z) && soil_ok(SOIL_PLANT, vget(x, y - 1, z), 0)) put_plant(x, y, z, b, SOIL_PLANT);
+    }
+}
+
+static void scan_down(int X, int *Y, int Z) {
+    uint8_t b;
+    while ((b = vget(X, *Y, Z), AIR_OR_LEAVES(b)) && *Y > 0) (*Y)--;
+}
+
+static void feat_grass(int X, int Y, int Z, uint8_t b) {
+    scan_down(X, &Y, Z);
+    for (int i = 0; i < 128; i++) {
+        int dx, dy, dz;
+        OFS8(dx, dy, dz);
+        int x = X + dx, y = Y + dy, z = Z + dz;
+        if (v_empty(x, y, z) && soil_ok(SOIL_PLANT, vget(x, y - 1, z), 0)) put_plant(x, y, z, b, SOIL_PLANT);
+    }
+}
+
+static void feat_deadbush(int X, int Y, int Z) {
+    scan_down(X, &Y, Z);
+    for (int i = 0; i < 4; i++) {
+        int dx, dy, dz;
+        OFS8(dx, dy, dz);
+        int x = X + dx, y = Y + dy, z = Z + dz;
+        if (v_empty(x, y, z) && soil_ok(SOIL_DEADBUSH, vget(x, y - 1, z), 0)) put_plant(x, y, z, B_DEAD_BUSH, SOIL_DEADBUSH);
+    }
+}
+
+static void feat_lily(int X, int Y, int Z) {
+    for (int i = 0; i < 10; i++) {
+        int dx, dy, dz;
+        OFS8(dx, dy, dz);
+        int x = X + dx, y = Y + dy, z = Z + dz;
+        if (v_empty(x, y, z) && soil_ok(SOIL_LILY, vget(x, y - 1, z), 0)) put_plant(x, y, z, B_LILY_PAD, SOIL_LILY);
+    }
+}
+
+static void feat_mushrooms(int X, int Y, int Z, uint8_t b) {
+    for (int i = 0; i < 64; i++) {
+        int dx, dy, dz;
+        OFS8(dx, dy, dz);
+        int x = X + dx, y = Y + dy, z = Z + dz;
+        if (v_empty(x, y, z) && y < 255 && soil_ok(SOIL_MUSH, vget(x, y - 1, z), v_shaded(x, y, z)))
+            put_plant(x, y, z, b, SOIL_MUSH);
+    }
+}
+
+static int water_around(int x, int y, int z) {
+    return IS_WATER(vget(x - 1, y, z)) || IS_WATER(vget(x + 1, y, z)) || IS_WATER(vget(x, y, z - 1)) ||
+           IS_WATER(vget(x, y, z + 1));
+}
+
+static int reed_can(int x, int y, int z) {
+    uint8_t b = vget(x, y - 1, z);
+    if (b == B_SUGAR_CANE) return 1;
+    if (b != B_GRASS && !IS_DIRTISH(b) && b != B_SAND && b != B_RED_SAND) return 0;
+    return water_around(x, y - 1, z);
+}
+
+static void feat_reeds(int X, int Y, int Z) {
+    for (int i = 0; i < 20; i++) {
+        int dx = RI(4) - RI(4), dz = RI(4) - RI(4);
+        int x = X + dx, y = Y, z = Z + dz;
+        if (!v_empty(x, y, z)) continue;
+        if (!water_around(x, y - 1, z)) continue;
+        int j = 2 + RI(RI(3) + 1);
+        int can = reed_can(x, y, z);
+        for (int k = 0; k < j; k++)
+            if (can) put(x, y + k, z, B_SUGAR_CANE, R_AIR);
+    }
+}
+
+static void feat_pumpkin(int X, int Y, int Z) {
+    for (int i = 0; i < 64; i++) {
+        int dx, dy, dz;
+        OFS8(dx, dy, dz);
+        int x = X + dx, y = Y + dy, z = Z + dz;
+        if (v_empty(x, y, z) && vget(x, y - 1, z) == B_GRASS) {
+            put_plant(x, y, z, B_PUMPKIN, SOIL_GRASS);
+            RI(4); /* facing */
+        }
+    }
+}
+
+static int cactus_can(int x, int y, int z) {
+    if (IS_BUILD(vget(x, y, z - 1)) || IS_BUILD(vget(x + 1, y, z)) || IS_BUILD(vget(x, y, z + 1)) ||
+        IS_BUILD(vget(x - 1, y, z)))
+        return 0;
+    uint8_t b = vget(x, y - 1, z);
+    return b == B_CACTUS || b == B_SAND || b == B_RED_SAND;
+}
+
+static void feat_cactus(int X, int Y, int Z) {
+    for (int i = 0; i < 10; i++) {
+        int dx, dy, dz;
+        OFS8(dx, dy, dz);
+        int x = X + dx, y = Y + dy, z = Z + dz;
+        if (!v_empty(x, y, z)) continue;
+        int j = 1 + RI(RI(3) + 1);
+        int can = cactus_can(x, y, z);
+        for (int k = 0; k < j; k++)
+            if (can) put(x, y + k, z, B_CACTUS, R_AIR);
+    }
+}
+
+static void feat_melon(int X, int Y, int Z) {
+    for (int i = 0; i < 64; i++) {
+        int dx, dy, dz;
+        OFS8(dx, dy, dz);
+        int x = X + dx, y = Y + dy, z = Z + dz;
+        if (is_replaceable(vget(x, y, z)) && vget(x, y - 1, z) == B_GRASS) put(x, y, z, B_MELON, R_ALWAYS);
+    }
+}
+
+/* WorldGenTallPlant: returns whether one was placed */
+static int feat_tallplant(int X, int Y, int Z, uint8_t lower) {
+    int placed = 0;
+    for (int i = 0; i < 64; i++) {
+        int dx, dy, dz;
+        OFS8(dx, dy, dz);
+        int x = X + dx, y = Y + dy, z = Z + dz;
+        if (v_empty(x, y, z) && soil_ok(SOIL_PLANT, vget(x, y - 1, z), 0) && v_empty(x, y + 1, z)) {
+            int cok = 1;
+            if (in_c_cols(x, z)) {
+                if (y >= c_y0 && y < c_y0 + c_h && cget(x, y, z) != B_AIR) cok = 0;
+                if (y + 1 >= c_y0 && y + 1 < c_y0 + c_h && cget(x, y + 1, z) != B_AIR) cok = 0;
+                if (!soil_ok(SOIL_PLANT, cget(x, y - 1, z), 0)) cok = 0;
+            }
+            if (cok) {
+                put(x, y, z, lower, R_ALWAYS);
+                put(x, y + 1, z, (uint8_t)(lower + 1), R_ALWAYS);
+            } else {
+                put_skip_c = 1;
+                put(x, y, z, lower, R_ALWAYS);
+                put_skip_c = 0;
+            }
+            placed = 1;
+        }
+    }
+    return placed;
+}
+
+/* ---- biome specials ---- */
+static void feat_desert_well(int X, int Y, int Z) {
+    while (v_empty(X, Y, Z) && Y > 2) Y--;
+    if (vget(X, Y, Z) != B_SAND) return;
+    for (int i = -2; i <= 2; i++)
+        for (int j = -2; j <= 2; j++)
+            if (v_empty(X + i, Y - 1, Z + j) && v_empty(X + i, Y - 2, Z + j)) return;
+    for (int i = -1; i <= 0; i++)
+        for (int j = -2; j <= 2; j++)
+            for (int k = -2; k <= 2; k++) put(X + j, Y + i, Z + k, B_SANDSTONE, R_ALWAYS);
+    put(X, Y, Z, B_WATER, R_ALWAYS);
+    for (int d = 0; d < 4; d++) put(X + HDIR[d][0], Y, Z + HDIR[d][1], B_WATER, R_ALWAYS);
+    for (int i = -2; i <= 2; i++)
+        for (int j = -2; j <= 2; j++)
+            if (i == -2 || i == 2 || j == -2 || j == 2) put(X + i, Y + 1, Z + j, B_SANDSTONE, R_ALWAYS);
+    put(X + 2, Y + 1, Z, B_SANDSTONE_SLAB, R_ALWAYS);
+    put(X - 2, Y + 1, Z, B_SANDSTONE_SLAB, R_ALWAYS);
+    put(X, Y + 1, Z + 2, B_SANDSTONE_SLAB, R_ALWAYS);
+    put(X, Y + 1, Z - 2, B_SANDSTONE_SLAB, R_ALWAYS);
+    for (int i = -1; i <= 1; i++)
+        for (int j = -1; j <= 1; j++) put(X + i, Y + 4, Z + j, (i == 0 && j == 0) ? B_SANDSTONE : B_SANDSTONE_SLAB, R_ALWAYS);
+    for (int i = 1; i <= 3; i++) {
+        put(X - 1, Y + i, Z - 1, B_SANDSTONE, R_ALWAYS);
+        put(X - 1, Y + i, Z + 1, B_SANDSTONE, R_ALWAYS);
+        put(X + 1, Y + i, Z - 1, B_SANDSTONE, R_ALWAYS);
+        put(X + 1, Y + i, Z + 1, B_SANDSTONE, R_ALWAYS);
+    }
+}
+
+static void feat_ice_disk(int X, int Y, int Z) { /* WorldGenPackedIce1(4) */
+    while (v_empty(X, Y, Z) && Y > 2) Y--;
+    if (vget(X, Y, Z) != B_SNOW) return;
+    int i = RI(4 - 2) + 2;
+    for (int a = X - i; a <= X + i; a++)
+        for (int b = Z - i; b <= Z + i; b++) {
+            int dx = a - X, dz = b - Z;
+            if (dx * dx + dz * dz > i * i) continue;
+            for (int y = Y - 1; y <= Y + 1; y++) {
+                uint8_t m = vget(a, y, b);
+                if (IS_DIRTISH(m) || m == B_SNOW || m == B_ICE) put(a, y, b, B_PACKED_ICE, R_ICE);
+            }
+        }
+}
+
+static void feat_ice_spike(int X, int Y, int Z) { /* WorldGenPackedIce2 */
+    while (v_empty(X, Y, Z) && Y > 2) Y--;
+    if (vget(X, Y, Z) != B_SNOW) return;
+    Y += RI(4);
+    int i = RI(4) + 7, j = i / 4 + RI(2);
+    if (j > 1 && RI(60) == 0) Y += 10 + RI(30);
+    for (int k = 0; k < i; k++) {
+        float f = (1.0f - (float)k / (float)i) * (float)j;
+        int l = (int)f;
+        if (f > (float)l) l++; /* MathHelper.f: ceil */
+        for (int i1 = -l; i1 <= l; i1++) {
+            float f1 = (float)(i1 < 0 ? -i1 : i1) - 0.25f;
+            for (int j1 = -l; j1 <= l; j1++) {
+                float f2 = (float)(j1 < 0 ? -j1 : j1) - 0.25f;
+                if (((i1 == 0 && j1 == 0) || f1 * f1 + f2 * f2 <= f * f) &&
+                    ((i1 != -l && i1 != l && j1 != -l && j1 != l) || RF() <= 0.75f)) {
+                    uint8_t b = vget(X + i1, Y + k, Z + j1);
+                    if (b == B_AIR || IS_DIRTISH(b) || b == B_SNOW || b == B_ICE) put(X + i1, Y + k, Z + j1, B_PACKED_ICE, R_ICE);
+                    if (k != 0 && l > 1) {
+                        b = vget(X + i1, Y - k, Z + j1);
+                        if (b == B_AIR || IS_DIRTISH(b) || b == B_SNOW || b == B_ICE) put(X + i1, Y - k, Z + j1, B_PACKED_ICE, R_ICE);
+                    }
+                }
+            }
+        }
+    }
+    int k = j - 1;
+    if (k < 0) k = 0;
+    else if (k > 1) k = 1;
+    for (int k1 = -k; k1 <= k; k1++)
+        for (int l = -k; l <= k;) {
+            int y = Y - 1, l1 = 50;
+            if ((k1 < 0 ? -k1 : k1) == 1 && (l < 0 ? -l : l) == 1) l1 = RI(5);
+            while (y > 50) {
+                uint8_t b = vget(X + k1, y, Z + l);
+                if (!(b == B_AIR || IS_DIRTISH(b) || b == B_SNOW || b == B_ICE || b == B_PACKED_ICE)) break;
+                put(X + k1, y, Z + l, B_PACKED_ICE, R_ICE2);
+                y--;
+                --l1;
+                if (l1 <= 0) {
+                    y -= RI(5) + 1;
+                    l1 = RI(5);
+                }
+            }
+            ++l;
+        }
+}
+
+static void feat_boulder(int X, int Y, int Z) { /* WorldGenTaigaStructure(mossy cobblestone, 0) */
+    for (;;) {
+        if (Y > 3) {
+            if (!v_empty(X, Y - 1, Z)) {
+                uint8_t b = vget(X, Y - 1, Z);
+                if (b == B_GRASS || IS_DIRTISH(b) || b == B_STONE) break;
+            }
+            Y--;
+            continue;
+        }
+        break;
+    }
+    if (Y <= 3) return;
+    int i = 0;
+    for (int j = 0; i >= 0 && j < 3; ++j) {
+        int k = i + RI(2), l = i + RI(2), i1 = i + RI(2);
+        float f = (float)(k + l + i1) * 0.333f + 0.5f;
+        for (int a = -k; a <= k; a++)
+            for (int b = -l; b <= l; b++)
+                for (int c = -i1; c <= i1; c++)
+                    if ((float)(a * a + b * b + c * c) <= f * f) put(X + a, Y + b, Z + c, B_MOSSY_COBBLESTONE, R_ALWAYS);
+        X += -(i + 1) + RI(2 + i * 2);
+        Y += 0 - RI(2);
+        Z += -(i + 1) + RI(2 + i * 2);
+    }
+}
+
+/* ---- the decorator ---- */
+static uint8_t flower_select(const Biome *b, int x, int z) {
+    switch (b->flower) {
+    case F_SWAMP: return B_BLUE_ORCHID;
+    case F_FLOWER_FOREST: {
+        double d0 = (1.0 + (double)grass_noise_div(x, z, 48)) / 2.0;
+        if (d0 < 0.0) d0 = 0.0;
+        if (d0 > 0.9999) d0 = 0.9999;
+        static const uint8_t V[10] = {B_DANDELION, B_POPPY, B_POPPY /* blue orchid -> poppy */, B_ALLIUM, B_AZURE_BLUET,
+                                      B_RED_TULIP, B_ORANGE_TULIP, B_WHITE_TULIP, B_PINK_TULIP, B_OXEYE_DAISY};
+        return V[(int)(d0 * 10.0)];
+    }
+    case F_PLAINS: {
+        float d0 = grass_noise_div(x, z, 200);
+        if (d0 < -0.8f) {
+            static const uint8_t T[4] = {B_ORANGE_TULIP, B_RED_TULIP, B_PINK_TULIP, B_WHITE_TULIP};
+            return T[RI(4)];
+        }
+        if (RI(3) > 0) {
+            int i = RI(3);
+            return i == 0 ? B_POPPY : (i == 1 ? B_AZURE_BLUET : B_OXEYE_DAISY);
+        }
+        return B_DANDELION;
+    }
+    default: return RI(3) > 0 ? B_DANDELION : B_POPPY;
+    }
+}
+
+static uint8_t grass_select(const Biome *b) {
+    switch (b->grass) {
+    case G_TAIGA: return RI(5) > 0 ? B_FERN : B_TALL_GRASS;
+    case G_JUNGLE: return RI(4) == 0 ? B_FERN : B_TALL_GRASS;
+    default: return B_TALL_GRASS;
+    }
+}
+
+static void spring(uint8_t still, uint8_t flowing, int x, int y, int z) {
+    if (!in_c_cols(x, z) || y < 0 || y > 255) return; /* only the block itself matters */
+    if (cget(x, y + 1, z) != B_STONE || cget(x, y - 1, z) != B_STONE) return;
+    uint8_t m = cget(x, y, z);
+    if (m != B_AIR && m != B_STONE) return;
+    int st = 0, air = 0, ad = -1;
+    for (int d = 0; d < 4; d++) {
+        uint8_t n = cget(x + HDIR[d][0], y, z + HDIR[d][1]);
+        st += n == B_STONE;
+        if (n == B_AIR) {
+            air++;
+            ad = d;
+        }
+    }
+    if (st == 3 && air == 1) {
+        put_c(x, y, z, still, R_ALWAYS);
+        put_c(x + HDIR[ad][0], y, z + HDIR[ad][1], flowing, R_AIR);
+    }
+}
+
+static void decorate_core(const Biome *b, int nB, int nC) {
+    ores();
+    for (int i = 0; i < b->dI; i++) disk(B_SAND, 7, 2, 0);
+    for (int i = 0; i < b->dJ; i++) disk(B_CLAY, 4, 1, 1);
+    for (int i = 0; i < b->dH; i++) disk(B_GRAVEL, 6, 2, 0);
+    int nt = b->dA;
+    if (RI(10) == 0) ++nt;
+    for (int j = 0; j < nt; j++) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        TreeSel t = tree_select(b);
+        tree_grow(t, x, hm(x, z), z);
+    }
+    for (int j = 0; j < b->dK; j++) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        gen_huge_mushroom(x, hm(x, z), z);
+    }
+    for (int j = 0; j < nB; j++) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int i1 = hm(x, z) + 32;
+        if (i1 > 0) {
+            int y = RI(i1);
+            uint8_t f = flower_select(b, x, z);
+            feat_flowers(x, y, z, f);
+        }
+    }
+    for (int j = 0; j < nC; j++) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int i1 = hm(x, z) * 2;
+        if (i1 > 0) {
+            int y = RI(i1);
+            uint8_t g = grass_select(b);
+            feat_grass(x, y, z, g);
+        }
+    }
+    for (int j = 0; j < b->dD; j++) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int i1 = hm(x, z) * 2;
+        if (i1 > 0) feat_deadbush(x, RI(i1), z);
+    }
+    for (int j = 0; j < b->dZ; j++) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int i1 = hm(x, z) * 2;
+        if (i1 > 0) {
+            int y = RI(i1);
+            while (y > 0 && v_empty(x, y - 1, z)) y--;
+            feat_lily(x, y, z);
+        }
+    }
+    for (int j = 0; j < b->dE; j++) {
+        if (RI(4) == 0) {
+            int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+            feat_mushrooms(x, hm(x, z), z, B_BROWN_MUSHROOM);
+        }
+        if (RI(8) == 0) {
+            int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+            int i1 = hm(x, z) * 2;
+            if (i1 > 0) feat_mushrooms(x, RI(i1), z, B_RED_MUSHROOM);
+        }
+    }
+    if (RI(4) == 0) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int i1 = hm(x, z) * 2;
+        if (i1 > 0) feat_mushrooms(x, RI(i1), z, B_BROWN_MUSHROOM);
+    }
+    if (RI(8) == 0) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int i1 = hm(x, z) * 2;
+        if (i1 > 0) feat_mushrooms(x, RI(i1), z, B_RED_MUSHROOM);
+    }
+    for (int j = 0; j < b->dF + 10; j++) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int i1 = hm(x, z) * 2;
+        if (i1 > 0) feat_reeds(x, RI(i1), z);
+    }
+    if (RI(32) == 0) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int i1 = hm(x, z) * 2;
+        if (i1 > 0) feat_pumpkin(x, RI(i1), z);
+    }
+    for (int j = 0; j < b->dG; j++) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int i1 = hm(x, z) * 2;
+        if (i1 > 0) feat_cactus(x, RI(i1), z);
+    }
+    for (int j = 0; j < 50; j++) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int i1 = RI(248) + 8;
+        spring(B_WATER, B_FLOWING_WATER, x, RI(i1), z);
+    }
+    for (int j = 0; j < 20; j++) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int y = RI(RI(RI(240) + 8) + 8);
+        spring(B_LAVA, B_FLOWING_LAVA, x, y, z);
+    }
+}
+
+static void double_plants(uint8_t lower, int n) {
+    for (int i = 0; i < n; i++) {
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int y = RI(hm(x, z) + 32);
+        feat_tallplant(x, y, z, lower);
+    }
+}
+
+/* BiomeForest.a */
+static void decorate_forest(const Biome *b) {
+    if (b->mode == 3) {
+        for (int i = 0; i < 4; i++)
+            for (int j = 0; j < 4; j++) {
+                int x = PK + i * 4 + 1 + 8 + RI(3), z = PL + j * 4 + 1 + 8 + RI(3);
+                int y = hm(x, z);
+                if (RI(20) == 0) {
+                    gen_huge_mushroom(x, y, z);
+                } else {
+                    TreeSel t = tree_select(b);
+                    tree_grow(t, x, y, z);
+                }
+            }
+    }
+    int n = RI(5) - 3;
+    if (b->mode == 1) n += 2;
+    for (int j = 0; j < n;) {
+        int k = RI(3);
+        uint8_t v = k == 0 ? B_LILAC_LOWER : (k == 1 ? B_ROSE_BUSH_LOWER : B_PEONY_LOWER);
+        int l = 0;
+        for (;;) {
+            if (l < 5) {
+                int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+                int y = RI(hm(x, z) + 32);
+                if (!feat_tallplant(x, y, z, v)) {
+                    ++l;
+                    continue;
+                }
+            }
+            ++j;
+            break;
+        }
+    }
+    decorate_core(b, b->dB, b->dC);
+}
+
+static void decorate(const Biome *b) {
+    switch (b->deco) {
+    case D_PLAINS: {
+        float d0 = grass_noise_div(PK + 8, PL + 8, 200);
+        int nB, nC;
+        if (d0 < -0.8f) {
+            nB = 15;
+            nC = 5;
+        } else {
+            nB = 4;
+            nC = 10;
+            double_plants(B_DOUBLE_GRASS_LOWER, 7);
+        }
+        if (b->mode) double_plants(B_SUNFLOWER_LOWER, 10);
+        decorate_core(b, nB, nC);
+        break;
+    }
+    case D_DESERT:
+        decorate_core(b, b->dB, b->dC);
+        if (RI(1000) == 0) {
+            int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+            feat_desert_well(x, hm(x, z) + 1, z);
+        }
+        break;
+    case D_HILLS: {
+        decorate_core(b, b->dB, b->dC);
+        int n = 3 + RI(6);
+        for (int j = 0; j < n; j++) {
+            int x = PK + RI(16), y = RI(28) + 4, z = PL + RI(16);
+            put_c(x, y, z, B_EMERALD_ORE, R_STONE);
+        }
+        for (int i = 0; i < 7; i++) {
+            int x = RI(16), y = RI(64), z = RI(16);
+            minable(PK + x, y, PL + z, 9, B_MONSTER_EGG_STONE);
+        }
+        break;
+    }
+    case D_FOREST: decorate_forest(b); break;
+    case D_ROOFED_SUB: decorate_forest(bio(BI_ROOFED)); break;
+    case D_TAIGA:
+        if (b->mode == 1 || b->mode == 2) {
+            int n = RI(3);
+            for (int j = 0; j < n; j++) {
+                int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+                feat_boulder(x, hm(x, z), z);
+            }
+        }
+        double_plants(B_LARGE_FERN_LOWER, 7);
+        decorate_core(b, b->dB, b->dC);
+        break;
+    case D_ICE:
+        if (b->mode) {
+            for (int i = 0; i < 3; i++) {
+                int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+                feat_ice_spike(x, hm(x, z), z);
+            }
+            for (int i = 0; i < 2; i++) {
+                int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+                feat_ice_disk(x, hm(x, z), z);
+            }
+        }
+        decorate_core(b, b->dB, b->dC);
+        break;
+    case D_JUNGLE: {
+        decorate_core(b, b->dB, b->dC);
+        int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+        int y = RI(hm(x, z) * 2);
+        feat_melon(x, y, z);
+        /* the 50 vine features start at y = 128 and place nothing; their draws come last */
+        break;
+    }
+    case D_SAVANNA:
+        double_plants(B_DOUBLE_GRASS_LOWER, 7);
+        decorate_core(b, b->dB, b->dC);
+        break;
+    default: decorate_core(b, b->dB, b->dC); break;
+    }
+}
+
+/* ---- one population ---- */
+static int biome_at(int x, int z);
+
+static void populate(int px, int pz) {
+    View *v = &PV;
+    v->px = px;
+    v->pz = pz;
+    v->ox = px * 16;
+    v->oz = pz * 16;
+    v->nlake = 0;
+    v->qon = 0;
+    for (int lz = 0; lz < 32; lz++)
+        for (int lx = 0; lx < 32; lx++) {
+            const ColSum *s = col_sum(v->ox + lx, v->oz + lz);
+            int i = lz * 32 + lx;
+            v->top[i] = s->top;
+            v->tb[i] = s->blk == B_LILY_PAD ? B_WATER : s->blk;
+            v->pl[i] = s->blk == B_LILY_PAD ? B_LILY_PAD : 0;
+        }
+    PK = px * 16;
+    PL = pz * 16;
+    const Biome *b = bio(biome_at(PK + 16, PL + 16));
+    jr_seed(&PR, (i64)((u64)(i64)px * (u64)pop_mul_x + (u64)(i64)pz * (u64)pop_mul_z) ^ g_seed);
+    /* TODO: structures (mineshafts, villages, strongholds, temples, monuments) would draw here */
+    if (b->id != BI_DESERT && b->id != BI_DESERT_HILLS && RI(4) == 0) {
+        int x = PK + RI(16) + 8, y = RI(256), z = PL + RI(16) + 8;
+        lake(B_WATER, x, y, z);
+    }
+    if (RI(8) == 0) {
+        int x = PK + RI(16) + 8, y = RI(RI(248) + 8), z = PL + RI(16) + 8;
+        if (y < SEA || RI(10) == 0) lake(B_LAVA, x, y, z);
+    }
+    for (int i = 0; i < 8; i++) {
+        int x = PK + RI(16) + 8, y = RI(256), z = PL + RI(16) + 8;
+        dungeon(x, y, z);
+    }
+    decorate(b);
+    /* SpawnerCreature draws next: nothing below depends on them */
+    /* freeze: ice on still water, snow on top, for the columns of this population inside C */
+    for (int dz = 0; dz < 16; dz++)
+        for (int dx = 0; dx < 16; dx++) {
+            int x = PK + 8 + dx, z = PL + 8 + dz;
+            if (!in_c_cols(x, z)) continue;
+            int i = (z & 15) * 16 + (x & 15);
+            int y1 = c_sl[i] + 1, y2 = c_sl[i];
+            const Biome *cb = bio(c_b16[i]);
+            if (biome_temp_at(cb, x, y2, z) <= 0.15f) {
+                uint8_t w = in_c_range(x, y2, z) ? cget(x, y2, z) : B_AIR;
+                if (w == B_WATER) put_c(x, y2, z, B_ICE, R_ALWAYS);
+            }
+            if (biome_temp_at(cb, x, y1, z) <= 0.15f && y1 < 256) {
+                uint8_t a = in_c_range(x, y1, z) ? cget(x, y1, z) : (y1 > c_top[i] ? B_AIR : B_STONE);
+                uint8_t u = in_c_range(x, y2, z) ? cget(x, y2, z) : vget(x, y2, z);
+                if (a == B_AIR && u != B_ICE && u != B_PACKED_ICE && (IS_LEAVES(u) || (IS_CUBE(u) && IS_SOLID(u)))) {
+                    if (in_c_range(x, y1, z)) {
+                        put_c(x, y1, z, B_SNOW_LAYER, R_AIR);
+                        if (u == B_GRASS && in_c_range(x, y2, z)) put_c(x, y2, z, B_GRASS_SNOWED, R_ALWAYS);
+                    } else if (y1 > c_top[i]) {
+                        c_top[i] = (uint8_t)y1;
+                    }
+                }
+            }
+        }
+}
+
+/* ======================================================================== */
+/* Enchanted book draws (EnchantmentManager.a(random, book, 30))             */
+/* ======================================================================== */
+static void dungeon_book(void) {
+    /* TODO: exact replay of the enchantment selection draws */
+}
+
+/* ======================================================================== */
+/* Public API                                                                */
+/* ======================================================================== */
+
+/* biome id at block (x, z): one voronoi cell */
+static int biome_at(int x, int z) {
+    i32 rm[4];
+    int rx, rz, rw, rh;
+    voronoi_rm_win(x, z, 1, 1, &rx, &rz, &rw, &rh);
+    lay_mem = U.p.lay;
+    lay_cap = (int)(sizeof U.p.lay / sizeof U.p.lay[0]);
+    lay_top = 0;
+    layers_rivermix(rx, rz, rw, rh, rm);
+    uint8_t b;
+    voronoi(rm, rx, rz, rw, x, z, 1, 1, &b, 1);
+    return b;
+}
+
+static int last_cx = 0x7fffffff, last_cz; /* chunk of the last gen_slab: c_top, c_b16 valid */
+static int bc_cx = 0x7fffffff, bc_cz;     /* chunk of b_cache */
+static uint8_t b_cache[256];
+static uint8_t col_tmp[256];
+
+/* carve hook: keep c_top / c_sl of C right when caves open the surface */
+static void cave_track(int x, int y, int z, uint8_t b) {
+    int i = z * 16 + x;
+    if (b == B_AIR && y == c_top[i]) c_lower_top(i, y);
+    if (y == c_sl[i] && b == B_AIR) c_sl[i] = c_top[i];
+}
+
+void gen_init(int64_t seed) {
+    jr_jump_init();
+    bflags_init();
+    g_seed = seed;
+    memset(biome_index, 255, sizeof biome_index);
+    for (int i = 0; i < NBIOMES; i++) biome_index[BIOMES[i].id] = (uint8_t)i;
+    for (int i = 0; i < NLSEEDS; i++) lay_wseed[i] = layer_world(LSEEDS[i]);
+    vor_c = layer_world(10);
+    /* ChunkProviderGenerate's noise generators */
+    JRand r;
+    jr_seed(&r, seed);
+    for (int i = 0; i < 16; i++) oc_min[i].st = r.s, perm_skip(&r);
+    for (int i = 0; i < 16; i++) oc_max[i].st = r.s, perm_skip(&r);
+    for (int i = 0; i < 8; i++) oc_main[i].st = r.s, perm_skip(&r);
+    for (int i = 0; i < 4; i++) oc_surf[i].st = r.s, perm_skip(&r);
+    for (int i = 0; i < 10; i++) perm_skip(&r); /* scale noise (unused) */
+    for (int i = 0; i < 16; i++) oc_depth[i].st = r.s, perm_skip(&r);
+    SC_LIMIT = FX(684.412f);
+    SC_MAINXZ = FX(684.412f / 80.0f);
+    SC_MAINY = FX(684.412f / 160.0f);
+    SC_DEPTH = FX(200.0f);
+    for (int j = -2; j <= 2; j++)
+        for (int k = -2; k <= 2; k++)
+            bweights[j + 2 + (k + 2) * 5] = 10.0f / sqrtf((float)(j * j + k * k) + 0.2f);
+    JRand t;
+    jr_seed(&t, 1234);
+    perm_build(t.s, perm_temp, 0);
+    jr_seed(&t, 2345);
+    perm_build(t.s, perm_grass, 0);
+    /* BiomeMesa: bands and noises */
+    jr_seed(&r, seed);
+    oc_mesa[0].st = r.s;
+    perm_skip(&r);
+    for (int j = 0; j < 64; j++) mesa_bands[j] = B_HARDENED_CLAY;
+    for (int j = 0; j < 64; ++j) {
+        j += jr_int(&r, 5) + 1;
+        if (j < 64) mesa_bands[j] = B_STAINED_CLAY_ORANGE;
+    }
+    static const uint8_t col3[3] = {B_STAINED_CLAY_YELLOW, B_STAINED_CLAY_BROWN, B_STAINED_CLAY_RED};
+    for (int c = 0; c < 3; c++) {
+        int n = jr_int(&r, 4) + 2;
+        for (int k = 0; k < n; ++k) {
+            int len = jr_int(&r, 3) + (c == 1 ? 2 : 1), at = jr_int(&r, 64);
+            for (int q = 0; at + q < 64 && q < len; ++q) mesa_bands[at + q] = col3[c];
+        }
+    }
+    int n = jr_int(&r, 3) + 3, at = 0;
+    for (int k = 0; k < n; ++k) {
+        at += jr_int(&r, 16) + 4;
+        if (at < 64) {
+            mesa_bands[at] = B_STAINED_CLAY_WHITE;
+            if (at > 1 && jr_bool(&r)) mesa_bands[at - 1] = B_STAINED_CLAY_SILVER;
+            if (at < 63 && jr_bool(&r)) mesa_bands[at + 1] = B_STAINED_CLAY_SILVER;
+        }
+    }
+    jr_seed(&r, seed);
+    for (int o = 0; o < 4; o++) oc_mesa[o].st = r.s, perm_skip(&r);
+    oc_mesa[4].st = r.s;
+    /* population and cave seeds */
+    jr_seed(&r, seed);
+    pop_mul_x = jr_long(&r) / 2 * 2 + 1;
+    pop_mul_z = jr_long(&r) / 2 * 2 + 1;
+    jr_seed(&r, seed);
+    cave_mul_x = jr_long(&r);
+    cave_mul_z = jr_long(&r);
+    /* caches */
+    memset(sumc, 0, sizeof sumc);
+    memset(sum_pin, 0, sizeof sum_pin);
+    last_cx = bc_cx = 0x7fffffff;
+}
+
+void gen_slab(int cx, int cz, int y0, int h, uint8_t *out) {
+    if (y0 < 0) {
+        h += y0;
+        y0 = 0;
+    }
+    if (y0 + h > 128) h = 128 - y0;
+    if (h <= 0) return;
+    c_out = out;
+    c_y0 = y0;
+    c_h = h;
+    c_cx = cx;
+    c_cz = cz;
+    nb_cx = cx;
+    nb_cz = cz;
+    /* terrain of C, and its summary */
+    SumEntry *e = sum_find(cx, cz);
+    if (!e) e = sum_slot(cx, cz);
+    int ie = (int)(e - sumc);
+    sum_pin[ie] = 1;
+    chunk_terrain(cx, cz, out, y0, h, e->s);
+    memcpy(c_b16, cb16, 256);
+    for (int i = 0; i < 256; i++) {
+        c_top[i] = (uint8_t)(e->s[i].top + (e->s[i].blk == B_LILY_PAD));
+        c_sl[i] = e->s[i].top;
+    }
+    nb[1][1] = e;
+    /* caves and ravines */
+    CaveCtx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    ctx.mode = CAVE_OUT;
+    ctx.tcx = cx;
+    ctx.tcz = cz;
+    ctx.sum = e->s;
+    ctx.out = out;
+    ctx.y0 = y0;
+    ctx.h = h;
+    ctx.rx1 = 16;
+    ctx.rz1 = 16;
+    ctx.ry1 = 256;
+    cv = &ctx;
+    cave_track_on = 1;
+    caves_run();
+    cave_track_on = 0;
+    /* the 3x3 summaries */
+    for (int dz = -1; dz <= 1; dz++)
+        for (int dx = -1; dx <= 1; dx++) {
+            if (!dx && !dz) continue;
+            SumEntry *n = sum_get(cx + dx, cz + dz);
+            sum_pin[n - sumc] = 1;
+            nb[dz + 1][dx + 1] = n;
+        }
+    /* the four populations writing into C */
+    populate(cx - 1, cz - 1);
+    populate(cx, cz - 1);
+    populate(cx - 1, cz);
+    populate(cx, cz);
+    memset(sum_pin, 0, sizeof sum_pin);
+    last_cx = cx;
+    last_cz = cz;
+}
+
+int gen_biome(int x, int z) {
+    int cx = x >> 4, cz = z >> 4, i = (x & 15) + (z & 15) * 16;
+    if (cx == last_cx && cz == last_cz) return c_b16[i];
+    if (cx != bc_cx || cz != bc_cz) {
+        chunk_biomes(cx, cz);
+        memcpy(b_cache, cb16, 256);
+        bc_cx = cx;
+        bc_cz = cz;
+    }
+    return b_cache[i];
+}
+
+int gen_top(int x, int z) {
+    int cx = x >> 4, cz = z >> 4, i = (x & 15) + (z & 15) * 16;
+    if (cx != last_cx || cz != last_cz) gen_slab(cx, cz, 127, 1, col_tmp);
+    int t = c_top[i];
+    return t > 127 ? 127 : t;
+}
+
+/* World.c(x, z) == GRASS on the undecorated terrain */
+static int can_spawn(int x, int z) {
+    SumEntry *e = sum_get(x >> 4, z >> 4);
+    const ColSum *s = &e->s[(x & 15) + (z & 15) * 16];
+    if (s->top < SEA) return 0;
+    return s->blk == B_GRASS;
+}
+
+void gen_spawn(int *px, int *py, int *pz) {
+    JRand r;
+    jr_seed(&r, g_seed);
+    /* WorldChunkManager.a(0, 0, 256, spawn biomes, random): 129 x 129 cells of rivermix */
+    int found = 0, fx = 0, fz = 0, j2 = 0;
+    uint8_t *rows = U.p.qmask; /* 8 rows x 129 */
+    for (int tz = 0; tz < 129; tz += 8) {
+        int th = 129 - tz < 8 ? 129 - tz : 8;
+        for (int tx = 0; tx < 129; tx += 8) {
+            int tw = 129 - tx < 8 ? 129 - tx : 8;
+            i32 rm[64];
+            lay_mem = U.p.lay;
+            lay_cap = (int)(sizeof U.p.lay / sizeof U.p.lay[0]);
+            lay_top = 0;
+            layers_rivermix(-64 + tx, -64 + tz, tw, th, rm);
+            for (int j = 0; j < th; j++)
+                for (int i = 0; i < tw; i++) rows[j * 129 + tx + i] = (uint8_t)rm[j * tw + i];
+        }
+        for (int j = 0; j < th; j++)
+            for (int i = 0; i < 129; i++) {
+                int id = rows[j * 129 + i];
+                int ok = id == BI_FOREST || id == BI_PLAINS || id == BI_TAIGA || id == BI_TAIGA_HILLS ||
+                         id == BI_FOREST_HILLS || id == BI_JUNGLE || id == BI_JUNGLE_HILLS;
+                if (ok && (!found || jr_int(&r, j2 + 1) == 0)) {
+                    fx = (-64 + i) * 4;
+                    fz = (-64 + tz + j) * 4;
+                    found = 1;
+                    ++j2;
+                }
+            }
+    }
+    int x = found ? fx : 0, z = found ? fz : 0;
+    for (int l = 0; !can_spawn(x, z);) {
+        x += jr_int(&r, 64) - jr_int(&r, 64);
+        z += jr_int(&r, 64) - jr_int(&r, 64);
+        if (++l == 1000) break;
+    }
+    *px = x;
+    *pz = z;
+    *py = gen_top(x, z) + 1;
+}
+
+unsigned gen_ram_bytes(void) { return 0; /* filled in by the size report (nm) */ }

@@ -286,7 +286,7 @@ static uint16_t trace(float dx, float dy, float dz) {
   for (;;) {
     ST(st_steps++);
     int b = vc[i];
-    if (b != B_AIR && !(b == inside && blk_model[b] == M_LIQUID)) {
+    if (b != B_AIR && !(blk_model[b] == M_LIQUID && (is_water(b) ? is_water(inside) : is_lava(inside)))) {
       int m = blk_model[b];
       int col = z * VCX + x;
       float lx = ox + dx * t - x, ly = oy + dy * t - y, lz = oz + dz * t - z;
@@ -329,6 +329,16 @@ static uint16_t trace(float dx, float dy, float dz) {
         }
       } else {
         const int8_t *bx = model_box(m);
+        if (m == M_LIQUID) {
+          /* BlockLiquid: (8 - level) / 9 high, full when falling or under the same liquid */
+          static const int8_t LIQ[9][6] = {{0, 0, 0, 16, 14, 16}, {0, 0, 0, 16, 12, 16}, {0, 0, 0, 16, 11, 16},
+                                           {0, 0, 0, 16, 9, 16},  {0, 0, 0, 16, 7, 16},  {0, 0, 0, 16, 5, 16},
+                                           {0, 0, 0, 16, 4, 16},  {0, 0, 0, 16, 2, 16},  {0, 0, 0, 16, 16, 16}};
+          int lv = blk_meta[b] > 8 ? 8 : blk_meta[b];
+          int above = y + 1 < VCY ? vc[i + VCX * VCZ] : B_AIR;
+          if (is_water(b) ? is_water(above) : is_lava(above)) lv = 8;
+          bx = LIQ[lv];
+        }
         Hit h;
         if (bx && hit_box(bx, lx, ly, lz, dx, dy, dz, &h)) {
           int r, g, bb;
@@ -337,7 +347,7 @@ static uint16_t trace(float dx, float dy, float dz) {
             uint16_t c = lit(r, g, bb, h.face, vl[m == M_LIQUID || m == M_TORCH ? i : prev], (t + h.t) * len);
             if (m == M_LIQUID && !wa) {
               /* water: see through it (lava is opaque) */
-              if (b == B_WATER || b == B_FLOWING_WATER) {
+              if (is_water(b)) {
                 wr = r5(c), wg = g6(c), wb = b5(c), wa = 150;
                 inside = b;
                 goto next;
@@ -1019,7 +1029,7 @@ void render_frame(const Camera *c, uint32_t tod) {
   cam_x = (int)floorf(ox), cam_y = (int)floorf(oy), cam_z = (int)floorf(oz);
   cam_i = (unsigned)cam_x < VCX && (unsigned)cam_y < VCY && (unsigned)cam_z < VCZ ? VC_I(cam_x, cam_y, cam_z) : -1;
   cam_b = cam_i < 0 ? B_AIR : vc[cam_i];
-  under_water = cam_b == B_WATER || cam_b == B_FLOWING_WATER;
+  under_water = is_water(cam_b);
   if (under_water) {
     fog_r = 10, fog_g = 30, fog_b = 110;
     fog0 = 0;

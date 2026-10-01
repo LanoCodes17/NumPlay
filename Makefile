@@ -17,6 +17,8 @@ PY ?= python3
 CARGO ?= cargo
 B = build
 RAM_LIMIT = 153676
+# the calculator's space for installed apps (0x90200000 to 0x903F0000 in its flash)
+APP_SPACE = 2031616
 
 # NumPlay and its discreet versions: the same app, with another name and icon
 # on the calculator's home screen. Each one is a release file.
@@ -126,7 +128,9 @@ $(B)/%.nwa: $(ARM_OBJS) $(MODULES) $(B)/variant/%-name.o $(B)/variant/%-icon.o
 
 check: nwa
 	@for v in $(VARIANTS); do $(NWLINK) nwa-bin --ram-length $(RAM_LIMIT) $(B)/$$v.nwa $(B)/$$v.bin || exit 1; \
-	  echo "$$v.nwa installs as $$(wc -c < $(B)/$$v.bin) bytes; its RAM fits in $(RAM_LIMIT) bytes"; done
+	  n=$$(wc -c < $(B)/$$v.bin); \
+	  echo "$$v.nwa installs as $$n bytes ($$(( $(APP_SPACE) - n )) to spare); its RAM fits in $(RAM_LIMIT) bytes"; \
+	  [ $$n -le $(APP_SPACE) ] || { echo "$$v.nwa is bigger than the calculator's app space ($(APP_SPACE) bytes)"; exit 1; }; done
 
 # ------------------------------------------------------------------ games on their own
 APP_numdash = games/numdash/build/numdash.nwa:NumDash.nwa

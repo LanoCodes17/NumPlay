@@ -44,6 +44,38 @@ static void fill(int x, int y, int w, int h, C c) {
   eadk_display_push_rect_uniform((eadk_rect_t){x, y, w, h}, c);
 }
 
+/* The background everywhere except in the rectangles {x, y, w, h}, which are drawn over next:
+ * a new screen goes up without being cleared first, every pixel changing once (a cleared
+ * screen shows on the calculator for a moment: a flicker). */
+static void clear_around(const int16_t (*r)[4], int n, C c) {
+  int run0 = 0, prev[16], np = -1;
+  for (int y = 0; y <= 240; y++) {
+    int cov[16], nc = 0;
+    if (y < 240)
+      for (int k = 0; k < n && nc < 16; k++)
+        if (y >= r[k][1] && y < r[k][1] + r[k][3]) {
+          /* (kept sorted by start) */
+          int j = nc++;
+          for (; j > 0 && r[cov[j - 1]][0] > r[k][0]; j--) cov[j] = cov[j - 1];
+          cov[j] = k;
+        }
+    bool same = nc == np;
+    for (int k = 0; same && k < nc; k++) same = cov[k] == prev[k];
+    if (same && y < 240) continue;
+    /* rows run0..y-1 had the rectangles prev: the gaps between them */
+    if (np >= 0 && y > run0) {
+      int x = 0;
+      for (int k = 0; k <= np; k++) {
+        int x1 = k < np ? r[prev[k]][0] : 320;
+        if (x1 > x) fill(x, run0, x1 - x, y - run0, c);
+        if (k < np && r[prev[k]][0] + r[prev[k]][2] > x) x = r[prev[k]][0] + r[prev[k]][2];
+      }
+    }
+    run0 = y, np = nc;
+    for (int k = 0; k < nc; k++) prev[k] = cov[k];
+  }
+}
+
 static void text(const char *s, int x, int y, int big, C fg, C bg) {
   eadk_display_draw_string(s, (eadk_point_t){x, y}, big, fg, bg);
 }
@@ -421,6 +453,9 @@ static void button(int x, int y, int w, int h, const char *s, int on, int icon) 
    the two buttons it changes. */
 static int list(const char *const *items, const uint8_t *icons, int n, int x, int w, int h, int gap, int *i) {
   int y0 = (240 - n * h - (n - 1) * gap) / 2;
+  int16_t r[8][4];
+  for (int k = 0; k < n && k < 8; k++) r[k][0] = x, r[k][1] = y0 + k * (h + gap), r[k][2] = w, r[k][3] = h;
+  clear_around(r, n < 8 ? n : 8, BG);
   for (int k = 0; k < n; k++) button(x, y0 + k * (h + gap), w, h, items[k], k == *i, icons ? icons[k] : 0);
   for (;;) {
     int e = key(100000), o = *i;
@@ -466,7 +501,6 @@ static int main_menu(int *i) {
   static const char *const items[] = {"Play", "Puzzles", "2 Players"};
   static const uint8_t icons[] = {KNIGHT | BLACK, QUEEN | BLACK, KING};
   for (;;) {
-    fill(0, 0, 320, 240, BG);
     int k = list(items, icons, 3, 60, 200, 56, 14, i);
     if (k >= 0 || confirm_quit()) return k;
   }
@@ -512,7 +546,12 @@ static void side_button(int k) {
 }
 
 static int bot_select(void) {
-  fill(0, 0, 320, 240, BG);
+  int16_t r[NBOTS + 5][4];
+  for (int k = 0; k < NBOTS; k++) r[k][0] = 6, r[k][1] = (int16_t)(k * 20), r[k][2] = 148, r[k][3] = 20;
+  static const int16_t info[5][4] = {{200, 22, 80, 80}, {170, 110, 140, 44}, {184, 172, 32, 32}, {224, 172, 32, 32},
+                                     {264, 172, 32, 32}};
+  memcpy(r + NBOTS, info, sizeof info);
+  clear_around(r, NBOTS + 5, BG);
   for (int k = 0; k < NBOTS; k++) bot_row(k);
   bot_info();
   for (int k = 0; k < 3; k++) side_button(k);
@@ -552,7 +591,10 @@ static void tc_card(int k) {
 }
 
 static int time_select(void) {
-  fill(0, 0, 320, 240, BG);
+  int16_t r[8][4];
+  for (int k = 0; k < 8; k++)
+    r[k][0] = (int16_t)(12 + (k & 3) * 76), r[k][1] = (int16_t)(64 + (k >> 2) * 64), r[k][2] = 68, r[k][3] = 52;
+  clear_around(r, 8, BG);
   for (int k = 0; k < 8; k++) tc_card(k);
   for (;;) {
     int e = key(100000), o = tc;
@@ -1145,7 +1187,6 @@ static void puzzles(int kind) {
 
 static int puzzle_menu(int *i) {
   static const char *const items[] = {"Mix", "Mate in 1", "Mate in 2", "Mate in 3", "Best move"};
-  fill(0, 0, 320, 240, BG);
   return list(items, 0, 5, 70, 180, 38, 8, i);
 }
 

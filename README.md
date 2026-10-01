@@ -5,8 +5,8 @@
 <h1 align="center">NumPlay</h1>
 
 <p align="center">
-  <b>16 free games for your NumWorks calculator, in one app.</b><br>
-  NumDash, Crossy Road, NumDrive, Balatro, Buckshot Roulette, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.<br>
+  <b>17 free games for your NumWorks calculator, in one app.</b><br>
+  NumDash, Crossy Road, NumDrive, Balatro, Buckshot Roulette, NumBlocks, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.<br>
   And <b>Champion Island</b>, the Doodle Champion Island Games, as an app of its own.
 </p>
 
@@ -48,7 +48,7 @@ Click a file to download it. Not sure which one? Take the first.
 <table>
   <tr>
     <td width="120" align="center"><img src="docs/media/icon.png" width="64" alt="NumPlay icon"></td>
-    <td><b><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay.nwa">NumPlay.nwa</a></b><br><b>All 16 games and NumVisuals in one app. Start here!</b></td>
+    <td><b><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay.nwa">NumPlay.nwa</a></b><br><b>All 17 games and NumVisuals in one app. Start here!</b></td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/icon-invisible.png" width="64" alt="A blank white icon"></td>
@@ -81,6 +81,10 @@ Click a file to download it. Not sure which one? Take the first.
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_buckshot.png" width="112" alt="Buckshot Roulette"></td>
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/BuckshotRoulette.nwa">BuckshotRoulette.nwa</a><br>Only Buckshot Roulette: you, the Dealer, one shotgun</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_numblocks.png" width="112" alt="NumBlocks"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumBlocks.nwa">NumBlocks.nwa</a><br>Only NumBlocks: mine, craft, survive (<a href="games/numblocks/README.md">more</a>)</td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_championisland.png" width="112" alt="Champion Island"></td>
@@ -172,6 +176,10 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
     <td><img src="docs/media/portal.gif" alt="Portal Returns: falling through a portal and flying across a test chamber"></td>
   </tr>
   <tr>
+    <td><img src="docs/media/numblocks.gif" alt="NumBlocks: walking through a forest, mining and building"></td>
+    <td><img src="docs/media/numblocks_night.gif" alt="NumBlocks: nightfall, and a zombie"></td>
+  </tr>
+  <tr>
     <td><img src="docs/media/championisland.gif" alt="Champion Island: Lucky crossing the island, then the island map"></td>
     <td><img src="docs/media/championisland_sports.gif" alt="Champion Island: its seven sports"></td>
   </tr>
@@ -208,9 +216,10 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
 - Snake, Solitaire and Block Breaker look and play like **Google's games** in Search. They are drawn from scratch; nothing is taken from Google.
 - **[gd3ds](https://github.com/AleFunky/gd3ds)** by AleFunky and friends, whose research into Geometry Dash made NumDash possible. Clubstep, Deadlocked and Dash also rely on [gdsolver](https://github.com/gdsolver/gdsolver)'s measurements of Geometry Dash 2.2, level data from [gmdkit](https://github.com/UHDanke/gmdkit) by HDanke and checks against [GDRWeb](https://github.com/iliasHDZ/GDRWeb) by IliasHDZ.
 - **Balatro** by LocalThunk inspired NumPlay's Balatro, which uses art adapted from the game and the **m6x11** font by Daniel Linssen.
+- **Minecraft** by Mojang inspired NumBlocks, which uses Minecraft 1.8.8's textures, font and screens and makes its worlds the way Minecraft 1.8.8 does.
 - **Buckshot Roulette** by Mike Klubnika inspired NumPlay's Buckshot Roulette, whose scenes are rendered from the game through the Open Buckshot Roulette project (1503Dev). Fonts: Fake Receipt by Ray Larabie and Dot Matrix by Dionaea.
 - The **Doodle Champion Island Games** (2021) inspired Champion Island, which uses the doodle's own pictures, maps and texts from the [Google-Doodle-Champion-Island](https://github.com/potherca-blog/Google-Doodle-Champion-Island) archive by potherca-blog, and the **PixelMplus** font by Itou Hiroki ([license](LICENSES/PixelMplus.txt)).
 - **[Portal Returns](https://www.cemetech.net/downloads/files/1313/x1313)** by MateoConLechuga for the TI-84 Plus CE, with sprites by CKH4 and Portal Prelude chambers ported by Unicorn from BuilderBoy's original.
 - The **Nunito** and **Rammetto One** fonts, under the SIL Open Font License ([LICENSES](LICENSES)).
 
-<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, LocalThunk or Playstack (Balatro), Mike Klubnika or Critical Reflex (Buckshot Roulette), MateoConLechuga (Portal Returns), Valve (Portal), .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Google (Snake, Solitaire, Block Breaker, Doodle Champion Island Games), STUDIO4°C or Microsoft (Minesweeper). Tetris is a trademark of The Tetris Company, Pac-Man of Bandai Namco and Connect Four of Hasbro.</sub>
+<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, LocalThunk or Playstack (Balatro), Mike Klubnika or Critical Reflex (Buckshot Roulette), Mojang or Microsoft (Minecraft), MateoConLechuga (Portal Returns), Valve (Portal), .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Google (Snake, Solitaire, Block Breaker, Doodle Champion Island Games), STUDIO4°C or Microsoft (Minesweeper). Tetris is a trademark of The Tetris Company, Minecraft of Mojang Synergies AB, Pac-Man of Bandai Namco and Connect Four of Hasbro.</sub>

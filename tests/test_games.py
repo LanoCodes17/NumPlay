@@ -101,6 +101,12 @@ GAMES = {
     "championisland": ("ChampionIsland.nwa", "champion.sav",
                        presses((2000, "up", 1500)) + every(4000, 9000, 700, "ok"), 11000,
                        presses((2000, "up", 400)), 4000),
+    # past the key sheet, Singleplayer, Create New World (Survival, a random seed), walk; then
+    # Play Selected World
+    "numblocks": ("NumBlocks.nwa", "nb1.nbw",
+                  presses((3000, "ok"), (3600, "ok"), (4200, "ok"), (4800, "down"), (5100, "down"), (5400, "down"),
+                          (5700, "down"), (6000, "down"), (6300, "ok"), (8700, "comma", 1500)), 12200,
+                  presses((3000, "ok"), (3600, "ok")), 8000),
     # a level, its message, then play; then back to the level select
     "portal": ("PortalReturns.nwa", "portal.sav",
                presses((1500, "ok"), (2500, "ok"), (3500, "ok")) + every(4000, 7000, 400, "right", 300), 8000,
@@ -127,7 +133,7 @@ SEEDS = {
 # games that keep a copy of their save in a Python script (the only files the
 # NumWorks installer keeps): before the second session, as after installing
 # the app again, only the scripts are left, and the save must come back
-COPIES = {"championisland": "champion_saves.py"}
+COPIES = {"championisland": "champion_saves.py", "numblocks": "numblocks_saves.py"}
 CHECKS = {
     # the island remembers where Lucky was; after the reinstall, from the copy
     "championisland": (lambda v: v[:3] == b"CI1" and b"PLAYER_LOC" in v,) * 2,
@@ -160,6 +166,9 @@ CHECKS = {
     "minesweeper": (lambda v: len(v) == 276 and v[:2] == b"M\1" and v[32:34] == bytes([9, 9]) and v[28] == 10
                     and v[34] == 5 and struct.unpack_from("<H", v, 14)[0] == 1,
                     lambda v: v[32] == 9 and struct.unpack_from("<H", v, 14)[0] == 2),
+    # the world's record: its magic, then (offset 16) the time of day, which goes on from one session to the next
+    "numblocks": (lambda v: v[:4] == b"NBW3" and struct.unpack_from("<I", v, 16)[0] > 0,
+                  lambda v: v[:4] == b"NBW3" and struct.unpack_from("<I", v, 16)[0] > 60),
     "breakout": (lambda v: len(v) == 12 and v[:2] == b"B\2" and v[4] == 1 and struct.unpack_from("<I", v, 8)[0] >= 10,
                  lambda v: v[4] == 0 and struct.unpack_from("<I", v, 8)[0] >= 1),  # best kept, shake off
 }

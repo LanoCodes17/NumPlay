@@ -8,9 +8,7 @@
 
 Entity ents[N_ENT];
 
-/* ---------------------------------------------------------------- particles (EntityDiggingFX) */
-typedef struct { float x, y, z, vx, vy, vz; uint16_t c; uint8_t age, life; } Particle;
-#define N_PART 32
+/* ---------------------------------------------------------------- particles (EntityDiggingFX, EntityRainFX) */
 Particle parts[N_PART];
 
 /* breaking a block: its bits, coloured like its texture, fly out and fall (EffectRenderer.addBlockDestroyEffects) */
@@ -33,17 +31,49 @@ void particles_break(int x, int y, int z, int b) {
   }
 }
 
+/* EntityRenderer.addRainParticles: drops splash on whatever the rain falls on
+ * within 10 blocks, up to 100 a tick in a full downpour (half with Fast
+ * graphics); here only as many as there are free particles */
+static void rain_splashes(void) {
+  float f = opt.fancy ? rain_str : rain_str / 2;
+  int n = (int)(100 * f * f), px = (int)floorf(pl.x), py = (int)floorf(pl.y), pz = (int)floorf(pl.z);
+  for (int i = 0; i < N_PART && n > 0; i++) {
+    Particle *p = &parts[i];
+    if (p->age < (p->life & ~RAIN_DROP)) continue;
+    /* a free one: look for where it lands (a few tries, as most of the 100 would) */
+    for (int k = 0; k < 4 && n > 0; k++, n--) {
+      int x = px + rnd(10) - rnd(10), z = pz + rnd(10) - rnd(10), y = world_rain_top(x, z);
+      if (y > py + 10 || y < py - 10 || !world_loaded(x, y - 1, z)) continue;
+      int lx = x - vc_x0, lz = z - vc_z0, below = world_get(x, y - 1, z);
+      if (biome_rain[vbiome[lz * VCX + lx]] != 1 || temp_at(x, y, z) < 0.15f || below == B_AIR || is_lava(below)) continue;
+      float b[6], top = (float)y;
+      if (block_box(x, y - 1, z, b)) top = b[4];
+      p->x = x + rndf(), p->y = top + 0.1f, p->z = z + rndf();
+      p->vx = (rndf() - 0.5f) * 0.03f, p->vz = (rndf() - 0.5f) * 0.03f, p->vy = rndf() * 0.2f + 0.1f;
+      p->c = 0x1A59;   /* (24, 72, 204), the splash sprites' blue */
+      p->age = 0;
+      p->life = (uint8_t)(RAIN_DROP | (int)(8 / (rndf() * 0.8f + 0.2f)));
+      break;
+    }
+  }
+}
+
 static void particles_tick(void) {
+  if (rain_str > 0) rain_splashes();
   for (int i = 0; i < N_PART; i++) {
     Particle *p = &parts[i];
-    if (p->age >= p->life) continue;
+    bool drop = p->life & RAIN_DROP;
+    if (p->age >= (p->life & ~RAIN_DROP)) continue;
     p->age++;
-    p->vy -= 0.04f;
+    p->vy -= drop ? 0.06f : 0.04f;
     float np[3] = {p->x, p->y, p->z}, v[3] = {p->vx, p->vy, p->vz};
     bool ground = phys_move(np, v, 0.1f, 0.1f);
     p->x = np[0], p->y = np[1], p->z = np[2];
     p->vx = v[0] * 0.98f, p->vy = v[1] * 0.98f, p->vz = v[2] * 0.98f;
-    if (ground) p->vx *= 0.7f, p->vz *= 0.7f;
+    if (ground) {
+      p->vx *= 0.7f, p->vz *= 0.7f;
+      if (drop && rnd(2)) p->age = p->life & ~RAIN_DROP;   /* half the drops are gone when they land */
+    }
   }
 }
 

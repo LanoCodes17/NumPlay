@@ -1,7 +1,9 @@
-/* The world's own changes: liquids flowing (BlockDynamicLiquid) and random
+/* The world's own changes: liquids flowing (BlockDynamicLiquid), random
  * block ticks (WorldServer.updateBlocks: 3 random blocks a 16 x 16 x 16
  * section each tick): crops and saplings grow, grass spreads and dies,
- * leaves far from a log decay, sugar cane and cactus grow. */
+ * leaves far from a log decay, sugar cane and cactus grow; and the weather
+ * (World.updateWeather): rain, thunder, snow piling up, water freezing. */
+#include <math.h>
 #include <stdlib.h>
 #include "nb.h"
 
@@ -252,6 +254,7 @@ static void random_tick(int x, int y, int z) {
     for (int dz = -4; dz <= 4 && !wet; dz++)
       for (int dx = -4; dx <= 4 && !wet; dx++)
         for (int dy = 0; dy <= 1 && !wet; dy++) wet = is_water(world_get(x + dx, y + dy, z + dz));
+    if (rain_at(x, y + 1, z)) wet = true;
     if (wet != (b == B_FARMLAND_WET)) world_set(x, y, z, wet ? B_FARMLAND_WET : B_FARMLAND);
     else if (!wet && !(above >= B_WHEAT_0 && above <= B_WHEAT_7) && rnd(4) == 0) world_set(x, y, z, B_DIRT);
     return;
@@ -289,7 +292,88 @@ static void random_tick(int x, int y, int z) {
   if (b == B_ICE && blight > 11) world_set(x, y, z, B_WATER);
 }
 
+/* ---------------------------------------------------------------- weather */
+Weather weather;
+float rain_str, thunder_str;
+
+/* the sun's angle in the sky (WorldProvider.calculateCelestialAngle) */
+float celestial(uint32_t t) {
+  float a = (t % 24000) / 24000.0f - 0.25f;
+  if (a < 0) a += 1;
+  return a + ((1 - (cosf(a * 3.14159265f) + 1) / 2) - a) / 3;
+}
+
+/* World.calculateSkylightSubtracted: 0 by day, 11 at night, more in rain and storms */
+int sky_sub(void) {
+  float f = 1 - (cosf(celestial(game_time) * 6.2831853f) * 2 + 0.5f);
+  f = f < 0 ? 0 : f > 1 ? 1 : f;
+  f = (1 - f) * (1 - rain_str * 5 / 16) * (1 - thunder_str * rain_str * 5 / 16);
+  return (int)((1 - f) * 11);
+}
+
+/* BiomeGenBase.getFloatTemperature: colder higher up */
+float temp_at(int x, int y, int z) {
+  int lx = x - vc_x0, lz = z - vc_z0;
+  int b = (unsigned)lx < VCX && (unsigned)lz < VCZ ? vbiome[lz * VCX + lx] : 1;
+  float t = biome_temp[b] / 50.0f;
+  if (y > 64) t -= (gen_temp_noise(x, z) * 4 + y - 64) * 0.05f / 30;
+  return t;
+}
+
+/* World.canLightningStrike: rain falls here (not snow), out under the sky */
+bool rain_at(int x, int y, int z) {
+  if (rain_str <= 0.2f) return false;
+  int lx = x - vc_x0, lz = z - vc_z0;
+  if ((unsigned)lx >= VCX || (unsigned)lz >= VCZ) return false;
+  int b = vbiome[lz * VCX + lx];
+  if (biome_rain[b] != 1 || world_rain_top(x, z) > y) return false;
+  return temp_at(x, y, z) > 0.15f;
+}
+
+/* World.updateWeather: clear for 10 minutes to 2.5 hours, then rain for 10 to 20;
+ * storms come and go on their own clock but only show while it rains */
+void weather_tick(void) {
+  if (weather.thunder_time <= 0) weather.thunder_time = weather.thundering ? rnd(12000) + 3600 : rnd(168000) + 12000;
+  else if (--weather.thunder_time <= 0) weather.thundering = !weather.thundering;
+  thunder_str += weather.thundering ? 0.01f : -0.01f;
+  thunder_str = thunder_str < 0 ? 0 : thunder_str > 1 ? 1 : thunder_str;
+  if (weather.rain_time <= 0) weather.rain_time = weather.raining ? rnd(12000) + 12000 : rnd(168000) + 12000;
+  else if (--weather.rain_time <= 0) weather.raining = !weather.raining;
+  rain_str += weather.raining ? 0.01f : -0.01f;
+  rain_str = rain_str < 0 ? 0 : rain_str > 1 ? 1 : rain_str;
+}
+
+/* WorldProvider.resetRainAndThunder: after a night's sleep */
+void weather_clear(void) {
+  weather.rain_time = weather.thunder_time = 0;
+  weather.raining = weather.thundering = 0;
+}
+
+/* WorldServer.updateBlocks, one column in 16 chunks a tick: still water
+ * freezes where it is cold, and snow settles while it falls */
+static void freeze_tick(void) {
+  if (rnd(16) >= VCX * VCZ / 256) return;
+  int x = vc_x0 + rnd(VCX), z = vc_z0 + rnd(VCZ);
+  int y = world_rain_top(x, z);
+  if (y > WORLD_H || !world_loaded(x, y - 1, z) || !world_loaded(x, y, z)) return;
+  int i = VC_I(x - vc_x0, y - vc_y0, z - vc_z0), below = world_get(x, y - 1, z);
+  /* World.canBlockFreeze: still water with something other than water beside it */
+  if (below == B_WATER && temp_at(x, y - 1, z) <= 0.15f && block_light_at(i - VCX * VCZ) < 10 &&
+      !(is_water(world_get(x - 1, y - 1, z)) && is_water(world_get(x + 1, y - 1, z)) &&
+        is_water(world_get(x, y - 1, z - 1)) && is_water(world_get(x, y - 1, z + 1)))) {
+    world_set(x, y - 1, z, B_ICE);
+    below = B_ICE;
+  }
+  /* World.canSnowAt and BlockSnow.canPlaceBlockAt: on leaves or a solid cube, not on ice */
+  if (rain_str > 0.2f && world_get(x, y, z) == B_AIR && temp_at(x, y, z) <= 0.15f && block_light_at(i) < 10 &&
+      below != B_ICE && below != B_PACKED_ICE &&
+      (blk_model[below] == M_LEAVES || ((blk_flags[below] & BF_OPAQUE) && blk_model[below] == M_CUBE)))
+    world_set(x, y, z, B_SNOW_LAYER);
+}
+
 void world_tick(void) {
+  weather_tick();
+  freeze_tick();
   fluids_tick();
   /* about 3 a section: the cache is VCX x VCY x VCZ blocks */
   int n = VCX * VCY * VCZ * 3 / 4096;

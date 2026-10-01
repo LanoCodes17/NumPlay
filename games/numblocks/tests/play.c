@@ -33,7 +33,7 @@ static uint32_t key_bit(const char *s) {
 
 int main(int argc, char **argv) {
   const char *out = "build/play", *shots = "";
-  int give = 0, title_screen = 0, mobs = 0, start_time = -1, torches = 0, water = 0, creative = 0, build = 0;
+  int give = 0, title_screen = 0, mobs = 0, start_time = -1, torches = 0, water = 0, creative = 0, build = 0, rain = 0;
   float hurt = 0;
   int frames = 60, mspf = 50;
   for (int i = 1; i < argc; i++) {
@@ -48,6 +48,8 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "--water")) water = 1;
     else if (!strcmp(argv[i], "--creative")) creative = 1;
     else if (!strcmp(argv[i], "--build")) build = 1;
+    else if (!strcmp(argv[i], "--rain")) rain = 1;
+    else if (!strcmp(argv[i], "--storm")) rain = 2;
     else if (!strcmp(argv[i], "--time") && i + 1 < argc) start_time = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--hurt") && i + 1 < argc) hurt = (float)atof(argv[++i]);
     else if (!strcmp(argv[i], "--keys") && i + 1 < argc) {
@@ -80,6 +82,11 @@ int main(int argc, char **argv) {
     game_time = (uint32_t)start_time;
   }
   if (creative) pl.mode = 1;
+  if (rain) {
+    /* raining (and storming) from the start, for long enough */
+    weather.raining = 1, weather.rain_time = 24000, rain_str = 1;
+    if (rain == 2) weather.thundering = 1, weather.thunder_time = 24000, thunder_str = 1;
+  }
   if (build) {
     /* a cleared field with the shaped blocks in a row: stairs, door, bed, chest, furnace, fence, pane, ladder */
     int fy = (int)pl.y, px = (int)pl.x, pz = (int)pl.z;

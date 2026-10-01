@@ -59,6 +59,7 @@ void gen_slab(int cx, int cz, int y0, int h, uint8_t *out);   /* out[(y - y0) * 
 int gen_biome(int x, int z);
 int gen_top(int x, int z);
 void gen_spawn(int *x, int *y, int *z);
+float gen_temp_noise(int x, int z);   /* BiomeGenBase.temperatureNoise at (x / 8, z / 8) */
 
 /* ---------------------------------------------------------------- the world (world.c) */
 #define VCX 40
@@ -85,6 +86,8 @@ int world_get(int x, int y, int z);            /* B_AIR outside the cache, B_BED
 void world_set(int x, int y, int z, int b);     /* a player's change: kept in the edit log */
 bool world_loaded(int x, int y, int z);
 bool world_pending(void);                       /* chunks still being made after a move */
+int world_rain_top(int x, int z);               /* the first y above what rain lands on, 255 if unknown */
+void *world_scratch(uint32_t n);                /* n bytes free while a frame is drawn, or NULL */
 
 /* ---------------------------------------------------------------- items (inv.c) */
 typedef struct { uint16_t id, aux; } Stack;   /* aux: how many; for tools and armour, their damage (one) */
@@ -165,7 +168,12 @@ extern Entity ents[N_ENT];
 Entity *ent_new(int type, float x, float y, float z);
 void ent_drop(int id, int count, int dmg, float x, float y, float z, bool thrown);
 void ents_tick(void);
-void particles_break(int x, int y, int z, int b);   /* a block's bits flying out */
+/* particles: a block's bits when it breaks, rain splashing (life + RAIN_DROP) */
+typedef struct { float x, y, z, vx, vy, vz; uint16_t c; uint8_t age, life; } Particle;
+#define N_PART 32
+#define RAIN_DROP 128
+extern Particle parts[N_PART];
+void particles_break(int x, int y, int z, int b);
 void mob_tick(Entity *e);
 void mobs_spawn(void);
 void explode(float x, float y, float z, float power);
@@ -179,7 +187,20 @@ void player_respawn(void);
 
 /* ---------------------------------------------------------------- liquids and growing (tick.c) */
 void fluid_schedule(int x, int y, int z);   /* a liquid there may move */
-void world_tick(void);                      /* 20 a second: liquids, random block ticks */
+void world_tick(void);                      /* 20 a second: weather, liquids, random block ticks */
+
+/* the weather (World.updateWeather), saved with the world */
+typedef struct {
+  int32_t rain_time, thunder_time;   /* ticks until it starts or stops */
+  uint8_t raining, thundering, pad[2];
+} Weather;
+extern Weather weather;
+extern float rain_str, thunder_str;   /* how hard it rains, how stormy: 0 to 1, 0.01 a tick */
+void weather_clear(void);             /* after a night's sleep */
+float celestial(uint32_t t);          /* the sun's angle: 0 noon, 0.5 midnight */
+int sky_sub(void);                    /* how much darker the sky light is: 0 by day, 11 at night */
+float temp_at(int x, int y, int z);   /* the biome's temperature there */
+bool rain_at(int x, int y, int z);    /* rain (not snow) falls on it */
 void neighbours_changed(int x, int y, int z);
 void break_block_at(int x, int y, int z, bool drops);
 

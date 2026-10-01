@@ -149,6 +149,45 @@ int main(void) {
     CHECK(calves == 1);
     plat_remove_prefix("ut3");
   }
+  {
+    /* weather: the clock, the strength, the light, and where rain falls */
+    extern uint32_t game_time;
+    world_new(0, "ut4");
+    world_follow(8, 70, 8);
+    for (int i = 0; i < VCX * VCZ; i++) vbiome[i] = 1;   /* plains */
+    memset(&weather, 0, sizeof weather);
+    rain_str = thunder_str = 0;
+    game_time = 6000;   /* noon */
+    CHECK(sky_sub() == 0);
+    world_tick();
+    CHECK(!weather.raining && weather.rain_time >= 12000 - 1 && weather.rain_time < 180000);
+    weather.rain_time = 1;
+    world_tick();
+    CHECK(weather.raining && rain_str > 0 && rain_str < 0.05f);
+    for (int t = 0; t < 120; t++) world_tick();
+    CHECK(rain_str == 1 && sky_sub() == 3);   /* rain alone: still day, no sleeping */
+    weather.thundering = 1, thunder_str = 1;
+    CHECK(sky_sub() >= 4);                    /* a storm: dark enough to sleep */
+    int y = 70;
+    for (int z = 0; z <= 4; z++)
+      for (int x = 0; x <= 4; x++) {
+        world_set(x, y - 1, z, B_STONE);
+        for (int k = 0; k < 6; k++) world_set(x, y + k, z, B_AIR);
+      }
+    CHECK(rain_at(2, y, 2));
+    world_set(2, y + 3, 2, B_LEAVES_OAK);      /* leaves keep it off */
+    CHECK(!rain_at(2, y, 2) && world_rain_top(2, 2) == y + 4);
+    world_set(3, y, 3, B_TALL_GRASS);          /* plants do not */
+    CHECK(world_rain_top(3, 3) == y);
+    vbiome[(2 - vc_z0) * VCX + 1 - vc_x0] = 2;  /* deserts get none */
+    CHECK(!rain_at(1, y, 2));
+    vbiome[(2 - vc_z0) * VCX + 1 - vc_x0] = 12; /* snowy biomes get snow */
+    CHECK(!rain_at(1, y, 2));
+    weather_clear();
+    world_tick();
+    CHECK(!weather.raining && !weather.thundering);
+    plat_remove_prefix("ut4");
+  }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;
 }

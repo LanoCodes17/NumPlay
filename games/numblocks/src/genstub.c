@@ -76,3 +76,4 @@ void gen_slab(int cx, int cz, int y0, int h, uint8_t *out) {
           }
     }
 }
+float gen_temp_noise(int x, int z) { return 0; }

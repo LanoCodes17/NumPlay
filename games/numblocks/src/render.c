@@ -26,6 +26,8 @@ static int shade[4][16];           /* face shade x sky light level -> 0..32 */
 static int shade_blk[4][16];       /* face shade x block light level -> 0..32 */
 static float sun_x, sun_y, sun_z;  /* towards the sun */
 static float cloud_off;
+static int cloud_r, cloud_g, cloud_b;   /* the clouds' colour (0..255) */
+static float sun_a;                     /* how much of the sun or moon shows (rain hides it) */
 static bool night;
 static int under_water;
 static int cam_x, cam_y, cam_z, cam_i, cam_b;   /* the camera's cell, its index (-1 outside the cache), its block */
@@ -101,8 +103,8 @@ static uint16_t sky(float dx, float dy, float dz, float len) {
   if (under_water) return pack(r / 4, g / 3, b / 2 + 40);
   /* the sun (or the moon): a square 1/3 of the way to the horizon, as in 1.8 */
   float sd = (dx * sun_x + dy * sun_y + dz * sun_z) / len;
-  if (sd > 0.94f) {
-    float s = sd > 0.985f ? 1.0f : (sd - 0.94f) / 0.045f;
+  if (sd > 0.94f && sun_a > 0) {
+    float s = (sd > 0.985f ? 1.0f : (sd - 0.94f) / 0.045f) * sun_a;   /* (hidden by rain) */
     if (night) r += (int)(190 * s), g += (int)(200 * s), b += (int)(210 * s);
     else r += (int)(255 * s), g += (int)(250 * s), b += (int)(200 * s);
   }
@@ -115,11 +117,10 @@ static uint16_t sky(float dx, float dy, float dz, float len) {
       int ix = (int)floorf(cx / 12) & 255, iz = (int)floorf(cz / 12) & 255;
       extern const uint8_t clouds[256 * 256 / 8];
       if (clouds[(iz * 256 + ix) >> 3] & (1 << (ix & 7))) {
-        int w = night ? 60 : 255;
         float a = 0.8f * (1 - dist / 200);
-        r += (int)((w - r) * a);
-        g += (int)((w - g) * a);
-        b += (int)((w - b) * a);
+        r += (int)((cloud_r - r) * a);
+        g += (int)((cloud_g - g) * a);
+        b += (int)((cloud_b - b) * a);
       }
     }
   }
@@ -921,17 +922,15 @@ static bool item_hit(const Draw *dr, const float *d, float *best_t, uint16_t *co
 }
 
 /* the particles: little squares, a tenth of a block, lit where they are */
-typedef struct { float x, y, z, vx, vy, vz; uint16_t c; uint8_t age, life; } Particle;
-extern Particle parts[32];
 static void particles_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
-  for (int i = 0; i < 32; i++) {
+  for (int i = 0; i < N_PART; i++) {
     const Particle *p = &parts[i];
-    if (p->age >= p->life) continue;
+    if (p->age >= (p->life & ~RAIN_DROP)) continue;
     float x = p->x - vc_x0, y = p->y - vc_y0, z = p->z - vc_z0, sx, sy;
     if (!project(x, y, z, &sx, &sy)) continue;
     float rx = x - ox, ry = y - oy, rz = z - oz;
     float t = rx * fwx + ry * fwy + rz * fwz;   /* (the ray's length along the view, as zbuf keeps it) */
-    int half = (int)(0.05f / t / TAN_V * RH / 2 + 0.5f);
+    int half = p->life & RAIN_DROP ? 1 : (int)(0.05f / t / TAN_V * RH / 2 + 0.5f);   /* (a drop: a texel or two) */
     if (half < 1) half = 1;
     int cx = (int)floorf(x), cy = (int)floorf(y), cz = (int)floorf(z);
     int lb = (unsigned)cx < VCX && (unsigned)cy < VCY && (unsigned)cz < VCZ ? vl[VC_I(cx, cy, cz)] : 15;
@@ -941,6 +940,167 @@ static void particles_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[R
       for (int xx = (int)sx - half + 1; xx <= (int)sx + half - 1 + (half == 1); xx++) {
         if ((unsigned)xx >= RW || zb[yy - py0][xx] <= t) continue;
         cb[yy - py0][xx] = c;
+      }
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- rain and snow */
+/* EntityRenderer.renderRainSnow: around the player (10 blocks with Fancy
+ * graphics, 5 with Fast), every column where it rains or snows has a sheet one
+ * block wide turned towards the player, from the ground (or 10 blocks down)
+ * to 10 blocks up, with rain.png scrolling down it, or snow.png drifting.
+ * The textures' streaks and flakes are drawn as thin lines, fainter where
+ * they are thinner than a pixel. The sheets live in the chunk buffer, which
+ * nothing else uses while a frame is drawn. */
+typedef struct {
+  float cx, cz, hx, hz;   /* centre (cache coordinates), half the width across */
+  float v, u;             /* texture row at y = 0 (scrolling), snow's drift across */
+  int16_t y0, y1;         /* bottom, top (cache y) */
+  uint16_t col;           /* lit colour */
+  uint8_t alpha, snow;
+  uint8_t sx0, sx1, sy0, sy1;   /* where it is on the picture */
+} Sheet;
+extern uint32_t game_time;
+static Sheet *sheets;
+static int nsheets;
+
+static uint32_t col_hash(int x, int z) {
+  uint32_t h = (uint32_t)x * 3121u * (uint32_t)x + (uint32_t)x * 45238971u;
+  h ^= (uint32_t)z * (uint32_t)z * 418711u + (uint32_t)z * 13761u;
+  h = (h ^ (h >> 15)) * 2246822519u;
+  return h ^ (h >> 13);
+}
+
+static void rain_frame(void) {
+  nsheets = 0;
+  if (rain_str <= 0 || under_water) return;
+  int nmax = 6144 / (int)sizeof(Sheet);
+  sheets = (Sheet *)world_scratch(nmax * sizeof(Sheet));
+  if (!sheets) return;
+  int r = opt.fancy ? 10 : 5;
+  int px = (int)floorf(pl.x), pz = (int)floorf(pl.z), j = (int)floorf(pl.y), l = (int)floorf(oy + vc_y0 - 1.62f);
+  float cnt = (float)(game_time % 100000) + tick_frac;
+  /* nearest first, ring by ring, in case they do not all fit */
+  for (int d = 1; d <= r; d++)
+    for (int dz = -d; dz <= d; dz++)
+      for (int dx = -d; dx <= d; dx += (dz == -d || dz == d) ? 1 : 2 * d) {
+        if (nsheets >= nmax) return;
+        int wx = px + dx, wz = pz + dz, lx = wx - vc_x0, lz = wz - vc_z0;
+        if ((unsigned)lx >= VCX || (unsigned)lz >= VCZ || !(biome_rain[vbiome[lz * VCX + lx]] & 1)) continue;
+        int top = world_rain_top(wx, wz);
+        if (top > WORLD_H) continue;
+        int y0 = j - r > top ? j - r : top, y1 = j + r > top ? j + r : top;
+        if (y0 == y1) continue;
+        Sheet *s = &sheets[nsheets];
+        float n = 0.5f / sqrtf((float)(dx * dx + dz * dz));
+        s->cx = lx + 0.5f, s->cz = lz + 0.5f, s->hx = -dz * n, s->hz = dx * n;
+        /* in front of the camera at all? */
+        float sx[4], sy[4];
+        int in = 0;
+        for (int k = 0; k < 4; k++) {
+          float x = s->cx + (k & 1 ? s->hx : -s->hx), z = s->cz + (k & 1 ? s->hz : -s->hz);
+          float y = (float)((k & 2 ? y1 : y0) - vc_y0);
+          in += project(x, y, z, &sx[k], &sy[k]);
+        }
+        if (!in) continue;
+        float ax = RW, bx = -1, ay = RH, by = -1;
+        if (in < 4) ax = 0, bx = RW - 1, ay = 0, by = RH - 1;
+        else
+          for (int k = 0; k < 4; k++) {
+            if (sx[k] < ax) ax = sx[k];
+            if (sx[k] > bx) bx = sx[k];
+            if (sy[k] < ay) ay = sy[k];
+            if (sy[k] > by) by = sy[k];
+          }
+        if (bx < 0 || ax >= RW || by < 0 || ay >= RH) continue;
+        s->sx0 = (uint8_t)(ax < 0 ? 0 : ax), s->sx1 = (uint8_t)(bx >= RW - 1 ? RW - 1 : bx);
+        s->sy0 = (uint8_t)(ay < 0 ? 0 : ay), s->sy1 = (uint8_t)(by >= RH - 1 ? RH - 1 : by);
+        s->y0 = (int16_t)(y0 - vc_y0), s->y1 = (int16_t)(y1 - vc_y0);
+        float fx = wx + 0.5f - pl.x, fz = wz + 0.5f - pl.z, f = (fx * fx + fz * fz) / (float)(r * r);
+        uint32_t h = col_hash(wx, wz);
+        float rnd1 = (h & 0xFFFF) / 65536.0f, rnd2 = (h >> 16) / 65536.0f;
+        /* the light where the sheet meets the player's height, or the ground */
+        int ly = (top > l ? top : l) - vc_y0, lb = 15;
+        if ((unsigned)ly < VCY) lb = vl[VC_I(lx, ly, lz)];
+        s->snow = temp_at(wx, y0, wz) < 0.15f;
+        if (!s->snow) {
+          /* rows scroll down 3 to 4 blocks a second... (d5 in renderRainSnow) */
+          float d5 = ((float)(((uint32_t)cnt + h) & 31) + (cnt - floorf(cnt))) / 32 * (3 + rnd1);
+          s->v = d5 * 256, s->u = 0;
+          s->alpha = (uint8_t)(((1 - f) * 0.5f + 0.5f) * rain_str * 255);
+          s->col = shade565(pack(70, 103, 195), light_shade(0, lb));
+        } else {
+          /* ...snow drifts slowly, and sideways */
+          float g1 = rnd2 * 2 - 1, g2 = rnd1 * 2 - 1;
+          float d8 = -((float)((uint32_t)cnt & 511) + (cnt - floorf(cnt))) / 512;
+          float d9 = rnd1 + cnt * 0.01f * g1, d10 = rnd2 + cnt * g2 * 0.001f;
+          s->v = (d8 + d10) * 256, s->u = d9 - floorf(d9);
+          s->alpha = (uint8_t)(((1 - f) * 0.3f + 0.5f) * rain_str * 255);
+          int sk = lb & 15, bk = lb >> 4;
+          s->col = shade565(0xFFFF, light_shade(0, ((sk * 3 + 15) / 4) | ((bk * 3 + 15) / 4) << 4));
+        }
+        nsheets++;
+      }
+}
+
+/* the height (cache y) on the line down through (x, z) seen at picture row py */
+static float row_height(float x, float z, float py) {
+  float k = (1 - 2 * py / RH) * TAN_V, rx = x - ox, rz = z - oz;
+  float d = upy - k * fwy;
+  if (fabsf(d) < 1e-4f) return 1e9f;
+  return oy + (k * (rx * fwx + rz * fwz) - (rx * upx + rz * upz)) / d;
+}
+
+static void rain_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
+  for (int n = 0; n < nsheets; n++) {
+    const Sheet *s = &sheets[n];
+    if (s->sy1 < py0 || s->sy0 >= py0 + rows) continue;
+    const uint8_t(*run)[4] = s->snow ? snow_run : rain_run;
+    const uint8_t *idx = s->snow ? snow_idx : rain_idx;
+    /* the heights this strip shows, at both edges of the sheet */
+    float ylo = 1e9f, yhi = -1e9f;
+    for (int e = -1; e <= 1; e += 2)
+      for (int k = 0; k <= 1; k++) {
+        float y = row_height(s->cx + e * s->hx, s->cz + e * s->hz, (float)(py0 + k * rows));
+        if (y < ylo) ylo = y;
+        if (y > yhi) yhi = y;
+      }
+    if (ylo < s->y0) ylo = s->y0;
+    if (yhi > s->y1) yhi = s->y1;
+    if (ylo >= yhi) continue;
+    /* texture rows: row = y * 64 + v; runs are at most 16 rows long */
+    int r0 = (int)floorf(ylo * 64 + s->v) - 16, r1 = (int)ceilf(yhi * 64 + s->v);
+    for (int base = (int)floorf(r0 / 256.0f) * 256; base <= r1; base += 256) {
+      int lo = r0 - base < 0 ? 0 : r0 - base, hi = r1 - base > 255 ? 255 : r1 - base;
+      for (int i = idx[lo]; i < idx[hi + 1]; i++) {
+        float ya = (base + run[i][0] - s->v) / 64, yb = ya + run[i][2] / 64.0f;
+        if (ya < s->y0) ya = s->y0;
+        if (yb > s->y1) yb = s->y1;
+        if (yb <= ya) continue;
+        float u = (run[i][1] + 0.5f) / 64 + s->u;
+        u = (u - floorf(u)) * 2 - 1;
+        float x = s->cx + s->hx * u - ox, z = s->cz + s->hz * u - oz;
+        float bz = x * fwx + z * fwz, bx = x * rgx + z * rgz, by = x * upx + z * upz;
+        float za = bz + (ya - oy) * fwy, zb2 = bz + (yb - oy) * fwy;
+        if (za < 0.05f || zb2 < 0.05f) continue;
+        float t = (za + zb2) / 2;
+        int sx = (int)((bx / t / TAN_H + 1) * RW / 2);
+        if ((unsigned)sx >= RW) continue;
+        float top = (1 - (by + (yb - oy) * upy) / zb2 / TAN_V) * RH / 2;
+        float bot = (1 - (by + (ya - oy) * upy) / za / TAN_V) * RH / 2;
+        /* how much of a pixel the texels cover: across, and down when shorter than one */
+        float cover = RW / 2 / (TAN_H * t) / 64;
+        if (cover > 1) cover = 1;
+        int a = run[i][3] * s->alpha / 255;
+        if (a <= 25) continue;   /* 1.8's alpha test */
+        int k0 = (int)floorf(top + 0.5f), k1 = (int)floorf(bot - 0.5f);
+        float ak = a * cover * 32 / 255;
+        if (k1 < k0) k0 = k1 = (int)floorf((top + bot) / 2), ak *= bot - top;
+        int k = (int)(ak + 0.5f);
+        if (k <= 0) continue;
+        for (int py = k0 < py0 ? py0 : k0; py <= k1 && py < py0 + rows; py++)
+          if (zb[py - py0][sx] > t) cb[py - py0][sx] = mix565(cb[py - py0][sx], s->col, k);
       }
     }
   }
@@ -976,6 +1136,7 @@ static void ents_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
         zb[py - py0][px] = t;
       }
   }
+  rain_strip(py0, rows, cb, zb);
 }
 
 /* ---------------------------------------------------------------- the frame */
@@ -1026,9 +1187,11 @@ void render_frame(const Camera *c, uint32_t tod) {
   float day = cosf(ang * 6.2831853f) * 2 + 0.5f;
   if (day < 0) day = 0;
   if (day > 1) day = 1;
+  /* World.getSunBrightness: dimmer in rain, dimmer still in a storm */
+  float rs = rain_str, ts = thunder_str * rain_str;
   float sunb = 1 - (cosf(ang * 6.2831853f) * 2 + 0.2f);
   sunb = sunb < 0 ? 0 : sunb > 1 ? 1 : sunb;
-  sunb = (1 - sunb) * 0.8f + 0.2f;
+  sunb = (1 - sunb) * (1 - rs * 5 / 16) * (1 - ts * 5 / 16) * 0.8f + 0.2f;
   setup_light(sunb);
   night = day < 0.5f;
   /* the sun's direction: it rises in the east (+X) */
@@ -1056,14 +1219,42 @@ void render_frame(const Camera *c, uint32_t tod) {
     case 4: R = tt, G = p, B = 1; break;
     default: R = 1, G = p, B = q; break;
   }
-  sky_r = (int)(R * day * 255);
-  sky_g = (int)(G * day * 255);
-  sky_b = (int)(B * day * 255);
+  float sr = R * day, sg = G * day, sbl = B * day;
+  /* World.getSkyColor: rain and storms turn it grey */
+  if (rs > 0) {
+    float lum = (sr * 0.3f + sg * 0.59f + sbl * 0.11f) * 0.6f, k = 1 - rs * 0.75f;
+    sr = sr * k + lum * (1 - k), sg = sg * k + lum * (1 - k), sbl = sbl * k + lum * (1 - k);
+  }
+  if (ts > 0) {
+    float lum = (sr * 0.3f + sg * 0.59f + sbl * 0.11f) * 0.2f, k = 1 - ts * 0.75f;
+    sr = sr * k + lum * (1 - k), sg = sg * k + lum * (1 - k), sbl = sbl * k + lum * (1 - k);
+  }
+  sky_r = (int)(sr * 255);
+  sky_g = (int)(sg * 255);
+  sky_b = (int)(sbl * 255);
   float fr = 0.7529412f * (day * 0.94f + 0.06f), fg = 0.84705883f * (day * 0.94f + 0.06f), fb = 1.0f * (day * 0.91f + 0.09f);
-  /* 1.8 mixes the fog towards the sky at short view distances */
-  fr += (R * day - fr) * 0.26f;
-  fg += (G * day - fg) * 0.26f;
-  fb += (B * day - fb) * 0.26f;
+  /* 1.8 mixes the fog towards the sky at short view distances, then darkens it in rain and storms */
+  fr += (sr - fr) * 0.26f;
+  fg += (sg - fg) * 0.26f;
+  fb += (sbl - fb) * 0.26f;
+  fr *= (1 - rs * 0.5f) * (1 - ts * 0.5f);
+  fg *= (1 - rs * 0.5f) * (1 - ts * 0.5f);
+  fb *= (1 - rs * 0.4f) * (1 - ts * 0.5f);
+  /* World.getCloudColour */
+  {
+    float cr = 1, cg = 1, cbl = 1;
+    if (rs > 0) {
+      float lum = 0.6f, k = 1 - rs * 0.95f;
+      cr = cg = cbl = k + lum * (1 - k);
+    }
+    cr *= day * 0.9f + 0.1f, cg *= day * 0.9f + 0.1f, cbl *= day * 0.85f + 0.15f;
+    if (ts > 0) {
+      float lum = (cr * 0.3f + cg * 0.59f + cbl * 0.11f) * 0.2f, k = 1 - ts * 0.95f;
+      cr = cr * k + lum * (1 - k), cg = cg * k + lum * (1 - k), cbl = cbl * k + lum * (1 - k);
+    }
+    cloud_r = (int)(cr * 255), cloud_g = (int)(cg * 255), cloud_b = (int)(cbl * 255);
+  }
+  sun_a = 1 - rs;
   fog_r = (int)(fr * 255);
   fog_g = (int)(fg * 255);
   fog_b = (int)(fb * 255);
@@ -1090,6 +1281,7 @@ void render_frame(const Camera *c, uint32_t tod) {
     if (brk_stage > 9) brk_stage = 9;
   }
   ents_frame();
+  rain_frame();
   /* every other pixel of every other row is traced; the others come from
    * their neighbours when those met the same face (or the sky) */
   Sample *top = rows[0], *mid = rows[1], *bot = rows[2];

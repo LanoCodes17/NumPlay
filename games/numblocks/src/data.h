@@ -20,6 +20,9 @@ extern const uint8_t blk_level[B_COUNT], blk_hard[B_COUNT], blk_id[B_COUNT], blk
 /* blk_flags: bits 0-2 the tint (1 grass, 2 foliage, 3 spruce, 4 birch, 5 water, 6 lily pad) */
 extern const uint16_t biome_grass[256], biome_foliage[256], biome_water[256];
 extern const int8_t biome_temp[256];   /* temperature x 50 */
+extern const uint8_t biome_rain[256];   /* 1: it rains (or snows), 2: a snowy biome */
+/* rain and snow: runs down a texel column {row, column, length, alpha}, by row; idx: the first run at or below a row */
+extern const uint8_t rain_run[][4], snow_run[][4], rain_idx[257], snow_idx[257];
 #define BF_OPAQUE 8
 #define BF_SOLID 16
 #define BF_TINT 7

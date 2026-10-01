@@ -180,20 +180,14 @@ int mob_parts(const Entity *e, float pt, Part *o) {
 extern uint32_t game_time;
 static inline int ifl(float v) { return (int)floorf(v); }
 
-static bool daylight(void) {
-  int t = (int)(game_time % 24000);
-  return t < 12300 || t > 23850;
-}
+/* World.isDaytime */
+static bool daylight(void) { return sky_sub() < 4; }
 /* the light where a mob would stand: sky light less the night's darkness */
 static int light_there(int x, int y, int z) {
   if (!world_loaded(x, y, z)) return 15;
   int i = VC_I(x - vc_x0, y - vc_y0, z - vc_z0);
   int sky = light_at(i), blk = block_light_at(i);
-  /* World.calculateSkylightSubtracted: 0 at noon, 11 at midnight */
-  int t = (int)(game_time % 24000);
-  int sub = t < 12000 ? 0 : t < 13800 ? (t - 12000) * 11 / 1800 : t < 22200 ? 11 : (24000 - t) * 11 / 1800;
-  if (t >= 23999) sub = 0;
-  sky -= sub;
+  sky -= sky_sub();
   return sky > blk ? sky : blk;
 }
 static bool can_stand(int x, int y, int z) {
@@ -232,6 +226,11 @@ void mobs_spawn(void) {
       if (!can_stand(x, y, z)) continue;
       int below = world_get(x, y - 1, z);
       int light = light_there(x, y, z);
+      /* EntityMob.isValidLightLevel: in a storm, the sky counts as night's */
+      if (thunder_str * rain_str > 0.9f) {
+        int i = VC_I(x - vc_x0, y - vc_y0, z - vc_z0), sky = light_at(i) - 10, blk = block_light_at(i);
+        light = sky > blk ? sky : blk;
+      }
       if (opt.difficulty > 0 && count(true) < 4 && light <= rnd(8) && below != B_BEDROCK) {
         static const uint8_t kinds[4] = {E_ZOMBIE, E_SKELETON, E_CREEPER, E_SPIDER};
         int t = kinds[rnd(4)];
@@ -605,7 +604,7 @@ void mob_tick(Entity *e) {
     if (e->fire < 160) e->fire = 160;
   }
   if (in_lava) e->fire = 300, hurt(e, 4, 0, 0);
-  if (in_water) e->fire = 0;
+  if (in_water || rain_at(bx, by, bz) || rain_at(bx, ifl(e->y + 1.6f), bz)) e->fire = 0;   /* Entity.isWet */
   if (e->fire > 0) {
     if (e->fire % 20 == 0) hurt(e, 1, 0, 0);
     e->fire--;

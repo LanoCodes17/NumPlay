@@ -290,3 +290,26 @@ void world_set(int x, int y, int z, int b) {
   light_box(lx - 15, ly - 15, lz - 15, lx + 16, VCY, lz + 16);
   mac_box(lx, ly, lz, lx + 1, ly + 1, lz + 1);
 }
+
+/* Chunk.getPrecipitationHeight: the first y above the blocks rain lands on
+ * (anything that stops movement, and liquids: not plants, torches, snow
+ * layers or rails). Above the cache only the sky light's top is known. */
+static bool stops_rain(int b) {
+  switch (blk_model[b]) {
+    case M_NONE: case M_CROSS: case M_TORCH: case M_LAYER: case M_VINE: case M_FLAT: case M_LADDER: return false;
+    default: return true;
+  }
+}
+int world_rain_top(int x, int z) {
+  int lx = x - vc_x0, lz = z - vc_z0;
+  if ((unsigned)lx >= VCX || (unsigned)lz >= VCZ) return 255;
+  int col = lz * VCX + lx, t = vtop[col];
+  if (vpend[col]) return 255;
+  if (t > vc_y0 + VCY) return t;
+  for (int y = VCY - 1; y >= 0 && y + vc_y0 >= t; y--)
+    if (stops_rain(vc[VC_I(lx, y, lz)])) return y + vc_y0 + 1;
+  return t;
+}
+
+/* the chunk buffer, free while a frame is drawn (the rain uses it) */
+void *world_scratch(uint32_t n) { return n <= sizeof slab32 ? slab32 : NULL; }

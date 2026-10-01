@@ -1,4 +1,4 @@
-/* Saving: the world's record (its seed, the time, the player, chests and
+/* Saving: the world's record (its seed, the time, the weather, the player, chests and
  * furnaces) next to the records of its changed blocks (edits.c), and the
  * options. A world saves every 45 seconds of play, as Minecraft does, and
  * when you quit; block changes reach storage as they fill the journal. */
@@ -17,6 +17,7 @@ typedef struct {
   uint16_t player_size, tiles_size;
   int64_t seed;
   uint32_t time;
+  Weather weather;
 } Head;
 
 extern uint32_t game_time;
@@ -28,7 +29,7 @@ bool save_world(void) {
   bool ok = edits_flush();
   uint32_t tl;
   void *t = tiles_data(&tl);
-  Head h = {{'N', 'B', 'W', '1'}, (uint16_t)sizeof pl, (uint16_t)tl, world_seed, game_time};
+  Head h = {{'N', 'B', 'W', '1'}, (uint16_t)sizeof pl, (uint16_t)tl, world_seed, game_time, weather};
   /* one record: the head, the player, the tiles (written from a buffer made in the merge scratch) */
   uint32_t n = sizeof h + sizeof pl + tl;
   uint8_t *b = (uint8_t *)edits_scratch(n);
@@ -69,6 +70,10 @@ bool load_world(void) {
     return false;
   world_seed = h.seed;
   game_time = h.time;
+  /* World.calculateInitialWeather */
+  weather = h.weather;
+  rain_str = weather.raining ? 1 : 0;
+  thunder_str = weather.thundering ? 1 : 0;
   memcpy(&pl, d + sizeof h, sizeof pl);
   memcpy(t, d + sizeof h + sizeof pl, tl);
   memset(ents, 0, sizeof ents);
@@ -83,6 +88,8 @@ void new_world(int64_t seed, int mode) {
   memset(ents, 0, sizeof ents);
   world_seed = seed;
   game_time = 0;
+  memset(&weather, 0, sizeof weather);
+  rain_str = thunder_str = 0;
   world_new(seed, WORLD);
   player_spawn();
   pl.mode = (uint8_t)mode;

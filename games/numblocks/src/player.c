@@ -431,10 +431,9 @@ static void eat_done(void) {
   use_up();
 }
 
-/* EntityPlayer.trySleep: at night, with no monster within 8 blocks; the bed is the new spawn point */
+/* EntityPlayer.trySleep: at night (or in a storm), with no monster within 8 blocks; the bed is the new spawn point */
 static void sleep_in(int x, int y, int z) {
-  int t = (int)(game_time % 24000);
-  if (t < 12541 || t > 23458) {
+  if (sky_sub() < 4) {
     gui_message("You can only sleep at night");
     return;
   }
@@ -633,7 +632,9 @@ static void hazards(float fell_from) {
     player_hurt(4, DMG_LAVA);
     pl.fire = 300;
   }
-  if (pl.in_water) pl.fire = 0;
+  if (pl.in_water || rain_at((int)floorf(pl.x), (int)floorf(pl.y), (int)floorf(pl.z)) ||
+      rain_at((int)floorf(pl.x), (int)floorf(pl.y + 1.8f), (int)floorf(pl.z)))
+    pl.fire = 0;   /* Entity.isWet */
   if (pl.fire > 0) {
     if (pl.fire % 20 == 0) player_hurt(1, DMG_FIRE);
     pl.fire--;
@@ -652,6 +653,7 @@ void player_tick(uint32_t keys, uint32_t pressed) {
     /* asleep: after 100 ticks the night is over (WorldServer.wakeAllPlayers); a key gets you up */
     if (++pl.sleep_timer >= 100) {
       game_time += 24000 - game_time % 24000;
+      weather_clear();
       pl.sleep_timer = 0;
       pl.y += 0.5f;
     } else if (pressed & (K_USE | K_ATTACK | K_JUMP)) pl.sleep_timer = 0, pl.y += 0.5f;

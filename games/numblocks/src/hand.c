@@ -74,7 +74,10 @@ static int nbox;
 static float box[5][6];              /* the model's boxes, in its pixels (x0 y0 z0 x1 y1 z1) */
 static float org[3], dx0[3], ddx[3], ddy[3];   /* the eye and the ray of pixel (x, y), in the model */
 static int face_sh[6];               /* each face's shade, 0..32: -x +x -y +y -z +z */
-static int bx0, by0, bx1, by1;       /* the screen box it covers */
+/* the faces turned to the eye (at most 3 a box), with their corners on the screen */
+typedef struct { int8_t b, f; bool near; float sx[4], sy[4], ymin, ymax; } Face;
+static Face faces[15];
+static int nfaces;
 
 #define FOCAL 171.38f   /* pixels: 120 / tan(35 degrees), 1.8's 70 degree field of view */
 /* 1.8's window is 16:9: the hand is drawn as it is at the right of one as tall as the screen */
@@ -260,27 +263,29 @@ void hand_frame(void) {
     if (k > 1) k = 1;
     face_sh[f] = (int)(k * light + 0.5f);
   }
-  /* the screen box: the boxes' corners, projected */
-  bx0 = SCREEN_W, by0 = SCREEN_H, bx1 = 0, by1 = 0;
+  /* the faces the eye sees: outside the box on their side */
+  nfaces = 0;
   for (int b = 0; b < nbox; b++)
-    for (int c = 0; c < 8; c++) {
-      float p[3] = {box[b][(c & 1) ? 3 : 0], box[b][(c & 2) ? 4 : 1], box[b][(c & 4) ? 5 : 2]}, e[3];
-      for (int i = 0; i < 3; i++) e[i] = a[i][0] * p[0] + a[i][1] * p[1] + a[i][2] * p[2] + a[i][3];
-      if (e[2] > -0.01f) {
-        bx0 = 0, by0 = 0, bx1 = SCREEN_W, by1 = SCREEN_H;   /* (up against the eye: everywhere) */
-        b = nbox;
-        break;
+    for (int f = 0; f < 6; f++) {
+      int k = f >> 1;
+      if ((f & 1) ? org[k] <= box[b][k + 3] : org[k] >= box[b][k]) continue;
+      Face *fc = &faces[nfaces++];
+      fc->b = (int8_t)b, fc->f = (int8_t)f, fc->near = false;
+      fc->ymin = 1e9f, fc->ymax = -1e9f;
+      int i = (k + 1) % 3, j = (k + 2) % 3;
+      for (int c = 0; c < 4; c++) {
+        float p[3], e[3];
+        p[k] = box[b][k + ((f & 1) ? 3 : 0)];
+        p[i] = box[b][i + ((c == 1 || c == 2) ? 3 : 0)];
+        p[j] = box[b][j + (c >= 2 ? 3 : 0)];
+        for (int r = 0; r < 3; r++) e[r] = a[r][0] * p[0] + a[r][1] * p[1] + a[r][2] * p[2] + a[r][3];
+        if (e[2] > -0.01f) fc->near = true;   /* (up against the eye: every pixel is tried) */
+        fc->sx[c] = HAND_CX + FOCAL * e[0] / -e[2], fc->sy[c] = 120 - FOCAL * e[1] / -e[2];
+        if (fc->sy[c] < fc->ymin) fc->ymin = fc->sy[c];
+        if (fc->sy[c] > fc->ymax) fc->ymax = fc->sy[c];
       }
-      float sx = HAND_CX + FOCAL * e[0] / -e[2], sy = 120 - FOCAL * e[1] / -e[2];
-      if (sx < bx0) bx0 = (int)sx;
-      if (sy < by0) by0 = (int)sy;
-      if (sx + 1 > bx1) bx1 = (int)sx + 1;
-      if (sy + 1 > by1) by1 = (int)sy + 1;
+      if (fc->near) fc->ymin = 0, fc->ymax = SCREEN_H;
     }
-  if (bx0 < 0) bx0 = 0;
-  if (by0 < 0) by0 = 0;
-  if (bx1 > SCREEN_W) bx1 = SCREEN_W;
-  if (by1 > SCREEN_H) by1 = SCREEN_H;
 }
 
 /* ---------------------------------------------------------------- drawing */
@@ -295,27 +300,7 @@ static inline int sprite_texel(int id, int u, int v) {   /* -1: see-through */
   int i = (u & 1) ? s[u >> 1] >> 4 : s[u >> 1] & 15;
   return i ? spr_pal[id][i] : -1;
 }
-static inline int clamp15(float x) { int i = (int)floorf(x); return i < 0 ? 0 : i > 15 ? 15 : i; }
-
-/* where the ray (o + t d) is inside box b: from t0 (through face f0) to t1 (through f1) */
-static bool slab(const float *o, const float *inv_d, const float *bx, float *t0, int *f0, float *t1, int *f1) {
-  float lo = -1e30f, hi = 1e30f;
-  int fl = 0, fh = 0;
-  for (int i = 0; i < 3; i++) {
-    float a = (bx[i] - o[i]) * inv_d[i], b = (bx[i + 3] - o[i]) * inv_d[i];
-    int fa = i * 2, fb = i * 2 + 1;   /* entering at the low side: its face looks -i */
-    if (a > b) {
-      float s = a;
-      a = b, b = s;
-      fa = i * 2 + 1, fb = i * 2;
-    }
-    if (a > lo) lo = a, fl = fa;
-    if (b < hi) hi = b, fh = fb;
-  }
-  if (lo >= hi || hi <= 0) return false;
-  *t0 = lo, *f0 = fl, *t1 = hi, *f1 = fh;
-  return true;
-}
+static inline int clamp15(float x) { int i = (int)x; return i < 0 ? 0 : i > 15 ? 15 : i; }   /* (below 0 is 0 anyway) */
 
 /* a block face's texel at point p (Minecraft's default UVs) */
 static int block_texel(int f, const float *p) {
@@ -348,56 +333,85 @@ static int arm_texel(int f, const float *p) {
   return sprite_texel(SP_ARM, clamp15(u), clamp15(v));
 }
 
+/* an item: from where the ray enters its slab (point p, through face f, at t), through the texel
+ * cells it crosses, a pixel thick, to the first solid one */
+static int item_texel(const float *p, const float *d, int *f) {
+  int cx = clamp15(p[0]), cy = clamp15(p[1]);
+  int c = sprite_texel(icon, cx, 15 - cy);
+  if (c >= 0) return c;
+  /* see-through there: on through the slab */
+  float ix = d[0] ? 1 / d[0] : 1e30f, iy = d[1] ? 1 / d[1] : 1e30f;
+  float back = d[2] < 0 ? box[0][2] : box[0][5], tz = d[2] ? (back - p[2]) / d[2] : 1e30f;   /* (t from p) */
+  int sx = d[0] > 0 ? 1 : -1, sy = d[1] > 0 ? 1 : -1;
+  float tx = ((sx > 0 ? cx + 1 : cx) - p[0]) * ix, ty = ((sy > 0 ? cy + 1 : cy) - p[1]) * iy;
+  float stx = fabsf(ix), sty = fabsf(iy);
+  for (int n = 0; n < 40; n++) {
+    if (tx < ty) {
+      if (tx >= tz) return -1;
+      cx += sx, tx += stx, *f = sx > 0 ? 0 : 1;
+    } else {
+      if (ty >= tz) return -1;
+      cy += sy, ty += sty, *f = sy > 0 ? 2 : 3;
+    }
+    if ((unsigned)cx > 15 || (unsigned)cy > 15) return -1;
+    c = sprite_texel(icon, cx, 15 - cy);
+    if (c >= 0) return c;
+  }
+  return -1;
+}
+
+/* the pixels of a row a face covers: where the row's middle crosses its edges */
+static bool face_span(const Face *fc, float yc, int *xa, int *xb) {
+  if (fc->near) {
+    *xa = 0, *xb = SCREEN_W;
+    return true;
+  }
+  float lo = 1e9f, hi = -1e9f;
+  for (int e = 0; e < 4; e++) {
+    float x0 = fc->sx[e], y0 = fc->sy[e], x1 = fc->sx[(e + 1) & 3], y1 = fc->sy[(e + 1) & 3];
+    if ((y0 <= yc) == (y1 <= yc)) continue;
+    float x = x0 + (yc - y0) * (x1 - x0) / (y1 - y0);
+    if (x < lo) lo = x;
+    if (x > hi) hi = x;
+  }
+  if (lo > hi) return false;
+  *xa = (int)lo - 1, *xb = (int)hi + 2;   /* (a pixel more each side: the test below decides) */
+  if (*xa < 0) *xa = 0;
+  if (*xb > SCREEN_W) *xb = SCREEN_W;
+  return *xa < *xb;
+}
+
 void hand_strip(uint16_t *buf, int y0, int rows) {
   if (kind == H_NONE) return;
-  int ya = y0 > by0 ? y0 : by0, yb = y0 + rows < by1 ? y0 + rows : by1;
-  for (int y = ya; y < yb; y++) {
+  static float zrow[SCREEN_W];   /* (several boxes: the nearest wins) */
+  for (int y = y0; y < y0 + rows; y++) {
     uint16_t *row = buf + (y - y0) * SCREEN_W;
-    for (int x = bx0; x < bx1; x++) {
-      float d[3], inv[3];
-      for (int i = 0; i < 3; i++) {
-        d[i] = dx0[i] + ddx[i] * x + ddy[i] * y;
-        inv[i] = fabsf(d[i]) > 1e-9f ? 1 / d[i] : 1e30f;
+    float yc = y + 0.5f;
+    if (nbox > 1)
+      for (int x = 0; x < SCREEN_W; x++) zrow[x] = 1e30f;
+    for (int n = 0; n < nfaces; n++) {
+      const Face *fc = &faces[n];
+      int xa, xb;
+      if (yc < fc->ymin || yc > fc->ymax || !face_span(fc, yc, &xa, &xb)) continue;
+      int f = fc->f, k = f >> 1, i = (k + 1) % 3, j = (k + 2) % 3;
+      const float *bx = box[fc->b];
+      float c = bx[k + ((f & 1) ? 3 : 0)], ck = c - org[k];
+      float r[3] = {dx0[0] + ddy[0] * y, dx0[1] + ddy[1] * y, dx0[2] + ddy[2] * y};
+      for (int x = xa; x < xb; x++) {
+        /* the ray meets the face's plane at t; inside the face? */
+        float d[3] = {r[0] + ddx[0] * x, r[1] + ddx[1] * x, r[2] + ddx[2] * x};
+        if (d[k] == 0) continue;
+        float t = ck / d[k];
+        if (t <= 0) continue;
+        float p[3];
+        p[k] = c, p[i] = org[i] + t * d[i], p[j] = org[j] + t * d[j];
+        if (p[i] < bx[i] || p[i] > bx[i + 3] || p[j] < bx[j] || p[j] > bx[j + 3]) continue;
+        if (nbox > 1 && t >= zrow[x]) continue;
+        int ff = f, col = kind == H_ARM ? arm_texel(f, p) : kind == H_BLOCK ? block_texel(f, p) : item_texel(p, d, &ff);
+        if (col < 0) continue;
+        row[x] = shade((uint16_t)col, face_sh[ff]);
+        if (nbox > 1) zrow[x] = t;
       }
-      int c = -1, f = 0;
-      if (kind == H_ITEM) {
-        float t0, t1;
-        int f0, f1;
-        if (!slab(org, inv, box[0], &t0, &f0, &t1, &f1)) continue;
-        /* through the texel cells it crosses (a pixel thick): the first solid one */
-        float px = org[0] + d[0] * t0, py = org[1] + d[1] * t0;
-        int cx = clamp15(px), cy = clamp15(py);
-        int sx = d[0] > 0 ? 1 : -1, sy = d[1] > 0 ? 1 : -1;
-        float tx = d[0] ? ((sx > 0 ? cx + 1 : cx) - org[0]) * inv[0] : 1e30f;
-        float ty = d[1] ? ((sy > 0 ? cy + 1 : cy) - org[1]) * inv[1] : 1e30f;
-        float stx = fabsf(inv[0]), sty = fabsf(inv[1]);
-        f = f0;
-        for (int n = 0; n < 40; n++) {
-          c = sprite_texel(icon, cx, 15 - cy);
-          if (c >= 0) break;
-          if (tx < ty) {
-            if (tx >= t1) break;
-            cx += sx, tx += stx, f = sx > 0 ? 0 : 1;
-          } else {
-            if (ty >= t1) break;
-            cy += sy, ty += sty, f = sy > 0 ? 2 : 3;
-          }
-          if ((unsigned)cx > 15 || (unsigned)cy > 15) break;
-        }
-      } else {
-        /* the nearest box the ray meets */
-        float best = 1e30f;
-        for (int b = 0; b < nbox; b++) {
-          float t0, t1;
-          int f0, f1;
-          if (!slab(org, inv, box[b], &t0, &f0, &t1, &f1) || t0 >= best) continue;
-          float p[3] = {org[0] + d[0] * t0, org[1] + d[1] * t0, org[2] + d[2] * t0};
-          int k = kind == H_ARM ? arm_texel(f0, p) : block_texel(f0, p);
-          if (k < 0) continue;
-          best = t0, c = k, f = f0;
-        }
-      }
-      if (c >= 0) row[x] = shade((uint16_t)c, face_sh[f]);
     }
   }
 }

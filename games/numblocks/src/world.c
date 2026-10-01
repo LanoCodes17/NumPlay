@@ -162,8 +162,12 @@ static void fill_chunk(int cx, int cz, const bool *keep, int oy, int ylo, int yh
       }
       if (!old_col) {
         vbiome[col] = (uint8_t)gen_biome(cx * 16 + x, cz * 16 + z);
-        int gt = gen_top(cx * 16 + x, cz * 16 + z), t = edits_top(cx * 16 + x, cz * 16 + z, gt + 1);
+        int gt = gen_top(cx * 16 + x, cz * 16 + z), lt = gt;
         vgtop[col] = (uint8_t)gt;
+        /* the sky light's top is the highest block that stops light: snow layers, flowers, tall
+         * grass on top let it all through (else they and what they stand on were lit too dark) */
+        for (int ly = gt - vc_y0; ly >= 0 && ly < VCY && opacity(vc[VC_I(lx, ly, lz)]) == 0; ly--) lt--;
+        int t = edits_top(cx * 16 + x, cz * 16 + z, lt + 1);
         vtop[col] = (uint8_t)(t < 0 ? 0 : t > 255 ? 255 : t);
       }
     }

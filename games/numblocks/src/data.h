@@ -264,7 +264,8 @@ extern const uint16_t blk_icon[B_COUNT];   /* sprite of its icon */
 #define SP_SLOT_LEGGINGS 375
 #define SP_SLOT_BOOTS 376
 #define SP_STEVE 377
-#define SP_DIRT_BG 378
+#define SP_ARM 378
+#define SP_DIRT_BG 379
 
 #include "items.h"
 extern const uint16_t blk_item[B_COUNT];   /* the item a block state counts as (0xFFFF: none) */

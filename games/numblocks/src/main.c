@@ -145,6 +145,7 @@ bool game_frame(void) {
     game_pressed = 0;
     ents_tick();
     gui_tick();
+    hand_tick();
     game_time++;
     acc -= 50;
     /* Minecraft saves every 45 seconds */

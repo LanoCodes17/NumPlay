@@ -128,6 +128,8 @@ void player_hurt(float amount, int kind);   /* kind: DMG_* */
 enum { DMG_GENERIC, DMG_FALL, DMG_DROWN, DMG_LAVA, DMG_FIRE, DMG_STARVE, DMG_WALL, DMG_VOID, DMG_MOB, DMG_ARROW,
        DMG_EXPLOSION, DMG_CACTUS };
 void player_add_xp(int n);
+void player_swing(void);   /* the arm swings (gui.c) */
+void hand_tick(void);
 
 /* ---------------------------------------------------------------- entities (entity.c) */
 enum { E_NONE, E_ITEM, E_ZOMBIE, E_SKELETON, E_CREEPER, E_SPIDER, E_PIG, E_COW, E_SHEEP, E_CHICKEN, E_ARROW };

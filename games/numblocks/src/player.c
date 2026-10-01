@@ -403,7 +403,7 @@ static void use(uint32_t pressed) {
   }
   switch (k) {
     case IK_BLOCK:
-      if (on_block && place(h->id)) use_up();
+      if (on_block && place(h->id)) use_up(), player_swing();
       return;
     case IK_PLACER:
     case IK_FOOD:
@@ -626,14 +626,16 @@ void player_tick(uint32_t keys, uint32_t pressed) {
   }
   Entity *target = entity_looked_at(pl.mode ? 5.0f : 3.0f, bt);
   if (target) {
-    if (pressed & K_ATTACK) mob_attack(target);
+    if (pressed & K_ATTACK) mob_attack(target), player_swing();
     if ((pressed & K_USE) && mob_use(target)) pressed &= ~K_USE;
     keys &= ~K_ATTACK;
     pl.breaking = 0;
   }
   /* mining (Back held) */
   if (break_cooldown) break_cooldown--;
+  if ((pressed & K_ATTACK) && pl.hit_face < 0 && !target) player_swing();
   if ((keys & K_ATTACK) && pl.hit_face >= 0 && !break_cooldown) {
+    player_swing();
     int b = world_get(pl.hit_x, pl.hit_y, pl.hit_z);
     int hard = blk_hard[b];
     if (pl.mode == 1) {

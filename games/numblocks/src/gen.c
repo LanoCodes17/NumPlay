@@ -2697,3 +2697,340 @@ static inline int in_c_cols(int X, int Z) {
     int cx = X - c_cx * 16, cz = Z - c_cz * 16;
     return cx >= 0 && cx < 16 && cz >= 0 && cz < 16;
 }
+
+/* ======================================================================== */
+/* Population features                                                       */
+/* ======================================================================== */
+
+static JRand PR;           /* the population random (ChunkProviderGenerate.h) */
+static int PK, PL;         /* origin of the populated chunk (k = px*16, l = pz*16) */
+
+#define RI(n) jr_int(&PR, (n))
+#define RF() jr_float(&PR)
+
+/* ---- cave query: marks carved blocks of box [x0,x1)x[y0,y1)x[z0,z1) for vget ---- */
+static void cave_query(int x0, int y0, int z0, int x1, int y1, int z1) {
+    View *v = &PV;
+    if (y0 < 0) y0 = 0;
+    if (y1 > 256) y1 = 256;
+    if ((x1 - x0) * (y1 - y0) * (z1 - z0) > (int)sizeof U.p.qmask || y1 <= y0) {
+        v->qon = 0;
+        return;
+    }
+    memset(U.p.qmask, 0, sizeof U.p.qmask);
+    CaveCtx ctx;
+    memset(&ctx, 0, sizeof ctx);
+    ctx.mode = CAVE_MASK;
+    ctx.bx0 = x0;
+    ctx.bx1 = x1;
+    ctx.by0 = y0;
+    ctx.by1 = y1;
+    ctx.bz0 = z0;
+    ctx.bz1 = z1;
+    ctx.mask = U.p.qmask;
+    for (int tcz = z0 >> 4; tcz <= (z1 - 1) >> 4; tcz++)
+        for (int tcx = x0 >> 4; tcx <= (x1 - 1) >> 4; tcx++) {
+            int dx = tcx - nb_cx + 1, dz = tcz - nb_cz + 1;
+            if (dx < 0 || dx > 2 || dz < 0 || dz > 2) continue;
+            ctx.tcx = tcx;
+            ctx.tcz = tcz;
+            ctx.sum = nb[dz][dx]->s;
+            ctx.rx0 = x0 - tcx * 16;
+            if (ctx.rx0 < 0) ctx.rx0 = 0;
+            ctx.rx1 = x1 - tcx * 16;
+            if (ctx.rx1 > 16) ctx.rx1 = 16;
+            ctx.rz0 = z0 - tcz * 16;
+            if (ctx.rz0 < 0) ctx.rz0 = 0;
+            ctx.rz1 = z1 - tcz * 16;
+            if (ctx.rz1 > 16) ctx.rz1 = 16;
+            ctx.ry0 = y0;
+            ctx.ry1 = y1;
+            cv = &ctx;
+            caves_run();
+        }
+    v->qon = 1;
+    v->qx0 = x0;
+    v->qx1 = x1;
+    v->qy0 = y0;
+    v->qy1 = y1;
+    v->qz0 = z0;
+    v->qz1 = z1;
+}
+
+/* ---- lakes (WorldGenLakes) ---- */
+static int lake_flag(const uint8_t *sh, int j, int k1, int j1) {
+#define LB(x, z, y) ((sh[((((x) * 16 + (z)) * 8 + (y))) >> 3] >> ((((x) * 16 + (z)) * 8 + (y)) & 7)) & 1)
+    return !LB(j, k1, j1) && ((j < 15 && LB(j + 1, k1, j1)) || (j > 0 && LB(j - 1, k1, j1)) ||
+                              (k1 < 15 && LB(j, k1 + 1, j1)) || (k1 > 0 && LB(j, k1 - 1, j1)) ||
+                              (j1 < 7 && LB(j, k1, j1 + 1)) || (j1 > 0 && LB(j, k1, j1 - 1)));
+}
+
+static int lake_border_ok(const LakeRec *L) {
+    for (int j = 0; j < 16; j++)
+        for (int k1 = 0; k1 < 16; k1++)
+            for (int j1 = 0; j1 < 8; j1++)
+                if (lake_flag(L->shape, j, k1, j1)) {
+                    uint8_t b = vget(L->x + j, L->y + j1, L->z + k1);
+                    if (j1 >= 4 && (bflags[b] & BF_LIQUID)) return 0;
+                    if (j1 < 4 && !IS_BUILD(b) && b != L->liquid) return 0;
+                }
+    return 1;
+}
+
+static void lake(uint8_t liquid, int X, int Y, int Z) {
+    View *v = &PV;
+    X -= 8;
+    Z -= 8;
+    while (Y > 5 && v_empty(X, Y, Z)) Y--;
+    if (Y <= 4) return;
+    Y -= 4;
+    LakeRec tmp, *L = v->nlake < 2 ? &v->lake[v->nlake] : &tmp;
+    L->x = X;
+    L->y = Y;
+    L->z = Z;
+    L->liquid = liquid;
+    memset(L->shape, 0, sizeof L->shape);
+    int n = RI(4) + 4;
+    for (int j = 0; j < n; j++) {
+        float d0 = jr_doublef(&PR) * 6.0f + 3.0f, d1 = jr_doublef(&PR) * 4.0f + 2.0f, d2 = jr_doublef(&PR) * 6.0f + 3.0f;
+        float d3 = jr_doublef(&PR) * (16.0f - d0 - 2.0f) + 1.0f + d0 / 2.0f;
+        float d4 = jr_doublef(&PR) * (8.0f - d1 - 4.0f) + 2.0f + d1 / 2.0f;
+        float d5 = jr_doublef(&PR) * (16.0f - d2 - 2.0f) + 1.0f + d2 / 2.0f;
+        for (int k = 1; k < 15; k++)
+            for (int l = 1; l < 15; l++)
+                for (int i1 = 1; i1 < 7; i1++) {
+                    float d6 = ((float)k - d3) / (d0 / 2.0f), d7 = ((float)i1 - d4) / (d1 / 2.0f),
+                          d8 = ((float)l - d5) / (d2 / 2.0f);
+                    if (d6 * d6 + d7 * d7 + d8 * d8 < 1.0f) {
+                        int idx = (k * 16 + l) * 8 + i1;
+                        L->shape[idx >> 3] |= (uint8_t)(1 << (idx & 7));
+                    }
+                }
+    }
+    /* caves can only make the border test fail: test without, then with them */
+    if (!lake_border_ok(L)) return;
+    cave_query(X, Y, Z, X + 16, Y + 8, Z + 16);
+    int ok = lake_border_ok(L);
+    if (!ok) {
+        v->qon = 0;
+        return;
+    }
+    /* place: record the lake for the view, write into C */
+    const uint8_t *sh = L->shape;
+    if (L == &v->lake[v->nlake]) v->nlake++;
+    for (int j = 0; j < 16; j++)
+        for (int k1 = 0; k1 < 16; k1++) {
+            int any = 0;
+            for (int j1 = 0; j1 < 8; j1++)
+                if (LB(j, k1, j1)) {
+                    any = 1;
+                    put_c(X + j, Y + j1, Z + k1, j1 >= 4 ? B_AIR : liquid, R_ALWAYS);
+                }
+            if (!any) continue;
+            int lx = X + j - v->ox, lz = Z + k1 - v->oz;
+            if (lx < 0 || lx > 31 || lz < 0 || lz > 31) continue;
+            int i = lz * 32 + lx;
+            if (v->top[i] <= Y + 7) {
+                int y = v->top[i];
+                v->pl[i] = 0;
+                v->top[i] = 255; /* read the lake and terrain below */
+                while (y > 0 && vget(X + j, y, Z + k1) == B_AIR) y--;
+                v->tb[i] = vget(X + j, y, Z + k1);
+                v->top[i] = (uint8_t)y;
+            }
+        }
+    /* exposed dirt becomes grass (mycelium in mushroom biomes) */
+    for (int j = 0; j < 16; j++)
+        for (int k1 = 0; k1 < 16; k1++)
+            for (int j1 = 4; j1 < 8; j1++)
+                if (LB(j, k1, j1)) {
+                    int x = X + j, y = Y + j1 - 1, z = Z + k1;
+                    if (IS_DIRTISH(vget(x, y, z)) && y + 1 >= hm(x, z) - 1) {
+                        const Biome *b = in_c_cols(x, z) ? bio(c_b16[(x & 15) + (z & 15) * 16]) : bio(BI_PLAINS);
+                        uint8_t g = b->top == B_MYCELIUM ? B_MYCELIUM : B_GRASS;
+                        put(x, y, z, g, R_DIRTGRASS);
+                    }
+                }
+    if (liquid == B_LAVA) {
+        for (int j = 0; j < 16; j++)
+            for (int k1 = 0; k1 < 16; k1++)
+                for (int j1 = 0; j1 < 8; j1++)
+                    if (lake_flag(L->shape, j, k1, j1) && (j1 < 4 || RI(2) != 0) &&
+                        IS_BUILD(vget(X + j, Y + j1, Z + k1)))
+                        put(X + j, Y + j1, Z + k1, B_STONE, R_BUILD);
+    }
+    if (liquid == B_WATER) {
+        for (int j = 0; j < 16; j++)
+            for (int k1 = 0; k1 < 16; k1++) {
+                int x = X + j, y = Y + 4, z = Z + k1;
+                if (vget(x, y, z) != B_WATER) continue;
+                const Biome *b = in_c_cols(x, z) ? bio(c_b16[(x & 15) + (z & 15) * 16]) : bio(BI_PLAINS);
+                if (biome_temp_at(b, x, y, z) <= 0.15f) put(x, y, z, B_ICE, R_ALWAYS);
+            }
+    }
+    v->qon = 0;
+#undef LB
+}
+
+/* ---- dungeons (WorldGenDungeons) ---- */
+
+/* RNG draws of the chest loot (StructurePieceTreasure.a with the dungeon list plus an
+ * enchanted book) -- see dungeon_book() for the book */
+static void dungeon_book(void);
+
+static void dungeon_loot(void) {
+    dungeon_book();
+    for (int j = 0; j < 8; j++) {
+        static const uint8_t W[16] = {10, 10, 10, 10, 10, 10, 10, 1, 10, 4, 4, 10, 2, 5, 1, 1};
+        static const uint8_t MX[16] = {1, 4, 1, 4, 4, 4, 1, 1, 4, 1, 1, 1, 1, 1, 1, 1};
+        int r = RI(108), k = 0;
+        while (k < 15 && (r -= W[k]) >= 0) k++;
+        RI(MX[k]); /* count = min + nextInt(max - min + 1), min = 1 */
+        RI(27);    /* slot */
+    }
+}
+
+static void dungeon(int X, int Y, int Z) {
+    int i = RI(2) + 2, j = -i - 1, k = i + 1;
+    int l = RI(2) + 2, i1 = -l - 1, j1 = l + 1;
+    /* floor and ceiling must be buildable: caves only remove blocks, so test the view first */
+    for (int a = j; a <= k; a++)
+        for (int c = i1; c <= j1; c++)
+            if (!IS_BUILD(vget(X + a, Y - 1, Z + c)) || !IS_BUILD(vget(X + a, Y + 4, Z + c))) return;
+    cave_query(X + j, Y - 2, Z + i1, X + k + 1, Y + 6, Z + j1 + 1);
+    int k1 = 0;
+    for (int a = j; a <= k; a++)
+        for (int b = -1; b <= 4; b++)
+            for (int c = i1; c <= j1; c++) {
+                uint8_t m = vget(X + a, Y + b, Z + c);
+                if ((b == -1 || b == 4) && !IS_BUILD(m)) {
+                    PV.qon = 0;
+                    return;
+                }
+                if ((a == j || a == k || c == i1 || c == j1) && b == 0 && m == B_AIR && v_empty(X + a, Y + 1, Z + c)) ++k1;
+            }
+    if (k1 < 1 || k1 > 5) {
+        PV.qon = 0;
+        return;
+    }
+    for (int a = j; a <= k; a++)
+        for (int b = 3; b >= -1; b--)
+            for (int c = i1; c <= j1; c++) {
+                int x = X + a, y = Y + b, z = Z + c;
+                uint8_t m = vget(x, y, z);
+                if (a != j && b != -1 && c != i1 && a != k && b != 4 && c != j1) {
+                    if (m != B_CHEST) put(x, y, z, B_AIR, R_NOTCHEST);
+                } else if (y >= 0 && !IS_BUILD(vget(x, y - 1, z))) {
+                    put(x, y, z, B_AIR, R_ALWAYS);
+                } else if (IS_BUILD(m) && m != B_CHEST) {
+                    if (b == -1 && RI(4) != 0) put(x, y, z, B_MOSSY_COBBLESTONE, R_WALL);
+                    else put(x, y, z, B_COBBLESTONE, R_WALL);
+                }
+            }
+    /* chests: candidates are interior cells (air after the loop above, or the first chest);
+     * neighbours are interior cells or the wall ring, which keeps its buildability */
+    int chx = 0x7fffffff, chz = 0;
+    for (int a = 0; a < 2; a++)
+        for (int t = 0; t < 3; t++) {
+            int x = X + RI(i * 2 + 1) - i, y = Y, z = Z + RI(l * 2 + 1) - l;
+            if (x == chx && z == chz) continue; /* not empty */
+            int n = 0;
+            static const int8_t D[4][2] = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+            for (int d = 0; d < 4; d++) {
+                int nx = x + D[d][0], nz = z + D[d][1];
+                if (nx > X + j && nx < X + k && nz > Z + i1 && nz < Z + j1) n += (nx == chx && nz == chz);
+                else n += IS_BUILD(vget(nx, y, nz)) != 0;
+            }
+            if (n == 1) {
+                put(x, y, z, B_CHEST, R_ALWAYS);
+                chx = x;
+                chz = z;
+                dungeon_loot();
+                break;
+            }
+        }
+    put(X, Y, Z, B_MOB_SPAWNER, R_ALWAYS);
+    RI(4); /* mob type */
+    PV.qon = 0;
+}
+
+/* ---- ores (WorldGenMinable) ---- */
+static void minable(int X, int Y, int Z, int n, uint8_t blk) {
+    float f = RF() * 3.1415927f;
+    float s = mh_sin(f) * (float)n / 8.0f, c = mh_cos(f) * (float)n / 8.0f;
+    /* Java: (float)(x + 8) + sin * n / 8, in float with absolute coordinates */
+    float d0 = (float)(X + 8) + s, d1 = (float)(X + 8) - s, d2 = (float)(Z + 8) + c, d3 = (float)(Z + 8) - c;
+    int d4 = Y + RI(3) - 2, d5 = Y + RI(3) - 2;
+    /* can the vein touch C (and its y range)? radius <= n/16 + 1 around the segment */
+    float rmax = (float)n / 8.0f + 2.0f;
+    float minx = (d0 < d1 ? d0 : d1) - rmax, maxx = (d0 > d1 ? d0 : d1) + rmax;
+    float minz = (d2 < d3 ? d2 : d3) - rmax, maxz = (d2 > d3 ? d2 : d3) + rmax;
+    int miny = (d4 < d5 ? d4 : d5) - (int)rmax - 1, maxy = (d4 > d5 ? d4 : d5) + (int)rmax + 1;
+    int touch = maxx >= (float)(c_cx * 16) && minx < (float)(c_cx * 16 + 16) && maxz >= (float)(c_cz * 16) &&
+                minz < (float)(c_cz * 16 + 16) && maxy >= c_y0 && miny < c_y0 + c_h;
+    if (!touch) {
+        for (int i = 0; i < n; i++) jr_double_bits(&PR);
+        return;
+    }
+    /* positions relative to an integer base so float keeps its precision */
+    int bx = floor_f(d0), bz = floor_f(d2);
+    float r0 = d0 - (float)bx, r1 = d1 - (float)bx, r2 = d2 - (float)bz, r3 = d3 - (float)bz;
+    for (int i = 0; i < n; i++) {
+        float f1 = (float)i / (float)n;
+        float d6 = r0 + (r1 - r0) * f1, d7 = (float)d4 + (float)(d5 - d4) * f1, d8 = r2 + (r3 - r2) * f1;
+        float d9 = jr_doublef(&PR) * (float)n / 16.0f;
+        float d10 = (mh_sin(3.1415927f * f1) + 1.0f) * d9 + 1.0f, h = d10 / 2.0f;
+        int j = floor_f(d6 - h), k = floor_f(d7 - h), l = floor_f(d8 - h);
+        int i1 = floor_f(d6 + h), j1 = floor_f(d7 + h), k1 = floor_f(d8 + h);
+        for (int l1 = j; l1 <= i1; l1++) {
+            float d12 = ((float)l1 + 0.5f - d6) / h;
+            if (d12 * d12 >= 1.0f) continue;
+            int wx = bx + l1;
+            if (wx < c_cx * 16 || wx >= c_cx * 16 + 16) continue;
+            for (int i2 = k; i2 <= j1; i2++) {
+                float d13 = ((float)i2 + 0.5f - d7) / h;
+                if (d12 * d12 + d13 * d13 >= 1.0f) continue;
+                if (i2 < c_y0 || i2 >= c_y0 + c_h) continue;
+                for (int j2 = l; j2 <= k1; j2++) {
+                    float d14 = ((float)j2 + 0.5f - d8) / h;
+                    if (d12 * d12 + d13 * d13 + d14 * d14 < 1.0f) put_c(wx, i2, bz + j2, blk, R_STONE);
+                }
+            }
+        }
+    }
+}
+
+static void ores(void) {
+    static const struct {
+        uint8_t n, size, lo, hi, blk;
+    } O[] = {{10, 33, 0, 255, 0}, {8, 33, 0, 255, 1}, {10, 33, 0, 80, 2}, {10, 33, 0, 80, 3},
+             {10, 33, 0, 80, 4},  {20, 17, 0, 128, 5}, {20, 9, 0, 64, 6},  {2, 9, 0, 32, 7},
+             {8, 8, 0, 16, 8},    {1, 8, 0, 16, 9}};
+    const uint8_t blocks[10] = {B_DIRT, B_GRAVEL, B_DIORITE, B_GRANITE, B_ANDESITE,
+                                B_COAL_ORE, B_IRON_ORE, B_GOLD_ORE, B_REDSTONE_ORE, B_DIAMOND_ORE};
+    for (int t = 0; t < 10; t++) {
+        int hi = O[t].hi == 255 ? 256 : O[t].hi;
+        for (int c = 0; c < O[t].n; c++) {
+            int x = RI(16), y = RI(hi - O[t].lo) + O[t].lo, z = RI(16);
+            minable(PK + x, y, PL + z, O[t].size, blocks[O[t].blk]);
+        }
+    }
+    /* lapis: b(1, lapis, 16, 16): y = nextInt(16) + nextInt(16) + 16 - 16 */
+    int x = RI(16), y = RI(16) + RI(16), z = RI(16);
+    minable(PK + x, y, PL + z, 7, B_LAPIS_ORE);
+}
+
+/* ---- disks (WorldGenSand, WorldGenClay) ---- */
+static void disk(uint8_t blk, int size, int yr, int clay) {
+    int x = PK + RI(16) + 8, z = PL + RI(16) + 8;
+    int y = top_solid(x, z);
+    uint8_t m = vget(x, y, z);
+    if (!(m == B_WATER || m == B_FLOWING_WATER)) return;
+    int i = RI(size - 2) + 2;
+    for (int a = x - i; a <= x + i; a++)
+        for (int b = z - i; b <= z + i; b++) {
+            int dx = a - x, dz = b - z;
+            if (dx * dx + dz * dz > i * i) continue;
+            for (int c = y - yr; c <= y + yr; c++) put_c(a, c, b, blk, clay ? R_DIRTCLAY : R_DIRTGRASS);
+        }
+}

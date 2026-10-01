@@ -248,8 +248,8 @@ def iso_icon(jar, s, names_px):
             px, py = x + 0.5, y + 0.5
             # top face: (8,0) (16,4) (8,8) (0,4); u along (8,0)->(16,4), v along (8,0)->(0,4)
             oy = (1 - h) * 8
-            a = (px - 8) / 8 + (py - oy) / 4
-            b = -(px - 8) / 8 + (py - oy) / 4
+            a = ((px - 8) / 8 + (py - oy) / 4) / 2
+            b = (-(px - 8) / 8 + (py - oy) / 4) / 2
             if 0 <= a < 1 and 0 <= b < 1:
                 c = timg.getpixel((min(15, int(a * 16)), min(15, int(b * 16))))
                 if c[3] >= 128:
@@ -464,6 +464,7 @@ def main():
     for part in ('helmet', 'chestplate', 'leggings', 'boots'):
         sprites.append(('slot_' + part, first_frame(jar.image('items/empty_armor_slot_' + part))))
     sprites.append(('steve', steve_front(jar)))
+    sprites.append(('arm', jar.image('entity/steve').crop((44, 20, 48, 32))))
     bg = first_frame(jar.image('gui/options_background'))
     bg.putdata([(r * 0x40 // 255, g * 0x40 // 255, b * 0x40 // 255, 255) for r, g, b, a in pixels(bg)])
     sprites.append(('dirt_bg', bg))
@@ -590,7 +591,7 @@ def main():
     out.append('};')
     gui_names = [n for n, im in gi]
     extra = [n for n, *_ in GUI_SPRITES] + ['slot_helmet', 'slot_chestplate', 'slot_leggings', 'slot_boots', 'steve',
-                                            'dirt_bg']
+                                            'arm', 'dirt_bg']
     # Minecraft's clouds: 256 x 256, 1 bit a cell
     cl = jar.image('environment/clouds')
     bits = bytearray(256 * 256 // 8)

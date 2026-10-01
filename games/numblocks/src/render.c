@@ -578,6 +578,47 @@ static bool project(float x, float y, float z, float *sx, float *sy) {
   return true;
 }
 
+/* a block as held in the hand: an isometric cube `size` pixels wide, centred
+ * on (cx, cy), its textures at full resolution (top 1.0, left 0.8, right 0.6) */
+void draw_held_cube(uint16_t *buf, int y0, int rows, int b, float cx, float cy, float size, int sh) {
+  int col = cam_i >= 0 ? cam_i % (VCX * VCZ) : 0;
+  float k = 16 / size;
+  int top = blk_tex[b][1], left = blk_tex[b][(blk_model[b] == M_CUBE && blk_tex[b][2] != blk_tex[b][4]) ? 2 : 3],
+      right = blk_tex[b][5];
+  float h = blk_model[b] == M_SLAB ? 0.5f : 1.0f, oy = (1 - h) * 8;
+  for (int y = y0; y < y0 + rows; y++) {
+    float py = (y + 0.5f - (cy - size / 2)) * k;
+    if (py < 0 || py >= 16) continue;
+    uint16_t *d = buf + (y - y0) * SCREEN_W;
+    for (int x = (int)(cx - size / 2); x < (int)(cx + size / 2) + 1; x++) {
+      if ((unsigned)x >= SCREEN_W) continue;
+      float px = (x + 0.5f - cx) * k + 8;
+      int face = -1, u = 0, v = 0;
+      float a = ((px - 8) / 8 + (py - oy) / 4) / 2, bb = (-(px - 8) / 8 + (py - oy) / 4) / 2;
+      if (a >= 0 && a < 1 && bb >= 0 && bb < 1) face = 1, u = (int)(a * 16), v = (int)(bb * 16);
+      else if (px < 8) {
+        float uu = px / 8, vv = (py - 4 - oy - px / 2) / (8 * h);
+        if (uu >= 0 && uu < 1 && vv >= 0 && vv < 1) face = 2, u = (int)(uu * 16), v = (int)(((1 - h) + vv * h) * 16);
+      } else {
+        float uu = (px - 8) / 8, vv = (py - 8 - oy + (px - 8) / 2) / (8 * h);
+        if (uu >= 0 && uu < 1 && vv >= 0 && vv < 1) face = 3, u = (int)(uu * 16), v = (int)(((1 - h) + vv * h) * 16);
+      }
+      if (face < 0) continue;
+      int tex = face == 1 ? top : face == 2 ? left : right;
+      int tc = texel565(b, tex, u & 15, v & 15, col);
+      if (tc < 0) {
+        if (blk_model[b] != M_LEAVES) continue;
+        tc = 0;
+      }
+      int s = face == 1 ? sh : face == 2 ? sh * 26 / 32 : sh * 19 / 32;
+      d[x] = shade565((uint16_t)tc, s);
+    }
+  }
+}
+
+/* how lit the player's hand is (0..32): the light where the eyes are */
+int view_light(void) { return shade[0][cam_i >= 0 ? light_at(cam_i) : 15]; }
+
 static void ents_frame(void) {
   ndraws = 0;
   for (int i = 0; i < N_ENT && ndraws < N_DRAW; i++) {

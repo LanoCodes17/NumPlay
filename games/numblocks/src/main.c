@@ -96,6 +96,7 @@ bool game_frame(void) {
     }
     return false;
   }
+  int gui_before = gui;
   gui_input(k, pressed);
   if (menu_choice) {
     int c = menu_choice;
@@ -133,6 +134,12 @@ bool game_frame(void) {
     return true;
   }
   bool in_game = gui == GUI_NONE;
+  /* keys held while a screen is open (or as it closes: OK on "Back to Game", Back out of the
+   * inventory) do nothing in the world until they are let go, so they don't place or break */
+  static uint32_t latched;
+  if (!in_game || gui_before != GUI_NONE) latched = k & ~(K_FWD | K_BACKW | K_STRAFE_L | K_STRAFE_R);
+  else latched &= k;
+  k &= ~latched, pressed &= ~latched;
   /* looking around: arrows, 150 degrees a second sideways, 100 up and down (x the look speed) */
   if (in_game) {
     float turn = dt / 1000.0f * opt.look / 100.0f;

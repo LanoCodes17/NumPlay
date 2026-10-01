@@ -551,33 +551,40 @@ static uint16_t trace(float dx, float dy, float dz) {
     }
     int reg = fresh ? vmac[mi] : 1;
     if (!reg || (reg == 2 && is_water(R.inside))) {
-      /* an empty 4 x 4 x 4 region (or all water, seen from in the water): jump to where the ray leaves it */
-      ST(st_jumps++);
-      float ex = ((x & ~3) + (bx ? 4 : 0) - ox) * ivx, ey = ((y & ~3) + (by ? 4 : 0) - oy) * ivy,
-            ez = ((z & ~3) + (bz ? 4 : 0) - oz) * ivz;
-      float te;
-      int ax;
-      if (ex < ey && ex < ez) te = ex, ax = 0;
-      else if (ey < ez) te = ey, ax = 1;
-      else te = ez, ax = 2;
-      if (te > tmax) break;
+      /* an empty 4 x 4 x 4 region (or all water, seen from in the water): on from region to
+       * region (the times the ray crosses their sides) while they are empty */
+      bool wet = is_water(R.inside);
+      int rx = x >> 2, ry = y >> 2, rz = z >> 2, ax;
+      float ex = ((rx + bx) * 4 - ox) * ivx, ey = ((ry + by) * 4 - oy) * ivy, ez = ((rz + bz) * 4 - oz) * ivz, te;
+      for (;;) {
+        ST(st_jumps++);
+        if (ex < ey && ex < ez) {
+          te = ex, ax = 0, ex += 4 * idx, rx += sx, mi += sx;
+          if ((unsigned)rx >= MCX) goto out;
+        } else if (ey < ez) {
+          te = ey, ax = 1, ey += 4 * idy, ry += sy, mi += my;
+          if ((unsigned)ry >= MCY || (sy > 0 && ry * 4 >= sky_top)) goto out;
+        } else {
+          te = ez, ax = 2, ez += 4 * idz, rz += sz, mi += mz;
+          if ((unsigned)rz >= MCZ) goto out;
+        }
+        if (te > tmax) goto out;
+        reg = vmac[mi];
+        if (reg && !(reg == 2 && wet)) break;
+      }
       t = te;
-      /* the cell just past the boundary: on the crossing axis it is the next one; on
-       * the others it is still in this region (rounding must not put it in another,
-       * or two regions could hand the ray back and forth) */
+      /* the cell just past the side: on the crossing axis the region's first; on the others
+       * where the ray is, kept in the region (rounding must not put it in another) */
       float hx = ox + dx * te, hy = oy + dy * te, hz = oz + dz * te;
-      int rx = x & ~3, ry = y & ~3, rz = z & ~3;
-      x = ax == 0 ? rx + (bx ? 4 : -1) : clampi((int)hx, rx, rx + 3);   /* ((int): the clamp does the floor) */
-      y = ax == 1 ? ry + (by ? 4 : -1) : clampi((int)hy, ry, ry + 3);
-      z = ax == 2 ? rz + (bz ? 4 : -1) : clampi((int)hz, rz, rz + 3);
-      if ((unsigned)x >= VCX || (unsigned)y >= VCY || (unsigned)z >= VCZ || (sy > 0 && y >= sky_top)) break;
-      face = ax == 0 ? (sx > 0 ? 4 : 5) : ax == 1 ? (sy > 0 ? 0 : 1) : (sz > 0 ? 2 : 3);
+      x = ax == 0 ? rx * 4 + (bx ? 0 : 3) : clampi((int)hx, rx * 4, rx * 4 + 3);   /* ((int): the clamp does the floor) */
+      y = ax == 1 ? ry * 4 + (by ? 0 : 3) : clampi((int)hy, ry * 4, ry * 4 + 3);
+      z = ax == 2 ? rz * 4 + (bz ? 0 : 3) : clampi((int)hz, rz * 4, rz * 4 + 3);
+      face = ax == 0 ? fx : ax == 1 ? fy : fz;
       tx = (x + bx - ox) * ivx;
       ty = (y + by - oy) * ivy;
       tz = (z + bz - oz) * ivz;
       i = VC_I(x, y, z);
-      mi = MC_I(x, y, z);
-      fresh = 1;
+      fresh = 0;   /* (its region is known: not empty) */
       continue;
     }
     /* the next cell */
@@ -622,6 +629,7 @@ static uint16_t trace(float dx, float dy, float dz) {
     }
     if (t > tmax) break;
   }
+out:;
   uint16_t c = sky(dx, dy, dz, len);
   int wa = R.wa;
   if (!wa) hit_kind = 2;

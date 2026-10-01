@@ -37,6 +37,13 @@ static void loading(void) {
   gui = GUI_LOADING;
   render_frame(NULL, game_time);
   world_follow(pl.x, pl.y, pl.z);
+  /* standing inside blocks (the world changed under a saved player): up to the first free space */
+  for (int k = 0; k < WORLD_H; k++) {
+    int x = (int)floorf(pl.x), y = (int)floorf(pl.y), z = (int)floorf(pl.z);
+    if (!(blk_flags[world_get(x, y, z)] & BF_SOLID) && !(blk_flags[world_get(x, y + 1, z)] & BF_SOLID)) break;
+    pl.y = (float)(y + 1);
+    world_follow(pl.x, pl.y, pl.z);
+  }
   camera_reset();
   gui = GUI_NONE;
   in_world = true;

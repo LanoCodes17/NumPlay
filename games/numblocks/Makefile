@@ -1,4 +1,4 @@
-# NumBlocks: Minecraft 1.8.8 on the NumWorks calculator.
+# NumBlocks: a game like Minecraft 1.8.8 for the NumWorks calculator (part of NumPlay).
 #   make            output/numblocks.nwa
 #   make check      link it like the calculator does (output/numblocks.bin)
 #   make host       build/play: the game on a computer, for tests and screenshots
@@ -64,3 +64,19 @@ data:
 
 clean:
 	$(Q) rm -rf $(BUILD_DIR) build
+
+# NumPlay launcher: the game as a module (see ../../tools/npmodule.py) for the
+# calculator, and as a relocatable object for the simulator build.
+.PHONY: module sim-module
+module: $(BUILD_DIR)/module.o
+$(BUILD_DIR)/module.o: $(GAME) src/plat_eadk.c $(HEADERS) | $(BUILD_DIR)
+	$(Q) $(CC) $(CFLAGS) -Wl,--relocatable -nostartfiles -nostdlib -Wl,-e,main -flinker-output=nolto-rel \
+	  $(GAME) src/plat_eadk.c -o $@
+
+sim-module: $(BUILD_DIR)/sim-module.o
+$(BUILD_DIR)/sim-module.o: $(GAME) src/plat_eadk.c $(HEADERS) | $(BUILD_DIR)
+	$(Q) mkdir -p $(BUILD_DIR)/sim
+	$(Q) for f in $(basename $(notdir $(GAME) src/plat_eadk.c)); do cc -std=gnu11 -O2 -fPIC \
+	  $(shell $(NWLINK) eadk-cflags-simulator) -fno-math-errno -Dmain=np_numblocks_main -c src/$$f.c \
+	  -o $(BUILD_DIR)/sim/$$f.o || exit 1; done
+	$(Q) ld -r $(BUILD_DIR)/sim/*.o -exported_symbol _np_numblocks_main -o $@

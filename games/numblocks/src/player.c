@@ -161,8 +161,14 @@ void player_hurt(float amount, int kind) {
   }
 }
 
-/* FoodStats.onUpdate */
+/* FoodStats.onUpdate (and on Peaceful, EntityPlayer.onLivingUpdate's healing and feeding) */
+extern uint32_t game_time;
 static void food_tick(void) {
+  if (opt.difficulty == 0) {
+    if (pl.health < 20 && game_time % 20 == 0) pl.health = pl.health + 1 > 20 ? 20 : pl.health + 1;
+    if (pl.food < 20 && game_time % 10 == 0) pl.food++;
+    return;
+  }
   if (pl.exhaustion > 4) {
     pl.exhaustion -= 4;
     if (pl.sat > 0) pl.sat = pl.sat > 1 ? pl.sat - 1 : 0;
@@ -177,7 +183,8 @@ static void food_tick(void) {
     }
   } else if (pl.food <= 0) {
     if (++pl.food_timer >= 80) {
-      if (pl.health > 1) player_hurt(1, DMG_STARVE);   /* Normal: down to half a heart */
+      /* starving: Easy stops at 5 hearts, Normal at half a heart, Hard kills */
+      if (pl.health > 10 || opt.difficulty == 3 || (pl.health > 1 && opt.difficulty == 2)) player_hurt(1, DMG_STARVE);
       pl.food_timer = 0;
     }
   } else pl.food_timer = 0;
@@ -424,7 +431,6 @@ static void eat_done(void) {
 }
 
 /* EntityPlayer.trySleep: at night, with no monster within 8 blocks; the bed is the new spawn point */
-extern uint32_t game_time;
 static void sleep_in(int x, int y, int z) {
   int t = (int)(game_time % 24000);
   if (t < 12541 || t > 23458) {

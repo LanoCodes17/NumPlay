@@ -149,8 +149,10 @@ void player_hurt(float amount, int kind);   /* kind: DMG_* */
 enum { DMG_GENERIC, DMG_FALL, DMG_DROWN, DMG_LAVA, DMG_FIRE, DMG_STARVE, DMG_WALL, DMG_VOID, DMG_MOB, DMG_ARROW,
        DMG_EXPLOSION, DMG_CACTUS, DMG_LIGHTNING, DMG_MAGIC };
 void player_add_xp(int n);
-void player_swing(void);   /* the arm swings (gui.c) */
+void player_swing(void);   /* the arm swings (hand.c) */
 void hand_tick(void);
+void hand_frame(void);     /* the hand and what it holds, once a frame, */
+void hand_strip(uint16_t *buf, int y0, int rows);   /* then drawn on each strip */
 void gui_message(const char *s);   /* a line at the bottom left, as Minecraft's chat shows */
 
 /* ---------------------------------------------------------------- entities (entity.c) */

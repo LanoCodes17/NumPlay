@@ -553,7 +553,7 @@ def main():
     for part in ('helmet', 'chestplate', 'leggings', 'boots'):
         sprites.append(('slot_' + part, first_frame(jar.image('items/empty_armor_slot_' + part))))
     sprites.append(('steve', steve_front(jar)))
-    sprites.append(('arm', jar.image('entity/steve').crop((44, 20, 48, 32))))
+    sprites.append(('arm', jar.image('entity/steve').crop((40, 16, 56, 32))))   # the right arm's box, all six faces
     bg = first_frame(jar.image('gui/options_background'))
     bg.putdata([(r * 0x40 // 255, g * 0x40 // 255, b * 0x40 // 255, 255) for r, g, b, a in pixels(bg)])
     sprites.append(('dirt_bg', bg))

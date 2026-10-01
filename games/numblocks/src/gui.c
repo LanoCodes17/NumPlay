@@ -175,88 +175,6 @@ static void draw_stack(const Stack *s, int x, int y) {
   }
 }
 
-/* ---------------------------------------------------------------- the hand (ItemRenderer) */
-static int swing_t = -1, equip = 0, equip_id = 0;
-void player_swing(void) {
-  if (swing_t < 0 || swing_t >= 3) swing_t = 0;   /* EntityLivingBase.swingItem: 6 ticks */
-}
-void hand_tick(void) {
-  if (msg_timer) msg_timer--;
-  if (swing_t >= 0 && ++swing_t >= 6) swing_t = -1;
-  int id = held()->id;
-  if (id != equip_id) {
-    if (equip < 4) equip++;
-    else equip_id = id;
-  } else if (equip > 0) equip--;
-}
-int view_light(void);
-void draw_held_cube(uint16_t *buf, int y0, int rows, int b, float cx, float cy, float size, int sh);
-
-/* a sprite turned by `ang` and scaled about (cx, cy), shaded (0..32) */
-static void sprite_affine(int id, float cx, float cy, float scale, float ang, int sh) {
-  int w = spr_w[id], h = spr_h[id], stride = (w + 1) / 2;
-  const uint8_t *px = spr_px + spr_off[id];
-  const uint16_t *pal = spr_pal[id];
-  float ca = cosf(ang), sa = sinf(ang);
-  float half = sqrtf((float)(w * w + h * h)) * scale / 2 + 1;
-  int y0 = (int)(cy - half), y1 = (int)(cy + half), x0 = (int)(cx - half), x1 = (int)(cx + half);
-  if (y0 < clip_y0) y0 = clip_y0;
-  if (y1 >= clip_y1) y1 = clip_y1 - 1;
-  if (x0 < 0) x0 = 0;
-  if (x1 >= SCREEN_W) x1 = SCREEN_W - 1;
-  for (int y = y0; y <= y1; y++) {
-    uint16_t *d = row_at(y);
-    float ry = y + 0.5f - cy;
-    for (int x = x0; x <= x1; x++) {
-      float rx = x + 0.5f - cx;
-      float u = (ca * rx + sa * ry) / scale + w / 2.0f, v = (-sa * rx + ca * ry) / scale + h / 2.0f;
-      if (u < 0 || v < 0 || u >= w || v >= h) continue;
-      int iu = (int)u, iv = (int)v;
-      const uint8_t *s = px + iv * stride;
-      int i = (iu & 1) ? s[iu >> 1] >> 4 : s[iu >> 1] & 15;
-      if (!i) continue;
-      uint16_t c = pal[i];
-      if (sh < 32) {
-        uint32_t rb = ((uint32_t)(c & 0xF81F) * (uint32_t)sh >> 5) & 0xF81F, g = ((uint32_t)(c & 0x07E0) * (uint32_t)sh >> 5) & 0x07E0;
-        c = (uint16_t)(rb | g);
-      }
-      d[x] = c;
-    }
-  }
-}
-
-/* the arm or what it holds, at the bottom right; swings when used, dips when changed */
-static void hand(void) {
-  if (pl.dead || clip_y1 < 100) return;
-  float p = swing_t < 0 ? 0 : (swing_t + tick_frac) / 6.0f;
-  if (p > 1) p = 1;
-  float sq = sqrtf(p);
-  float dx = -sinf(sq * 3.14159265f) * 50, dy = -sinf(sq * 6.2831853f) * 18 + sinf(p * 3.14159265f) * 10;
-  float rot = -sinf(p * p * 3.14159265f) * 0.35f;
-  if (equip > 0) {
-    /* lowered while the held item changes, raised again after */
-    float e = equip + (equip_id != held()->id ? tick_frac : -tick_frac);
-    if (e > 4) e = 4;
-    if (e > 0) dy += e * 20;
-  }
-  int sh = view_light();
-  int id = held()->id;
-  if (pl.using_ticks > 0 && item_kind(id) != IK_BOW) {
-    /* eating: the food comes to the mouth and bobs */
-    float k = pl.using_ticks > 6 ? 1 : pl.using_ticks / 6.0f;
-    dx -= 70 * k;
-    dy -= 15 * k - fabsf(sinf(pl.using_ticks * 1.2f)) * 6 * k;
-  }
-  if (!id) sprite_affine(SP_ARM, 262 + dx, 206 + dy, 8, -0.75f + rot, sh * 26 / 32);
-  else if (id < 256 && blk_model[id] != M_CROSS && blk_model[id] != M_TORCH && blk_model[id] != M_FLAT &&
-           blk_model[id] != M_VINE && blk_model[id] != M_LADDER)
-    draw_held_cube(clip_buf, clip_y0, clip_y1 - clip_y0, id, 248 + dx, 182 + dy, 84, sh);
-  else {
-    int ic = id == I_FISHING_ROD && bobber() ? SP_FISHING_ROD_CAST : item_icon(id);   /* (the line out) */
-    sprite_affine(ic, 240 + dx, 166 + dy, 5.6f, -0.35f + rot, sh);
-  }
-}
-
 /* ---------------------------------------------------------------- messages (GuiNewChat) */
 void gui_message(const char *s) {
   int i = 0;
@@ -421,6 +339,7 @@ static bool can_smelt(const Furnace *f) {
   return f->s[2].id == out && f->s[2].aux < item_max(out);
 }
 void gui_tick(void) {
+  if (msg_timer) msg_timer--;
   for (int i = 0; i < N_FURNACES; i++) {
     Furnace *f = &furnaces[i];
     if (!f->used) continue;
@@ -1394,8 +1313,8 @@ void hud_strip(uint16_t *buf, int y0, int rows) {
   clip_buf = buf;
   clip_y0 = y0;
   clip_y1 = y0 + rows;
-  if (y0 == 0) frame_no++;
-  if (gui <= GUI_PAUSE && !pl.sleep_timer) hand();
+  if (y0 == 0) frame_no++, hand_frame();
+  hand_strip(buf, y0, rows);
   if (pl.sleep_timer) {
     /* falling asleep: the screen darkens (GuiIngame.renderSleep) */
     int a = pl.sleep_timer * 32 / 100;

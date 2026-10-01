@@ -187,25 +187,13 @@ static bool daylight(void) {
 static int light_there(int x, int y, int z) {
   if (!world_loaded(x, y, z)) return 15;
   int i = VC_I(x - vc_x0, y - vc_y0, z - vc_z0);
-  int sky = light_at(i);
+  int sky = light_at(i), blk = block_light_at(i);
   /* World.calculateSkylightSubtracted: 0 at noon, 11 at midnight */
   int t = (int)(game_time % 24000);
   int sub = t < 12000 ? 0 : t < 13800 ? (t - 12000) * 11 / 1800 : t < 22200 ? 11 : (24000 - t) * 11 / 1800;
   if (t >= 23999) sub = 0;
   sky -= sub;
-  return sky < 0 ? 0 : sky;
-}
-/* a torch's light reaches here (block light 8 or more: 7 blocks from a torch) */
-static bool lit_by_blocks(int x, int y, int z) {
-  for (int dy = -6; dy <= 6; dy++)
-    for (int dz = -6; dz <= 6; dz++)
-      for (int dx = -6; dx <= 6; dx++) {
-        int m = abs(dx) + abs(dy) + abs(dz);
-        if (m > 7) continue;
-        int b = world_get(x + dx, y + dy, z + dz);
-        if (blk_light[b] && blk_light[b] - m >= 8) return true;
-      }
-  return false;
+  return sky > blk ? sky : blk;
 }
 static bool can_stand(int x, int y, int z) {
   int below = world_get(x, y - 1, z), feet = world_get(x, y, z), head = world_get(x, y + 1, z);
@@ -243,8 +231,7 @@ void mobs_spawn(void) {
       if (!can_stand(x, y, z)) continue;
       int below = world_get(x, y - 1, z);
       int light = light_there(x, y, z);
-      if (opt.difficulty > 0 && count(true) < 4 && light <= rnd(8) && below != B_BEDROCK &&
-          !lit_by_blocks(x, y, z)) {
+      if (opt.difficulty > 0 && count(true) < 4 && light <= rnd(8) && below != B_BEDROCK) {
         static const uint8_t kinds[4] = {E_ZOMBIE, E_SKELETON, E_CREEPER, E_SPIDER};
         int t = kinds[rnd(4)];
         if (t == E_SPIDER && !(can_stand(x + 1, y, z) && can_stand(x, y, z + 1))) t = E_ZOMBIE;

@@ -78,22 +78,22 @@ int main(void) {
     remove("build/unit-saves/ut1r-1_0.nbe");
     world_new(0, "ut1");
     world_follow(8, 70, 8);
-    int base = world_get(5, 60, 5);
-    world_set(5, 60, 5, B_GOLD_BLOCK);
-    world_set(-3, 61, 7, B_GLASS);
-    for (int i = 0; i < 300; i++) world_set(i % 20 - 5, 58 + i / 20, 12, B_DIAMOND_BLOCK);   /* more than the journal */
-    CHECK(world_get(5, 60, 5) == B_GOLD_BLOCK);
+    int base = world_get(5, 62, 5);
+    world_set(5, 62, 5, B_GOLD_BLOCK);
+    world_set(-3, 63, 7, B_GLASS);
+    for (int i = 0; i < 300; i++) world_set(i % 20 - 5, 61 + i / 20, 12, B_DIAMOND_BLOCK);   /* more than the journal */
+    CHECK(world_get(5, 62, 5) == B_GOLD_BLOCK);
     CHECK(edits_flush());
     world_new(0, "ut1");
     world_follow(8, 70, 8);
-    CHECK(world_get(5, 60, 5) == B_GOLD_BLOCK);
-    CHECK(world_get(-3, 61, 7) == B_GLASS);
-    CHECK(world_get(14, 72, 12) == B_DIAMOND_BLOCK && world_get(-5, 58, 12) == B_DIAMOND_BLOCK);
-    world_set(5, 60, 5, base);
+    CHECK(world_get(5, 62, 5) == B_GOLD_BLOCK);
+    CHECK(world_get(-3, 63, 7) == B_GLASS);
+    CHECK(world_get(14, 75, 12) == B_DIAMOND_BLOCK && world_get(-5, 61, 12) == B_DIAMOND_BLOCK);
+    world_set(5, 62, 5, base);
     CHECK(edits_flush());
     world_new(0, "ut1");
     world_follow(8, 70, 8);
-    CHECK(world_get(5, 60, 5) == base);
+    CHECK(world_get(5, 62, 5) == base);
   }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;

@@ -22,7 +22,8 @@ static float ox, oy, oz;           /* camera, cache coordinates */
 static float fwx, fwy, fwz, rgx, rgz, upx, upy, upz;
 static float fog0, fog1;           /* fog start and end (blocks) */
 static int fog_r, fog_g, fog_b, sky_r, sky_g, sky_b;   /* 0..255 */
-static int shade[4][16];           /* face shade x light level -> 0..256 */
+static int shade[4][16];           /* face shade x sky light level -> 0..32 */
+static int shade_blk[4][16];       /* face shade x block light level -> 0..32 */
 static float sun_x, sun_y, sun_z;  /* towards the sun */
 static float cloud_off;
 static bool night;
@@ -234,9 +235,14 @@ static inline uint16_t mix565(uint16_t a, uint16_t b, int k) {   /* a towards b 
   return (uint16_t)(m | m >> 16);
 }
 static uint16_t fog565;
+/* the shade (0..32) of a face side lit by a light byte (sky | block << 4): the brighter of the two */
+static inline int light_shade(int side, int lb) {
+  int a = shade[side][lb & 15], b = shade_blk[side][lb >> 4];
+  return a > b ? a : b;
+}
 static inline uint16_t lit565(uint16_t c, int face, int light, float dist) {
   static const uint8_t side[6] = {3, 0, 1, 1, 2, 2};   /* 0.5, 1.0, 0.8, 0.6 */
-  c = shade565(c, shade[side[face]][light]);
+  c = shade565(c, light_shade(side[face], light));
   if (dist > fog0) {
     int k = dist >= fog1 ? 32 : (int)((dist - fog0) * fog_k * 32);
     c = mix565(c, fog565, k);
@@ -302,7 +308,7 @@ static uint16_t trace(float dx, float dy, float dz) {
         if (tc >= 0) {
           tc = cracked(tc, i, u, v);
           last_t = t;
-          uint16_t c = lit565((uint16_t)tc, f, light_at(prev), t * len);
+          uint16_t c = lit565((uint16_t)tc, f, vl[prev], t * len);
           if (wa) c = pack((r5(c) * (256 - wa) + wr * wa) >> 8, (g6(c) * (256 - wa) + wg * wa) >> 8,
                            (b5(c) * (256 - wa) + wb * wa) >> 8);
           else if (face >= 0) hit_kind = 1, hit_x = x, hit_y = y, hit_z = z, hit_f = f;
@@ -315,7 +321,7 @@ static uint16_t trace(float dx, float dy, float dz) {
           int r, g, bb;
           texel_rgb(b, blk_tex[b][3], h.u, h.v, col, &r, &g, &bb);
           last_t = t + h.t;
-          uint16_t c = lit(r, g, bb, 1, light_at(i), (t + h.t) * len);
+          uint16_t c = lit(r, g, bb, 1, vl[i], (t + h.t) * len);
           if (wa) c = pack((r5(c) * (256 - wa) + wr * wa) >> 8, (g6(c) * (256 - wa) + wg * wa) >> 8,
                            (b5(c) * (256 - wa) + wb * wa) >> 8);
           else hit_kind = 3, hit_i = i;
@@ -328,7 +334,7 @@ static uint16_t trace(float dx, float dy, float dz) {
           int r, g, bb;
           int tex = blk_tex[b][h.face];
           if (texel_rgb(b, tex, h.u, h.v, col, &r, &g, &bb) == 0) {
-            uint16_t c = lit(r, g, bb, h.face, light_at(m == M_LIQUID || m == M_TORCH ? i : prev), (t + h.t) * len);
+            uint16_t c = lit(r, g, bb, h.face, vl[m == M_LIQUID || m == M_TORCH ? i : prev], (t + h.t) * len);
             if (m == M_LIQUID && !wa) {
               /* water: see through it (lava is opaque) */
               if (b == B_WATER || b == B_FLOWING_WATER) {
@@ -453,7 +459,7 @@ static int face_pixel(float dx, float dy, float dz, int plane, int f) {
   if ((unsigned)px < VCX && (unsigned)py < VCY && (unsigned)pz < VCZ) {
     int fi = VC_I(px, py, pz);
     if (vc[fi] != B_AIR) return -1;   /* hidden, or something stands in front: trace */
-    light = light_at(fi);
+    light = vl[fi];
   }
   float lx = hx - x, ly = hy - y, lz = hz - z;
   int u, v;
@@ -532,7 +538,7 @@ static uint16_t between(int px, int py, const Sample *a, const Sample *b, const 
       int r, g, bb;
       last_t = h.t;
       texel_rgb(b, blk_tex[b][3], h.u, h.v, z * VCX + x, &r, &g, &bb);
-      return lit(r, g, bb, 1, light_at(i), h.t * sqrtf(dx * dx + dy * dy + dz * dz));
+      return lit(r, g, bb, 1, vl[i], h.t * sqrtf(dx * dx + dy * dy + dz * dz));
     }
   }
   last_t = 1e9f;
@@ -617,7 +623,7 @@ void draw_held_cube(uint16_t *buf, int y0, int rows, int b, float cx, float cy, 
 }
 
 /* how lit the player's hand is (0..32): the light where the eyes are */
-int view_light(void) { return shade[0][cam_i >= 0 ? light_at(cam_i) : 15]; }
+int view_light(void) { return light_shade(0, cam_i >= 0 ? vl[cam_i] : 15); }
 
 static void ents_frame(void) {
   ndraws = 0;
@@ -659,7 +665,7 @@ static void ents_frame(void) {
     }
     d->e = e, d->ex = ex, d->ey = ey, d->ez = ez, d->dist = dist;
     int cx = (int)floorf(ex), cy = (int)floorf(ey + 0.2f), cz = (int)floorf(ez);
-    d->light = (unsigned)cx < VCX && (unsigned)cy < VCY && (unsigned)cz < VCZ ? light_at(VC_I(cx, cy, cz)) : 15;
+    d->light = (unsigned)cx < VCX && (unsigned)cy < VCY && (unsigned)cz < VCZ ? vl[VC_I(cx, cy, cz)] : 15;
     ndraws++;
   }
 }
@@ -738,7 +744,7 @@ static int make_boxes(const Draw *dr, Box *bx) {
       float sh = ny > 0.7f ? 1.0f : ny < -0.7f ? 0.5f : fabsf(nz) > fabsf(nx) ? 0.8f : 0.6f;
       (void)face_shade;
       light_sh[f] = sh;
-      b->shade[f] = (uint8_t)(shade[0][dr->light] * sh + 0.5f);
+      b->shade[f] = (uint8_t)(light_shade(0, dr->light) * sh + 0.5f);
     }
   }
   (void)light_sh;
@@ -930,6 +936,9 @@ static void setup_light(float sun) {
     bri = bri * (sun * 0.95f + 0.05f);
     bri = bri * 0.96f + 0.03f;
     for (int s = 0; s < 4; s++) shade[s][l] = (int)(bri * face_shade[s] * 32 + 0.5f);
+    /* block light does not follow the sun */
+    float blk = (1 - f) / (f * 3 + 1) * 0.96f + 0.03f;
+    for (int s = 0; s < 4; s++) shade_blk[s][l] = (int)(blk * face_shade[s] * 32 + 0.5f);
   }
 }
 

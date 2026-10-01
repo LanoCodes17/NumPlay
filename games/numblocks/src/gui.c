@@ -1131,7 +1131,7 @@ void hud_strip(uint16_t *buf, int y0, int rows) {
   if (gui < GUI_PAUSE || gui == GUI_PAUSE || gui == GUI_DEATH || (gui == GUI_OPTIONS && options_from == GUI_PAUSE)) hud();
   if (pl.hurt_time > 0 && gui == GUI_NONE) {
     /* (Minecraft tilts the camera; a red flash says the same here) */
-    tint_rect(0, y0, SCREEN_W, rows, RGB(0xFF, 0, 0), pl.hurt_time);
+    tint_rect(0, y0, SCREEN_W, rows, RGB(0xFF, 0, 0), pl.hurt_time * 2 / 3);
   }
   switch (gui) {
     case GUI_INVENTORY: case GUI_CRAFTING: case GUI_FURNACE: case GUI_CHEST:

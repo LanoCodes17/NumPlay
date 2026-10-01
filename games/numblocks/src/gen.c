@@ -60,6 +60,7 @@
  */
 #include "gen.h"
 
+#include <math.h>
 #include <string.h>
 
 #include "blocks.h"
@@ -3033,4 +3034,819 @@ static void disk(uint8_t blk, int size, int yr, int clay) {
             if (dx * dx + dz * dz > i * i) continue;
             for (int c = y - yr; c <= y + yr; c++) put_c(a, c, b, blk, clay ? R_DIRTCLAY : R_DIRTGRASS);
         }
+}
+
+/* ---- trees ---- */
+
+enum {
+    TR_OAK, TR_JUNGLE_SMALL, TR_BIG, TR_BIRCH, TR_BIRCH_TALL, TR_DARK, TR_TAIGA1, TR_TAIGA2, TR_MEGA_SPRUCE,
+    TR_MEGA_SPRUCE_H, TR_SWAMP, TR_ACACIA, TR_JUNGLE_MEGA, TR_BUSH
+};
+
+/* WorldGenTreeAbstract.a(Block) */
+static inline int tree_ok(uint8_t b) {
+    return b == B_AIR || IS_LEAVES(b) || b == B_GRASS || IS_DIRTISH(b) || IS_LOG(b) || b == B_VINE ||
+           (b >= B_SAPLING_OAK && b <= B_SAPLING_DARK_OAK);
+}
+#define AIR_OR_LEAVES(b) ((b) == B_AIR || IS_LEAVES(b))
+#define TREE_REPL(b) ((b) == B_AIR || IS_LEAVES(b) || IS_RPLANT(b))
+
+/* WorldGenTreeAbstract.a(world, pos): make the ground dirt */
+static void tree_dirt(int x, int y, int z) {
+    if (!IS_DIRTISH(vget(x, y, z))) put(x, y, z, B_DIRT, R_ALWAYS);
+}
+
+/* The current tree's own blocks around its trunk (7x7 columns, 32 high): vine passes and
+ * trunk vines read them. 0 = untouched, else block id + 1. */
+static uint8_t tov[7 * 7 * 32];
+static int tov_on, tov_x, tov_y, tov_z;
+
+static uint8_t tget(int x, int y, int z) {
+    if (tov_on) {
+        int dx = x - tov_x + 3, dz = z - tov_z + 3, dy = y - tov_y;
+        if (dx >= 0 && dx < 7 && dz >= 0 && dz < 7 && dy >= 0 && dy < 32) {
+            uint8_t m = tov[(dy * 7 + dz) * 7 + dx];
+            if (m) return (uint8_t)(m - 1);
+        }
+    }
+    return vget(x, y, z);
+}
+
+static void tput(int x, int y, int z, uint8_t b, int rule) {
+    if (tov_on) {
+        int dx = x - tov_x + 3, dz = z - tov_z + 3, dy = y - tov_y;
+        if (dx >= 0 && dx < 7 && dz >= 0 && dz < 7 && dy >= 0 && dy < 32) tov[(dy * 7 + dz) * 7 + dx] = (uint8_t)(b + 1);
+    }
+    put(x, y, z, b, rule);
+}
+
+static void tov_begin(int x, int y, int z) {
+    memset(tov, 0, sizeof tov);
+    tov_on = 1;
+    tov_x = x;
+    tov_y = y;
+    tov_z = z;
+}
+
+static const int8_t HDIR[4][2] = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}}; /* N, E, S, W */
+
+/* hanging vine (WorldGenTrees.b / WorldGenSwampTree.a) */
+static void vine_hang(int x, int y, int z) {
+    tput(x, y, z, B_VINE, R_AIR);
+    for (int i = 4; --y, tget(x, y, z) == B_AIR && i > 0; --i) tput(x, y, z, B_VINE, R_AIR);
+}
+
+/* WorldGenTrees (oak, small jungle): base height c, vines */
+static int gen_trees(int x, int y, int z, int c, uint8_t log, uint8_t leaf, int vines) {
+    int i = RI(3) + c;
+    if (y < 1 || y + i + 1 > 256) return 0;
+    for (int l = y; l <= y + 1 + i; l++) {
+        int b0 = 1;
+        if (l == y) b0 = 0;
+        if (l >= y + 1 + i - 2) b0 = 2;
+        for (int j = x - b0; j <= x + b0; j++)
+            for (int k = z - b0; k <= z + b0; k++)
+                if (l < 0 || l >= 256 || !tree_ok(vget(j, l, k))) return 0;
+    }
+    uint8_t below = vget(x, y - 1, z);
+    if (!((below == B_GRASS || IS_DIRTISH(below) || below == B_FARMLAND) && y < 256 - i - 1)) return 0;
+    if (vines) tov_begin(x, y, z);
+    tree_dirt(x, y - 1, z);
+    for (int j = y - 3 + i; j <= y + i; j++) {
+        int k = j - (y + i), i1 = 1 - k / 2;
+        for (int l1 = x - i1; l1 <= x + i1; l1++) {
+            int j1 = l1 - x;
+            for (int k1 = z - i1; k1 <= z + i1; k1++) {
+                int i2 = k1 - z;
+                if ((j1 < 0 ? -j1 : j1) != i1 || (i2 < 0 ? -i2 : i2) != i1 || (RI(2) != 0 && k != 0)) {
+                    if (TREE_REPL(tget(l1, j, k1))) tput(l1, j, k1, leaf, R_TREE);
+                }
+            }
+        }
+    }
+    for (int j = 0; j < i; j++) {
+        if (!TREE_REPL(tget(x, y + j, z))) continue;
+        tput(x, y + j, z, log, R_TREE);
+        if (vines && j > 0) {
+            if (RI(3) > 0 && tget(x - 1, y + j, z) == B_AIR) tput(x - 1, y + j, z, B_VINE, R_AIR);
+            if (RI(3) > 0 && tget(x + 1, y + j, z) == B_AIR) tput(x + 1, y + j, z, B_VINE, R_AIR);
+            if (RI(3) > 0 && tget(x, y + j, z - 1) == B_AIR) tput(x, y + j, z - 1, B_VINE, R_AIR);
+            if (RI(3) > 0 && tget(x, y + j, z + 1) == B_AIR) tput(x, y + j, z + 1, B_VINE, R_AIR);
+        }
+    }
+    if (vines) {
+        for (int j = y - 3 + i; j <= y + i; j++) {
+            int k = j - (y + i), i1 = 2 - k / 2;
+            for (int j1 = x - i1; j1 <= x + i1; j1++)
+                for (int k1 = z - i1; k1 <= z + i1; k1++) {
+                    if (!IS_LEAVES(tget(j1, j, k1))) continue;
+                    if (RI(4) == 0 && tget(j1 - 1, j, k1) == B_AIR) vine_hang(j1 - 1, j, k1);
+                    if (RI(4) == 0 && tget(j1 + 1, j, k1) == B_AIR) vine_hang(j1 + 1, j, k1);
+                    if (RI(4) == 0 && tget(j1, j, k1 - 1) == B_AIR) vine_hang(j1, j, k1 - 1);
+                    if (RI(4) == 0 && tget(j1, j, k1 + 1) == B_AIR) vine_hang(j1, j, k1 + 1);
+                }
+        }
+        if (RI(5) == 0 && i > 5) {
+            for (int j = 0; j < 2; j++)
+                for (int d = 0; d < 4; d++)
+                    if (RI(4 - j) == 0) {
+                        RI(3); /* cocoa age (cocoa is not a NumBlocks block: not placed) */
+                    }
+        }
+        tov_on = 0;
+    }
+    return 1;
+}
+
+/* WorldGenForest (birch, tall birch) */
+static int gen_birch(int x, int y, int z, int tall) {
+    int i = RI(3) + 5;
+    if (tall) i += RI(7);
+    if (y < 1 || y + i + 1 > 256) return 0;
+    for (int l = y; l <= y + 1 + i; l++) {
+        int b0 = 1;
+        if (l == y) b0 = 0;
+        if (l >= y + 1 + i - 2) b0 = 2;
+        for (int j = x - b0; j <= x + b0; j++)
+            for (int k = z - b0; k <= z + b0; k++)
+                if (l < 0 || l >= 256 || !tree_ok(vget(j, l, k))) return 0;
+    }
+    uint8_t below = vget(x, y - 1, z);
+    if (!((below == B_GRASS || IS_DIRTISH(below) || below == B_FARMLAND) && y < 256 - i - 1)) return 0;
+    tree_dirt(x, y - 1, z);
+    for (int i1 = y - 3 + i; i1 <= y + i; i1++) {
+        int j1 = i1 - (y + i), j = 1 - j1 / 2;
+        for (int k = x - j; k <= x + j; k++) {
+            int k1 = k - x;
+            for (int l1 = z - j; l1 <= z + j; l1++) {
+                int i2 = l1 - z;
+                if ((k1 < 0 ? -k1 : k1) != j || (i2 < 0 ? -i2 : i2) != j || (RI(2) != 0 && j1 != 0))
+                    if (AIR_OR_LEAVES(vget(k, i1, l1))) put(k, i1, l1, B_LEAVES_BIRCH, R_AIRLEAF);
+            }
+        }
+    }
+    for (int i1 = 0; i1 < i; i1++)
+        if (AIR_OR_LEAVES(vget(x, y + i1, z))) put(x, y + i1, z, B_LOG_BIRCH, R_AIRLEAF);
+    return 1;
+}
+
+static int gen_taiga1(int x, int y, int z) {
+    int i = RI(5) + 7, j = i - RI(2) - 3, k = i - j, l = 1 + RI(k + 1);
+    if (y < 1 || y + i + 1 > 256) return 0;
+    for (int l1 = y; l1 <= y + 1 + i; l1++) {
+        int k1 = (l1 - y < j) ? 0 : l;
+        for (int i1 = x - k1; i1 <= x + k1; i1++)
+            for (int j1 = z - k1; j1 <= z + k1; j1++)
+                if (l1 < 0 || l1 >= 256 || !tree_ok(vget(i1, l1, j1))) return 0;
+    }
+    uint8_t below = vget(x, y - 1, z);
+    if (!((below == B_GRASS || IS_DIRTISH(below)) && y < 256 - i - 1)) return 0;
+    tree_dirt(x, y - 1, z);
+    int k1 = 0;
+    for (int i2 = y + i; i2 >= y + j; i2--) {
+        for (int i1 = x - k1; i1 <= x + k1; i1++) {
+            int j1 = i1 - x;
+            for (int j2 = z - k1; j2 <= z + k1; j2++) {
+                int k2 = j2 - z;
+                if ((j1 < 0 ? -j1 : j1) != k1 || (k2 < 0 ? -k2 : k2) != k1 || k1 <= 0)
+                    if (!IS_CUBE(vget(i1, i2, j2))) put(i1, i2, j2, B_LEAVES_SPRUCE, R_NOTCUBE);
+            }
+        }
+        if (k1 >= 1 && i2 == y + j + 1) --k1;
+        else if (k1 < l) ++k1;
+    }
+    for (int i2 = 0; i2 < i - 1; i2++)
+        if (AIR_OR_LEAVES(vget(x, y + i2, z))) put(x, y + i2, z, B_LOG_SPRUCE, R_AIRLEAF);
+    return 1;
+}
+
+static int gen_taiga2(int x, int y, int z) {
+    int i = RI(4) + 6, j = 1 + RI(2), k = i - j, l = 2 + RI(2);
+    if (y < 1 || y + i + 1 > 256) return 0;
+    for (int k1 = y; k1 <= y + 1 + i; k1++) {
+        int j1 = (k1 - y < j) ? 0 : l;
+        for (int l1 = x - j1; l1 <= x + j1; l1++)
+            for (int i1 = z - j1; i1 <= z + j1; i1++) {
+                if (k1 < 0 || k1 >= 256) return 0;
+                if (!AIR_OR_LEAVES(vget(l1, k1, i1))) return 0;
+            }
+    }
+    uint8_t below = vget(x, y - 1, z);
+    if (!((below == B_GRASS || IS_DIRTISH(below) || below == B_FARMLAND) && y < 256 - i - 1)) return 0;
+    tree_dirt(x, y - 1, z);
+    int j1 = RI(2), i2 = 1, b0 = 0;
+    for (int i1 = 0; i1 <= k; i1++) {
+        int j2 = y + i - i1;
+        for (int k2 = x - j1; k2 <= x + j1; k2++) {
+            int l2 = k2 - x;
+            for (int i3 = z - j1; i3 <= z + j1; i3++) {
+                int j3 = i3 - z;
+                if ((l2 < 0 ? -l2 : l2) != j1 || (j3 < 0 ? -j3 : j3) != j1 || j1 <= 0)
+                    if (!IS_CUBE(vget(k2, j2, i3))) put(k2, j2, i3, B_LEAVES_SPRUCE, R_NOTCUBE);
+            }
+        }
+        if (j1 >= i2) {
+            j1 = b0;
+            b0 = 1;
+            ++i2;
+            if (i2 > l) i2 = l;
+        } else {
+            ++j1;
+        }
+    }
+    int i1 = RI(3);
+    for (int j2 = 0; j2 < i - i1; j2++)
+        if (AIR_OR_LEAVES(vget(x, y + j2, z))) put(x, y + j2, z, B_LOG_SPRUCE, R_AIRLEAF);
+    return 1;
+}
+
+static int gen_swamp_tree(int x, int y, int z) {
+    int i = RI(4) + 5;
+    while (IS_WATER(vget(x, y - 1, z))) y--;
+    if (y < 1 || y + i + 1 > 256) return 0;
+    for (int l = y; l <= y + 1 + i; l++) {
+        int b0 = 1;
+        if (l == y) b0 = 0;
+        if (l >= y + 1 + i - 2) b0 = 3;
+        for (int j = x - b0; j <= x + b0; j++)
+            for (int k = z - b0; k <= z + b0; k++) {
+                if (l < 0 || l >= 256) return 0;
+                uint8_t b = vget(j, l, k);
+                if (!AIR_OR_LEAVES(b)) {
+                    if (!IS_WATER(b)) return 0;
+                    if (l > y) return 0;
+                }
+            }
+    }
+    uint8_t below = vget(x, y - 1, z);
+    if (!((below == B_GRASS || IS_DIRTISH(below)) && y < 256 - i - 1)) return 0;
+    tov_begin(x, y, z);
+    tree_dirt(x, y - 1, z);
+    for (int j1 = y - 3 + i; j1 <= y + i; j1++) {
+        int k1 = j1 - (y + i), j = 2 - k1 / 2;
+        for (int k = x - j; k <= x + j; k++) {
+            int l1 = k - x;
+            for (int i1 = z - j; i1 <= z + j; i1++) {
+                int i2 = i1 - z;
+                if ((l1 < 0 ? -l1 : l1) != j || (i2 < 0 ? -i2 : i2) != j || (RI(2) != 0 && k1 != 0))
+                    if (!IS_CUBE(tget(k, j1, i1))) tput(k, j1, i1, B_LEAVES_OAK, R_NOTCUBE);
+            }
+        }
+    }
+    for (int j1 = 0; j1 < i; j1++) {
+        uint8_t b = tget(x, y + j1, z);
+        if (AIR_OR_LEAVES(b) || IS_WATER(b)) tput(x, y + j1, z, B_LOG_OAK, R_ALWAYS);
+    }
+    for (int j1 = y - 3 + i; j1 <= y + i; j1++) {
+        int k1 = j1 - (y + i), j = 2 - k1 / 2;
+        for (int l1 = x - j; l1 <= x + j; l1++)
+            for (int i1 = z - j; i1 <= z + j; i1++) {
+                if (!IS_LEAVES(tget(l1, j1, i1))) continue;
+                if (RI(4) == 0 && tget(l1 - 1, j1, i1) == B_AIR) vine_hang(l1 - 1, j1, i1);
+                if (RI(4) == 0 && tget(l1 + 1, j1, i1) == B_AIR) vine_hang(l1 + 1, j1, i1);
+                if (RI(4) == 0 && tget(l1, j1, i1 - 1) == B_AIR) vine_hang(l1, j1, i1 - 1);
+                if (RI(4) == 0 && tget(l1, j1, i1 + 1) == B_AIR) vine_hang(l1, j1, i1 + 1);
+            }
+    }
+    tov_on = 0;
+    return 1;
+}
+
+static void acacia_leaf(int x, int y, int z) {
+    if (AIR_OR_LEAVES(vget(x, y, z))) put(x, y, z, B_LEAVES_ACACIA, R_AIRLEAF);
+}
+
+static int gen_acacia(int x, int y, int z) {
+    int i = RI(3) + RI(3) + 5;
+    if (y < 1 || y + i + 1 > 256) return 0;
+    for (int l = y; l <= y + 1 + i; l++) {
+        int b0 = 1;
+        if (l == y) b0 = 0;
+        if (l >= y + 1 + i - 2) b0 = 2;
+        for (int j = x - b0; j <= x + b0; j++)
+            for (int k = z - b0; k <= z + b0; k++)
+                if (l < 0 || l >= 256 || !tree_ok(vget(j, l, k))) return 0;
+    }
+    uint8_t below = vget(x, y - 1, z);
+    if (!((below == B_GRASS || IS_DIRTISH(below)) && y < 256 - i - 1)) return 0;
+    tree_dirt(x, y - 1, z);
+    int dir = RI(4);
+    int i1 = i - RI(4) - 1, j = 3 - RI(3), k = x, j1 = z, k1 = 0;
+    for (int i2 = 0; i2 < i; i2++) {
+        int l1 = y + i2;
+        if (i2 >= i1 && j > 0) {
+            k += HDIR[dir][0];
+            j1 += HDIR[dir][1];
+            --j;
+        }
+        if (AIR_OR_LEAVES(vget(k, l1, j1))) {
+            put(k, l1, j1, B_LOG_ACACIA, R_ALWAYS);
+            k1 = l1;
+        }
+    }
+    for (int a = -3; a <= 3; a++)
+        for (int b = -3; b <= 3; b++)
+            if ((a < 0 ? -a : a) != 3 || (b < 0 ? -b : b) != 3) acacia_leaf(k + a, k1, j1 + b);
+    for (int a = -1; a <= 1; a++)
+        for (int b = -1; b <= 1; b++) acacia_leaf(k + a, k1 + 1, j1 + b);
+    acacia_leaf(k + 2, k1 + 1, j1);
+    acacia_leaf(k - 2, k1 + 1, j1);
+    acacia_leaf(k, k1 + 1, j1 + 2);
+    acacia_leaf(k, k1 + 1, j1 - 2);
+    k = x;
+    j1 = z;
+    int dir1 = RI(4);
+    if (dir1 != dir) {
+        int l1 = i1 - RI(2) - 1, j2 = 1 + RI(3);
+        k1 = 0;
+        for (int l2 = l1; l2 < i && j2 > 0; --j2) {
+            if (l2 >= 1) {
+                int k2 = y + l2;
+                k += HDIR[dir1][0];
+                j1 += HDIR[dir1][1];
+                if (AIR_OR_LEAVES(vget(k, k2, j1))) {
+                    put(k, k2, j1, B_LOG_ACACIA, R_ALWAYS);
+                    k1 = k2;
+                }
+            }
+            ++l2;
+        }
+        if (k1 > 0) {
+            for (int a = -2; a <= 2; a++)
+                for (int b = -2; b <= 2; b++)
+                    if ((a < 0 ? -a : a) != 2 || (b < 0 ? -b : b) != 2) acacia_leaf(k + a, k1, j1 + b);
+            for (int a = -1; a <= 1; a++)
+                for (int b = -1; b <= 1; b++) acacia_leaf(k + a, k1 + 1, j1 + b);
+        }
+    }
+    return 1;
+}
+
+static void dark_log(int x, int y, int z) {
+    if (tree_ok(vget(x, y, z))) put(x, y, z, B_LOG_DARK_OAK, R_TREEOK);
+}
+static void dark_leaf(int x, int y, int z) {
+    if (vget(x, y, z) == B_AIR) put(x, y, z, B_LEAVES_DARK_OAK, R_AIR);
+}
+
+static int gen_dark_oak(int x, int y, int z) {
+    int i = RI(3) + RI(2) + 6;
+    if (y < 1 || y + i + 1 >= 256) return 0;
+    uint8_t below = vget(x, y - 1, z);
+    if (below != B_GRASS && !IS_DIRTISH(below)) return 0;
+    for (int i1 = 0; i1 <= i + 1; i1++) {
+        int b0 = 1;
+        if (i1 == 0) b0 = 0;
+        if (i1 >= i - 1) b0 = 2;
+        for (int j1 = -b0; j1 <= b0; j1++)
+            for (int k1 = -b0; k1 <= b0; k1++)
+                if (!tree_ok(vget(x + j1, y + i1, z + k1))) return 0;
+    }
+    tree_dirt(x, y - 1, z);
+    tree_dirt(x + 1, y - 1, z);
+    tree_dirt(x, y - 1, z + 1);
+    tree_dirt(x + 1, y - 1, z + 1);
+    int dir = RI(4);
+    int i1 = i - RI(4), j1 = 2 - RI(3), k1 = x, l1 = z, i2 = y + i - 1;
+    for (int j2 = 0; j2 < i; j2++) {
+        if (j2 >= i1 && j1 > 0) {
+            k1 += HDIR[dir][0];
+            l1 += HDIR[dir][1];
+            --j1;
+        }
+        int k2 = y + j2;
+        if (AIR_OR_LEAVES(vget(k1, k2, l1))) {
+            dark_log(k1, k2, l1);
+            dark_log(k1 + 1, k2, l1);
+            dark_log(k1, k2, l1 + 1);
+            dark_log(k1 + 1, k2, l1 + 1);
+        }
+    }
+    for (int j2 = -2; j2 <= 0; j2++)
+        for (int k2 = -2; k2 <= 0; k2++) {
+            dark_leaf(k1 + j2, i2 - 1, l1 + k2);
+            dark_leaf(1 + k1 - j2, i2 - 1, l1 + k2);
+            dark_leaf(k1 + j2, i2 - 1, 1 + l1 - k2);
+            dark_leaf(1 + k1 - j2, i2 - 1, 1 + l1 - k2);
+            if ((j2 > -2 || k2 > -1) && (j2 != -1 || k2 != -2)) {
+                dark_leaf(k1 + j2, i2 + 1, l1 + k2);
+                dark_leaf(1 + k1 - j2, i2 + 1, l1 + k2);
+                dark_leaf(k1 + j2, i2 + 1, 1 + l1 - k2);
+                dark_leaf(1 + k1 - j2, i2 + 1, 1 + l1 - k2);
+            }
+        }
+    if (jr_bool(&PR)) {
+        dark_leaf(k1, i2 + 2, l1);
+        dark_leaf(k1 + 1, i2 + 2, l1);
+        dark_leaf(k1 + 1, i2 + 2, l1 + 1);
+        dark_leaf(k1, i2 + 2, l1 + 1);
+    }
+    for (int j2 = -3; j2 <= 4; j2++)
+        for (int k2 = -3; k2 <= 4; k2++)
+            if ((j2 != -3 || k2 != -3) && (j2 != -3 || k2 != 4) && (j2 != 4 || k2 != -3) && (j2 != 4 || k2 != 4) &&
+                ((j2 < 0 ? -j2 : j2) < 3 || (k2 < 0 ? -k2 : k2) < 3))
+                dark_leaf(k1 + j2, i2, l1 + k2);
+    for (int j2 = -1; j2 <= 2; j2++)
+        for (int k2 = -1; k2 <= 2; k2++)
+            if ((j2 < 0 || j2 > 1 || k2 < 0 || k2 > 1) && RI(3) <= 0) {
+                int l2 = RI(3) + 2;
+                for (int i3 = 0; i3 < l2; i3++) dark_log(x + j2, i2 - i3 - 1, z + k2);
+                for (int i3 = -1; i3 <= 1; i3++)
+                    for (int j3 = -1; j3 <= 1; j3++) dark_leaf(k1 + j2 + i3, i2, l1 + k2 + j3);
+                for (int i3 = -2; i3 <= 2; i3++)
+                    for (int j3 = -2; j3 <= 2; j3++)
+                        if ((i3 < 0 ? -i3 : i3) != 2 || (j3 < 0 ? -j3 : j3) != 2) dark_leaf(k1 + j2 + i3, i2 - 1, l1 + k2 + j3);
+            }
+    return 1;
+}
+
+/* WorldGenMegaTreeAbstract helpers */
+static int mega_height(int a, int d) {
+    int i = RI(3) + a;
+    if (d > 1) i += RI(d);
+    return i;
+}
+
+static int mega_check(int x, int y, int z, int i) {
+    if (y < 1 || y + i + 1 > 256) return 0;
+    for (int j = 0; j <= 1 + i; j++) {
+        int b0 = 2;
+        if (j == 0) b0 = 1;
+        else if (j >= 1 + i - 2) b0 = 2;
+        for (int k = -b0; k <= b0; k++)
+            for (int l = -b0; l <= b0; l++) {
+                if (y + j < 0 || y + j >= 256) return 0;
+                if (!tree_ok(vget(x + k, y + j, z + l))) return 0;
+            }
+    }
+    uint8_t below = vget(x, y - 1, z);
+    if (!((below == B_GRASS || IS_DIRTISH(below)) && y >= 2)) return 0;
+    tree_dirt(x, y - 1, z);
+    tree_dirt(x + 1, y - 1, z);
+    tree_dirt(x, y - 1, z + 1);
+    tree_dirt(x + 1, y - 1, z + 1);
+    return 1;
+}
+
+static void mega_leaves2(int x, int y, int z, int r, uint8_t leaf) { /* 2x2-centred blob */
+    int j = r * r;
+    for (int k = -r; k <= r + 1; k++)
+        for (int l = -r; l <= r + 1; l++) {
+            int i1 = k - 1, j1 = l - 1;
+            if (k * k + l * l <= j || i1 * i1 + j1 * j1 <= j || k * k + j1 * j1 <= j || i1 * i1 + l * l <= j)
+                if (AIR_OR_LEAVES(vget(x + k, y, z + l))) put(x + k, y, z + l, leaf, R_AIRLEAF);
+        }
+}
+
+static void mega_leaves1(int x, int y, int z, int r, uint8_t leaf) { /* disc */
+    int j = r * r;
+    for (int k = -r; k <= r; k++)
+        for (int l = -r; l <= r; l++)
+            if (k * k + l * l <= j && AIR_OR_LEAVES(vget(x + k, y, z + l))) put(x + k, y, z + l, leaf, R_AIRLEAF);
+}
+
+static int gen_mega_spruce(int x, int y, int z, int h) {
+    int i = mega_height(13, 15);
+    if (!mega_check(x, y, z, i)) return 0;
+    /* crown */
+    int k = y + i;
+    int i1 = RI(5) + (h ? 13 : 3), j1 = 0;
+    for (int k1 = k - i1; k1 <= k; k1++) {
+        int l1 = k - k1;
+        int i2 = floor_f((float)l1 / (float)i1 * 3.5f);
+        mega_leaves2(x, k1, z, i2 + (l1 > 0 && i2 == j1 && (k1 & 1) == 0 ? 1 : 0), B_LEAVES_SPRUCE);
+        j1 = i2;
+    }
+    for (int j = 0; j < i; j++) {
+        if (AIR_OR_LEAVES(vget(x, y + j, z))) put(x, y + j, z, B_LOG_SPRUCE, R_AIRLEAF);
+        if (j < i - 1) {
+            if (AIR_OR_LEAVES(vget(x + 1, y + j, z))) put(x + 1, y + j, z, B_LOG_SPRUCE, R_AIRLEAF);
+            if (AIR_OR_LEAVES(vget(x + 1, y + j, z + 1))) put(x + 1, y + j, z + 1, B_LOG_SPRUCE, R_AIRLEAF);
+            if (AIR_OR_LEAVES(vget(x, y + j, z + 1))) put(x, y + j, z + 1, B_LOG_SPRUCE, R_AIRLEAF);
+        }
+    }
+    return 1;
+}
+
+static void podzol_col(int x, int y, int z) {
+    for (int i = 2; i >= -3; i--) {
+        uint8_t b = vget(x, y + i, z);
+        if (b == B_GRASS || IS_DIRTISH(b)) {
+            put(x, y + i, z, B_PODZOL, R_DIRTGRASS);
+            break;
+        }
+        if (b != B_AIR && i < 0) break;
+    }
+}
+
+static void podzol_patch(int x, int y, int z) {
+    for (int i = -2; i <= 2; i++)
+        for (int j = -2; j <= 2; j++)
+            if ((i < 0 ? -i : i) != 2 || (j < 0 ? -j : j) != 2) podzol_col(x + i, y, z + j);
+}
+
+static void mega_spruce_post(int x, int y, int z) {
+    podzol_patch(x - 1, y, z - 1);
+    podzol_patch(x + 2, y, z - 1);
+    podzol_patch(x - 1, y, z + 2);
+    podzol_patch(x + 2, y, z + 2);
+    for (int i = 0; i < 5; i++) {
+        int j = RI(64), k = j % 8, l = j / 8;
+        if (k == 0 || k == 7 || l == 0 || l == 7) podzol_patch(x - 3 + k, y, z - 3 + l);
+    }
+}
+
+static void jvine(int x, int y, int z) {
+    if (RI(3) > 0 && vget(x, y, z) == B_AIR) put(x, y, z, B_VINE, R_AIR);
+}
+
+static int gen_jungle_mega(int x, int y, int z) {
+    int i = mega_height(10, 20);
+    if (!mega_check(x, y, z, i)) return 0;
+    for (int j = -2; j <= 0; j++) mega_leaves2(x, y + i + j, z, 2 + 1 - j, B_LEAVES_JUNGLE);
+    for (int j = y + i - 2 - RI(4); j > y + i / 2; j -= 2 + RI(4)) {
+        float f = RF() * 3.1415927f * 2.0f;
+        int k = x + (int)(0.5f + mh_cos(f) * 4.0f), l = z + (int)(0.5f + mh_sin(f) * 4.0f);
+        for (int i1 = 0; i1 < 5; i1++) {
+            k = x + (int)(1.5f + mh_cos(f) * (float)i1);
+            l = z + (int)(1.5f + mh_sin(f) * (float)i1);
+            put(k, j - 3 + i1 / 2, l, B_LOG_JUNGLE, R_ALWAYS);
+        }
+        int i1 = 1 + RI(2), j1 = j;
+        for (int k1 = j - i1; k1 <= j1; k1++) mega_leaves1(k, k1, l, 1 - (k1 - j1), B_LEAVES_JUNGLE);
+    }
+    for (int i2 = 0; i2 < i; i2++) {
+        int yy = y + i2;
+        if (tree_ok(vget(x, yy, z))) {
+            put(x, yy, z, B_LOG_JUNGLE, R_TREEOK);
+            if (i2 > 0) {
+                jvine(x - 1, yy, z);
+                jvine(x, yy, z - 1);
+            }
+        }
+        if (i2 < i - 1) {
+            if (tree_ok(vget(x + 1, yy, z))) {
+                put(x + 1, yy, z, B_LOG_JUNGLE, R_TREEOK);
+                if (i2 > 0) {
+                    jvine(x + 2, yy, z);
+                    jvine(x + 1, yy, z - 1);
+                }
+            }
+            if (tree_ok(vget(x + 1, yy, z + 1))) {
+                put(x + 1, yy, z + 1, B_LOG_JUNGLE, R_TREEOK);
+                if (i2 > 0) {
+                    jvine(x + 2, yy, z + 1);
+                    jvine(x + 1, yy, z + 2);
+                }
+            }
+            if (tree_ok(vget(x, yy, z + 1))) {
+                put(x, yy, z + 1, B_LOG_JUNGLE, R_TREEOK);
+                if (i2 > 0) {
+                    jvine(x - 1, yy, z + 1);
+                    jvine(x, yy, z + 2);
+                }
+            }
+        }
+    }
+    return 1;
+}
+
+static int gen_bush(int x, int y, int z) {
+    uint8_t b;
+    while ((b = vget(x, y, z), AIR_OR_LEAVES(b)) && y > 0) y--;
+    b = vget(x, y, z);
+    if (!(IS_DIRTISH(b) || b == B_GRASS)) return 0;
+    y++;
+    put(x, y, z, B_LOG_JUNGLE, R_ALWAYS);
+    for (int i = y; i <= y + 2; i++) {
+        int j = i - y, k = 2 - j;
+        for (int l = x - k; l <= x + k; l++) {
+            int i1 = l - x;
+            for (int j1 = z - k; j1 <= z + k; j1++) {
+                int k1 = j1 - z;
+                if ((i1 < 0 ? -i1 : i1) != k || (k1 < 0 ? -k1 : k1) != k || RI(2) != 0)
+                    if (!IS_CUBE(vget(l, i, j1))) put(l, i, j1, B_LEAVES_OAK, R_NOTCUBE);
+            }
+        }
+    }
+    return 1;
+}
+
+/* ---- WorldGenBigTree (own java.util.Random; float instead of double) ---- */
+typedef struct {
+    int x, y, z, q;
+} BigPos;
+static BigPos big_list[48];
+
+/* line from a to b: -1 if every block is replaceable for a tree, else the index of the first that is not */
+static int big_line_check(int ax, int ay, int az, int bx, int by, int bz) {
+    int dx = bx - ax, dy = by - ay, dz = bz - az;
+    int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy, adz = dz < 0 ? -dz : dz;
+    int i = adz > adx && adz > ady ? adz : (ady > adx ? ady : adx);
+    if (i == 0) return -1;
+    float f = (float)dx / (float)i, f1 = (float)dy / (float)i, f2 = (float)dz / (float)i;
+    for (int j = 0; j <= i; j++) {
+        int px = ax + floor_f(0.5f + (float)j * f), py = ay + floor_f(0.5f + (float)j * f1),
+            pz = az + floor_f(0.5f + (float)j * f2);
+        if (!tree_ok(vget(px, py, pz))) return j;
+    }
+    return -1;
+}
+
+static void big_line_place(int ax, int ay, int az, int bx, int by, int bz) {
+    int dx = bx - ax, dy = by - ay, dz = bz - az;
+    int adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy, adz = dz < 0 ? -dz : dz;
+    int i = adz > adx && adz > ady ? adz : (ady > adx ? ady : adx);
+    float f = (float)dx / (float)i, f1 = (float)dy / (float)i, f2 = (float)dz / (float)i;
+    for (int j = 0; j <= i; j++) {
+        int px = ax + floor_f(0.5f + (float)j * f), py = ay + floor_f(0.5f + (float)j * f1),
+            pz = az + floor_f(0.5f + (float)j * f2);
+        int ex = px - ax < 0 ? ax - px : px - ax, ez = pz - az < 0 ? az - pz : pz - az, m = ex > ez ? ex : ez;
+        uint8_t b = B_LOG_OAK;
+        if (m > 0) b = ex == m ? B_LOG_OAK_X : B_LOG_OAK_Z;
+        put(px, py, pz, b, R_ALWAYS);
+    }
+}
+
+static int gen_big_tree(int x, int y, int z) {
+    JRand k;
+    jr_seed(&k, jr_long(&PR));
+    int a = 5 + jr_int(&k, 12); /* height (fresh each tree, see the deviations) */
+    const int li = 5;           /* leaf distance (e() sets 5) */
+    uint8_t below = vget(x, y - 1, z);
+    if (!(IS_DIRTISH(below) || below == B_GRASS || below == B_FARMLAND)) return 0;
+    int c = big_line_check(x, y, z, x, y + a - 1, z);
+    if (c != -1) {
+        if (c < 6) return 0;
+        a = c;
+    }
+    /* prepare */
+    int b = (int)((double)a * 0.618);
+    if (b >= a) b = a - 1;
+    double pw = (double)a / 13.0;
+    int ni = (int)(1.382 + pw * pw);
+    if (ni < 1) ni = 1;
+    int j = y + b, kk = a - li, n = 0;
+    big_list[n++] = (BigPos){x, y + kk, z, j};
+    for (; kk >= 0; --kk) {
+        float fs; /* WorldGenBigTree.a(int): crown radius at this layer */
+        if ((float)kk < (float)a * 0.3f) {
+            fs = -1.0f;
+        } else {
+            float f = (float)a / 2.0f, f1 = f - (float)kk;
+            if (f1 == 0.0f) fs = f * 0.5f;
+            else if ((f1 < 0 ? -f1 : f1) >= f) fs = 0.0f;
+            else fs = sqrtf(f * f - f1 * f1) * 0.5f;
+        }
+        if (fs < 0.0f) continue;
+        for (int l = 0; l < ni; l++) {
+            float d0 = fs * (jr_float(&k) + 0.328f);
+            float d1 = jr_float(&k) * 2.0f * 3.14159265f;
+            float d2 = d0 * sinf(d1) + 0.5f, d3 = d0 * cosf(d1) + 0.5f;
+            int px = x + floor_f(d2), py = y + kk - 1, pz = z + floor_f(d3);
+            if (big_line_check(px, py, pz, px, py + li, pz) == -1) {
+                int i1 = x - px, j1 = z - pz;
+                float d4 = (float)py - sqrtf((float)(i1 * i1 + j1 * j1)) * 0.381f;
+                int k1 = d4 > (float)j ? j : (int)d4;
+                if (big_line_check(x, k1, z, px, py, pz) == -1 && n < 48) big_list[n++] = (BigPos){px, py, pz, k1};
+            }
+        }
+    }
+    /* leaves */
+    for (int p = 0; p < n; p++)
+        for (int i = 0; i < li; i++) {
+            int f = (i != 0 && i != li - 1) ? 3 : 2, r = (int)((float)f + 0.618f);
+            for (int dx = -r; dx <= r; dx++)
+                for (int dz = -r; dz <= r; dz++) {
+                    int ax = dx < 0 ? -dx : dx, az = dz < 0 ? -dz : dz;
+                    if ((2 * ax + 1) * (2 * ax + 1) + (2 * az + 1) * (2 * az + 1) <= 4 * f * f) {
+                        int px = big_list[p].x + dx, py = big_list[p].y + i, pz = big_list[p].z + dz;
+                        if (AIR_OR_LEAVES(vget(px, py, pz))) put(px, py, pz, B_LEAVES_OAK, R_AIRLEAF);
+                    }
+                }
+        }
+    /* trunk */
+    big_line_place(x, y, z, x, y + b, z);
+    /* branches */
+    for (int p = 0; p < n; p++) {
+        int q = big_list[p].q;
+        if ((q != big_list[p].y || x != big_list[p].x || z != big_list[p].z) && (double)(q - y) >= (double)a * 0.2)
+            big_line_place(x, q, z, big_list[p].x, big_list[p].y, big_list[p].z);
+    }
+    return 1;
+}
+
+/* ---- huge mushrooms ---- */
+static int gen_huge_mushroom(int x, int y, int z) {
+    int red = !jr_bool(&PR); /* nextBoolean ? brown : red */
+    int i = RI(3) + 4;
+    if (y < 1 || y + i + 1 >= 256) return 0;
+    for (int l = y; l <= y + 1 + i; l++) {
+        int b0 = 3;
+        if (l <= y + 3) b0 = 0;
+        for (int j = x - b0; j <= x + b0; j++)
+            for (int k = z - b0; k <= z + b0; k++) {
+                if (l < 0 || l >= 256) return 0;
+                if (!AIR_OR_LEAVES(vget(j, l, k))) return 0;
+            }
+    }
+    uint8_t below = vget(x, y - 1, z);
+    if (!(IS_DIRTISH(below) || below == B_GRASS || below == B_MYCELIUM)) return 0;
+    uint8_t cap = red ? B_RED_MUSHROOM_CAP : B_BROWN_MUSHROOM_CAP, stem = red ? B_RED_MUSHROOM_STEM : B_BROWN_MUSHROOM_STEM;
+    int i1 = y + i;
+    if (red) i1 = y + i - 3;
+    for (int j1 = i1; j1 <= y + i; j1++) {
+        int j = 1;
+        if (j1 < y + i) ++j;
+        if (!red) j = 3;
+        int k = x - j, k1 = x + j, l1 = z - j, i2 = z + j;
+        for (int j2 = k; j2 <= k1; j2++)
+            for (int k2 = l1; k2 <= i2; k2++) {
+                int l2 = 5;
+                if (j2 == k) --l2;
+                else if (j2 == k1) ++l2;
+                if (k2 == l1) l2 -= 3;
+                else if (k2 == i2) l2 += 3;
+                if (!red || j1 < y + i) {
+                    if ((j2 == k || j2 == k1) && (k2 == l1 || k2 == i2)) continue;
+                    if (j2 == x - (j - 1) && k2 == l1) l2 = 1;
+                    if (j2 == k && k2 == z - (j - 1)) l2 = 1;
+                    if (j2 == x + (j - 1) && k2 == l1) l2 = 3;
+                    if (j2 == k1 && k2 == z - (j - 1)) l2 = 3;
+                    if (j2 == x - (j - 1) && k2 == i2) l2 = 7;
+                    if (j2 == k && k2 == z + (j - 1)) l2 = 7;
+                    if (j2 == x + (j - 1) && k2 == i2) l2 = 9;
+                    if (j2 == k1 && k2 == z + (j - 1)) l2 = 9;
+                }
+                if (l2 == 5 && j1 < y + i) l2 = 0; /* ALL_INSIDE */
+                if (l2 != 0 && !IS_CUBE(vget(j2, j1, k2))) put(j2, j1, k2, cap, R_NOTCUBE);
+            }
+    }
+    for (int j1 = 0; j1 < i; j1++)
+        if (!IS_CUBE(vget(x, y + j1, z))) put(x, y + j1, z, stem, R_NOTCUBE);
+    return 1;
+}
+
+/* selection of a tree generator (biome.a(Random)) */
+typedef struct {
+    uint8_t type, c;
+} TreeSel;
+
+static TreeSel tree_select(const Biome *b) {
+    TreeSel t = {TR_OAK, 4};
+    switch (b->tree) {
+    case T_DEFAULT: t.type = RI(10) == 0 ? TR_BIG : TR_OAK; break;
+    case T_HILLS: t.type = RI(3) > 0 ? TR_TAIGA2 : (RI(10) == 0 ? TR_BIG : TR_OAK); break;
+    case T_FOREST0:
+    case T_FOREST1: t.type = RI(5) != 0 ? TR_OAK : TR_BIRCH; break;
+    case T_BIRCH: t.type = TR_BIRCH; break;
+    case T_ROOFED: t.type = RI(3) > 0 ? TR_DARK : (RI(5) != 0 ? TR_OAK : TR_BIRCH); break;
+    case T_BIRCH_SUB: t.type = jr_bool(&PR) ? TR_BIRCH_TALL : TR_BIRCH; break;
+    case T_TAIGA0: t.type = RI(3) == 0 ? TR_TAIGA1 : TR_TAIGA2; break;
+    case T_TAIGA1:
+        if (RI(3) == 0) t.type = RI(13) != 0 ? TR_MEGA_SPRUCE : TR_MEGA_SPRUCE_H;
+        else t.type = RI(3) == 0 ? TR_TAIGA1 : TR_TAIGA2;
+        break;
+    case T_TAIGA2:
+        if (RI(3) == 0) t.type = TR_MEGA_SPRUCE_H;
+        else t.type = RI(3) == 0 ? TR_TAIGA1 : TR_TAIGA2;
+        break;
+    case T_SWAMP: t.type = TR_SWAMP; break;
+    case T_ICE: t.type = TR_TAIGA2; break;
+    case T_JUNGLE:
+    case T_JUNGLE_EDGE:
+        if (RI(10) == 0) t.type = TR_BIG;
+        else if (RI(2) == 0) t.type = TR_BUSH;
+        else if (b->tree == T_JUNGLE && RI(3) == 0) t.type = TR_JUNGLE_MEGA;
+        else {
+            t.type = TR_JUNGLE_SMALL;
+            t.c = (uint8_t)(4 + RI(7));
+        }
+        break;
+    case T_SAVANNA: t.type = RI(5) > 0 ? TR_ACACIA : TR_OAK; break;
+    case T_MESA: t.type = TR_OAK; break;
+    }
+    return t;
+}
+
+/* generate() then, on success, the post step (podzol of mega spruces) */
+static void tree_grow(TreeSel t, int x, int y, int z) {
+    int ok = 0;
+    switch (t.type) {
+    case TR_OAK: ok = gen_trees(x, y, z, 4, B_LOG_OAK, B_LEAVES_OAK, 0); break;
+    case TR_JUNGLE_SMALL: ok = gen_trees(x, y, z, t.c, B_LOG_JUNGLE, B_LEAVES_JUNGLE, 1); break;
+    case TR_BIG: ok = gen_big_tree(x, y, z); break;
+    case TR_BIRCH: ok = gen_birch(x, y, z, 0); break;
+    case TR_BIRCH_TALL: ok = gen_birch(x, y, z, 1); break;
+    case TR_DARK: ok = gen_dark_oak(x, y, z); break;
+    case TR_TAIGA1: ok = gen_taiga1(x, y, z); break;
+    case TR_TAIGA2: ok = gen_taiga2(x, y, z); break;
+    case TR_MEGA_SPRUCE: ok = gen_mega_spruce(x, y, z, 0); break;
+    case TR_MEGA_SPRUCE_H: ok = gen_mega_spruce(x, y, z, 1); break;
+    case TR_SWAMP: ok = gen_swamp_tree(x, y, z); break;
+    case TR_ACACIA: ok = gen_acacia(x, y, z); break;
+    case TR_JUNGLE_MEGA: ok = gen_jungle_mega(x, y, z); break;
+    case TR_BUSH: ok = gen_bush(x, y, z); break;
+    }
+    if (ok && (t.type == TR_MEGA_SPRUCE || t.type == TR_MEGA_SPRUCE_H)) mega_spruce_post(x, y, z);
 }

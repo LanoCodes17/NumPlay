@@ -3,7 +3,7 @@
  * The world around the player lives in a block cache (vc) of VCX x VCY x VCZ
  * blocks that follows the player: whatever leaves it is generated again from
  * the seed when it comes back, with the player's changes (the edit log, edits.c)
- * applied on top. Light is kept per block too (sky light, 4 bits).
+ * applied on top. Light is kept per block too: sky light and block light.
  *
  * Minecraft's axes: +X east, +Y up, +Z south. Yaw 0 faces south (+Z) and
  * grows clockwise seen from above (90 faces west); pitch > 0 looks down. */
@@ -54,10 +54,10 @@ void gen_spawn(int *x, int *y, int *z);
 /* ---------------------------------------------------------------- the world (world.c) */
 #define VCX 40
 #define VCZ 40
-#define VCY 32
+#define VCY 24
 #define WORLD_H 128
 extern uint8_t vc[VCY * VCZ * VCX];      /* blocks: index (y * VCZ + z) * VCX + x */
-extern uint8_t vlight[VCY * VCZ * VCX / 2];   /* sky light, 4 bits */
+extern uint8_t vl[VCY * VCZ * VCX];      /* light: sky light (low 4 bits), block light (high 4 bits) */
 extern uint8_t vbiome[VCZ * VCX];        /* biome of each column */
 extern int vc_x0, vc_y0, vc_z0;          /* world position of vc[0] */
 #define VC_I(x, y, z) (((y) * VCZ + (z)) * VCX + (x))
@@ -67,7 +67,8 @@ extern int vc_x0, vc_y0, vc_z0;          /* world position of vc[0] */
 #define MCZ (VCZ / 4)
 extern uint8_t vmac[MCY * MCZ * MCX];
 #define MC_I(x, y, z) ((((y) >> 2) * MCZ + ((z) >> 2)) * MCX + ((x) >> 2))
-static inline int light_at(int i) { return (vlight[i >> 1] >> ((i & 1) * 4)) & 15; }
+static inline int light_at(int i) { return vl[i] & 15; }          /* sky light */
+static inline int block_light_at(int i) { return vl[i] >> 4; }   /* torches, lava, glowstone... */
 
 void world_new(int64_t seed, const char *name);   /* name: the save's record prefix */
 void world_follow(float x, float y, float z);   /* keeps the cache around (x, y, z) */

@@ -7,7 +7,7 @@
 #include "edits.h"
 
 uint8_t vc[VCY * VCZ * VCX];
-uint8_t vlight[VCY * VCZ * VCX / 2];
+uint8_t vl[VCY * VCZ * VCX];
 uint8_t vbiome[VCZ * VCX];
 uint8_t vtop[VCZ * VCX];
 uint8_t vmac[MCY * MCZ * MCX];      /* per column: 1 + the highest block that stops sky light, 0 if none */
@@ -31,14 +31,11 @@ static inline int opacity(int b) {
 }
 
 /* ---------------------------------------------------------------- light */
-static inline void light_put(int i, int v) {
-  uint8_t *p = &vlight[i >> 1];
-  *p = (i & 1) ? (uint8_t)((*p & 0x0F) | v << 4) : (uint8_t)((*p & 0xF0) | v);
-}
-
-/* Sky light in the box [x0,x1) x [y0,y1) x [z0,z1) of the cache: 15 straight
- * under the open sky, then spread sideways and down, one level less a block
- * (more through leaves and water), as Minecraft's light does. */
+/* Light in the box [x0,x1) x [y0,y1) x [z0,z1) of the cache, both kinds at
+ * once. Sky light: 15 straight under the open sky; block light: what the
+ * block gives (torch 14, lava and glowstone 15...). Then both spread sideways
+ * and down, one level less a block (more through leaves and water), as
+ * Minecraft's light does: in sweeps along each direction, twice. */
 static void light_box(int x0, int y0, int z0, int x1, int y1, int z1) {
   if (x0 < 0) x0 = 0;
   if (z0 < 0) z0 = 0;
@@ -57,42 +54,33 @@ static void light_box(int x0, int y0, int z0, int x1, int y1, int z1) {
           lvl -= opacity(b);
           if (lvl < 0) lvl = 0;
         }
-        if (y < y1) light_put(i, lvl);
+        if (y < y1) vl[i] = (uint8_t)(lvl | blk_light[b] << 4);
       }
     }
-  /* spread: sweeps in each direction, twice */
-  for (int round = 0; round < 2; round++) {
-    for (int y = y1 - 1; y >= y0; y--)
-      for (int z = z0; z < z1; z++)
-        for (int x = x0; x < x1; x++) {
-          int i = VC_I(x, y, z), b = vc[i], op = opacity(b);
-          if (op >= 15) continue;
-          int best = light_at(i), dec = op ? op : 1;
-          int n[6] = {x > 0 ? i - 1 : -1, x < VCX - 1 ? i + 1 : -1, z > 0 ? i - VCX : -1, z < VCZ - 1 ? i + VCX : -1,
-                      y < VCY - 1 ? i + VCX * VCZ : -1, y > 0 ? i - VCX * VCZ : -1};
-          for (int k = 0; k < 6; k++)
-            if (n[k] >= 0) {
-              int v = light_at(n[k]) - dec;
-              if (v > best) best = v;
-            }
-          if (best != light_at(i)) light_put(i, best);
-        }
-    for (int y = y0; y < y1; y++)
-      for (int z = z1 - 1; z >= z0; z--)
-        for (int x = x1 - 1; x >= x0; x--) {
-          int i = VC_I(x, y, z), b = vc[i], op = opacity(b);
-          if (op >= 15) continue;
-          int best = light_at(i), dec = op ? op : 1;
-          int n[6] = {x > 0 ? i - 1 : -1, x < VCX - 1 ? i + 1 : -1, z > 0 ? i - VCX : -1, z < VCZ - 1 ? i + VCX : -1,
-                      y < VCY - 1 ? i + VCX * VCZ : -1, y > 0 ? i - VCX * VCZ : -1};
-          for (int k = 0; k < 6; k++)
-            if (n[k] >= 0) {
-              int v = light_at(n[k]) - dec;
-              if (v > best) best = v;
-            }
-          if (best != light_at(i)) light_put(i, best);
-        }
-  }
+  for (int round = 0; round < 2; round++)
+    for (int dir = 0; dir < 2; dir++) {
+      int ys = dir ? y0 : y1 - 1, ye = dir ? y1 : y0 - 1, yi = dir ? 1 : -1;
+      int zs = dir ? z1 - 1 : z0, ze = dir ? z0 - 1 : z1, zi = dir ? -1 : 1;
+      int xs = dir ? x1 - 1 : x0, xe = dir ? x0 - 1 : x1, xi = dir ? -1 : 1;
+      for (int y = ys; y != ye; y += yi)
+        for (int z = zs; z != ze; z += zi)
+          for (int x = xs; x != xe; x += xi) {
+            int i = VC_I(x, y, z), op = opacity(vc[i]);
+            if (op >= 15) continue;
+            int cur = vl[i], bs = cur & 15, bb = cur >> 4, dec = op ? op : 1;
+            int n[6] = {x > 0 ? i - 1 : -1, x < VCX - 1 ? i + 1 : -1, z > 0 ? i - VCX : -1,
+                        z < VCZ - 1 ? i + VCX : -1, y < VCY - 1 ? i + VCX * VCZ : -1, y > 0 ? i - VCX * VCZ : -1};
+            for (int k = 0; k < 6; k++)
+              if (n[k] >= 0) {
+                int v = vl[n[k]];
+                int s = (v & 15) - dec, b = (v >> 4) - dec;
+                if (s > bs) bs = s;
+                if (b > bb) bb = b;
+              }
+            int nv = bs | bb << 4;
+            if (nv != cur) vl[i] = (uint8_t)nv;
+          }
+    }
 }
 
 /* ---------------------------------------------------------------- the empty regions */
@@ -199,7 +187,7 @@ void world_new(int64_t seed, const char *name) {
 void world_follow(float x, float y, float z) {
   int px = ifloor(x), py = ifloor(y), pz = ifloor(z);
   int lx = px - vc_x0, ly = py - vc_y0, lz = pz - vc_z0;
-  if (vc_valid && lx >= 12 && lx < VCX - 12 && lz >= 12 && lz < VCZ - 12 && ly >= 10 && ly < VCY - 10) return;
+  if (vc_valid && lx >= 12 && lx < VCX - 12 && lz >= 12 && lz < VCZ - 12 && ly >= 8 && ly < VCY - 8) return;
   int nx0 = (px - VCX / 2) & ~7, nz0 = (pz - VCZ / 2) & ~7;
   int ny0 = (py - VCY / 2 + 2) & ~3;
   if (ny0 < 0) ny0 = 0;

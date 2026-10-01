@@ -33,7 +33,7 @@ static uint32_t key_bit(const char *s) {
 
 int main(int argc, char **argv) {
   const char *out = "build/play", *shots = "";
-  int give = 0, title_screen = 0, mobs = 0, start_time = -1;
+  int give = 0, title_screen = 0, mobs = 0, start_time = -1, torches = 0;
   float hurt = 0;
   int frames = 60, mspf = 50;
   for (int i = 1; i < argc; i++) {
@@ -44,6 +44,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "--give")) give = 1;
     else if (!strcmp(argv[i], "--title")) title_screen = 1;
     else if (!strcmp(argv[i], "--mobs")) mobs = 1;
+    else if (!strcmp(argv[i], "--torches")) torches = 1;
     else if (!strcmp(argv[i], "--time") && i + 1 < argc) start_time = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--hurt") && i + 1 < argc) hurt = (float)atof(argv[++i]);
     else if (!strcmp(argv[i], "--keys") && i + 1 < argc) {
@@ -86,6 +87,12 @@ int main(int argc, char **argv) {
       Entity *e = ent_new(E_ZOMBIE + k, x, (float)fy, z);
       if (e) e->health = 20, e->yaw = 180, e->gx = e->x, e->gz = e->z;
     }
+  }
+  if (torches) {
+    /* torches around, for the night */
+    int fy = (int)pl.y;
+    for (int k = 0; k < 3; k++) world_set((int)pl.x - 3 + k * 3, fy, (int)pl.z + 3 + k, B_TORCH);
+    world_set((int)pl.x + 2, fy, (int)pl.z + 6, B_GLOWSTONE);
   }
   if (hurt > 0) pl.health -= hurt, pl.food -= 7, pl.xp_level = 7, pl.xp = 0.4f;
   double init_ms = (clock() - c0) * 1000.0 / CLOCKS_PER_SEC;

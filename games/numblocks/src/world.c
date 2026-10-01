@@ -83,6 +83,27 @@ static void light_box(int x0, int y0, int z0, int x1, int y1, int z1) {
     }
 }
 
+/* Blocks changed (placed, broken, water flowing, a tree growing) relight the box around
+ * them, but once a frame, all together (world_light_flush): a light_box each was slow */
+static int dirty[6];   /* the box to relight, x0 y0 z0 x1 y1 z1 (cache), empty if x0 >= x1 */
+static void light_mark(int x0, int y0, int z0, int x1, int y1, int z1) {
+  if (dirty[0] >= dirty[3]) {
+    dirty[0] = x0, dirty[1] = y0, dirty[2] = z0, dirty[3] = x1, dirty[4] = y1, dirty[5] = z1;
+    return;
+  }
+  if (x0 < dirty[0]) dirty[0] = x0;
+  if (y0 < dirty[1]) dirty[1] = y0;
+  if (z0 < dirty[2]) dirty[2] = z0;
+  if (x1 > dirty[3]) dirty[3] = x1;
+  if (y1 > dirty[4]) dirty[4] = y1;
+  if (z1 > dirty[5]) dirty[5] = z1;
+}
+void world_light_flush(void) {
+  if (dirty[0] >= dirty[3]) return;
+  light_box(dirty[0], dirty[1], dirty[2], dirty[3], dirty[4], dirty[5]);
+  dirty[0] = dirty[3] = 0;
+}
+
 /* ---------------------------------------------------------------- the empty regions */
 static void mac_box(int x0, int y0, int z0, int x1, int y1, int z1) {
   for (int my = y0 >> 2; my <= (y1 - 1) >> 2 && my < MCY; my++)
@@ -220,6 +241,7 @@ static void recenter(int nx0, int ny0, int nz0, int px, int pz) {
         }
     }
   vc_valid = true;
+  dirty[0] = dirty[3] = 0;   /* (all of it, now) */
   light_box(0, 0, 0, VCX, VCY, VCZ);
   mac_box(0, 0, 0, VCX, VCY, VCZ);
 }
@@ -255,9 +277,10 @@ void world_follow(float x, float y, float z) {
     }
     int x0 = pend[best].cx * 16 - vc_x0, z0 = pend[best].cz * 16 - vc_z0;
     fill_pending(best);
-    light_box(x0 - 4, 0, z0 - 4, x0 + 20, VCY, z0 + 20);
+    light_mark(x0 - 4, 0, z0 - 4, x0 + 20, VCY, z0 + 20);
     mac_box(x0 < 0 ? 0 : x0, 0, z0 < 0 ? 0 : z0, x0 + 16 > VCX ? VCX : x0 + 16, VCY, z0 + 16 > VCZ ? VCZ : z0 + 16);
   }
+  world_light_flush();
 }
 
 bool world_pending(void) { return npend > 0; }
@@ -287,7 +310,7 @@ void world_set(int x, int y, int z, int b) {
     while (ny > vc_y0 && opacity(vc[VC_I(lx, ny - vc_y0 - 1, lz)]) < 15) ny--;
     vtop[col] = (uint8_t)(ny > vc_y0 ? ny : 0);
   }
-  light_box(lx - 15, ly - 15, lz - 15, lx + 16, VCY, lz + 16);
+  light_mark(lx - 15, ly - 15, lz - 15, lx + 16, VCY, lz + 16);
   mac_box(lx, ly, lz, lx + 1, ly + 1, lz + 1);
 }
 

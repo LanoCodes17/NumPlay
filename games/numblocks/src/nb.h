@@ -84,6 +84,7 @@ void world_new(int64_t seed, const char *name);   /* name: the save's record pre
 void world_follow(float x, float y, float z);   /* keeps the cache around (x, y, z) */
 int world_get(int x, int y, int z);            /* B_AIR outside the cache, B_BEDROCK below 0 */
 void world_set(int x, int y, int z, int b);     /* a player's change: kept in the edit log */
+void world_light_flush(void);   /* the light of changed blocks (world_follow does it each frame) */
 bool world_loaded(int x, int y, int z);
 bool world_pending(void);                       /* chunks still being made after a move */
 int world_rain_top(int x, int z);               /* the first y above what rain lands on, 255 if unknown */

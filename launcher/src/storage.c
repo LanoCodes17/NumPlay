@@ -89,10 +89,15 @@ static const char copy_head[] =
 static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 static uint32_t b64_len(uint32_t n) { return (n + 2) / 3 * 4; }
+/* (written out, not as a loop over the four characters: GCC 15.2 for the calculator, inlining that
+ * loop here, put '=' for the second character of every four) */
 static void b64_encode(const uint8_t *in, uint32_t n, uint8_t *out) {
   for (uint32_t i = 0; i < n; i += 3, out += 4) {
-    uint32_t v = (uint32_t)in[i] << 16 | (i + 1 < n ? in[i + 1] << 8 : 0) | (i + 2 < n ? in[i + 2] : 0);
-    for (int k = 0; k < 4; k++) out[k] = k <= (int)(n - i) ? (uint8_t)b64[v >> (18 - 6 * k) & 63] : '=';
+    uint32_t left = n - i, v = (uint32_t)in[i] << 16 | (left > 1 ? in[i + 1] << 8 : 0) | (left > 2 ? in[i + 2] : 0);
+    out[0] = (uint8_t)b64[v >> 18 & 63];
+    out[1] = (uint8_t)b64[v >> 12 & 63];
+    out[2] = left > 1 ? (uint8_t)b64[v >> 6 & 63] : '=';
+    out[3] = left > 2 ? (uint8_t)b64[v & 63] : '=';
   }
 }
 static int b64_value(uint8_t c) {
@@ -101,16 +106,29 @@ static int b64_value(uint8_t c) {
   return -1;
 }
 
-/* Every save file NumPlay knows, each name once; false when i is past the end */
-static bool save_name(int i, const char **name) {
-  if (i-- == 0) return *name = CONFIG_NAME, true;
+/* Every save file NumPlay knows, each name once (a name ending with '*': every record there is that
+ * starts with the rest, like NumBlocks' regions); false when i is past the end */
+static bool save_name(int i, char out[64]) {
+  if (i-- == 0) return strcpy(out, CONFIG_NAME), true;
   for (int g = 0; g < np_game_count; g++)
     for (const char *const *r = np_games[g].records; r && *r; r++) {
       bool seen = false;
       for (int h = 0; h <= g && !seen; h++)
         for (const char *const *q = np_games[h].records; q && *q && q != r && !seen; q++) seen = !strcmp(*q, *r);
       if (seen) continue;
-      if (i-- == 0) return *name = *r, true;
+      int n = prefix_len(*r);
+      if (n < 0) {
+        if (i-- == 0) return strcpy(out, *r), true;
+        continue;
+      }
+      ef_fs_t fs;
+      if (!ef_open(&fs)) return false;
+      int end = ef_end(&fs);
+      for (uint32_t at = 0; end >= 0 && (int)at < end; at += ef_rd16(fs.buf + at)) {
+        const char *rec = (const char *)fs.buf + at + 2;
+        if (strncmp(rec, *r, (size_t)n) || strlen(rec) >= 64 || i-- != 0) continue;
+        return strcpy(out, rec), true;
+      }
     }
   return false;
 }
@@ -176,9 +194,9 @@ void np_progress_restore(void) {
 
 void np_progress_backup(void) {
   if (restore_incomplete) return;
-  const char *name;
+  char name[64];
   uint32_t total = 1 + sizeof copy_head - 1 + 1, len; /* status byte, text, terminating zero */
-  for (int i = 0; save_name(i, &name); i++)
+  for (int i = 0; save_name(i, name); i++)
     if (ef_read(name, &len)) total += 2 + (uint32_t)strlen(name) + 1 + b64_len(len) + 1;
   /* never lose the copy for want of room: keep the old one then */
   ef_fs_t fs;
@@ -195,9 +213,10 @@ void np_progress_backup(void) {
   if (!o || len != total) return;
   *o++ = 0; /* not imported by the Python shell */
   for (const char *h = copy_head; *h; h++) *o++ = (uint8_t)*h;
-  for (int i = 0; save_name(i, &name); i++) {
+  uint8_t *stop = o + total;
+  for (int i = 0; save_name(i, name); i++) {
     const uint8_t *d = ef_read(name, &len);
-    if (!d) continue;
+    if (!d || o + 2 + strlen(name) + 1 + b64_len(len) + 1 >= stop) continue;
     *o++ = '#', *o++ = '>';
     for (const char *q = name; *q; q++) *o++ = (uint8_t)*q;
     *o++ = ':';

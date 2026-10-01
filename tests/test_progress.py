@@ -5,7 +5,8 @@ Installing apps restarts the calculator and the NumWorks installer puts back
 the Python scripts only, so NumPlay keeps a copy of every save in
 numplay_saves.py. In the ARM emulator:
 
-1. saves of every game: NumPlay writes the copy, a valid Python script;
+1. saves of every game (records named by a pattern too, like NumBlocks' regions): NumPlay writes the
+   copy, a valid Python script;
 2. "update" (every file but the scripts deleted): the saves come back, byte
    for byte, and the other scripts are untouched;
 3. Reset asks for OK to be held: a short press resets nothing;
@@ -111,7 +112,9 @@ def main():
     saves = {"numplay.set": bytes([ord("N"), 1, 0, 0])}
     for g in games:
         for r in g["records"]:
-            saves.setdefault(r, bytes(rnd.randrange(256) for _ in range(rnd.choice([1, 2, 8, 30, 64, 192, 700]))))
+            # a name ending with "*" stands for records starting with the rest (NumBlocks' regions: "nb1r-1_2.nbe")
+            for n in ([r[:-1] + "0_0.nbe", r[:-1] + "-1_2.nbe"] if r.endswith("*") else [r]):
+                saves.setdefault(n, bytes(rnd.randrange(256) for _ in range(rnd.choice([1, 2, 8, 30, 64, 192, 700]))))
     first = games[0]
     reset_files = set(first.get("reset", first["records"]))
     problems = []

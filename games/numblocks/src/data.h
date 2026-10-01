@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "blocks.h"
 
-#define NTEX 203
+#define NTEX 211
 /* tex_flags: bits 0-4, the first palette index tinted by the biome (16: none); 0x20: has see-through texels */
 extern const uint8_t tex_px[NTEX][128];
 extern const uint16_t tex_pal[NTEX][16];
@@ -224,6 +224,14 @@ extern const int8_t biome_temp[256];   /* temperature x 50 */
 #define TX_BED_HEAD_SIDE 200
 #define TX_WATER_FLOW 201
 #define TX_LAVA_FLOW 202
+#define TX_CARROTS_STAGE_0 203
+#define TX_CARROTS_STAGE_1 204
+#define TX_CARROTS_STAGE_2 205
+#define TX_CARROTS_STAGE_3 206
+#define TX_POTATOES_STAGE_0 207
+#define TX_POTATOES_STAGE_1 208
+#define TX_POTATOES_STAGE_2 209
+#define TX_POTATOES_STAGE_3 210
 
 extern const uint8_t spr_px[], spr_w[], spr_h[], spr_alpha[];
 extern const uint32_t spr_off[];
@@ -242,5 +250,46 @@ extern const uint16_t blk_icon[B_COUNT];   /* sprite of its icon */
 #define SP_XP_BG 10
 #define SP_XP 11
 #define SP_BUBBLE 12
+#define SP_FLAME 364
+#define SP_ARROW 365
+#define SP_ARMOR_FULL 366
+#define SP_ARMOR_HALF 367
+#define SP_BUBBLE_POP 368
+#define SP_HEART_HIT 369
+#define SP_BUTTON 370
+#define SP_BUTTON_HOVER 371
+#define SP_BUTTON_OFF 372
+#define SP_SLOT_HELMET 373
+#define SP_SLOT_CHESTPLATE 374
+#define SP_SLOT_LEGGINGS 375
+#define SP_SLOT_BOOTS 376
+#define SP_STEVE 377
+#define SP_DIRT_BG 378
+
+#include "items.h"
+extern const uint16_t blk_item[B_COUNT];   /* the item a block state counts as (0xFFFF: none) */
+extern const uint16_t blk_fuel[B_COUNT];   /* ticks it burns in a furnace */
+extern const char *const blk_label[B_COUNT], *const it_label[N_ITEMS];
+extern const uint16_t it_icon[N_ITEMS], it_dur[N_ITEMS], it_fuel[N_ITEMS];
+/* it_tier: the tool or armour material; it_a: attack damage, armour points or food; it_b: saturation x 10 */
+extern const uint8_t it_kind[N_ITEMS], it_stack[N_ITEMS], it_tier[N_ITEMS], it_a[N_ITEMS], it_b[N_ITEMS];
+extern const uint8_t it_place[N_ITEMS];   /* the block it places (255: none) */
+typedef struct { uint16_t out; uint8_t n, w, h; uint16_t in[9]; } Recipe;   /* w 0: shapeless, h of them */
+#define N_RECIPES 186
+extern const Recipe recipes[N_RECIPES];
+#define N_SMELTING 26
+extern const uint16_t smelting[N_SMELTING][2];
+extern const uint16_t group_planks[];   /* ends with 0xFFFF */
+extern const uint16_t group_wool[];   /* ends with 0xFFFF */
+extern const uint16_t group_log[];   /* ends with 0xFFFF */
+extern const uint16_t group_sapling[];   /* ends with 0xFFFF */
+extern const uint8_t font_bits[96 * 8], font_w[96];   /* characters 32-127 */
+extern const uint8_t img_rle[], img_w[], img_h[];
+extern const uint32_t img_rows[];
+extern const uint16_t img_row0[], img_pal[][16];
+#define IMG_INVENTORY 0
+#define IMG_CRAFTING_TABLE 1
+#define IMG_FURNACE 2
+#define IMG_CHEST 3
 
 #endif

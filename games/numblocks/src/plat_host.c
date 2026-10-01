@@ -2,6 +2,7 @@
  * keys come from a script, time is simulated (tests/play.c). */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "nb.h"
 
 uint16_t host_fb[SCREEN_W * SCREEN_H];
@@ -38,6 +39,20 @@ const uint8_t *plat_load(const char *name, uint32_t *len) {
   fclose(f);
   return loaded;
 }
+#include <dirent.h>
+void plat_remove_prefix(const char *prefix) {
+  DIR *d = opendir(save_dir);
+  if (!d) return;
+  struct dirent *e;
+  while ((e = readdir(d)))
+    if (!strncmp(e->d_name, prefix, strlen(prefix))) {
+      char p[600];
+      snprintf(p, sizeof p, "%s/%s", save_dir, e->d_name);
+      remove(p);
+    }
+  closedir(d);
+}
+uint32_t plat_storage_free(void) { return 30000; }
 void plat_begin(void) {}
 int plat_end(void) { return 0; }
 

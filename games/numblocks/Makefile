@@ -10,7 +10,7 @@ BUILD_DIR = output
 STRIP ?= arm-none-eabi-strip --strip-unneeded
 CLIENT_JAR ?= client.jar
 GEN ?= src/genstub.c
-GAME = src/main.c src/world.c src/edits.c src/render.c src/player.c src/hud.c src/data.c $(GEN)
+GAME = src/main.c src/world.c src/edits.c src/render.c src/player.c src/phys.c src/inv.c src/entity.c src/gui.c src/save.c src/data.c $(GEN)
 HEADERS = $(wildcard src/*.h) ../common/epsilon_app.h ../common/epsilon_files.h
 
 CFLAGS = -std=gnu11 $(shell $(NWLINK) eadk-cflags-device)
@@ -46,6 +46,11 @@ build/play: $(GAME) src/plat_host.c tests/play.c $(HEADERS)
 	$(Q) mkdir -p build
 	$(Q) cc $(HOST_FLAGS) $(GAME) src/plat_host.c tests/play.c -lm -o $@
 	@echo "HOST    $@"
+build/unit: $(GAME) src/plat_host.c tests/unit.c $(HEADERS)
+	$(Q) mkdir -p build
+	$(Q) cc $(HOST_FLAGS) $(filter-out src/main.c,$(GAME)) src/plat_host.c tests/unit.c tests/stubs.c -lm -o $@
+test: build/unit
+	./build/unit
 # every pixel traced: the reference the adaptive picture is checked against
 build/play_ref: $(GAME) src/plat_host.c tests/play.c $(HEADERS)
 	$(Q) mkdir -p build
@@ -54,6 +59,7 @@ build/play_ref: $(GAME) src/plat_host.c tests/play.c $(HEADERS)
 
 data:
 	python3 tools/blocks.py --header > src/blocks.h
+	python3 tools/items.py --header > src/items.h
 	python3 tools/pack.py $(CLIENT_JAR)
 
 clean:

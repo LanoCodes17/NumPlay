@@ -218,7 +218,21 @@ enum {
   B_BED_HEAD = 211,   /* 26:8 */
   B_FLOWING_WATER = 212,   /* 8:1 */
   B_FLOWING_LAVA = 213,   /* 10:2 */
-  B_COUNT = 214
+  B_WOOD_SLAB_OAK = 214,   /* 126:0 */
+  B_WOOD_SLAB_SPRUCE = 215,   /* 126:1 */
+  B_WOOD_SLAB_BIRCH = 216,   /* 126:2 */
+  B_WOOD_SLAB_JUNGLE = 217,   /* 126:3 */
+  B_WOOD_SLAB_ACACIA = 218,   /* 126:4 */
+  B_WOOD_SLAB_DARK_OAK = 219,   /* 126:5 */
+  B_CARROTS_0 = 220,   /* 141:0 */
+  B_CARROTS_1 = 221,   /* 141:2 */
+  B_CARROTS_2 = 222,   /* 141:4 */
+  B_CARROTS_3 = 223,   /* 141:7 */
+  B_POTATOES_0 = 224,   /* 142:0 */
+  B_POTATOES_1 = 225,   /* 142:2 */
+  B_POTATOES_2 = 226,   /* 142:4 */
+  B_POTATOES_3 = 227,   /* 142:7 */
+  B_COUNT = 228
 };
 
 enum { M_NONE, M_CUBE, M_CROSS, M_LIQUID, M_TORCH, M_SLAB, M_LAYER, M_CACTUS, M_LEAVES, M_GLASS, M_FLAT, M_VINE, M_PANE, M_FENCE, M_DOOR, M_LADDER };

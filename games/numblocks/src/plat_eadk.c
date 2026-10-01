@@ -24,6 +24,12 @@ uint32_t plat_keys(void) {
   if (k & KEY(eadk_key_tangent)) r |= K_STRAFE_R;
   if (k & KEY(eadk_key_pi)) r |= K_JUMP;
   if (k & (KEY(eadk_key_ok) | KEY(eadk_key_exe))) r |= K_USE;
+  if (k & KEY(eadk_key_ok)) r |= K_OK;
+  if (k & KEY(eadk_key_exe)) r |= K_EXE;
+  if (k & KEY(eadk_key_shift)) r |= K_SHIFT;
+  if (k & KEY(eadk_key_back)) r |= K_BACK;
+  if (k & KEY(eadk_key_zero)) r |= K_ZERO;
+  if (k & KEY(eadk_key_minus)) r |= K_MINUS;
   if (k & (KEY(eadk_key_back) | KEY(eadk_key_backspace))) r |= K_ATTACK;
   if (k & KEY(eadk_key_var)) r |= K_INV;
   if (k & (KEY(eadk_key_home) | KEY(eadk_key_on_off))) r |= K_HOME;
@@ -35,7 +41,6 @@ uint32_t plat_keys(void) {
                                     eadk_key_six, eadk_key_seven, eadk_key_eight, eadk_key_nine};
   for (int i = 0; i < 9; i++)
     if (k & KEY(digits[i])) r |= K_SLOT1 << i;
-  if (k) r |= K_ANY;
   return r;
 }
 
@@ -46,5 +51,38 @@ void plat_push(int x, int y, int w, int h, const uint16_t *px) {
 }
 bool plat_save(const char *name, const void *data, uint32_t len) { return ef_write(name, data, len); }
 const uint8_t *plat_load(const char *name, uint32_t *len) { return ef_read(name, len); }
+
+/* removes every record whose name starts with `prefix` */
+void plat_remove_prefix(const char *prefix) {
+  for (bool again = true; again;) {
+    again = false;
+    ef_fs_t fs;
+    if (!ef_open(&fs)) return;
+    int end = ef_end(&fs);
+    if (end < 0) return;
+    for (uint32_t p = 0; (int)p < end; p += ef_rd16(fs.buf + p)) {
+      const char *n = (const char *)fs.buf + p + 2;
+      uint32_t i = 0;
+      while (prefix[i] && n[i] == prefix[i]) i++;
+      if (!prefix[i]) {
+        char name[40];
+        uint32_t k = 0;
+        while (n[k] && k < sizeof name - 1) name[k] = n[k], k++;
+        name[k] = 0;
+        if (!ef_remove(name)) return;
+        again = true;   /* records moved: start over */
+        break;
+      }
+    }
+  }
+}
+
+/* bytes left in the calculator's storage */
+uint32_t plat_storage_free(void) {
+  ef_fs_t fs;
+  if (!ef_open(&fs)) return 0;
+  int end = ef_end(&fs);
+  return end < 0 ? 0 : fs.size - (uint32_t)end - 2;
+}
 void plat_begin(void) { np_app_begin(); }
 int plat_end(void) { return np_app_end(); }

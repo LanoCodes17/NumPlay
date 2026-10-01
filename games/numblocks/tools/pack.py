@@ -287,6 +287,129 @@ def pack_sprite(im):
     return bs, pal, alpha
 
 
+import items  # noqa: E402
+
+
+def rle_image(im):
+    """A picture as runs: each byte is a palette index (high nibble) and a run
+    length - 1 (low nibble, 0-14); 15 means 16 + the next byte. Rows start at
+    the offsets given. Index 0 is see-through if the picture has see-through
+    pixels."""
+    idx, pal, alpha = quantize(im, 16)
+    if not alpha:
+        idx, pal, _ = quantize(im, 15)
+        idx = [i + 1 for i in idx]
+        pal = [(0, 0, 0)] + pal
+    while len(pal) < 16:
+        pal.append((0, 0, 0))
+    w, h = im.size
+    data, rows = [], []
+    for y in range(h):
+        rows.append(len(data))
+        row = idx[y * w:(y + 1) * w]
+        x = 0
+        while x < w:
+            n = 1
+            while x + n < w and n < 271 and row[x + n] == row[x]:
+                n += 1
+            if n < 16:
+                data.append(row[x] << 4 | (n - 1))
+            else:
+                data += [row[x] << 4 | 15, n - 16]
+            x += n
+    return data, rows, pal
+
+
+def leather(jar, part):
+    """leather armour: the grey base dyed Minecraft's default leather colour, the overlay on top"""
+    base = first_frame(jar.image('items/leather_' + part))
+    over = first_frame(jar.image('items/leather_' + part + '_overlay'))
+    out = Image.new('RGBA', (16, 16))
+    px = []
+    for (r, g, b, a), (r2, g2, b2, a2) in zip(pixels(base), pixels(over)):
+        if a2 >= 128:
+            px.append((r2, g2, b2, a2))
+        else:
+            px.append((r * 0xA0 // 255, g * 0x65 // 255, b * 0x40 // 255, a))
+    out.putdata(px)
+    return out
+
+
+def item_icon(jar, it):
+    t = it['tex']
+    for part in ('helmet', 'chestplate', 'leggings', 'boots'):
+        if t == 'leather_' + part:
+            return leather(jar, part)
+    return first_frame(jar.image('items/' + t))
+
+
+def steve_front(jar):
+    """the player as the inventory shows it, from the front (skin pixels scaled to 27 x 54)"""
+    sk = jar.image('entity/steve')
+    im = Image.new('RGBA', (16, 32), (0, 0, 0, 0))
+    def put(sx, sy, w, h, dx, dy, over=False):
+        part = sk.crop((sx, sy, sx + w, sy + h))
+        if over:
+            im.alpha_composite(part, (dx, dy))
+        else:
+            im.paste(part, (dx, dy))
+    put(8, 8, 8, 8, 4, 0)            # head
+    put(40, 8, 8, 8, 4, 0, True)     # hat
+    put(20, 20, 8, 12, 4, 8)         # body
+    put(44, 20, 4, 12, 0, 8)         # right arm (on the left)
+    put(36, 52, 4, 12, 12, 8)        # left arm
+    put(4, 20, 4, 12, 4, 20)         # right leg
+    put(20, 52, 4, 12, 8, 20)        # left leg
+    return im.resize((27, 54), Image.NEAREST)
+
+
+def font_bits(jar):
+    """ascii.png: 8 x 8 glyphs, a byte a row (bit 0 the left column); widths as FontRenderer measures them"""
+    f = jar.image('font/ascii')
+    bits, widths = [], []
+    for c in range(32, 128):
+        gx, gy = (c % 16) * 8, (c // 16) * 8
+        rows = []
+        right = -1
+        for y in range(8):
+            v = 0
+            for x in range(8):
+                if f.getpixel((gx + x, gy + y))[3] >= 128:
+                    v |= 1 << x
+                    right = max(right, x)
+            rows.append(v)
+        bits += rows
+        widths.append(4 if c == 32 else right + 2)
+    return bits, widths
+
+
+# big GUI pictures, kept as runs: name, picture
+def gui_images(jar):
+    inv = jar.image('gui/container/inventory').crop((0, 0, 176, 166))
+    craft = jar.image('gui/container/crafting_table').crop((0, 0, 176, 166))
+    furn = jar.image('gui/container/furnace').crop((0, 0, 176, 166))
+    g54 = jar.image('gui/container/generic_54')
+    chest = Image.new('RGBA', (176, 71 + 96))
+    chest.paste(g54.crop((0, 0, 176, 71)), (0, 0))
+    chest.paste(g54.crop((0, 126, 176, 222)), (0, 71))
+    w = jar.image('gui/widgets')
+    return [('inventory', inv), ('crafting_table', craft), ('furnace', furn), ('chest', chest),
+]
+
+
+GUI_SPRITES = [
+    ('flame', 'gui/container/furnace', 176, 0, 14, 14),
+    ('arrow', 'gui/container/furnace', 176, 14, 24, 17),
+    ('armor_full', 'gui/icons', 34, 9, 9, 9),
+    ('armor_half', 'gui/icons', 25, 9, 9, 9),
+    ('bubble_pop', 'gui/icons', 25, 18, 9, 9),
+    ('heart_hit', 'gui/icons', 25, 0, 9, 9),
+    ('button', 'gui/widgets', 0, 66, 200, 20),
+    ('button_hover', 'gui/widgets', 0, 86, 200, 20),
+    ('button_off', 'gui/widgets', 0, 46, 200, 20),
+]
+
+
 def main():
     jar = Jar(sys.argv[1])
     names, px, pals, flags = pack_textures(jar)
@@ -333,6 +456,17 @@ def main():
     for st in blocks.S:
         if st['tex'] is not None:
             sprites.append(('icon_' + st['name'].lower(), iso_icon(jar, st, None)))
+    first_item = len(sprites)
+    for it in items.I:
+        sprites.append(('item_' + it['name'].lower(), item_icon(jar, it)))
+    first_gui = len(sprites)
+    sprites += [(n, jar.image(f).crop((x, y, x + w, y + h))) for n, f, x, y, w, h in GUI_SPRITES]
+    for part in ('helmet', 'chestplate', 'leggings', 'boots'):
+        sprites.append(('slot_' + part, first_frame(jar.image('items/empty_armor_slot_' + part))))
+    sprites.append(('steve', steve_front(jar)))
+    bg = first_frame(jar.image('gui/options_background'))
+    bg.putdata([(r * 0x40 // 255, g * 0x40 // 255, b * 0x40 // 255, 255) for r, g, b, a in pixels(bg)])
+    sprites.append(('dirt_bg', bg))
     data, offs, pals, dims, flags2 = [], [], [], [], []
     for n, im in sprites:
         bs, pal, alpha = pack_sprite(im)
@@ -342,6 +476,7 @@ def main():
         dims.append(im.size)
         flags2.append(1 if alpha else 0)
     out.append(f'const uint8_t spr_px[{len(data)}] = {{' + ','.join(str(v) for v in data) + '};')
+    spr_bytes = len(data)
     out.append(f'const uint32_t spr_off[{len(sprites)}] = {{' + ','.join(str(v) for v in offs) + '};')
     out.append(f'const uint8_t spr_w[{len(sprites)}] = {{' + ','.join(str(w) for w, h in dims) + '};')
     out.append(f'const uint8_t spr_h[{len(sprites)}] = {{' + ','.join(str(h) for w, h in dims) + '};')
@@ -359,6 +494,78 @@ def main():
         else:
             icon_of.append(0xFFFF)
     out.append('const uint16_t blk_icon[B_COUNT] = {' + ','.join(str(v) for v in icon_of) + '};')
+    # items: the block state a block counts as, then each item's tables
+    def bi(n):
+        v = items.block_item(n)
+        return 0xFFFF if v is None else v
+    out.append('const uint16_t blk_item[B_COUNT] = {' + ','.join(str(bi(st['name'])) for st in blocks.S) + '};')
+    out.append('const uint16_t blk_fuel[B_COUNT] = {' +
+               ','.join(str(items.fuel_of(i)) for i in range(len(blocks.S))) + '};')
+    out.append('const char *const blk_label[B_COUNT] = {' +
+               ','.join('"' + items.LABELS[st['name']] + '"' if st['name'] in items.LABELS else '0'
+                        for st in blocks.S) + '};')
+    I = items.I
+    out.append('const char *const it_label[N_ITEMS] = {' + ','.join('"' + it['label'] + '"' for it in I) + '};')
+    out.append('const uint16_t it_icon[N_ITEMS] = {' + ','.join(str(first_item + k) for k in range(len(I))) + '};')
+    out.append('const uint8_t it_kind[N_ITEMS] = {' + ','.join(str(items.KINDS.index(it['kind'])) for it in I) + '};')
+    out.append('const uint8_t it_stack[N_ITEMS] = {' + ','.join(str(it['stack']) for it in I) + '};')
+    out.append('const uint16_t it_dur[N_ITEMS] = {' + ','.join(str(it['dur']) for it in I) + '};')
+    out.append('const uint8_t it_tier[N_ITEMS] = {' + ','.join(str(it['tier']) for it in I) + '};')
+    out.append('const uint8_t it_a[N_ITEMS] = {' + ','.join(str(it['a']) for it in I) + '};')
+    out.append('const uint8_t it_b[N_ITEMS] = {' + ','.join(str(it['b']) for it in I) + '};')
+    out.append('const uint8_t it_place[N_ITEMS] = {' +
+               ','.join(str(items.BNAMES.index(it['place']) if it['place'] else 255) for it in I) + '};')
+    out.append('const uint16_t it_fuel[N_ITEMS] = {' + ','.join(str(it['fuel']) for it in I) + '};')
+    # crafting: out, count, width (0: shapeless), height (shapeless: how many), ingredients
+    rec = []
+    for o, n, rows, keys in items.R:
+        if rows:
+            w, hh = max(len(r) for r in rows), len(rows)
+            ins = []
+            for r in rows:
+                for c in r.ljust(w):
+                    ins.append(0 if c == ' ' else items.resolve(keys[c]))
+        else:
+            w, hh = 0, len(keys)
+            ins = [items.resolve(k) for k in keys]
+        ins += [0] * (9 - len(ins))
+        rec.append('{%d,%d,%d,%d,{%s}}' % (items.resolve(o), n, w, hh, ','.join(str(v) for v in ins)))
+    out.append(f'const Recipe recipes[{len(rec)}] = {{' + ','.join(rec) + '};')
+    out.append(f'const uint16_t smelting[{len(items.SMELT)}][2] = {{' +
+               ','.join('{%d,%d}' % (items.resolve(a), items.resolve(b)) for a, b in items.SMELT) + '};')
+    for g, members in items.GROUP_OF.items():
+        out.append(f'const uint16_t group_{g[2:].lower()}[] = {{' +
+                   ','.join(str(items.BNAMES.index(m)) for m in members) + ',0xFFFF};')
+    # the font
+    fb, fw = font_bits(jar)
+    out.append('const uint8_t font_bits[96 * 8] = {' + ','.join(str(v) for v in fb) + '};')
+    out.append('const uint8_t font_w[96] = {' + ','.join(str(v) for v in fw) + '};')
+    # GUI pictures as runs
+    gi = gui_images(jar)
+    allrle, offs, pals, sizes, rowoffs = [], [], [], [], []
+    for n, im in gi:
+        data, rows, pal = rle_image(im)
+        offs.append(len(allrle))
+        rowoffs.append(len(allrle))
+        allrle += data
+        pals.append(pal)
+        sizes.append((im.size, rows))
+    out.append(f'const uint8_t img_rle[{len(allrle)}] = {{' + ','.join(str(v) for v in allrle) + '};')
+    rowtab, rowstart = [], []
+    for (wh, rows), base in zip(sizes, offs):
+        rowstart.append(len(rowtab))
+        rowtab += [base + r for r in rows]
+    out.append(f'const uint32_t img_rows[{len(rowtab)}] = {{' + ','.join(str(v) for v in rowtab) + '};')
+    out.append(f'const uint16_t img_row0[{len(gi)}] = {{' + ','.join(str(v) for v in rowstart) + '};')
+    out.append(f'const uint8_t img_w[{len(gi)}] = {{' + ','.join(str(wh[0]) for wh, r in sizes) + '};')
+    out.append(f'const uint8_t img_h[{len(gi)}] = {{' + ','.join(str(wh[1]) for wh, r in sizes) + '};')
+    out.append(f'const uint16_t img_pal[{len(gi)}][16] = {{')
+    for pal in pals:
+        out.append('  {' + ','.join(f'0x{rgb565(*c):04X}' for c in pal) + '},')
+    out.append('};')
+    gui_names = [n for n, im in gi]
+    extra = [n for n, *_ in GUI_SPRITES] + ['slot_helmet', 'slot_chestplate', 'slot_leggings', 'slot_boots', 'steve',
+                                            'dirt_bg']
     # Minecraft's clouds: 256 x 256, 1 bit a cell
     cl = jar.image('environment/clouds')
     bits = bytearray(256 * 256 // 8)
@@ -393,9 +600,31 @@ def main():
           'extern const uint16_t spr_pal[][16];', 'extern const uint16_t blk_icon[B_COUNT];   /* sprite of its icon */']
     for i, sp in enumerate(SPRITES):
         h.append(f'#define SP_{sp[0].upper()} {i}')
+    for i, n in enumerate(extra):
+        h.append(f'#define SP_{n.upper()} {first_gui + i}')
+    h += ['', '#include "items.h"',
+          'extern const uint16_t blk_item[B_COUNT];   /* the item a block state counts as (0xFFFF: none) */',
+          'extern const uint16_t blk_fuel[B_COUNT];   /* ticks it burns in a furnace */',
+          'extern const char *const blk_label[B_COUNT], *const it_label[N_ITEMS];',
+          'extern const uint16_t it_icon[N_ITEMS], it_dur[N_ITEMS], it_fuel[N_ITEMS];',
+          '/* it_tier: the tool or armour material; it_a: attack damage, armour points or food;'
+          ' it_b: saturation x 10 */',
+          'extern const uint8_t it_kind[N_ITEMS], it_stack[N_ITEMS], it_tier[N_ITEMS], it_a[N_ITEMS], it_b[N_ITEMS];',
+          'extern const uint8_t it_place[N_ITEMS];   /* the block it places (255: none) */',
+          'typedef struct { uint16_t out; uint8_t n, w, h; uint16_t in[9]; } Recipe;   /* w 0: shapeless, h of them */',
+          f'#define N_RECIPES {len(items.R)}', 'extern const Recipe recipes[N_RECIPES];',
+          f'#define N_SMELTING {len(items.SMELT)}', 'extern const uint16_t smelting[N_SMELTING][2];']
+    for g in items.GROUP_OF:
+        h.append(f'extern const uint16_t group_{g[2:].lower()}[];   /* ends with 0xFFFF */')
+    h += ['extern const uint8_t font_bits[96 * 8], font_w[96];   /* characters 32-127 */',
+          'extern const uint8_t img_rle[], img_w[], img_h[];', 'extern const uint32_t img_rows[];',
+          'extern const uint16_t img_row0[], img_pal[][16];']
+    for i, n in enumerate(gui_names):
+        h.append(f'#define IMG_{n.upper()} {i}')
     h += ['', '#endif', '']
     open(os.path.join(ROOT, 'src', 'data.h'), 'w').write('\n'.join(h))
-    print(f'{len(names)} textures, {len(blocks.S)} block states')
+    print(f'{len(names)} textures, {len(blocks.S)} block states, {len(items.I)} items, {len(items.R)} recipes, '
+          f'{len(sprites)} sprites ({spr_bytes} bytes), GUI runs {len(allrle)} bytes')
 
 
 BF_OPAQUE = 8

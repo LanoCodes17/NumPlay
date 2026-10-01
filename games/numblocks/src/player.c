@@ -15,51 +15,6 @@ Player pl;
 
 static inline int ifloor(float v) { int i = (int)v; return v < (float)i ? i - 1 : i; }
 
-/* the collision box of the block at (x, y, z), in world coordinates; false if none */
-static bool block_box(int x, int y, int z, float *b) {
-  int s = world_get(x, y, z);
-  if (!(blk_flags[s] & BF_SOLID)) return false;
-  float y1 = 1;
-  int m = blk_model[s];
-  if (m == M_SLAB) y1 = 0.5f;
-  else if (m == M_LAYER) y1 = 0.125f;
-  else if (m == M_FENCE) y1 = 1.5f;
-  b[0] = (float)x;
-  b[1] = (float)y;
-  b[2] = (float)z;
-  b[3] = x + 1.0f;
-  b[4] = y + y1;
-  b[5] = z + 1.0f;
-  if (m == M_CACTUS) b[0] += 1 / 16.0f, b[2] += 1 / 16.0f, b[3] -= 1 / 16.0f, b[5] -= 1 / 16.0f;
-  return true;
-}
-
-/* how far the box `a` can move along `axis` by `d` before touching block boxes */
-static float clip(const float *a, int axis, float d) {
-  int x0 = ifloor(a[0] - (axis == 0 && d < 0 ? -d : 0)) - 1, x1 = ifloor(a[3] + (axis == 0 && d > 0 ? d : 0)) + 1;
-  int y0 = ifloor(a[1] - (axis == 1 && d < 0 ? -d : 0)) - 1, y1 = ifloor(a[4] + (axis == 1 && d > 0 ? d : 0)) + 1;
-  int z0 = ifloor(a[2] - (axis == 2 && d < 0 ? -d : 0)) - 1, z1 = ifloor(a[5] + (axis == 2 && d > 0 ? d : 0)) + 1;
-  for (int y = y0; y <= y1; y++)
-    for (int z = z0; z <= z1; z++)
-      for (int x = x0; x <= x1; x++) {
-        float b[6];
-        if (!block_box(x, y, z, b)) continue;
-        /* overlapping on the other two axes? */
-        bool ov = true;
-        for (int k = 0; k < 3; k++)
-          if (k != axis && (a[k + 3] <= b[k] || a[k] >= b[k + 3])) ov = false;
-        if (!ov) continue;
-        if (d > 0 && a[axis + 3] <= b[axis]) {
-          float m = b[axis] - a[axis + 3];
-          if (m < d) d = m;
-        } else if (d < 0 && a[axis] >= b[axis + 3]) {
-          float m = b[axis + 3] - a[axis];
-          if (m > d) d = m;
-        }
-      }
-  return d;
-}
-
 static void box_of(float x, float y, float z, float *a) {
   a[0] = x - W, a[1] = y, a[2] = z - W, a[3] = x + W, a[4] = y + H, a[5] = z + W;
 }
@@ -75,33 +30,33 @@ static void move(float dx, float dy, float dz) {
     for (; dx != 0; dx = fabsf(dx) < 0.05f ? 0 : dx - (dx > 0 ? 0.05f : -0.05f)) {
       memcpy(t, a, sizeof t);
       t[0] += dx, t[3] += dx, t[1] -= 1, t[4] = t[1] + 1;
-      if (clip(t, 1, -0.01f) > -0.01f) break;   /* something under */
+      if (phys_clip(t, 1, -0.01f) > -0.01f) break;   /* something under */
     }
     for (; dz != 0; dz = fabsf(dz) < 0.05f ? 0 : dz - (dz > 0 ? 0.05f : -0.05f)) {
       memcpy(t, a, sizeof t);
       t[2] += dz, t[5] += dz, t[1] -= 1, t[4] = t[1] + 1;
-      if (clip(t, 1, -0.01f) > -0.01f) break;
+      if (phys_clip(t, 1, -0.01f) > -0.01f) break;
     }
     odx = dx, odz = dz;
   }
-  float mdy = clip(a, 1, dy);
+  float mdy = phys_clip(a, 1, dy);
   a[1] += mdy, a[4] += mdy;
-  float mdx = clip(a, 0, dx);
+  float mdx = phys_clip(a, 0, dx);
   a[0] += mdx, a[3] += mdx;
-  float mdz = clip(a, 2, dz);
+  float mdz = phys_clip(a, 2, dz);
   a[2] += mdz, a[5] += mdz;
   bool grounded = ody != mdy && ody < 0;
   if ((grounded || pl.on_ground) && (odx != mdx || odz != mdz)) {
     /* try again 0.6 higher */
     float s[6];
     box_of(pl.x, pl.y, pl.z, s);
-    float up = clip(s, 1, 0.6f);
+    float up = phys_clip(s, 1, 0.6f);
     s[1] += up, s[4] += up;
-    float sx = clip(s, 0, odx);
+    float sx = phys_clip(s, 0, odx);
     s[0] += sx, s[3] += sx;
-    float sz = clip(s, 2, odz);
+    float sz = phys_clip(s, 2, odz);
     s[2] += sz, s[5] += sz;
-    float down = clip(s, 1, -up);
+    float down = phys_clip(s, 1, -up);
     s[1] += down, s[4] += down;
     if (sx * sx + sz * sz > mdx * mdx + mdz * mdz) {
       memcpy(a, s, sizeof s);
@@ -136,8 +91,199 @@ static bool in_liquid(void) {
   return blk_model[b] == M_LIQUID;
 }
 
+/* ---------------------------------------------------------------- health, food, experience */
+static float armor_points(void) {
+  int n = 0;
+  for (int i = 0; i < 4; i++)
+    if (pl.armor[i].id >= 256) n += it_a[pl.armor[i].id - 256];
+  return (float)n;
+}
+
+void player_add_xp(int n) {
+  pl.xp_total += n;
+  while (n > 0) {
+    /* EntityPlayer.xpBarCap */
+    int cap = pl.xp_level >= 30 ? 112 + (pl.xp_level - 30) * 9 : pl.xp_level >= 15 ? 37 + (pl.xp_level - 15) * 5
+                                                                                   : 7 + pl.xp_level * 2;
+    float need = (1 - pl.xp) * cap;
+    if (n >= need) {
+      n -= (int)ceilf(need);
+      pl.xp = 0;
+      pl.xp_level++;
+    } else {
+      pl.xp += n / (float)cap;
+      n = 0;
+    }
+  }
+}
+
+static void exhaust(float f) { pl.exhaustion += f; }
+
+/* EntityLivingBase.attackEntityFrom and EntityPlayer.damageEntity: 10 ticks of
+ * grace after a hit (only more damage gets through), armour takes 4% a point */
+void player_hurt(float amount, int kind) {
+  if (pl.dead || amount <= 0) return;
+  if (pl.mode == 1 && kind != DMG_VOID) return;
+  if (pl.invuln > 10) {
+    if (amount <= pl.last_damage) return;
+    float a = amount;
+    amount -= pl.last_damage;
+    pl.last_damage = a;
+  } else {
+    pl.last_damage = amount;
+    pl.invuln = 20;
+    pl.hurt_time = 10;
+  }
+  bool armored = kind == DMG_MOB || kind == DMG_ARROW || kind == DMG_EXPLOSION || kind == DMG_LAVA ||
+                 kind == DMG_FIRE || kind == DMG_CACTUS || kind == DMG_GENERIC;
+  if (armored) {
+    float ap = armor_points();
+    if (ap > 0) {
+      int wear = (int)(amount / 4);
+      if (wear < 1) wear = 1;
+      for (int i = 0; i < 4; i++)
+        if (pl.armor[i].id) stack_wear(&pl.armor[i], wear);
+      amount = amount * (25 - ap) / 25;
+    }
+  }
+  exhaust(0.3f);
+  pl.health -= amount;
+  if (pl.health <= 0) {
+    pl.health = 0;
+    pl.dead = true;
+    /* everything falls out (InventoryPlayer.dropAllItems) */
+    for (int i = 0; i < 36; i++)
+      if (pl.inv[i].id) ent_drop(pl.inv[i].id, item_count(&pl.inv[i]), pl.inv[i].aux, pl.x, pl.y + 1.3f, pl.z, false);
+    for (int i = 0; i < 4; i++)
+      if (pl.armor[i].id) ent_drop(pl.armor[i].id, 1, pl.armor[i].aux, pl.x, pl.y + 1.3f, pl.z, false);
+    memset(pl.inv, 0, sizeof pl.inv);
+    memset(pl.armor, 0, sizeof pl.armor);
+  }
+}
+
+/* FoodStats.onUpdate */
+static void food_tick(void) {
+  if (pl.exhaustion > 4) {
+    pl.exhaustion -= 4;
+    if (pl.sat > 0) pl.sat = pl.sat > 1 ? pl.sat - 1 : 0;
+    else if (pl.food > 0) pl.food--;
+  }
+  if (pl.food >= 18 && pl.health > 0 && pl.health < 20) {
+    if (++pl.food_timer >= 80) {
+      pl.health += 1;
+      if (pl.health > 20) pl.health = 20;
+      exhaust(3);
+      pl.food_timer = 0;
+    }
+  } else if (pl.food <= 0) {
+    if (++pl.food_timer >= 80) {
+      if (pl.health > 1) player_hurt(1, DMG_STARVE);   /* Normal: down to half a heart */
+      pl.food_timer = 0;
+    }
+  } else pl.food_timer = 0;
+}
+
+/* ---------------------------------------------------------------- blocks */
+static const int8_t NX[6] = {0, 0, 0, 0, -1, 1}, NY[6] = {-1, 1, 0, 0, 0, 0}, NZ[6] = {0, 0, -1, 1, 0, 0};
+
+static bool replaceable(int b) {
+  return b == B_AIR || blk_model[b] == M_LIQUID || b == B_TALL_GRASS || b == B_FERN || b == B_DEAD_SHRUB ||
+         b == B_DEAD_BUSH || b == B_VINE || b == B_SNOW_LAYER || b == B_DOUBLE_GRASS_LOWER || b == B_LARGE_FERN_LOWER;
+}
+static bool solid_top(int b) { return (blk_flags[b] & BF_OPAQUE) != 0 || b == B_GLASS || b == B_LEAVES_OAK; }
+static bool soil(int b) { return b == B_GRASS || b == B_DIRT || b == B_PODZOL || b == B_COARSE_DIRT || b == B_FARMLAND || b == B_FARMLAND_WET; }
+static bool is_plant(int b) { return blk_model[b] == M_CROSS && b != B_COBWEB; }
+static bool near_water(int x, int y, int z) {
+  for (int f = 2; f < 6; f++) {
+    int n = world_get(x + NX[f], y, z + NZ[f]);
+    if (n == B_WATER || n == B_FLOWING_WATER) return true;
+  }
+  return false;
+}
+
+/* can block b stay at (x, y, z) (Block.canBlockStay / canPlaceBlockAt)? */
+static bool can_stay(int b, int x, int y, int z) {
+  int below = world_get(x, y - 1, z);
+  int m = blk_model[b];
+  if (b >= B_WHEAT_0 && b <= B_WHEAT_7) return below == B_FARMLAND || below == B_FARMLAND_WET;
+  if ((b >= B_CARROTS_0 && b <= B_CARROTS_3) || (b >= B_POTATOES_0 && b <= B_POTATOES_3))
+    return below == B_FARMLAND || below == B_FARMLAND_WET;
+  if (b == B_SUGAR_CANE)
+    return below == B_SUGAR_CANE || ((below == B_GRASS || below == B_DIRT || below == B_SAND || below == B_RED_SAND) &&
+                                     near_water(x, y - 1, z));
+  if (b == B_CACTUS) {
+    for (int f = 2; f < 6; f++)
+      if (blk_flags[world_get(x + NX[f], y, z + NZ[f])] & BF_SOLID) return false;
+    return below == B_CACTUS || below == B_SAND || below == B_RED_SAND;
+  }
+  if (b == B_DEAD_BUSH) return below == B_SAND || below == B_RED_SAND || below == B_HARDENED_CLAY ||
+                               (below >= B_STAINED_CLAY_WHITE && below <= B_STAINED_CLAY_BLACK) || soil(below);
+  if (b == B_BROWN_MUSHROOM || b == B_RED_MUSHROOM) return solid_top(below);
+  if (b == B_LILY_PAD) return below == B_WATER;
+  if (b >= B_SUNFLOWER_LOWER && b <= B_PEONY_UPPER && ((b - B_SUNFLOWER_LOWER) & 1))
+    return world_get(x, y - 1, z) == b - 1;
+  if (is_plant(b)) return soil(below);
+  if (b == B_TORCH) return solid_top(below);
+  if (b == B_TORCH_E) return blk_flags[world_get(x - 1, y, z)] & BF_OPAQUE;
+  if (b == B_TORCH_W) return blk_flags[world_get(x + 1, y, z)] & BF_OPAQUE;
+  if (b == B_TORCH_S) return blk_flags[world_get(x, y, z - 1)] & BF_OPAQUE;
+  if (b == B_TORCH_N) return blk_flags[world_get(x, y, z + 1)] & BF_OPAQUE;
+  if (b == B_SNOW_LAYER || b == B_RAIL) return solid_top(below);
+  if (b == B_DOOR_OAK_UPPER) return world_get(x, y - 1, z) == B_DOOR_OAK_LOWER;
+  if (b == B_DOOR_OAK_LOWER) return solid_top(below) && world_get(x, y + 1, z) == B_DOOR_OAK_UPPER;
+  if (m == M_LADDER) return true;
+  return true;
+}
+
+static void break_block(int x, int y, int z, bool drops);
+
+/* a block changed at (x, y, z): what stood on it or hung on it may fall off */
+static void neighbours_changed(int x, int y, int z) {
+  for (int f = 0; f < 6; f++) {
+    int nx = x + NX[f], ny = y + NY[f], nz = z + NZ[f];
+    int b = world_get(nx, ny, nz);
+    if (b != B_AIR && blk_model[b] != M_LIQUID && !can_stay(b, nx, ny, nz)) break_block(nx, ny, nz, true);
+    /* sand and gravel fall (straight down, at once) */
+    if ((b == B_SAND || b == B_RED_SAND || b == B_GRAVEL) && replaceable(world_get(nx, ny - 1, nz)) && ny > 0) {
+      int yy = ny;
+      while (yy > 0 && replaceable(world_get(nx, yy - 1, nz))) yy--;
+      world_set(nx, ny, nz, B_AIR);
+      world_set(nx, yy, nz, b);
+      neighbours_changed(nx, ny, nz);
+    }
+  }
+}
+
+static int depth;
+static void break_block(int x, int y, int z, bool drops) {
+  int b = world_get(x, y, z);
+  if (b == B_AIR || depth > 8) return;
+  depth++;
+  if (b == B_CHEST || b == B_FURNACE || b == B_FURNACE_LIT) tiles_removed(x, y, z);
+  world_set(x, y, z, B_AIR);
+  if (drops && pl.mode == 0) {
+    Stack out[2];
+    int n = block_drops(b, held()->id, out);
+    for (int i = 0; i < n; i++)
+      ent_drop(out[i].id, out[i].aux, 0, x + 0.25f + rndf() * 0.5f, y + 0.25f + rndf() * 0.5f, z + 0.25f + rndf() * 0.5f,
+               false);
+  }
+  /* the other half of a two-block thing goes too */
+  if (b == B_DOOR_OAK_LOWER || (b >= B_SUNFLOWER_LOWER && b <= B_PEONY_UPPER && !((b - B_SUNFLOWER_LOWER) & 1)))
+    if (world_get(x, y + 1, z) == b + 1) world_set(x, y + 1, z, B_AIR);
+  if (b == B_DOOR_OAK_UPPER || (b >= B_SUNFLOWER_LOWER && b <= B_PEONY_UPPER && ((b - B_SUNFLOWER_LOWER) & 1)))
+    if (world_get(x, y - 1, z) == b - 1) world_set(x, y - 1, z, B_AIR);
+  neighbours_changed(x, y, z);
+  depth--;
+}
+
+static void set_block(int x, int y, int z, int b) {
+  world_set(x, y, z, b);
+  neighbours_changed(x, y, z);
+}
+
 /* ---------------------------------------------------------------- looking */
-/* the first block the eyes' ray meets within 4.5 blocks (1.8's survival reach) */
+/* the first block the eyes' ray meets within reach (4.5, 5 in creative) */
 static void pick(void) {
   float ex = pl.x, ey = pl.y + (pl.sneaking ? 1.54f : 1.62f), ez = pl.z;
   float yaw = pl.yaw * 0.017453292f, pitch = pl.pitch * 0.017453292f;
@@ -148,9 +294,9 @@ static void pick(void) {
   float tx = dx > 0 ? (x + 1 - ex) * idx : (ex - x) * idx, ty = dy > 0 ? (y + 1 - ey) * idy : (ey - y) * idy,
         tz = dz > 0 ? (z + 1 - ez) * idz : (ez - z) * idz;
   int face = -1;
-  float t = 0;
+  float t = 0, reach = pl.mode ? 5.0f : 4.5f;
   pl.hit_face = -1;
-  while (t <= 4.5f) {
+  while (t <= reach) {
     int b = world_get(x, y, z);
     if (b != B_AIR && blk_model[b] != M_LIQUID) {
       pl.hit_x = x, pl.hit_y = y, pl.hit_z = z, pl.hit_face = face < 0 ? 1 : face;
@@ -162,85 +308,372 @@ static void pick(void) {
   }
 }
 
+/* the liquid source the eyes look at (for buckets), or false */
+static bool pick_liquid(int *ox, int *oy, int *oz) {
+  float ex = pl.x, ey = pl.y + 1.62f, ez = pl.z;
+  float yaw = pl.yaw * 0.017453292f, pitch = pl.pitch * 0.017453292f;
+  float dx = -sinf(yaw) * cosf(pitch), dy = -sinf(pitch), dz = cosf(yaw) * cosf(pitch);
+  for (float t = 0; t < 4.5f; t += 0.1f) {
+    int x = ifloor(ex + dx * t), y = ifloor(ey + dy * t), z = ifloor(ez + dz * t);
+    int b = world_get(x, y, z);
+    if (b == B_WATER || b == B_LAVA) {
+      *ox = x, *oy = y, *oz = z;
+      return true;
+    }
+    if (b != B_AIR && blk_model[b] != M_LIQUID) return false;
+  }
+  return false;
+}
+
+/* ---------------------------------------------------------------- using items */
+static bool box_free(int x, int y, int z) {
+  float a[6];
+  box_of(pl.x, pl.y, pl.z, a);
+  return !(x + 1 > a[0] && x < a[3] && y + 1 > a[1] && y < a[4] && z + 1 > a[2] && z < a[5]);
+}
+
+static void use_up(void) {
+  if (pl.mode == 0) stack_take(held(), 1);
+}
+
+/* places the held block (or the block an item places) against the face looked at */
+static bool place(int b) {
+  int f = pl.hit_face;
+  int x = pl.hit_x, y = pl.hit_y, z = pl.hit_z;
+  int at = world_get(x, y, z);
+  if (!(replaceable(at) && at != B_AIR)) x += NX[f], y += NY[f], z += NZ[f];
+  else f = 1;
+  if (y < 0 || y >= WORLD_H || !world_loaded(x, y, z) || !replaceable(world_get(x, y, z))) return false;
+  /* the variant: logs lie along the face's axis, torches lean on the block */
+  if (b >= B_LOG_OAK && b <= B_LOG_JUNGLE_BARK && (b - B_LOG_OAK) % 4 == 0) b += (f >> 1) == 2 ? 1 : (f >> 1) == 1 ? 2 : 0;
+  if (b >= B_LOG_ACACIA && b <= B_LOG_DARK_OAK_BARK && (b - B_LOG_ACACIA) % 4 == 0)
+    b += (f >> 1) == 2 ? 1 : (f >> 1) == 1 ? 2 : 0;
+  if (b == B_TORCH) {
+    static const uint8_t tf[6] = {0, B_TORCH, B_TORCH_N, B_TORCH_S, B_TORCH_W, B_TORCH_E};
+    if (f == 0) return false;
+    b = tf[f];
+  }
+  if (!can_stay(b, x, y, z) && b != B_DOOR_OAK_LOWER) return false;
+  if ((blk_flags[b] & BF_SOLID) && !box_free(x, y, z)) return false;
+  if (b == B_DOOR_OAK_LOWER || (b >= B_SUNFLOWER_LOWER && b <= B_PEONY_UPPER)) {
+    if (!replaceable(world_get(x, y + 1, z)) || !solid_top(world_get(x, y - 1, z))) return false;
+    if (!box_free(x, y + 1, z) && b == B_DOOR_OAK_LOWER) return false;
+    world_set(x, y + 1, z, b + 1);
+  }
+  set_block(x, y, z, b);
+  return true;
+}
+
+static void eat_done(void) {
+  Stack *h = held();
+  int i = h->id - 256;
+  pl.food += it_a[i];
+  if (pl.food > 20) pl.food = 20;
+  pl.sat += it_a[i] * it_b[i] / 10.0f * 2;
+  if (pl.sat > pl.food) pl.sat = (float)pl.food;
+  if (it_kind[i] == IK_STEW) {
+    h->id = I_BOWL, h->aux = 1;
+    return;
+  }
+  if (h->id == I_GOLDEN_APPLE) pl.health = pl.health + 4 > 20 ? 20 : pl.health + 4;   /* regeneration II, 5 s */
+  use_up();
+}
+
+/* OK pressed: use the block looked at, else the held item */
+static void use(uint32_t pressed) {
+  Stack *h = held();
+  int k = item_kind(h->id);
+  bool on_block = pl.hit_face >= 0;
+  int x = pl.hit_x, y = pl.hit_y, z = pl.hit_z;
+  int b = on_block ? world_get(x, y, z) : B_AIR;
+  if (!(pressed & K_USE)) return;
+  if (on_block && !pl.sneaking) {
+    if (b == B_CRAFTING_TABLE) {
+      gui_open(GUI_CRAFTING, x, y, z);
+      return;
+    }
+    if (b == B_FURNACE || b == B_FURNACE_LIT) {
+      gui_open(GUI_FURNACE, x, y, z);
+      return;
+    }
+    if (b == B_CHEST) {
+      gui_open(GUI_CHEST, x, y, z);
+      return;
+    }
+  }
+  switch (k) {
+    case IK_BLOCK:
+      if (on_block && place(h->id)) use_up();
+      return;
+    case IK_PLACER:
+    case IK_FOOD:
+      if (on_block && h->id >= 256 && it_place[h->id - 256] != 255) {
+        int pb = it_place[h->id - 256];
+        if ((k == IK_FOOD || pb == B_WHEAT_0) && !(pl.hit_face == 1 && (b == B_FARMLAND || b == B_FARMLAND_WET))) {
+          if (k == IK_PLACER) return;
+        } else if (place(pb)) {
+          use_up();
+          return;
+        }
+      }
+      return;
+    case IK_HOE:
+      if (on_block && pl.hit_face != 0 && (b == B_GRASS || b == B_DIRT) && world_get(x, y + 1, z) == B_AIR) {
+        set_block(x, y, z, B_FARMLAND);
+        if (pl.mode == 0) stack_wear(h, 1);
+      }
+      return;
+    case IK_BONE_MEAL:
+      if (!on_block) return;
+      if (b >= B_WHEAT_0 && b < B_WHEAT_7) {
+        int st = b - B_WHEAT_0 + 2 + rnd(4);
+        set_block(x, y, z, B_WHEAT_0 + (st > 7 ? 7 : st));
+        use_up();
+      } else if ((b >= B_CARROTS_0 && b < B_CARROTS_3) || (b >= B_POTATOES_0 && b < B_POTATOES_3)) {
+        int base = b <= B_CARROTS_3 ? B_CARROTS_0 : B_POTATOES_0;
+        set_block(x, y, z, b + 1 > base + 3 ? base + 3 : b + 1);
+        use_up();
+      } else if (b == B_GRASS && world_get(x, y + 1, z) == B_AIR) {
+        /* ItemDye.applyBonemeal on grass: tall grass and flowers around */
+        for (int i = 0; i < 64; i++) {
+          int gx = x + rnd(7) - 3, gz = z + rnd(7) - 3, gy = y + rnd(3) - 1;
+          if (world_get(gx, gy, gz) == B_GRASS && world_get(gx, gy + 1, gz) == B_AIR)
+            set_block(gx, gy + 1, gz, rnd(8) ? B_TALL_GRASS : rnd(2) ? B_DANDELION : B_POPPY);
+        }
+        use_up();
+      }
+      return;
+    case IK_BUCKET: {
+      int lx, ly, lz;
+      if (pick_liquid(&lx, &ly, &lz)) {
+        int lb = world_get(lx, ly, lz);
+        set_block(lx, ly, lz, B_AIR);
+        int full = lb == B_WATER ? I_WATER_BUCKET : I_LAVA_BUCKET;
+        if (pl.mode == 1) return;
+        if (h->aux <= 1) h->id = (uint16_t)full, h->aux = 1;
+        else {
+          h->aux--;
+          if (inv_add(pl.inv, 36, full, 1, 0)) ent_drop(full, 1, 0, pl.x, pl.y + 1.3f, pl.z, true);
+        }
+      }
+      return;
+    }
+    case IK_WATER_BUCKET:
+    case IK_LAVA_BUCKET:
+      if (on_block) {
+        int f = pl.hit_face, px = x + NX[f], py = y + NY[f], pz = z + NZ[f];
+        if (replaceable(world_get(px, py, pz))) {
+          set_block(px, py, pz, k == IK_WATER_BUCKET ? B_WATER : B_LAVA);
+          if (pl.mode == 0) h->id = I_BUCKET, h->aux = 1;
+        }
+      }
+      return;
+    case IK_MILK_BUCKET:
+      if (pl.mode == 0) h->id = I_BUCKET, h->aux = 1;
+      return;
+  }
+}
+
 /* ---------------------------------------------------------------- a tick */
 void player_spawn(void) {
   int x, y, z;
   gen_spawn(&x, &y, &z);
   memset(&pl, 0, sizeof pl);
+  pl.spawn_x = x, pl.spawn_y = y, pl.spawn_z = z;
   pl.x = x + 0.5f;
   pl.y = (float)y;
   pl.z = z + 0.5f;
-  static const int start[9] = {B_DIRT, B_COBBLESTONE, B_PLANKS_OAK, B_LOG_OAK, B_GLASS, B_TORCH, B_STONE_BRICKS, B_SAND,
-                               B_CRAFTING_TABLE};
-  memcpy(pl.hotbar, start, sizeof start);
+  pl.health = 20;
+  pl.food = 20;
+  pl.sat = 5;
+  pl.air = 300;
 }
 
-static int break_cooldown;
+void player_respawn(void) {
+  pl.x = pl.spawn_x + 0.5f, pl.y = (float)pl.spawn_y, pl.z = pl.spawn_z + 0.5f;
+  pl.vx = pl.vy = pl.vz = 0;
+  pl.health = 20, pl.food = 20, pl.sat = 5, pl.exhaustion = 0, pl.air = 300, pl.fall = 0, pl.fire = 0;
+  pl.xp = 0, pl.xp_level = 0, pl.xp_total = 0;
+  pl.dead = false;
+  pl.pitch = 0;
+}
+
+static int break_cooldown, jump_timer;
+static uint32_t prev_keys;
+
+/* the damage the world does: falls, drowning, lava, fire, cactus, suffocation, the void */
+static void hazards(float fell_from) {
+  int fx = ifloor(pl.x), fz = ifloor(pl.z);
+  int feet = world_get(fx, ifloor(pl.y + 0.1f), fz), head = world_get(fx, ifloor(pl.y + 1.62f), fz);
+  /* falling: the distance counts while going down, out of water */
+  if (pl.in_water || pl.flying || feet == B_LADDER || feet == B_VINE || feet == B_COBWEB) pl.fall = 0;
+  else if (pl.y < fell_from) pl.fall += fell_from - pl.y;
+  if (pl.on_ground) {
+    if (pl.fall > 3) player_hurt(ceilf(pl.fall - 3), DMG_FALL);
+    pl.fall = 0;
+  }
+  /* air: 300 ticks under water, then 2 damage every 20 */
+  if (head == B_WATER || head == B_FLOWING_WATER) {
+    if (pl.mode == 0 && --pl.air <= -20) {
+      pl.air = 0;
+      player_hurt(2, DMG_DROWN);
+    }
+  } else pl.air = 300;
+  bool lava = feet == B_LAVA || feet == B_FLOWING_LAVA || head == B_LAVA || head == B_FLOWING_LAVA;
+  if (lava) {
+    player_hurt(4, DMG_LAVA);
+    pl.fire = 300;
+  }
+  if (pl.in_water) pl.fire = 0;
+  if (pl.fire > 0) {
+    if (pl.fire % 20 == 0) player_hurt(1, DMG_FIRE);
+    pl.fire--;
+  }
+  if ((blk_flags[head] & BF_OPAQUE) && pl.mode == 0) player_hurt(1, DMG_WALL);
+  /* cactus: touching one hurts */
+  for (int f = 2; f < 6; f++)
+    if (world_get(ifloor(pl.x + NX[f] * 0.31f), ifloor(pl.y + 0.5f), ifloor(pl.z + NZ[f] * 0.31f)) == B_CACTUS)
+      player_hurt(1, DMG_CACTUS);
+  if (pl.y < -64) player_hurt(4, DMG_VOID);
+}
 
 void player_tick(uint32_t keys, uint32_t pressed) {
+  if (pl.dead) return;
+  if (pl.invuln > 0) pl.invuln--;
+  if (pl.hurt_time > 0) pl.hurt_time--;
   float fwd = (keys & K_FWD ? 1.0f : 0) - (keys & K_BACKW ? 1.0f : 0);
   float strafe = (keys & K_STRAFE_L ? 1.0f : 0) - (keys & K_STRAFE_R ? 1.0f : 0);
-  pl.sneaking = (keys & K_SNEAK) != 0;
+  pl.sneaking = (keys & K_SNEAK) != 0 && !pl.flying;
   fwd *= 0.98f;
   strafe *= 0.98f;
   if (pl.sneaking) fwd *= 0.3f, strafe *= 0.3f;
+  if (pl.using_ticks) fwd *= 0.2f, strafe *= 0.2f;   /* eating slows you down */
   pl.in_water = in_liquid();
-  if (keys & K_JUMP) {
-    if (pl.in_water) pl.vy += 0.04f;
-    else if (pl.on_ground) {
-      pl.vy = 0.42f;
-      if (pl.sprinting) {
-        float y = pl.yaw * 0.017453292f;
-        pl.vx -= sinf(y) * 0.2f;
-        pl.vz += cosf(y) * 0.2f;
+  /* creative: jump twice quickly to fly or land */
+  if (jump_timer) jump_timer--;
+  if (pressed & K_JUMP && pl.mode == 1) {
+    if (jump_timer) {
+      pl.flying = !pl.flying;
+      jump_timer = 0;
+    } else jump_timer = 7;
+  }
+  if (pl.food <= 6 && pl.mode == 0) pl.sprinting = false;
+  float y0 = pl.y, ox = pl.x, oz = pl.z;
+  if (pl.flying) {
+    /* PlayerCapabilities: flying speed 0.05, x2 sprinting; up with jump, down with sneak */
+    if (keys & K_JUMP) pl.vy += 0.15f;
+    if (keys & K_SNEAK) pl.vy -= 0.15f;
+    move_flying(strafe, fwd, pl.sprinting ? 0.1f : 0.05f);
+    move(pl.vx, pl.vy, pl.vz);
+    pl.vx *= 0.91f, pl.vy *= 0.6f, pl.vz *= 0.91f;
+    if (pl.on_ground) pl.flying = false;
+  } else {
+    if (keys & K_JUMP) {
+      if (pl.in_water) pl.vy += 0.04f;
+      else if (pl.on_ground) {
+        pl.vy = 0.42f;
+        exhaust(pl.sprinting ? 0.8f : 0.2f);
+        if (pl.sprinting) {
+          float y = pl.yaw * 0.017453292f;
+          pl.vx -= sinf(y) * 0.2f;
+          pl.vz += cosf(y) * 0.2f;
+        }
       }
     }
+    int at = world_get(ifloor(pl.x), ifloor(pl.y), ifloor(pl.z));
+    if (pl.in_water) {
+      move_flying(strafe, fwd, 0.02f);
+      move(pl.vx, pl.vy, pl.vz);
+      pl.vx *= 0.8f, pl.vy *= 0.8f, pl.vz *= 0.8f;
+      pl.vy -= 0.02f;
+    } else {
+      float fr = pl.on_ground ? 0.6f * 0.91f : 0.91f;
+      float speed = 0.1f * (pl.sprinting ? 1.3f : 1.0f);
+      float f = pl.on_ground ? speed * (0.16277136f / (fr * fr * fr)) : (pl.sprinting ? 0.026f : 0.02f);
+      move_flying(strafe, fwd, f);
+      /* ladders and vines: slow falls, climb when pushing into them */
+      bool ladder = at == B_LADDER || at == B_VINE;
+      if (ladder) {
+        if (pl.vx < -0.15f) pl.vx = -0.15f;
+        if (pl.vx > 0.15f) pl.vx = 0.15f;
+        if (pl.vz < -0.15f) pl.vz = -0.15f;
+        if (pl.vz > 0.15f) pl.vz = 0.15f;
+        if (pl.vy < -0.15f) pl.vy = -0.15f;
+        if (pl.sneaking && pl.vy < 0) pl.vy = 0;
+      }
+      if (at == B_COBWEB) pl.vx *= 0.25f, pl.vy *= 0.05f, pl.vz *= 0.25f;
+      float bvx = pl.vx, bvz = pl.vz;
+      move(pl.vx, pl.vy, pl.vz);
+      if (ladder && (bvx != pl.vx || bvz != pl.vz)) pl.vy = 0.2f;
+      pl.vy -= 0.08f;
+      pl.vy *= 0.98f;
+      pl.vx *= fr;
+      pl.vz *= fr;
+    }
   }
-  if (pl.in_water) {
-    move_flying(strafe, fwd, 0.02f);
-    move(pl.vx, pl.vy, pl.vz);
-    pl.vx *= 0.8f, pl.vy *= 0.8f, pl.vz *= 0.8f;
-    pl.vy -= 0.02f;
-  } else {
-    float fr = pl.on_ground ? 0.6f * 0.91f : 0.91f;
-    float speed = 0.1f * (pl.sprinting ? 1.3f : 1.0f);
-    float f = pl.on_ground ? speed * (0.16277136f / (fr * fr * fr)) : (pl.sprinting ? 0.026f : 0.02f);
-    move_flying(strafe, fwd, f);
-    move(pl.vx, pl.vy, pl.vz);
-    pl.vy -= 0.08f;
-    pl.vy *= 0.98f;
-    pl.vx *= fr;
-    pl.vz *= fr;
-  }
-  if (pl.y < -64) pl.y = 100, pl.vy = 0;
+  /* walking, sprinting and swimming tire (EntityPlayer.addMovementStat) */
+  float moved = sqrtf((pl.x - ox) * (pl.x - ox) + (pl.z - oz) * (pl.z - oz));
+  if (pl.mode == 0) exhaust(moved * (pl.in_water ? 0.015f : pl.sprinting ? 0.1f : 0.0f));
+  hazards(y0);
+  if (pl.mode == 0) food_tick();
+  if (pl.dead) return;
   pick();
-  /* mining (Back held) and placing (OK) */
+  /* mining (Back held) */
   if (break_cooldown) break_cooldown--;
   if ((keys & K_ATTACK) && pl.hit_face >= 0 && !break_cooldown) {
     int b = world_get(pl.hit_x, pl.hit_y, pl.hit_z);
     int hard = blk_hard[b];
-    if (hard == 255) pl.breaking = 0;
+    if (pl.mode == 1) {
+      break_block(pl.hit_x, pl.hit_y, pl.hit_z, false);
+      break_cooldown = 5;
+    } else if (hard == 255) pl.breaking = 0;
     else {
-      /* by hand: 1 / hardness / 100 a tick if the block needs a tool, else / 30 */
-      float per = hard ? 20.0f / hard / (blk_tool[b] == T_PICKAXE ? 100.0f : 30.0f) : 1.0f;
+      /* Block.getPlayerRelativeBlockHardness: speed / hardness / 30, or / 100 without the right tool */
+      int h = held()->id;
+      float speed = dig_speed(b, h);
+      if (pl.in_water && ifloor(pl.y + 1.62f) >= 0 && blk_model[world_get(ifloor(pl.x), ifloor(pl.y + 1.62f), ifloor(pl.z))] == M_LIQUID)
+        speed /= 5;
+      if (!pl.on_ground) speed /= 5;
+      float per = hard ? speed * 20.0f / hard / (can_harvest(b, h) ? 30.0f : 100.0f) : 1.0f;
       pl.breaking += per;
       if (pl.breaking >= 1) {
-        world_set(pl.hit_x, pl.hit_y, pl.hit_z, B_AIR);
+        break_block(pl.hit_x, pl.hit_y, pl.hit_z, true);
+        exhaust(0.025f);
+        /* experience from ores (Block.dropXpOnBlockBreak) */
+        if (b == B_COAL_ORE) player_add_xp(rnd(3));
+        else if (b == B_DIAMOND_ORE || b == B_EMERALD_ORE) player_add_xp(3 + rnd(5));
+        else if (b == B_LAPIS_ORE) player_add_xp(2 + rnd(4));
+        else if (b == B_REDSTONE_ORE) player_add_xp(1 + rnd(5));
+        /* tools wear: 1 a block (swords 2), not for blocks that break at once */
+        int k = item_kind(h);
+        if (hard && k >= IK_PICKAXE && k <= IK_SHEARS && k != IK_HOE) stack_wear(held(), k == IK_SWORD ? 2 : 1);
         pl.breaking = 0;
         break_cooldown = 5;
       }
     }
   } else pl.breaking = 0;
-  if ((pressed & K_USE) && pl.hit_face >= 0) {
-    static const int nx[6] = {0, 0, 0, 0, -1, 1}, ny[6] = {-1, 1, 0, 0, 0, 0}, nz[6] = {0, 0, -1, 1, 0, 0};
-    int x = pl.hit_x + nx[pl.hit_face], y = pl.hit_y + ny[pl.hit_face], z = pl.hit_z + nz[pl.hit_face];
-    int b = pl.hotbar[pl.slot];
-    float a[6];
-    box_of(pl.x, pl.y, pl.z, a);
-    bool inside = x + 1 > a[0] && x < a[3] && y + 1 > a[1] && y < a[4] && z + 1 > a[2] && z < a[5];
-    int here = world_get(x, y, z);
-    if ((here == B_AIR || blk_model[here] == M_LIQUID) && (!inside || !(blk_flags[b] & BF_SOLID))) world_set(x, y, z, b);
+  /* eating: OK held for 32 ticks */
+  int k = item_kind(held()->id);
+  bool edible = k == IK_FOOD || k == IK_STEW;
+  if (edible && (keys & K_USE) && (pl.food < 20 || held()->id == I_GOLDEN_APPLE || pl.mode == 1) &&
+      !(pl.hit_face >= 0 && it_place[held()->id - 256] != 255 &&
+        world_get(pl.hit_x, pl.hit_y, pl.hit_z) == B_FARMLAND)) {
+    if (++pl.using_ticks >= 32) {
+      eat_done();
+      pl.using_ticks = 0;
+    }
+  } else {
+    pl.using_ticks = 0;
+    use(pressed);
+  }
+  /* dropping the held item: xnt (one; with square root, the stack) */
+  if (pressed & K_DROP && held()->id) {
+    Stack *h = held();
+    int n = pl.sneaking ? item_count(h) : 1;
+    ent_drop(h->id, n, h->aux, pl.x, pl.y + 1.32f, pl.z, true);
+    stack_take(h, n);
   }
   for (int n = 0; n < 9; n++)
     if (pressed & (K_SLOT1 << n)) pl.slot = n;
+  prev_keys = keys;
 }

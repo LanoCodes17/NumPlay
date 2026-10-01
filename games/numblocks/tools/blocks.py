@@ -204,6 +204,15 @@ b('BED_FOOT', 26, 0, model='slab', tex=tsb('bed_feet_top', 'bed_feet_side'), har
 b('BED_HEAD', 26, 8, model='slab', tex=tsb('bed_head_top', 'bed_head_side'), hard=0.2)
 b('FLOWING_WATER', 8, 1, model='liquid', tex='water_flow', tint='water', hard=100)
 b('FLOWING_LAVA', 10, 2, model='liquid', tex='lava_flow', light=15, hard=100)
+# added after the first generator port: keep new states at the end so ids stay stable
+for v, (n, t) in enumerate([('OAK', 'oak'), ('SPRUCE', 'spruce'), ('BIRCH', 'birch'), ('JUNGLE', 'jungle'),
+                            ('ACACIA', 'acacia'), ('DARK_OAK', 'big_oak')]):
+    b(f'WOOD_SLAB_{n}', 126, v, model='slab', tex=f'planks_{t}', hard=2.0, tool='axe')
+# carrots and potatoes: 4 looks (Minecraft's ages 0-1, 2-3, 4-6, 7)
+for st in range(4):
+    b(f'CARROTS_{st}', 141, (0, 2, 4, 7)[st], model='cross', tex=f'carrots_stage_{st}', hard=0)
+for st in range(4):
+    b(f'POTATOES_{st}', 142, (0, 2, 4, 7)[st], model='cross', tex=f'potatoes_stage_{st}', hard=0)
 
 assert len(S) <= 255, len(S)
 

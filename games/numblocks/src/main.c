@@ -11,17 +11,64 @@ const uint32_t eadk_api_level __attribute__((section(".rodata.eadk_api_level")))
 
 uint32_t perf_frames __attribute__((used));   /* read by tools/emu.py */
 uint32_t game_time = 1000;                    /* Minecraft's time of day: 0 sunrise, 6000 noon */
-bool game_running = true;
+bool start_in_world;                          /* tests: straight into a new world */
 
-static uint32_t last, acc, held;
+static uint32_t last, acc, keys_held, autosave;
 static float px, py, pz;
+static bool in_world;      /* playing; else the title screens, the world turning behind */
+static float title_yaw;
+
+static void camera_reset(void) { px = pl.x, py = pl.y, pz = pl.z; }
+
+/* the title's backdrop: the saved world where the player is, else a world of seed 0 */
+static void title(void) {
+  in_world = false;
+  if (!load_world()) {
+    world_new(0, "nbt");
+    player_spawn();
+  }
+  gui_menu(GUI_TITLE);
+  world_follow(pl.x, pl.y, pl.z);
+  camera_reset();
+}
+
+/* the loading screen, drawn once before the world is built */
+static void loading(void) {
+  gui = GUI_LOADING;
+  render_frame(NULL, game_time);
+  world_follow(pl.x, pl.y, pl.z);
+  camera_reset();
+  gui = GUI_NONE;
+  in_world = true;
+  autosave = 0;
+  acc = 0;
+  last = plat_millis();
+}
+
+static int64_t parse_seed(void) {
+  if (!seed_text[0] || (seed_text[0] == '-' && !seed_text[1])) {
+    /* random: the time, mixed */
+    uint64_t v = (uint64_t)plat_millis() * 0x9E3779B97F4A7C15ull + perf_frames;
+    v ^= v >> 29;
+    v *= 0xBF58476D1CE4E5B9ull;
+    return (int64_t)(v ^ v >> 32);
+  }
+  int64_t v = 0;
+  bool neg = seed_text[0] == '-';
+  for (const char *c = seed_text + neg; *c; c++) v = (int64_t)((uint64_t)v * 10 + (uint64_t)(*c - '0'));
+  return neg ? -v : v;
+}
 
 void game_init(void) {
-  world_new(0);
-  player_spawn();
-  world_follow(pl.x, pl.y, pl.z);
+  load_options();
   last = plat_millis();
-  px = pl.x, py = pl.y, pz = pl.z;
+  if (start_in_world) {
+    new_world(0, 0);
+    game_time = 1000;
+    loading();
+    return;
+  }
+  title();
 }
 
 /* one frame: input, the ticks due, the picture; false once the player quits */
@@ -31,30 +78,90 @@ bool game_frame(void) {
   last = now;
   if (dt > 250) dt = 250;
   uint32_t k = plat_keys();
-  if (k & K_HOME) return false;
-  /* looking around: arrows, 150 degrees a second sideways, 100 up and down */
-  float turn = dt / 1000.0f;
-  if (k & K_LEFT) pl.yaw -= 150 * turn;
-  if (k & K_RIGHT) pl.yaw += 150 * turn;
-  if (k & K_UP) pl.pitch -= 100 * turn;
-  if (k & K_DOWN) pl.pitch += 100 * turn;
-  if (pl.pitch > 90) pl.pitch = 90;
-  if (pl.pitch < -90) pl.pitch = -90;
-  pl.sprinting = (k & K_SPRINT) && (k & K_FWD) && !pl.sneaking;
-  acc += dt;
-  uint32_t pressed = k & ~held;
-  held = k;
+  uint32_t pressed = k & ~keys_held;
+  keys_held = k;
+  if (k & K_HOME) {
+    /* Home: save and quit, from anywhere */
+    if (in_world) {
+      if (gui != GUI_NONE && gui < GUI_PAUSE) gui_close();
+      save_world();
+    }
+    return false;
+  }
+  gui_input(k, pressed);
+  if (menu_choice) {
+    int c = menu_choice;
+    menu_choice = 0;
+    switch (c) {
+      case ACT_PLAY:
+        if (load_world()) loading();
+        break;
+      case ACT_NEW:
+        new_world(parse_seed(), create_mode);
+        game_time = 0;
+        loading();
+        save_world();
+        break;
+      case ACT_QUIT_APP: return false;
+      case ACT_SAVE_QUIT:
+      case ACT_TITLE:
+        save_world();
+        title();
+        break;
+      case ACT_RESPAWN:
+        player_respawn();
+        gui = GUI_NONE;
+        world_follow(pl.x, pl.y, pl.z);
+        camera_reset();
+        break;
+    }
+  }
+  if (!in_world) {
+    /* the title: the world turns slowly, nothing moves */
+    title_yaw += dt * 0.006f;
+    Camera c = {pl.x, pl.y + 1.62f, pl.z, title_yaw, 8};
+    render_frame(gui == GUI_TITLE ? &c : NULL, game_time);
+    perf_frames++;
+    return true;
+  }
+  bool in_game = gui == GUI_NONE;
+  /* looking around: arrows, 150 degrees a second sideways, 100 up and down (x the look speed) */
+  if (in_game) {
+    float turn = dt / 1000.0f * opt.look / 100.0f;
+    if (k & K_LEFT) pl.yaw -= 150 * turn;
+    if (k & K_RIGHT) pl.yaw += 150 * turn;
+    if (k & K_UP) pl.pitch -= 100 * turn;
+    if (k & K_DOWN) pl.pitch += 100 * turn;
+    if (pl.pitch > 90) pl.pitch = 90;
+    if (pl.pitch < -90) pl.pitch = -90;
+    pl.sprinting = (k & K_SPRINT) && (k & K_FWD) && !pl.sneaking;
+  }
+  bool paused = gui == GUI_PAUSE || (gui == GUI_OPTIONS);
+  if (!paused) acc += dt;
+  uint32_t game_keys = in_game ? k : 0, game_pressed = in_game ? pressed : 0;
   while (acc >= 50) {
     px = pl.x, py = pl.y, pz = pl.z;
-    player_tick(k, pressed);
-    pressed = 0;
+    player_tick(game_keys, game_pressed);
+    game_pressed = 0;
+    ents_tick();
+    gui_tick();
     game_time++;
     acc -= 50;
+    /* Minecraft saves every 45 seconds */
+    if (++autosave >= 900) {
+      autosave = 0;
+      save_world();
+    }
+  }
+  if (pl.dead && gui != GUI_DEATH) {
+    if (gui != GUI_NONE && gui < GUI_PAUSE) gui_close();
+    gui_menu(GUI_DEATH);
   }
   world_follow(pl.x, pl.y, pl.z);
   float t = acc / 50.0f;
   Camera c = {px + (pl.x - px) * t, py + (pl.y - py) * t + (pl.sneaking ? 1.54f : 1.62f), pz + (pl.z - pz) * t, pl.yaw,
               pl.pitch};
+  if (pl.dead) c.y = pl.y + 0.3f;
   render_frame(&c, game_time);
   perf_frames++;
   return true;

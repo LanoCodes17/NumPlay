@@ -536,6 +536,15 @@ static void setup_light(float sun) {
 }
 
 void render_frame(const Camera *c, uint32_t tod) {
+  if (!c) {
+    /* no world: only what the screens draw */
+    for (int py = 0; py < RH; py += SR) {
+      memset(strip, 0, sizeof strip);
+      hud_strip(strip, py * 2, SR * 2);
+      plat_push(0, py * 2, SCREEN_W, SR * 2, strip);
+    }
+    return;
+  }
   float yaw = c->yaw * 0.017453292f, pitch = c->pitch * 0.017453292f;
   float cy = cosf(yaw), sy = sinf(yaw), cp = cosf(pitch), sp = sinf(pitch);
   fwx = -sy * cp;

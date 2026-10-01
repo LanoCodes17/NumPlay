@@ -14,7 +14,9 @@ uint8_t vmac[MCY * MCZ * MCX];      /* per column: 1 + the highest block that st
 int vc_x0, vc_y0, vc_z0;
 static bool vc_valid;
 
-static uint8_t slab[16 * 16 * VCY];   /* one chunk of the generator's output */
+/* one chunk of the generator's output; also the edit log's merge buffer */
+static uint32_t slab32[16 * 16 * VCY / 4];
+#define slab ((uint8_t *)slab32)
 
 static inline int floordiv(int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
 static inline int ifloor(float v) { int i = (int)v; return v < (float)i ? i - 1 : i; }
@@ -141,6 +143,7 @@ static void fill_chunk(int cx, int cz, const bool *keep, int ox, int oy, int oz)
 static bool kept[VCZ * VCX];   /* columns the old cache covered (moved, not generated) */
 
 static void recenter(int nx0, int ny0, int nz0) {
+  edits_forget();
   int dx = nx0 - vc_x0, dy = ny0 - vc_y0, dz = nz0 - vc_z0;
   bool any = vc_valid && dx > -VCX && dx < VCX && dz > -VCZ && dz < VCZ && dy > -VCY && dy < VCY;
   /* move what stays: in an order that never overwrites a cell before it is read */
@@ -186,8 +189,9 @@ static void recenter(int nx0, int ny0, int nz0) {
   mac_box(0, 0, 0, VCX, VCY, VCZ);
 }
 
-void world_new(int64_t seed) {
+void world_new(int64_t seed, const char *name) {
   gen_init(seed);
+  edits_setup(name, slab32, sizeof slab32 / 4);
   edits_clear();
   vc_valid = false;
 }

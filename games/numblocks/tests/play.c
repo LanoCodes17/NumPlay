@@ -23,7 +23,8 @@ static uint32_t key_bit(const char *s) {
   static const struct { const char *n; uint32_t k; } t[] = {
     {"left", K_LEFT}, {"right", K_RIGHT}, {"up", K_UP}, {"down", K_DOWN}, {"fwd", K_FWD}, {"back", K_BACKW},
     {"sleft", K_STRAFE_L}, {"sright", K_STRAFE_R}, {"jump", K_JUMP}, {"use", K_USE}, {"attack", K_ATTACK},
-    {"inv", K_INV}, {"sneak", K_SNEAK}, {"sprint", K_SPRINT}, {"pause", K_PAUSE}, {"home", K_HOME}};
+    {"inv", K_INV}, {"sneak", K_SNEAK}, {"sprint", K_SPRINT}, {"pause", K_PAUSE}, {"home", K_HOME},
+    {"ok", K_OK | K_USE}, {"exe", K_EXE | K_USE}, {"shift", K_SHIFT}, {"esc", K_BACK | K_ATTACK}, {"drop", K_DROP}};
   for (unsigned i = 0; i < sizeof t / sizeof t[0]; i++)
     if (!strcmp(s, t[i].n)) return t[i].k;
   if (s[0] >= '1' && s[0] <= '9' && !s[1]) return K_SLOT1 << (s[0] - '1');
@@ -32,12 +33,17 @@ static uint32_t key_bit(const char *s) {
 
 int main(int argc, char **argv) {
   const char *out = "build/play", *shots = "";
+  int give = 0, title_screen = 0;
+  float hurt = 0;
   int frames = 60, mspf = 50;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--frames") && i + 1 < argc) frames = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--ms-per-frame") && i + 1 < argc) mspf = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
     else if (!strcmp(argv[i], "--shots") && i + 1 < argc) shots = argv[++i];
+    else if (!strcmp(argv[i], "--give")) give = 1;
+    else if (!strcmp(argv[i], "--title")) title_screen = 1;
+    else if (!strcmp(argv[i], "--hurt") && i + 1 < argc) hurt = (float)atof(argv[++i]);
     else if (!strcmp(argv[i], "--keys") && i + 1 < argc) {
       char *s = strdup(argv[++i]);
       for (char *t = strtok(s, ","); t && nholds < 512; t = strtok(NULL, ",")) {
@@ -50,7 +56,20 @@ int main(int argc, char **argv) {
   }
   mkdir(out, 0755);
   clock_t c0 = clock();
+  extern bool start_in_world;
+  start_in_world = !title_screen;
   game_init();
+  if (give) {
+    /* a test kit: tools, blocks, food, armour */
+    static const int kit[][2] = {{I_IRON_PICKAXE, 1}, {I_DIAMOND_SWORD, 1}, {B_COBBLESTONE, 64}, {B_PLANKS_OAK, 23},
+                                 {B_TORCH, 16}, {I_BREAD, 5}, {B_CRAFTING_TABLE, 1}, {B_FURNACE, 1}, {B_CHEST, 1},
+                                 {B_LOG_OAK, 12}, {I_COAL, 9}, {B_IRON_ORE, 7}, {I_IRON_HELMET, 1},
+                                 {I_IRON_CHESTPLATE, 1}, {I_STICK, 10}, {I_WHEAT_SEEDS, 3}, {I_WOODEN_HOE, 1},
+                                 {I_BUCKET, 1}, {B_SAND, 20}, {I_APPLE, 2}};
+    for (unsigned i = 0; i < sizeof kit / sizeof kit[0]; i++) inv_add(pl.inv, 36, kit[i][0], kit[i][1], 0);
+    pl.inv[0].aux = 100;   /* a worn pickaxe */
+  }
+  if (hurt > 0) pl.health -= hurt, pl.food -= 7, pl.xp_level = 7, pl.xp = 0.4f;
   double init_ms = (clock() - c0) * 1000.0 / CLOCKS_PER_SEC;
   c0 = clock();
   for (int f = 0; f < frames; f++) {

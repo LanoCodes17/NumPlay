@@ -551,6 +551,28 @@ static void use(uint32_t pressed) {
     case IK_MILK_BUCKET:
       if (pl.mode == 0) h->id = I_BUCKET, h->aux = 1;
       return;
+    case IK_HELMET: case IK_CHESTPLATE: case IK_LEGGINGS: case IK_BOOTS: {
+      /* ItemArmor.onItemRightClick: worn at once if that slot is free */
+      int slot = IK_BOOTS - k;
+      if (!pl.armor[slot].id) pl.armor[slot] = *h, h->id = 0, h->aux = 0;
+      return;
+    }
+    case IK_SNOWBALL: case IK_EGG:
+      throw_item(h->id, 1.5f, true);
+      use_up();
+      player_swing();
+      return;
+    case IK_FLINT_AND_STEEL:
+      if (on_block && b == B_TNT) {
+        /* BlockTNT: lit, it falls and blows after 4 seconds */
+        world_set(x, y, z, B_AIR);
+        neighbours_changed(x, y, z);
+        Entity *e = ent_new(E_TNT, x + 0.5f, (float)y, z + 0.5f);
+        if (e) e->delay = 80, e->vy = 0.2f, e->item.id = B_TNT;
+        if (pl.mode == 0) stack_wear(h, 1);
+        player_swing();
+      }
+      return;
   }
 }
 
@@ -702,6 +724,10 @@ void player_tick(uint32_t keys, uint32_t pressed) {
   }
   /* walking, sprinting and swimming tire (EntityPlayer.addMovementStat) */
   float moved = sqrtf((pl.x - ox) * (pl.x - ox) + (pl.z - oz) * (pl.z - oz));
+  pl.prev_walked = pl.walked, pl.prev_bob = pl.bob;
+  pl.walked += moved * 0.6f;
+  float want = pl.on_ground ? (moved > 0.1f ? 0.1f : moved) : 0;
+  pl.bob += (want - pl.bob) * 0.4f;
   if (pl.mode == 0) exhaust(moved * (pl.in_water ? 0.015f : pl.sprinting ? 0.1f : 0.0f));
   hazards(y0);
   if (pl.mode == 0) food_tick();
@@ -756,8 +782,38 @@ void player_tick(uint32_t keys, uint32_t pressed) {
       }
     }
   } else pl.breaking = 0;
-  /* eating: OK held for 32 ticks */
+  /* a bow: OK held draws it, letting go shoots (ItemBow.onPlayerStoppedUsing) */
   int k = item_kind(held()->id);
+  static int draw;
+  if (k == IK_BOW) {
+    bool arrows = pl.mode == 1;
+    for (int i = 0; i < 36 && !arrows; i++) arrows = pl.inv[i].id == I_ARROW;
+    if ((keys & K_USE) && arrows) draw++;
+    else if (draw) {
+      float f = draw / 20.0f;
+      f = (f * f + f * 2) / 3;
+      if (f > 1) f = 1;
+      if (f >= 0.1f) {
+        throw_item(I_ARROW, f * 3, true);
+        if (pl.mode == 0) {
+          stack_wear(held(), 1);
+          for (int i = 0; i < 36; i++)
+            if (pl.inv[i].id == I_ARROW) {
+              stack_take(&pl.inv[i], 1);
+              break;
+            }
+        }
+      }
+      draw = 0;
+    }
+    pl.using_ticks = draw;   /* (slows the player, as drawing a bow does) */
+    prev_keys = keys;
+    for (int n = 0; n < 9; n++)
+      if (pressed & (K_SLOT1 << n)) pl.slot = n, draw = 0;
+    return;
+  }
+  draw = 0;
+  /* eating: OK held for 32 ticks */
   bool edible = k == IK_FOOD || k == IK_STEW;
   if (edible && (keys & K_USE) && (pl.food < 20 || held()->id == I_GOLDEN_APPLE || pl.mode == 1) &&
       !(pl.hit_face >= 0 && it_place[held()->id - 256] != 255 &&

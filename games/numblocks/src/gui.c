@@ -236,7 +236,7 @@ static void hand(void) {
   }
   int sh = view_light();
   int id = held()->id;
-  if (pl.using_ticks > 0) {
+  if (pl.using_ticks > 0 && item_kind(id) != IK_BOW) {
     /* eating: the food comes to the mouth and bobs */
     float k = pl.using_ticks > 6 ? 1 : pl.using_ticks / 6.0f;
     dx -= 70 * k;
@@ -766,7 +766,8 @@ typedef struct { int16_t x, y, w; uint8_t on, id; char label[32]; } Button;
 static Button buttons[12];
 static int nbuttons, bcur;
 enum { B_NO, B_SINGLE, B_OPTIONS, B_QUITAPP, B_PLAY, B_CREATE, B_DELETE, B_CANCEL, B_MODE, B_SEED, B_DOCREATE,
-       B_DODELETE, B_DIFF, B_GFX, B_LOOK, B_CLOUDS, B_BOB, B_DONE, B_BACK_GAME, B_SAVEQUIT, B_RESPAWN, B_TITLE };
+       B_DODELETE, B_DIFF, B_GFX, B_LOOK, B_CLOUDS, B_BOB, B_DONE, B_BACK_GAME, B_SAVEQUIT, B_RESPAWN, B_TITLE,
+       B_CONTROLS, B_CONTROLS_DONE };
 int menu_choice;            /* an action for main.c (ACT_*) */
 int create_mode;            /* the new world's game mode */
 char seed_text[21];         /* the new world's seed, as typed */
@@ -837,7 +838,11 @@ static void menu(int screen) {
       add_button(w / 2 + 5, h / 6 + 12, 150, 1, B_CLOUDS, t);
       cat(t, "View Bobbing: ", opt.bobbing ? "ON" : "OFF");
       add_button(w / 2 - 155, h / 6 + 36, 150, 1, B_BOB, t);
+      add_button(w / 2 + 5, h / 6 + 36, 150, 1, B_CONTROLS, "Controls...");
       add_button(w / 2 - 100, h / 6 + 168, 200, 1, B_DONE, "Done");
+      break;
+    case GUI_CONTROLS:
+      add_button(w / 2 - 100, h - 26, 200, 1, B_CONTROLS_DONE, "Done");
       break;
     }
     case GUI_PAUSE:
@@ -905,6 +910,8 @@ static void press(int id) {
       save_options();
       gui_menu(options_from);
       break;
+    case B_CONTROLS: gui_menu(GUI_CONTROLS); break;
+    case B_CONTROLS_DONE: gui_menu(GUI_OPTIONS); break;
     case B_BACK_GAME: gui = GUI_NONE; break;
     case B_SAVEQUIT: menu_choice = ACT_SAVE_QUIT; break;
     case B_RESPAWN: menu_choice = ACT_RESPAWN; break;
@@ -938,6 +945,7 @@ static void menu_input(uint32_t keys, uint32_t pressed) {
     /* Back: the way out of each screen */
     if (gui == GUI_PAUSE) gui = GUI_NONE;
     else if (gui == GUI_OPTIONS) press(B_DONE);
+    else if (gui == GUI_CONTROLS) press(B_CONTROLS_DONE);
     else if (gui == GUI_WORLDS || gui == GUI_CREATE || gui == GUI_CONFIRM) press(B_CANCEL);
   }
 }
@@ -1055,6 +1063,23 @@ static void menu_screen(void) {
       text_center("'New World' will be lost forever! (A long time!)", w / 2, 90, 0xFFFF);
       break;
     case GUI_OPTIONS: text_center("Options", w / 2, 15, 0xFFFF); break;
+    case GUI_CONTROLS: {
+      /* GuiControls: each action and its key (the calculator's) */
+      static const char *const rows[][2] = {
+          {"Look Around", "Arrows"}, {"Walk Forwards", "ln"}, {"Walk Backwards", "cos"}, {"Strafe Left", "sin"},
+          {"Strafe Right", "tan"}, {"Jump (twice: fly)", "pi"}, {"Sneak", "sqrt"}, {"Sprint", "x^2"},
+          {"Attack/Destroy", "Back"}, {"Use Item/Place Block", "OK or EXE"}, {"Inventory", "var"},
+          {"Drop Item", "x,n,t"}, {"Hotbar Slots", "1 to 9"}, {"Pause", "Toolbox"}, {"Save and Quit", "Home"}};
+      text_center("Controls", w / 2, 6, 0xFFFF);
+      for (int i = 0; i < 15; i++) {
+        int y = 20 + i * 12;
+        text(rows[i][0], w / 2 - 140, y + 2, 0xFFFF, true);
+        fill(w / 2 + 20, y, 100, 11, RGB(0x60, 0x60, 0x60));
+        fill(w / 2 + 21, y + 1, 98, 9, RGB(0x20, 0x20, 0x20));
+        text_center(rows[i][1], w / 2 + 70, y + 2, RGB(0xFF, 0xFF, 0xA0));
+      }
+      break;
+    }
     case GUI_PAUSE: text_center("Game menu", w / 2, 40, 0xFFFF); break;
     case GUI_LOADING:
       text_center("Loading world", w / 2, h / 2 - 50, 0xFFFF);
@@ -1246,7 +1271,7 @@ void hud_strip(uint16_t *buf, int y0, int rows) {
       dark_background();
       menu_screen();
       break;
-    case GUI_OPTIONS:
+    case GUI_OPTIONS: case GUI_CONTROLS:
       if (options_from == GUI_PAUSE) dark_background();
       else dirt_background();
       menu_screen();

@@ -128,6 +128,7 @@ typedef struct {
   int food, food_timer, air, invuln, hurt_time, fire, using_ticks;
   int xp_level, xp_total;
   int sleep_timer;        /* ticks asleep in a bed (0: awake) */
+  float walked, bob, prev_walked, prev_bob;   /* view bobbing (EntityPlayer.cameraYaw) */
   float xp;               /* 0..1 of the way to the next level */
   int spawn_x, spawn_y, spawn_z;
   uint8_t mode;           /* 0 survival, 1 creative */
@@ -145,7 +146,7 @@ void hand_tick(void);
 void gui_message(const char *s);   /* a line at the bottom left, as Minecraft's chat shows */
 
 /* ---------------------------------------------------------------- entities (entity.c) */
-enum { E_NONE, E_ITEM, E_ZOMBIE, E_SKELETON, E_CREEPER, E_SPIDER, E_PIG, E_COW, E_SHEEP, E_CHICKEN, E_ARROW };
+enum { E_NONE, E_ITEM, E_ZOMBIE, E_SKELETON, E_CREEPER, E_SPIDER, E_PIG, E_COW, E_SHEEP, E_CHICKEN, E_ARROW, E_TNT };
 typedef struct {
   uint8_t type, on_ground, hurt, state;   /* hurt: ticks of red; state 255: dying (timer counts) */
   int16_t age, health, timer, delay;   /* delay: an item's pickup delay, a mob's attack wait, a creeper's fuse */
@@ -164,6 +165,8 @@ void ent_drop(int id, int count, int dmg, float x, float y, float z, bool thrown
 void ents_tick(void);
 void mob_tick(Entity *e);
 void mobs_spawn(void);
+void explode(float x, float y, float z, float power);
+void throw_item(int id, float speed, bool from_player);   /* arrows, snowballs, eggs */
 bool mob_attack(const Entity *e);   /* the player hits this mob (with the held item) */
 bool mob_use(Entity *e);            /* the player uses the held item on it (shears, bucket) */
 Entity *entity_looked_at(float reach, float block_t);   /* the mob under the crosshair, nearer than block_t */
@@ -179,7 +182,7 @@ void break_block_at(int x, int y, int z, bool drops);
 
 /* ---------------------------------------------------------------- screens (gui.c) */
 enum { GUI_NONE, GUI_INVENTORY, GUI_CRAFTING, GUI_FURNACE, GUI_CHEST, GUI_CREATIVE,
-       GUI_PAUSE, GUI_DEATH, GUI_OPTIONS, GUI_TITLE, GUI_WORLDS, GUI_CREATE, GUI_CONFIRM, GUI_LOADING };
+       GUI_PAUSE, GUI_DEATH, GUI_OPTIONS, GUI_TITLE, GUI_WORLDS, GUI_CREATE, GUI_CONFIRM, GUI_LOADING, GUI_CONTROLS };
 extern int gui;            /* the screen open */
 void gui_open(int screen, int x, int y, int z);
 void gui_close(void);

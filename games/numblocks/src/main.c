@@ -136,7 +136,7 @@ bool game_frame(void) {
     if (pl.pitch < -90) pl.pitch = -90;
     pl.sprinting = (k & K_SPRINT) && (k & K_FWD) && !pl.sneaking;
   }
-  bool paused = gui == GUI_PAUSE || (gui == GUI_OPTIONS);
+  bool paused = gui == GUI_PAUSE || gui == GUI_OPTIONS || gui == GUI_CONTROLS;
   if (!paused) acc += dt;
   uint32_t game_keys = in_game ? k : 0, game_pressed = in_game ? pressed : 0;
   while (acc >= 50) {
@@ -164,7 +164,17 @@ bool game_frame(void) {
   tick_frac = t;
   Camera c = {px + (pl.x - px) * t, py + (pl.y - py) * t + (pl.sneaking ? 1.54f : 1.62f), pz + (pl.z - pz) * t, pl.yaw,
               pl.pitch};
+  if (opt.bobbing && !pl.flying) {
+    /* EntityRenderer.setupViewBobbing: the eyes sway side to side and dip with each step */
+    float w = (pl.prev_walked + (pl.walked - pl.prev_walked) * t) * 3.14159265f;
+    float b = pl.prev_bob + (pl.bob - pl.prev_bob) * t;
+    float side = sinf(w) * b * 0.5f, dip = -fabsf(cosf(w) * b);
+    float yr = pl.yaw * 0.017453292f;
+    c.x += -cosf(yr) * side, c.z += -sinf(yr) * side, c.y += dip;
+    c.pitch += fabsf(cosf(w - 0.2f) * b) * 5;
+  }
   if (pl.dead) c.y = pl.y + 0.3f;
+  if (pl.sleep_timer) c.y = pl.y + 0.3f;
   render_frame(&c, game_time);
   perf_frames++;
   return true;

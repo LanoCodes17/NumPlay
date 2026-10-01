@@ -1481,12 +1481,16 @@ static float grass_noise_div(int x, int z, int d) {
 
 typedef struct {
     float grid[825];      /* main noise, then density */
-    float acc[825];       /* limit noise accumulator */
-    float surf[256];      /* surface depth noise, index z*16+x */
-    uint8_t cls[825];     /* clamped-lerp class per grid point */
+    union {
+        float acc[825];   /* limit noise accumulator (density pass) */
+        struct {          /* surface pass, after the density */
+            float surf[256];       /* surface depth noise, index z*16+x */
+            uint8_t mperm[6][256]; /* mesa noises (built when a mesa column shows up) */
+            uint8_t col[256];
+        };
+    };
+    uint8_t cls[825];     /* per grid point: sign decided by bounds / noise needed / limits needed */
     uint8_t perm[256];
-    uint8_t mperm[6][256]; /* mesa noises (built when a mesa column shows up) */
-    uint8_t col[256];
     uint8_t mesa_ready;
 } TerrainScratch;
 
@@ -1541,6 +1545,12 @@ static void chunk_biomes(int cx, int cz) {
 
 static void octave_setup(const Octave *o, i64 off[3]) { perm_build(o->st, U.t.perm, off); }
 
+/* the density's height offset at grid level j2 (ChunkProviderGenerate: d4) */
+static inline float dens_offset(int j2, float d3, float d2) {
+    float d4 = ((float)j2 - d3) * 12.0f * 128.0f / 256.0f / d2;
+    return d4 < 0.0f ? d4 * 4.0f : d4;
+}
+
 /* noise grid for chunk (cx, cz) -> U.t.grid holds the 5x5x33 densities.
  * The density is lerp(min, max, main) / 512 - offset(y); each limit noise is a sum of 16
  * octaves of amplitude 2^o whose values are within [-2, 2] (gradient dots of fractions,
@@ -1564,7 +1574,7 @@ static void chunk_density(int cx, int cz) {
         }
         perlin2_octave(T->perm, depth, xc, xf, zc, zf, (float)(1 << o));
     }
-    /* height offsets per column; T->acc temporarily holds d4 (and the top blending) */
+    /* per grid column: height (d3) and scale (d2) from the blended biomes and the depth noise */
     float colD3[25], colD2[25];
     for (int j1 = 0, i1 = 0; j1 < 5; j1++)
         for (int k1 = 0; k1 < 5; k1++, i1++) {
@@ -1603,40 +1613,36 @@ static void chunk_density(int cx, int cz) {
             colD3[i1] = 8.5f + d1 * 4.0f;
             colD2[i1] = f2;
         }
-    /* sign classes of the grid points from the bounds: 1 solid, 2 empty, 0 undecided */
-    uint8_t dec[825];
+    /* T->cls per grid point: D_SOLID / D_EMPTY when the bounds decide the sign, D_NEED when
+     * the noise is needed, then D_MIN / D_MAX for the limit noises the clamped lerp uses */
+    enum { D_MIN = 1, D_MAX = 2, D_NEED = 4, D_SOLID = 16, D_EMPTY = 32 };
+    uint8_t *cls = T->cls;
     for (int c = 0; c < 25; c++)
         for (int j2 = 0; j2 < 33; j2++) {
-            float d4 = ((float)j2 - colD3[c]) * 12.0f * 128.0f / 256.0f / colD2[c];
-            if (d4 < 0.0f) d4 *= 4.0f;
+            float d4 = dens_offset(j2, colD3[c], colD2[c]);
             float lo = -256.5f - d4, hi = 256.5f - d4;
             if (j2 > 29) {
                 float d9 = (float)(j2 - 29) / 3.0f;
                 lo = lo * (1.0f - d9) + -10.0f * d9;
                 hi = hi * (1.0f - d9) + -10.0f * d9;
             }
-            T->acc[c * 33 + j2] = d4;
-            dec[c * 33 + j2] = lo > 0.0f ? 1 : (hi <= 0.0f ? 2 : 0);
+            cls[c * 33 + j2] = lo > 0.0f ? D_SOLID : (hi <= 0.0f ? D_EMPTY : 0);
         }
     /* a point needs noise if one of the cells around it has corners of different classes */
-    static const uint8_t NEED = 4;
-    uint8_t need[825];
-    memset(need, 0, sizeof need);
     for (int gx = 0; gx < 4; gx++)
         for (int gz = 0; gz < 4; gz++)
             for (int gy = 0; gy < 32; gy++) {
                 int c0 = (gx * 5 + gz) * 33 + gy, c1 = (gx * 5 + gz + 1) * 33 + gy;
                 int c2 = ((gx + 1) * 5 + gz) * 33 + gy, c3 = ((gx + 1) * 5 + gz + 1) * 33 + gy;
-                uint8_t k = dec[c0];
-                if (k && dec[c1] == k && dec[c2] == k && dec[c3] == k && dec[c0 + 1] == k && dec[c1 + 1] == k &&
-                    dec[c2 + 1] == k && dec[c3 + 1] == k)
+                int k = cls[c0] & (D_SOLID | D_EMPTY);
+                if (k && (cls[c1] & (D_SOLID | D_EMPTY)) == k && (cls[c2] & (D_SOLID | D_EMPTY)) == k &&
+                    (cls[c3] & (D_SOLID | D_EMPTY)) == k && (cls[c0 + 1] & (D_SOLID | D_EMPTY)) == k &&
+                    (cls[c1 + 1] & (D_SOLID | D_EMPTY)) == k && (cls[c2 + 1] & (D_SOLID | D_EMPTY)) == k &&
+                    (cls[c3 + 1] & (D_SOLID | D_EMPTY)) == k)
                     continue;
-                need[c0] = need[c1] = need[c2] = need[c3] = NEED;
-                need[c0 + 1] = need[c1 + 1] = need[c2 + 1] = need[c3 + 1] = NEED;
+                cls[c0] |= D_NEED, cls[c1] |= D_NEED, cls[c2] |= D_NEED, cls[c3] |= D_NEED;
+                cls[c0 + 1] |= D_NEED, cls[c1 + 1] |= D_NEED, cls[c2 + 1] |= D_NEED, cls[c3 + 1] |= D_NEED;
             }
-    float d4s[825];
-    memcpy(d4s, T->acc, sizeof d4s);
-    memcpy(T->cls, need, sizeof need);
     /* main noise (8 octaves) */
     memset(T->grid, 0, sizeof T->grid);
     for (int o = 0; o < 8; o++) {
@@ -1646,14 +1652,14 @@ static void chunk_density(int cx, int cz) {
             coord_split(coord_q32(bz, SC_MAINXZ, o, n, off[2]), &zc[n], &zf[n]);
         }
         for (int n = 0; n < 33; n++) coord_split(coord_q32(0, SC_MAINY, o, n, off[1]), &yc[n], &yf[n]);
-        perlin3_octave(T->perm, T->grid, T->cls, NEED, 0, xc, xf, zc, zf, yc, yf, (float)(1 << o));
+        perlin3_octave(T->perm, T->grid, cls, D_NEED, 0, xc, xf, zc, zf, yc, yf, (float)(1 << o));
     }
-    /* classes of the needed points: bit 0 min needed, bit 1 max needed (bit 2: needed) */
+    /* which limits the clamped lerp needs: min only (d7 < 0), max only (d7 > 1) or both */
     for (int i = 0; i < 825; i++) {
-        if (!T->cls[i]) continue;
+        if (!(cls[i] & D_NEED)) continue;
         float d7 = (T->grid[i] / 10.0f + 1.0f) / 2.0f;
         T->grid[i] = d7;
-        T->cls[i] = (uint8_t)(d7 < 0.0f ? 1 : (d7 > 1.0f ? 2 : 3));
+        cls[i] |= d7 < 0.0f ? D_MIN : (d7 > 1.0f ? D_MAX : D_MIN | D_MAX);
     }
     memset(T->acc, 0, sizeof T->acc);
     for (int o = 0; o < 16; o++) {
@@ -1663,11 +1669,12 @@ static void chunk_density(int cx, int cz) {
             coord_split(coord_q32(bz, SC_LIMIT, o, n, off[2]), &zc[n], &zf[n]);
         }
         for (int n = 0; n < 33; n++) coord_split(coord_q32(0, SC_LIMIT, o, n, off[1]), &yc[n], &yf[n]);
-        perlin3_octave(T->perm, T->acc, T->cls, 1, 0, xc, xf, zc, zf, yc, yf, (float)(1 << o));
+        perlin3_octave(T->perm, T->acc, cls, D_MIN, 0, xc, xf, zc, zf, yc, yf, (float)(1 << o));
     }
     for (int i = 0; i < 825; i++) {
-        if (T->cls[i] == 3) T->acc[i] *= 1.0f - T->grid[i];
-        if (T->cls[i] == 2) T->grid[i] = 1.0f;
+        int k = cls[i] & (D_MIN | D_MAX);
+        if (k == (D_MIN | D_MAX)) T->acc[i] *= 1.0f - T->grid[i];
+        if (k == D_MAX) T->grid[i] = 1.0f;
     }
     for (int o = 0; o < 16; o++) {
         octave_setup(&oc_max[o], off);
@@ -1676,16 +1683,16 @@ static void chunk_density(int cx, int cz) {
             coord_split(coord_q32(bz, SC_LIMIT, o, n, off[2]), &zc[n], &zf[n]);
         }
         for (int n = 0; n < 33; n++) coord_split(coord_q32(0, SC_LIMIT, o, n, off[1]), &yc[n], &yf[n]);
-        perlin3_octave(T->perm, T->acc, T->cls, 2, T->grid, xc, xf, zc, zf, yc, yf, (float)(1 << o));
+        perlin3_octave(T->perm, T->acc, cls, D_MAX, T->grid, xc, xf, zc, zf, yc, yf, (float)(1 << o));
     }
-    /* density */
+    /* density (decided points get +-1: only their sign matters) */
     for (int i = 0; i < 825; i++) {
         int j2 = i % 33;
-        if (!need[i]) {
-            T->grid[i] = dec[i] == 1 ? 1.0f : -1.0f;
+        if (!(cls[i] & D_NEED)) {
+            T->grid[i] = cls[i] & D_SOLID ? 1.0f : -1.0f;
             continue;
         }
-        float d8 = T->acc[i] / 512.0f - d4s[i];
+        float d8 = T->acc[i] / 512.0f - dens_offset(j2, colD3[i / 33], colD2[i / 33]);
         if (j2 > 29) {
             float d9 = (float)(j2 - 29) / 3.0f;
             d8 = d8 * (1.0f - d9) + -10.0f * d9;

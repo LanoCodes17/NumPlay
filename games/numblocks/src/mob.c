@@ -396,7 +396,7 @@ static void push_player(float kx, float kz, float s) {
 }
 
 /* ---------------------------------------------------------------- explosions (Explosion, power 3) */
-static void explode(float x, float y, float z, float power) {
+void explode(float x, float y, float z, float power) {
   int r = (int)ceilf(power);
   for (int dy = -r; dy <= r; dy++)
     for (int dz = -r; dz <= r; dz++)
@@ -411,6 +411,12 @@ static void explode(float x, float y, float z, float power) {
         if (f - resist * 0.3f <= 0) continue;
         if (b == B_CHEST || b == B_FURNACE || b == B_FURNACE_LIT) tiles_removed(bx, by, bz);
         world_set(bx, by, bz, B_AIR);
+        if (b == B_TNT) {
+          /* TNT caught in a blast is lit, with a shorter fuse */
+          Entity *t = ent_new(E_TNT, bx + 0.5f, (float)by, bz + 0.5f);
+          if (t) t->delay = (int16_t)(10 + rnd(20)), t->item.id = B_TNT;
+          continue;
+        }
         /* one in power of the blocks drop */
         if (rnd((int)power) == 0) {
           Stack out[2];
@@ -453,23 +459,61 @@ static void shoot(const Entity *from) {
   a->yaw = atan2f(-a->vx, a->vz) * 57.29578f;
 }
 
+/* the player throws or shoots: from the eyes, the way they look (EntityThrowable, EntityArrow) */
+void throw_item(int id, float speed, bool from_player) {
+  float yaw = pl.yaw * 0.017453292f, pitch = pl.pitch * 0.017453292f;
+  Entity *a = ent_new(E_ARROW, pl.x - cosf(yaw) * 0.16f, pl.y + 1.52f, pl.z - sinf(yaw) * 0.16f);
+  if (!a) return;
+  a->item.id = (uint16_t)id;
+  a->item.aux = from_player;   /* the player's arrows can be picked up again */
+  float dx = -sinf(yaw) * cosf(pitch), dy = -sinf(pitch), dz = cosf(yaw) * cosf(pitch);
+  a->vx = (dx + (rndf() - 0.5f) * 0.015f) * speed + pl.vx;
+  a->vy = (dy + (rndf() - 0.5f) * 0.015f) * speed + (pl.on_ground ? 0 : pl.vy);
+  a->vz = (dz + (rndf() - 0.5f) * 0.015f) * speed + pl.vz;
+  a->yaw = pl.yaw;
+}
+
 static void arrow_tick(Entity *e) {
-  if (e->state) {   /* stuck in a block */
-    if (++e->timer > 600) e->type = E_NONE;
+  bool arrow = e->item.id == I_ARROW;
+  if (e->state) {   /* stuck in a block: the player's can be picked up */
+    float px = pl.x - e->x, py = pl.y + 0.9f - e->y, pz = pl.z - e->z;
+    if (e->item.aux && px * px + py * py + pz * pz < 2.0f && !inv_add(pl.inv, 36, I_ARROW, 1, 0)) e->type = E_NONE;
+    if (++e->timer > 1200) e->type = E_NONE;
     return;
   }
   float nx = e->x + e->vx, ny = e->y + e->vy, nz = e->z + e->vz;
-  /* the player in its way? */
+  float sp = sqrtf(e->vx * e->vx + e->vy * e->vy + e->vz * e->vz);
+  /* the player in the way of a mob's arrow */
   float px = pl.x - nx, pz = pl.z - nz;
-  if (!pl.dead && px * px + pz * pz < 0.5f && ny > pl.y && ny < pl.y + 1.8f) {
-    float sp = sqrtf(e->vx * e->vx + e->vy * e->vy + e->vz * e->vz);
+  if (!e->item.aux && !pl.dead && px * px + pz * pz < 0.5f && ny > pl.y && ny < pl.y + 1.8f) {
     player_hurt(scaled(ceilf(sp * 2.2f)), DMG_ARROW);
     push_player(e->vx, e->vz, 0.4f);
     e->type = E_NONE;
     return;
   }
+  /* a mob in the way of the player's */
+  if (e->item.aux)
+    for (int i = 0; i < N_ENT; i++) {
+      Entity *m = &ents[i];
+      if (m->type < E_ZOMBIE || m->type > E_CHICKEN || m->state == 255) continue;
+      float w = info[m->type].w / 2 + 0.15f, mx = m->x - nx, mz = m->z - nz;
+      if (fabsf(mx) < w && fabsf(mz) < w && ny > m->y - 0.1f && ny < m->y + info[m->type].h) {
+        /* EntityArrow: damage 2 x speed, rounded up (a full draw sometimes more) */
+        float dmg = arrow ? ceilf(sp * 2) + (sp > 2.9f ? rnd((int)(sp * 2) / 2 + 2) : 0) : 0;
+        hurt(m, dmg, e->vx, e->vz);
+        if (!arrow && dmg == 0) m->vx += e->vx * 0.2f, m->vz += e->vz * 0.2f;
+        e->type = E_NONE;
+        return;
+      }
+    }
   int b = world_get(ifl(nx), ifl(ny), ifl(nz));
   if (blk_flags[b] & BF_SOLID) {
+    if (!arrow) {
+      /* EntityEgg: one in eight hatches a chick (a chicken here) */
+      if (e->item.id == I_EGG && rnd(8) == 0) spawn(E_CHICKEN, e->x, e->y, e->z);
+      e->type = E_NONE;
+      return;
+    }
     e->state = 1;
     e->vx = e->vy = e->vz = 0;
     return;
@@ -478,8 +522,21 @@ static void arrow_tick(Entity *e) {
   bool water = blk_model[b] == M_LIQUID;
   float drag = water ? 0.8f : 0.99f;
   e->vx *= drag, e->vy *= drag, e->vz *= drag;
-  e->vy -= 0.05f;
-  if (++e->timer > 200) e->type = E_NONE;
+  e->vy -= arrow ? 0.05f : 0.03f;
+  if (++e->timer > 400) e->type = E_NONE;
+}
+
+/* lit TNT: falls, flashes, and blows with power 4 after 80 ticks (EntityTNTPrimed) */
+static void tnt_tick(Entity *e) {
+  float p[3] = {e->x, e->y, e->z}, v[3] = {e->vx, e->vy - 0.04f, e->vz};
+  bool ground = phys_move(p, v, 0.98f, 0.98f);
+  e->x = p[0], e->y = p[1], e->z = p[2];
+  e->vx = v[0] * 0.98f, e->vy = v[1] * 0.98f, e->vz = v[2] * 0.98f;
+  if (ground) e->vx *= 0.7f, e->vz *= 0.7f, e->vy *= -0.5f;
+  if (--e->delay <= 0) {
+    e->type = E_NONE;
+    explode(e->x, e->y + 0.49f, e->z, 4);
+  }
 }
 
 /* ---------------------------------------------------------------- a tick */
@@ -492,6 +549,10 @@ static float wrap(float a) {
 void mob_tick(Entity *e) {
   if (e->type == E_ARROW) {
     arrow_tick(e);
+    return;
+  }
+  if (e->type == E_TNT) {
+    tnt_tick(e);
     return;
   }
   const MobInfo *mi = &info[e->type];

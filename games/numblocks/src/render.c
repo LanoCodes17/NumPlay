@@ -107,7 +107,7 @@ static uint16_t sky(float dx, float dy, float dz, float len) {
     else r += (int)(255 * s), g += (int)(250 * s), b += (int)(200 * s);
   }
   /* clouds: Minecraft's 12-block cells at y = 128.33 */
-  if (dy > 0.01f) {
+  if (dy > 0.01f && opt.clouds) {
     float t = (128.33f - (oy + vc_y0)) / dy;
     float cx = (ox + vc_x0) + dx * t + cloud_off, cz = (oz + vc_z0) + dz * t;
     float dist = t * len;
@@ -307,7 +307,7 @@ static uint16_t trace(float dx, float dy, float dz) {
         u &= 15;
         v &= 15;
         int tc = texel565(b, blk_front[b] ? face_tex(b, f, x, y, z) : blk_tex[b][f], u, v, col);
-        if (tc < 0 && m == M_LEAVES) tc = 0;   /* Fast graphics: the holes are black */
+        if (tc < 0 && m == M_LEAVES && !opt.fancy) tc = 0;   /* Fast graphics: the holes are black */
         if (tc >= 0) {
           tc = cracked(tc, i, u, v);
           last_t = t;
@@ -495,7 +495,7 @@ static int face_pixel(float dx, float dy, float dz, int plane, int f) {
   }
   if ((unsigned)u > 15 || (unsigned)v > 15) return -1;
   int tc = texel565(b, blk_front[b] ? face_tex(b, f, x, y, z) : blk_tex[b][f], u, v, z * VCX + x);
-  if (tc < 0 && m == M_LEAVES) tc = 0;
+  if (tc < 0 && m == M_LEAVES && !opt.fancy) tc = 0;
   if (tc < 0) return -1;
   tc = cracked(tc, VC_I(x, y, z), u, v);
   last_t = t;
@@ -661,6 +661,7 @@ static void ents_frame(void) {
     if (dist > MAX_T + 1) continue;
     float w, h;
     if (e->type == E_ITEM) w = 0.5f, h = 0.6f;
+    else if (e->type == E_TNT) w = 1.2f, h = 1.1f;
     else if (e->type == E_ARROW) w = 0.6f, h = 0.6f, ey -= 0.3f;
     else w = mob_width(e->type) * 2.2f, h = mob_height(e->type) * 1.2f;
     if (e->type >= E_ZOMBIE && e->type <= E_CHICKEN && e->state == 255) w = h = 2.4f;   /* dying: lying down */
@@ -851,17 +852,18 @@ static bool item_hit(const Draw *dr, const float *d, float *best_t, uint16_t *co
   const Entity *e = dr->e;
   int id = e->item.id;
   float age = e->age + tick_frac;
-  float bob = sinf(age / 10.0f + e->yaw) * 0.1f + 0.1f;
+  bool tnt = e->type == E_TNT;
+  float bob = tnt ? 0 : sinf(age / 10.0f + e->yaw) * 0.1f + 0.1f;
   bool cube = id < 256 && (blk_model[id] == M_CUBE || blk_model[id] == M_LEAVES || blk_model[id] == M_GLASS ||
                            blk_model[id] == M_SLAB);
-  float cx = dr->ex, cy = dr->ey + bob + 0.125f, cz = dr->ez;
+  float hs = tnt ? 0.49f : 0.125f;
+  float cx = dr->ex, cy = dr->ey + bob + hs, cz = dr->ez;
   if (cube) {
-    /* EntityItem render: a quarter block, turning */
-    float a = age / 20.0f + e->yaw, ca = cosf(a), sa = sinf(a);
+    /* EntityItem render: a quarter block, turning (lit TNT: a whole block, still) */
+    float a = tnt ? 0 : age / 20.0f + e->yaw, ca = cosf(a), sa = sinf(a);
     float rel[3] = {ox - cx, oy - cy, oz - cz};
     float o[3] = {ca * rel[0] + sa * rel[2], rel[1], -sa * rel[0] + ca * rel[2]};
     float dl[3] = {ca * d[0] + sa * d[2], d[1], -sa * d[0] + ca * d[2]};
-    const float hs = 0.125f;
     float t0 = 0, t1 = *best_t;
     int f0 = -1;
     for (int k = 0; k < 3; k++) {
@@ -896,6 +898,7 @@ static bool item_hit(const Draw *dr, const float *d, float *best_t, uint16_t *co
     if (tc < 0) tc = 0;
     *best_t = t0;
     *col = lit565((uint16_t)tc, f0, dr->light, t0 * sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]));
+    if (tnt && (e->delay / 5) % 2 == 0) *col = mix565(*col, 0xFFFF, 16);   /* RenderTNTPrimed: flashing */
     return true;
   }
   /* a flat picture half a block wide, facing the camera */

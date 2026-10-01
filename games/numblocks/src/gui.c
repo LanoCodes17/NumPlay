@@ -897,7 +897,7 @@ static void press(int id) {
       break;
     case B_CONTROLS: gui_menu(GUI_CONTROLS); break;
     case B_CONTROLS_DONE:
-      if (!opt.keys_seen) opt.keys_seen = 1, save_options();
+      if (opt.keys_seen != KEY_SHEET) opt.keys_seen = KEY_SHEET, save_options();
       gui_menu(controls_from);
       break;
     case B_BACK_GAME: gui = GUI_NONE; break;
@@ -1062,8 +1062,8 @@ static void key_sheet(void) {
   static const char *const caps[3][6] = {{"shift", "alpha", "x,n,t", "var", "toolbox", "\3"},
                                          {"e^x", "ln", "log", "i", ",", "x^y"},
                                          {"sin", "cos", "tan", "\1", "\2", "x^2"}};
-  static const char *const acts[3][6] = {{0, 0, "Drop", "Inventory", "Pause", "Sprint"},
-                                         {0, 0, 0, "Sneak", "Forward", "Jump"},
+  static const char *const acts[3][6] = {{"Jump", "Sneak", "Drop", "Inventory", "Pause", "Sprint"},
+                                         {0, 0, 0, 0, "Forward", 0},
                                          {0, 0, 0, "Left", "Backward", "Right"}};
   for (int r = 0; r < 3; r++)
     for (int c = 0; c < 6; c++)

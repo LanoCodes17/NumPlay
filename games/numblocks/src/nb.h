@@ -19,12 +19,12 @@
 enum {
   K_LEFT = 1 << 0, K_RIGHT = 1 << 1, K_UP = 1 << 2, K_DOWN = 1 << 3,      /* arrows: look */
   K_FWD = 1 << 4, K_BACKW = 1 << 5, K_STRAFE_L = 1 << 6, K_STRAFE_R = 1 << 7,   /* comma, sqrt, pi, x^2 */
-  K_JUMP = 1 << 8, K_USE = 1 << 9, K_ATTACK = 1 << 10, K_INV = 1 << 11,   /* x^y, OK, Back, var */
-  K_HOME = 1 << 12, K_SNEAK = 1 << 13, K_PAUSE = 1 << 14, K_DROP = 1 << 15,   /* Home, i, Toolbox, x,n,t */
+  K_JUMP = 1 << 8, K_USE = 1 << 9, K_ATTACK = 1 << 10, K_INV = 1 << 11,   /* shift, OK, Back, var */
+  K_HOME = 1 << 12, K_SNEAK = 1 << 13, K_PAUSE = 1 << 14, K_DROP = 1 << 15,   /* Home, alpha, Toolbox, x,n,t */
   K_SLOT1 = 1 << 16,   /* K_SLOT1 << n: digit n + 1 */
   K_SPRINT = 1 << 25,    /* backspace (also deletes, typing a seed) */
   K_EXE = 1 << 26,       /* EXE alone (OK and EXE both give K_USE): right click in screens */
-  K_SHIFT = 1 << 27,     /* shift: shift click in screens */
+  K_SHIFT = 1 << 27,     /* shift (also K_JUMP): shift click in screens */
   K_BACK = 1 << 28,      /* Back alone: closes screens */
   K_OK = 1 << 29,        /* OK alone */
   K_ZERO = 1 << 30,      /* 0 (typing a seed) */
@@ -250,8 +250,9 @@ typedef struct {
   uint8_t fancy;        /* graphics: 0 fast (solid leaves), 1 fancy */
   uint8_t look;         /* look speed, % */
   uint8_t clouds, bobbing;
-  uint8_t keys_seen;    /* the key sheet has been shown (it opens the first time) */
+  uint8_t keys_seen;    /* the key sheet's version last shown (it opens when the keys change) */
 } Options;
+#define KEY_SHEET 2       /* (2: jump and sneak on shift and alpha) */
 extern Options opt;
 extern int64_t world_seed;
 bool save_world(void);

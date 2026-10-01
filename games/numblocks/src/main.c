@@ -77,7 +77,7 @@ void game_init(void) {
     return;
   }
   title();
-  if (!opt.keys_seen) gui_menu(GUI_CONTROLS);   /* the first time: the keys */
+  if (opt.keys_seen != KEY_SHEET) gui_menu(GUI_CONTROLS);   /* the first time, or new keys: the keys */
 }
 
 /* one frame: input, the ticks due, the picture; false once the player quits */

@@ -2,10 +2,10 @@
  *
  * Keys, Minecraft's on the calculator's keyboard: the left thumb looks around
  * with the arrows, the right one walks with the keys under OK and Back, laid
- * out like W, A, S and D: comma, pi, square root and x squared. Next to them,
- * x^y jumps, i sneaks and backspace sprints. OK uses and places, Back mines
- * and hits; 1-9 pick the hotbar slot; var opens the inventory; x,n,t drops;
- * Toolbox pauses; Home saves and quits. */
+ * out like W, A, S and D: comma, pi, square root and x squared; backspace
+ * sprints. Under the arrows, shift jumps and alpha sneaks. OK uses and places,
+ * Back mines and hits; 1-9 pick the hotbar slot; var opens the inventory;
+ * x,n,t drops; Toolbox pauses; Home saves and quits. */
 #include <eadk.h>
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
@@ -24,7 +24,7 @@ uint32_t plat_keys(void) {
   if (k & KEY(eadk_key_sqrt)) r |= K_BACKW;
   if (k & KEY(eadk_key_pi)) r |= K_STRAFE_L;
   if (k & KEY(eadk_key_square)) r |= K_STRAFE_R;
-  if (k & KEY(eadk_key_power)) r |= K_JUMP;
+  if (k & KEY(eadk_key_shift)) r |= K_JUMP;
   if (k & (KEY(eadk_key_ok) | KEY(eadk_key_exe))) r |= K_USE;
   if (k & KEY(eadk_key_ok)) r |= K_OK;
   if (k & KEY(eadk_key_exe)) r |= K_EXE;
@@ -35,7 +35,7 @@ uint32_t plat_keys(void) {
   if (k & KEY(eadk_key_back)) r |= K_ATTACK;
   if (k & KEY(eadk_key_var)) r |= K_INV;
   if (k & (KEY(eadk_key_home) | KEY(eadk_key_on_off))) r |= K_HOME;
-  if (k & KEY(eadk_key_imaginary)) r |= K_SNEAK;
+  if (k & KEY(eadk_key_alpha)) r |= K_SNEAK;
   if (k & KEY(eadk_key_backspace)) r |= K_SPRINT;
   if (k & KEY(eadk_key_toolbox)) r |= K_PAUSE;
   if (k & KEY(eadk_key_xnt)) r |= K_DROP;

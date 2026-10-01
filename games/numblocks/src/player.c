@@ -208,11 +208,12 @@ static const int8_t NX[6] = {0, 0, 0, 0, -1, 1}, NY[6] = {-1, 1, 0, 0, 0, 0}, NZ
 
 static bool replaceable(int b) {
   return b == B_AIR || blk_model[b] == M_LIQUID || b == B_TALL_GRASS || b == B_FERN || b == B_DEAD_SHRUB ||
-         b == B_DEAD_BUSH || b == B_VINE || b == B_SNOW_LAYER || b == B_DOUBLE_GRASS_LOWER || b == B_LARGE_FERN_LOWER;
+         b == B_DEAD_BUSH || b == B_VINE || b == B_SNOW_LAYER || b == B_DOUBLE_GRASS_LOWER || b == B_LARGE_FERN_LOWER ||
+         b == B_FIRE;
 }
 static bool solid_top(int b) { return (blk_flags[b] & BF_OPAQUE) != 0 || b == B_GLASS || b == B_LEAVES_OAK; }
 static bool soil(int b) { return b == B_GRASS || b == B_DIRT || b == B_PODZOL || b == B_COARSE_DIRT || b == B_FARMLAND || b == B_FARMLAND_WET; }
-static bool is_plant(int b) { return blk_model[b] == M_CROSS && b != B_COBWEB; }
+static bool is_plant(int b) { return blk_model[b] == M_CROSS && b != B_COBWEB && b != B_FIRE; }
 static bool near_water(int x, int y, int z) {
   for (int f = 2; f < 6; f++) {
     int n = world_get(x + NX[f], y, z + NZ[f]);
@@ -242,6 +243,7 @@ static bool can_stay(int b, int x, int y, int z) {
   if (b == B_LILY_PAD) return below == B_WATER;
   if (b >= B_SUNFLOWER_LOWER && b <= B_PEONY_UPPER && ((b - B_SUNFLOWER_LOWER) & 1))
     return world_get(x, y - 1, z) == b - 1;
+  if (b == B_FIRE) return fire_can_stay(x, y, z);
   if (is_plant(b)) return soil(below);
   if (b == B_TORCH) return solid_top(below);
   if (b == B_TORCH_E) return blk_flags[world_get(x - 1, y, z)] & BF_OPAQUE;
@@ -388,7 +390,7 @@ static void pick(void) {
   pl.hit_face = -1;
   while (t <= reach) {
     int b = world_get(x, y, z);
-    if (b != B_AIR && blk_model[b] != M_LIQUID) {
+    if (b != B_AIR && blk_model[b] != M_LIQUID && b != B_FIRE) {
       float bt;
       int bf;
       if (ray_block(b, x, y, z, &bt, &bf)) {
@@ -685,15 +687,22 @@ static void use(uint32_t pressed) {
       return;
     }
     case IK_FLINT_AND_STEEL:
-      if (on_block && b == B_TNT) {
-        /* BlockTNT: lit, it falls and blows after 4 seconds */
+      if (!on_block) return;
+      if (b == B_TNT && !pl.sneaking) {
+        /* BlockTNT.onBlockActivated: lit, it falls and blows after 4 seconds */
         world_set(x, y, z, B_AIR);
         neighbours_changed(x, y, z);
-        Entity *e = ent_new(E_TNT, x + 0.5f, (float)y, z + 0.5f);
-        if (e) e->delay = 80, e->vy = 0.2f, e->item.id = B_TNT;
-        if (pl.mode == 0) stack_wear(h, 1);
-        player_swing();
+        tnt_light(x, y, z, 80);
+      } else {
+        /* ItemFlintAndSteel.onItemUse: fire in the air against the face (BlockFire.onBlockAdded: out at once
+         * where it cannot stay) */
+        int f = pl.hit_face, fx = x + NX[f], fy = y + NY[f], fz = z + NZ[f];
+        if (world_get(fx, fy, fz) == B_AIR && fy >= 0 && fy < WORLD_H) {
+          if (fire_can_stay(fx, fy, fz)) fire_set(fx, fy, fz, 0);
+        }
       }
+      if (pl.mode == 0) stack_wear(h, 1);
+      player_swing();
       return;
   }
 }
@@ -769,6 +778,17 @@ static void hazards(float fell_from) {
     player_hurt(4, DMG_LAVA);
     pl.fire = 300;
   }
+  /* in fire (Entity.moveEntity, World.isFlammableWithin): it hurts, and after a second sets the player alight */
+  static int in_fire;
+  bool fire = false;
+  for (int y = ifloor(pl.y + 0.001f); y <= ifloor(pl.y + 1.799f) && !fire; y++)
+    for (int z = ifloor(pl.z - 0.299f); z <= ifloor(pl.z + 0.299f) && !fire; z++)
+      for (int x = ifloor(pl.x - 0.299f); x <= ifloor(pl.x + 0.299f) && !fire; x++) fire = world_get(x, y, z) == B_FIRE;
+  if (fire) {
+    player_hurt(1, DMG_FIRE);
+    if (++in_fire >= 20 && pl.fire < 160) pl.fire = 160;
+  } else
+    in_fire = 0;
   if (pl.in_water || rain_at((int)floorf(pl.x), (int)floorf(pl.y), (int)floorf(pl.z)) ||
       rain_at((int)floorf(pl.x), (int)floorf(pl.y + 1.8f), (int)floorf(pl.z)))
     pl.fire = 0;   /* Entity.isWet */
@@ -910,6 +930,15 @@ void player_tick(uint32_t keys, uint32_t pressed) {
   /* mining (Back held) */
   if (break_cooldown) break_cooldown--;
   if ((pressed & K_ATTACK) && pl.hit_face < 0 && !target) player_swing();
+  if ((pressed & K_ATTACK) && pl.hit_face >= 0 && !target) {
+    int f = pl.hit_face, fx = pl.hit_x + NX[f], fy = pl.hit_y + NY[f], fz = pl.hit_z + NZ[f];
+    if (world_get(fx, fy, fz) == B_FIRE) {
+      world_set(fx, fy, fz, B_AIR);
+      player_swing();
+      keys &= ~K_ATTACK;
+      pl.breaking = 0;
+    }
+  }
   /* PlayerControllerMP.onPlayerDamageBlock: looking at another block starts over */
   static int bx_ = -1, by_, bz_;
   if (pl.hit_x != bx_ || pl.hit_y != by_ || pl.hit_z != bz_) pl.breaking = 0, bx_ = pl.hit_x, by_ = pl.hit_y, bz_ = pl.hit_z;

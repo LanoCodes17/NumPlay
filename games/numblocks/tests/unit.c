@@ -435,6 +435,45 @@ int main(void) {
     CHECK(command_complete("/time set ", 1, &at, o, sizeof o) && !strcmp(o, "night"));
     delete_world(1);
   }
+  {
+    /* fire: lit on stone it goes out; by planks it spreads and burns them; flint and steel lights it */
+    world_new(0, "ut12");
+    world_follow(8, 70, 8);
+    while (world_pending()) world_follow(8, 70, 8);
+    memset(&weather, 0, sizeof weather);
+    weather.rain_time = 1000000, rain_str = 0;
+    game_rules = GR_DEFAULT;
+    for (int z = 0; z < 20; z++)
+      for (int x = 0; x < 20; x++)
+        for (int y = 69; y < 76; y++) world_set(x, y, z, y == 69 ? B_STONE : B_AIR);
+    fire_set(8, 70, 4, 0);
+    CHECK(world_get(8, 70, 4) == B_FIRE);
+    for (int t = 0; t < 1200; t++) ticks_run++, world_tick();
+    CHECK(world_get(8, 70, 4) == B_AIR);
+    int planks = 0;
+    for (int x = 4; x < 13; x++)
+      for (int y = 70; y < 73; y++) world_set(x, y, 12, B_PLANKS_OAK);
+    fire_set(8, 70, 11, 0);
+    for (int t = 0; t < 4000; t++) ticks_run++, world_tick();
+    for (int x = 4; x < 13; x++)
+      for (int y = 70; y < 73; y++) planks += world_get(x, y, 12) == B_PLANKS_OAK;
+    CHECK(planks < 27);
+    /* with doFireTick off it stays as it is */
+    game_rules &= (uint8_t)~GR_FIRE_TICK;
+    fire_set(2, 70, 2, 0);
+    for (int t = 0; t < 1200; t++) ticks_run++, world_tick();
+    CHECK(world_get(2, 70, 2) == B_FIRE);
+    game_rules = GR_DEFAULT;
+    world_set(2, 70, 2, B_AIR);
+    /* flint and steel on the floor: fire on it */
+    memset(&pl, 0, sizeof pl);
+    pl.x = 16.5f, pl.y = 70, pl.z = 16.5f, pl.health = 20, pl.food = 20, pl.mode = 0, pl.on_ground = true;
+    pl.inv[0] = (Stack){I_FLINT_AND_STEEL, 0};
+    player_look(pl.x, pl.y + 1.62f, pl.z, 0, 60);
+    player_tick(K_USE, K_USE);
+    CHECK(world_get(16, 70, 17) == B_FIRE && pl.inv[0].aux == 1);
+    plat_remove_prefix("ut12");
+  }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;
 }

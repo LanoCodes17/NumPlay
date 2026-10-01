@@ -231,6 +231,8 @@ for v, d in [(1, 'W'), (2, 'S'), (3, 'N')]:
     b(f'COBBLESTONE_STAIRS_{d}', 67, v, model='stairs', tex='cobblestone', hard=2.0, tool='pickaxe')
 for v, d in [(1, 'S'), (2, 'W'), (3, 'N'), (4, 'E_OPEN'), (5, 'S_OPEN'), (6, 'W_OPEN'), (7, 'N_OPEN')]:
     b(f'DOOR_OAK_LOWER_{d}', 64, v, model='door', tex='door_wood_lower', hard=3.0, tool='axe')
+# (new blocks go last: worlds keep blocks by their place in this list)
+b('FIRE', 51, 0, model='cross', tex='fire_layer_0', light=15, hard=0)
 
 assert len(S) <= 255, len(S)
 

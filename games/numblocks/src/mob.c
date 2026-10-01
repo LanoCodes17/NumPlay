@@ -432,6 +432,15 @@ static void push_player(float kx, float kz, float s) {
 }
 
 /* ---------------------------------------------------------------- explosions (Explosion, power 3) */
+/* EntityTNTPrimed: lit TNT hops up, a little to one side, and blows when its fuse is out */
+void tnt_light(int x, int y, int z, int fuse) {
+  Entity *t = ent_new(E_TNT, x + 0.5f, (float)y, z + 0.5f);
+  if (!t) return;
+  float a = rndf() * 6.2831853f;
+  t->delay = (int16_t)fuse, t->item.id = B_TNT;
+  t->vx = -sinf(a) * 0.02f, t->vy = 0.2f, t->vz = -cosf(a) * 0.02f;
+}
+
 void explode(float x, float y, float z, float power, bool blocks) {
   int r = blocks ? (int)ceilf(power) : -1;
   for (int dy = -r; dy <= r; dy++)
@@ -449,8 +458,7 @@ void explode(float x, float y, float z, float power, bool blocks) {
         world_set(bx, by, bz, B_AIR);
         if (b == B_TNT) {
           /* TNT caught in a blast is lit, with a shorter fuse */
-          Entity *t = ent_new(E_TNT, bx + 0.5f, (float)by, bz + 0.5f);
-          if (t) t->delay = (int16_t)(10 + rnd(20)), t->item.id = B_TNT;
+          tnt_light(bx, by, bz, 10 + rnd(20));
           continue;
         }
         /* one in power of the blocks drop */
@@ -617,6 +625,10 @@ void mob_tick(Entity *e) {
     if (e->fire < 160) e->fire = 160;
   }
   if (in_lava) e->fire = 300, hurt(e, 4, 0, 0);
+  if (world_get(bx, by, bz) == B_FIRE || world_get(bx, ifl(e->y + 1), bz) == B_FIRE) {
+    hurt(e, 1, 0, 0);
+    if (e->fire < 160) e->fire = 160;
+  }
   if (in_water || rain_at(bx, by, bz) || rain_at(bx, ifl(e->y + 1.6f), bz)) e->fire = 0;   /* Entity.isWet */
   if (e->fire > 0) {
     if (e->fire % 20 == 0) hurt(e, 1, 0, 0);
@@ -694,7 +706,7 @@ void mob_tick(Entity *e) {
       bool ground = false;
       for (int k = 1; k <= 3 && !ground; k++) ground = (blk_flags[world_get(ax, by - k + 1, az)] & BF_SOLID) != 0;
       int ahead = world_get(ax, by, az);
-      if ((!ground && !in_water) || is_lava(ahead)) go = false, e->gx = e->x, e->gz = e->z;
+      if ((!ground && !in_water) || is_lava(ahead) || ahead == B_FIRE) go = false, e->gx = e->x, e->gz = e->z;
     }
   }
   if (chase) {

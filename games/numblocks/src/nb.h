@@ -205,6 +205,7 @@ int fish_reel(Entity *e);   /* how much it wears the rod */
 void mob_tick(Entity *e);
 void mobs_spawn(void);
 void explode(float x, float y, float z, float power, bool blocks);
+void tnt_light(int x, int y, int z, int fuse);
 void throw_item(int id, float speed, bool from_player);   /* arrows, snowballs, eggs */
 bool mob_attack(const Entity *e);   /* the player hits this mob (with the held item) */
 bool mob_use(Entity *e);            /* the player uses the held item on it (shears, bucket) */
@@ -217,6 +218,9 @@ void player_respawn(void);
 
 /* ---------------------------------------------------------------- liquids and growing (tick.c) */
 void fluid_schedule(int x, int y, int z);   /* a liquid there may move */
+bool fire_can_stay(int x, int y, int z);    /* on a solid top, or by something that burns */
+void fire_set(int x, int y, int z, int age);   /* fire there (age 0 to 15: older spreads less, goes out sooner) */
+void bolt_start(float x, float y, float z);   /* lightning strikes there */
 void world_tick(void);                      /* 20 a second: weather, liquids, random block ticks */
 
 /* the weather (World.updateWeather), saved with the world */

@@ -463,8 +463,7 @@ static void cmd_summon(char **a, int n) {
   if (y < 0 || y >= WORLD_H || !world_loaded((int)floorf(x), (int)floorf(y), (int)floorf(z)))
     return error("Cannot summon the object out of the world", NULL, 0, 0);
   if (!strcmp(a[0], "LightningBolt")) {
-    bolt.x = x, bolt.y = y, bolt.z = z;
-    bolt.on = 1, bolt.state = 2, bolt.living = (int8_t)(rnd(3) + 1), bolt.seed = (uint32_t)rnd(1 << 30);
+    bolt_start(x, y, z);
     ok("Object successfully summoned", NULL, 0);
     return;
   }

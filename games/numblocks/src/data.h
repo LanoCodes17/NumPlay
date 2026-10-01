@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "blocks.h"
 
-#define NTEX 216
+#define NTEX 217
 /* tex_flags: bits 0-4, the first palette index tinted by the biome (16: none); 0x20: has see-through texels */
 extern const uint8_t tex_px[NTEX][128];
 extern const uint16_t tex_pal[NTEX][16];
@@ -243,6 +243,7 @@ extern const uint8_t rain_run[][4], snow_run[][4], rain_idx[257], snow_idx[257];
 #define TX_POTATOES_STAGE_1 213
 #define TX_POTATOES_STAGE_2 214
 #define TX_POTATOES_STAGE_3 215
+#define TX_FIRE_LAYER_0 216
 
 extern const uint8_t spr_px[], spr_w[], spr_h[], spr_alpha[];
 extern const uint32_t spr_off[];
@@ -277,27 +278,27 @@ extern const uint16_t blk_icon[B_COUNT];   /* sprite of its icon */
 #define SP_MOON_5 26
 #define SP_MOON_6 27
 #define SP_MOON_7 28
-#define SP_FLAME 408
-#define SP_ARROW 409
-#define SP_ARMOR_FULL 410
-#define SP_ARMOR_HALF 411
-#define SP_BUBBLE_POP 412
-#define SP_HEART_HIT 413
-#define SP_TAB_TOP 414
-#define SP_TAB_TOP_SEL 415
-#define SP_TAB_BOTTOM 416
-#define SP_TAB_BOTTOM_SEL 417
-#define SP_SCROLLER 418
-#define SP_BUTTON 419
-#define SP_BUTTON_HOVER 420
-#define SP_BUTTON_OFF 421
-#define SP_SLOT_HELMET 422
-#define SP_SLOT_CHESTPLATE 423
-#define SP_SLOT_LEGGINGS 424
-#define SP_SLOT_BOOTS 425
-#define SP_STEVE 426
-#define SP_ARM 427
-#define SP_DIRT_BG 428
+#define SP_FLAME 409
+#define SP_ARROW 410
+#define SP_ARMOR_FULL 411
+#define SP_ARMOR_HALF 412
+#define SP_BUBBLE_POP 413
+#define SP_HEART_HIT 414
+#define SP_TAB_TOP 415
+#define SP_TAB_TOP_SEL 416
+#define SP_TAB_BOTTOM 417
+#define SP_TAB_BOTTOM_SEL 418
+#define SP_SCROLLER 419
+#define SP_BUTTON 420
+#define SP_BUTTON_HOVER 421
+#define SP_BUTTON_OFF 422
+#define SP_SLOT_HELMET 423
+#define SP_SLOT_CHESTPLATE 424
+#define SP_SLOT_LEGGINGS 425
+#define SP_SLOT_BOOTS 426
+#define SP_STEVE 427
+#define SP_ARM 428
+#define SP_DIRT_BG 429
 
 #include "items.h"
 extern const uint16_t blk_item[B_COUNT];   /* the item a block state counts as (0xFFFF: none) */

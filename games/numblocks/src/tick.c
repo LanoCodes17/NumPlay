@@ -2,7 +2,8 @@
  * block ticks (WorldServer.updateBlocks: 3 random blocks a 16 x 16 x 16
  * section each tick): crops and saplings grow, grass spreads and dies,
  * leaves far from a log decay, sugar cane and cactus grow; and the weather
- * (World.updateWeather): rain, thunder, snow piling up, water freezing. */
+ * (World.updateWeather): rain, thunder, snow piling up, water freezing; and
+ * fire (BlockFire): it spreads to what burns and burns it away. */
 #include <math.h>
 #include <stdlib.h>
 #include "nb.h"
@@ -13,8 +14,8 @@ extern uint32_t game_time;
 /* ---------------------------------------------------------------- liquids */
 typedef struct {
   int16_t x, z;
-  uint8_t y, pad;
-  uint16_t due;   /* the tick it runs (low 16 bits of ticks_run) */
+  uint8_t y, age;   /* (age: a fire's, 0 to 15: its block state's in Minecraft) */
+  uint16_t due;     /* the tick it runs (low 16 bits of ticks_run) */
 } Pending;
 #define N_PENDING 160
 static Pending pend[N_PENDING];
@@ -52,7 +53,7 @@ static bool open_to(int water, int b) {
   if (blk_flags[b] & BF_SOLID) return false;
   /* plants, torches, snow... are washed away (doors, ladders and signs stop it) */
   int m = blk_model[b];
-  return m == M_CROSS || m == M_TORCH || m == M_FLAT || m == M_LAYER || m == M_VINE;
+  return m == M_CROSS || m == M_TORCH || m == M_FLAT || m == M_LAYER || m == M_VINE;   /* (and fire) */
 }
 
 static void set(int x, int y, int z, int b) {
@@ -163,6 +164,7 @@ static void fluid_update(int x, int y, int z) {
   }
 }
 
+static void fire_update(int x, int y, int z, int age);
 static void fluids_tick(void) {
   uint16_t now = (uint16_t)ticks_run;
   int done = 0;
@@ -173,9 +175,130 @@ static void fluids_tick(void) {
     }
     Pending p = pend[i];
     pend[i] = pend[--npend];
-    if (world_loaded(p.x, p.y, p.z)) fluid_update(p.x, p.y, p.z);
+    if (!world_loaded(p.x, p.y, p.z)) continue;
+    if (world_get(p.x, p.y, p.z) == B_FIRE) fire_update(p.x, p.y, p.z, p.age);
+    else fluid_update(p.x, p.y, p.z);
     done++;
   }
+}
+
+/* ---------------------------------------------------------------- fire */
+/* Blocks.fire.setFireInfo: how readily a block sets fire to the air by it, and burns away (0: never) */
+static int fire_enc(int b) {
+  switch (blk_id[b]) {
+    case 5: case 125: case 126: case 85: case 107: case 53: case 134: case 135: case 136: case 163: case 164:
+    case 17: case 162: case 173: return 5;
+    case 18: case 161: case 47: case 35: return 30;
+    case 46: case 106: return 15;
+    case 31: case 175: case 37: case 38: case 32: case 170: case 171: return 60;
+  }
+  return 0;
+}
+static int fire_flam(int b) {
+  switch (blk_id[b]) {
+    case 5: case 125: case 126: case 85: case 107: case 53: case 134: case 135: case 136: case 163: case 164:
+    case 47: case 170: case 171: return 20;
+    case 17: case 162: case 173: return 5;
+    case 18: case 161: case 35: return 60;
+    case 46: case 106: case 31: case 175: case 37: case 38: case 32: return 100;
+  }
+  return 0;
+}
+static int fire_near(int x, int y, int z) {   /* BlockFire.getNeighborEncouragement: the most of the six */
+  int m = 0;
+  for (int f = 0; f < 6; f++) {
+    int e = fire_enc(world_get(x + NX[f], y + NY[f], z + NZ[f]));
+    if (e > m) m = e;
+  }
+  return m;
+}
+/* BlockFire.canPlaceBlockAt: on a solid top, or by something that burns */
+bool fire_can_stay(int x, int y, int z) {
+  return (blk_flags[world_get(x, y - 1, z)] & BF_OPAQUE) || fire_near(x, y, z) > 0;
+}
+/* BlockFire.canDie: rain falls on it or by it */
+static bool rained_on(int x, int y, int z) {
+  return rain_at(x, y, z) || rain_at(x - 1, y, z) || rain_at(x + 1, y, z) || rain_at(x, y, z - 1) || rain_at(x, y, z + 1);
+}
+static void fire_schedule(int x, int y, int z, int age) {
+  for (int i = 0; i < npend; i++)
+    if (pend[i].x == x && pend[i].y == y && pend[i].z == z) return;
+  if (npend >= N_PENDING) return;
+  /* BlockFire.tickRate: 30, and up to 10 more */
+  pend[npend++] = (Pending){(int16_t)x, (int16_t)z, (uint8_t)y, (uint8_t)age, (uint16_t)(ticks_run + 30 + rnd(10))};
+}
+void fire_set(int x, int y, int z, int age) {
+  world_set(x, y, z, B_FIRE);
+  fire_schedule(x, y, z, age);
+}
+/* BlockFire.catchOnFire: what burns may burn away (or catch, the fire young enough); TNT is lit */
+static void catch_fire(int x, int y, int z, int chance, int age) {
+  int b = world_get(x, y, z);
+  if (rnd(chance) >= fire_flam(b)) return;
+  if (rnd(age + 10) < 5 && !rain_at(x, y, z)) {
+    int a = age + rnd(5) / 4;
+    fire_set(x, y, z, a > 15 ? 15 : a);
+  } else
+    world_set(x, y, z, B_AIR);
+  neighbours_changed(x, y, z);
+  if (b == B_TNT) tnt_light(x, y, z, 80);
+}
+/* BlockFire.updateTick */
+static void fire_update(int x, int y, int z, int age) {
+  if (!rule(GR_FIRE_TICK)) return;
+  bool raining = rain_str > 0.2f;
+  if (!fire_can_stay(x, y, z) || (raining && rained_on(x, y, z) && rndf() < 0.2f + age * 0.03f)) {
+    world_set(x, y, z, B_AIR);
+    return;
+  }
+  if (age < 15) age += rnd(3) / 2;
+  fire_schedule(x, y, z, age);
+  if (!fire_near(x, y, z)) {
+    /* nothing to burn: out, soon (at once off a solid top) */
+    if (!(blk_flags[world_get(x, y - 1, z)] & BF_OPAQUE) || age > 3) world_set(x, y, z, B_AIR);
+    return;
+  }
+  if (!fire_enc(world_get(x, y - 1, z)) && age == 15 && rnd(4) == 0) {
+    world_set(x, y, z, B_AIR);
+    return;
+  }
+  for (int f = 0; f < 6; f++) catch_fire(x + NX[f], y + NY[f], z + NZ[f], f < 2 ? 250 : 300, age);
+  /* the air about it, above more than below: where it is next to something that burns */
+  for (int dy = -1; dy <= 4; dy++)
+    for (int dz = -1; dz <= 1; dz++)
+      for (int dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy && !dz) continue;
+        int nx = x + dx, ny = y + dy, nz = z + dz;
+        if (world_get(nx, ny, nz) != B_AIR || !world_loaded(nx, ny, nz)) continue;
+        int e = fire_near(nx, ny, nz);
+        if (!e) continue;
+        int k = (e + 40 + opt.difficulty * 7) / (age + 30);
+        if (k > 0 && rnd(dy > 1 ? dy * 100 : 100) <= k && !(raining && rained_on(nx, ny, nz))) {
+          int a = age + rnd(5) / 4;
+          fire_set(nx, ny, nz, a > 15 ? 15 : a);
+        }
+      }
+}
+/* BlockStaticLiquid.updateTick: lava sets fire to what is about it, now and then */
+static void lava_fire(int x, int y, int z) {
+  int n = rnd(3);
+  if (n > 0) {
+    for (int j = 0; j < n; j++) {
+      x += rnd(3) - 1, y++, z += rnd(3) - 1;
+      int b = world_get(x, y, z);
+      if (b == B_AIR) {
+        if (fire_near(x, y, z) || fire_flam(world_get(x, y - 1, z))) {
+          fire_set(x, y, z, 0);
+          return;
+        }
+      } else if (blk_flags[b] & BF_SOLID)
+        return;
+    }
+  } else
+    for (int k = 0; k < 3; k++) {
+      int bx = x + rnd(3) - 1, bz = z + rnd(3) - 1;
+      if (world_get(bx, y + 1, bz) == B_AIR && fire_flam(world_get(bx, y, bz))) fire_set(bx, y + 1, bz, 0);
+    }
 }
 
 /* ---------------------------------------------------------------- growing */
@@ -230,6 +353,14 @@ static void grow_tree(int x, int y, int z, int sapling) {
 
 static void random_tick(int x, int y, int z) {
   int b = world_get(x, y, z);
+  if (b == B_FIRE) {
+    fire_schedule(x, y, z, 8);
+    return;
+  }
+  if (b == B_LAVA && rule(GR_FIRE_TICK)) {
+    lava_fire(x, y, z);
+    return;
+  }
   int i = VC_I(x - vc_x0, y - vc_y0, z - vc_z0);
   int above = world_get(x, y + 1, z);
   int light = i + VCX * VCZ < VCY * VCZ * VCX && y + 1 - vc_y0 < VCY ? light_at(i + VCX * VCZ) : 15;
@@ -369,6 +500,22 @@ static void bolt_strikes(void) {
   }
 }
 
+/* EntityLightningBolt: on Normal and Hard it sets fire where it strikes (and the first time, about it) */
+static void bolt_fire(int n) {
+  if (!rule(GR_FIRE_TICK) || opt.difficulty < 2) return;
+  int bx = (int)floorf(bolt.x), by = (int)floorf(bolt.y), bz = (int)floorf(bolt.z);
+  for (int k = 0; k < n; k++) {
+    int fx = bx, fy = by, fz = bz;
+    if (k) fx += rnd(3) - 1, fy += rnd(3) - 1, fz += rnd(3) - 1;
+    if (world_loaded(fx, fy, fz) && world_get(fx, fy, fz) == B_AIR && fire_can_stay(fx, fy, fz)) fire_set(fx, fy, fz, 0);
+  }
+}
+void bolt_start(float x, float y, float z) {
+  bolt.x = x, bolt.y = y, bolt.z = z;
+  bolt.on = 1, bolt.state = 2, bolt.living = (int8_t)(rnd(3) + 1), bolt.seed = (uint32_t)rnd(1 << 30);
+  bolt_fire(5);
+}
+
 static void bolt_tick(void) {
   if (last_bolt > 0) last_bolt--;
   /* WorldServer.updateBlocks: in a storm, each of the 225 chunks about the
@@ -381,11 +528,11 @@ static void bolt_tick(void) {
       if (y > WORLD_H || !rain_at(x, y, z)) return;
     } else if (!rain_at((int)floorf(pl.x), WORLD_H, (int)floorf(pl.z)))
       return;   /* (too far to know: where it rains on the player) */
-    bolt.x = x + 0.5f, bolt.y = (float)y, bolt.z = z + 0.5f;
-    if (fabsf(pl.x - bolt.x) < 3.5f && fabsf(pl.z - bolt.z) < 3.5f && !pl.dead &&
+    float bx = x + 0.5f, by = (float)y, bz = z + 0.5f;
+    if (fabsf(pl.x - bx) < 3.5f && fabsf(pl.z - bz) < 3.5f && !pl.dead &&
         pl.y >= world_rain_top((int)floorf(pl.x), (int)floorf(pl.z)))
-      bolt.x = pl.x, bolt.y = pl.y, bolt.z = pl.z;
-    bolt.on = 1, bolt.state = 2, bolt.living = (int8_t)(rnd(3) + 1), bolt.seed = (uint32_t)rnd(1 << 30);
+      bx = pl.x, by = pl.y, bz = pl.z;
+    bolt_start(bx, by, bz);
   }
   if (!bolt.on) return;
   if (--bolt.state < 0) {
@@ -393,7 +540,7 @@ static void bolt_tick(void) {
       bolt.on = 0;
       return;
     }
-    if (bolt.state < -rnd(10)) bolt.living--, bolt.state = 1, bolt.seed = (uint32_t)rnd(1 << 30);
+    if (bolt.state < -rnd(10)) bolt.living--, bolt.state = 1, bolt.seed = (uint32_t)rnd(1 << 30), bolt_fire(1);
   }
   if (bolt.state >= 0) {
     last_bolt = 2;

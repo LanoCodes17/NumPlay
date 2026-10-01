@@ -26,16 +26,15 @@ static void sprite_part(int id, int x, int y, int sx, int sy, int w, int h) {
   int stride = (spr_w[id] + 1) / 2;
   const uint8_t *px = spr_px + spr_off[id];
   const uint16_t *pal = spr_pal[id];
-  for (int r = 0; r < h; r++) {
-    int ty = y + r;
-    if (ty < clip_y0 || ty >= clip_y1) continue;
-    uint16_t *d = row_at(ty);
+  /* (the rows in the strip, the columns on the screen) */
+  int r0 = clip_y0 - y > 0 ? clip_y0 - y : 0, r1 = clip_y1 - y < h ? clip_y1 - y : h;
+  int c0 = x < 0 ? -x : 0, c1 = x + w > SCREEN_W ? SCREEN_W - x : w;
+  for (int r = r0; r < r1; r++) {
+    uint16_t *d = row_at(y + r);
     const uint8_t *s = px + (sy + r) * stride;
-    for (int c = 0; c < w; c++) {
-      int tx = x + c, u = sx + c;
-      if ((unsigned)tx >= SCREEN_W) continue;
-      int i = (u & 1) ? s[u >> 1] >> 4 : s[u >> 1] & 15;
-      if (i) d[tx] = pal[i];
+    for (int c = c0; c < c1; c++) {
+      int u = sx + c, i = (u & 1) ? s[u >> 1] >> 4 : s[u >> 1] & 15;
+      if (i) d[x + c] = pal[i];
     }
   }
 }

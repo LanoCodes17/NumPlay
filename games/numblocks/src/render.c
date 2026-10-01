@@ -432,10 +432,9 @@ static __attribute__((noinline)) int cell_hit(Ray *R, int b, int i, int x, int y
     Hit h = {0};
     float t1 = tl;
     if (hit_cross(blk_tex[b][3], lx, ly, lz, R->dx, R->dy, R->dz, 0, t1, &h)) {
-      int r, g, bb;
-      texel_rgb(b, blk_tex[b][3], h.u, h.v, col, &r, &g, &bb);
+      int tc = texel565(b, blk_tex[b][3], h.u, h.v, col);   /* (hit_cross met a texel that is there) */
       last_t = t + h.t;
-      uint16_t c = lit(r, g, bb, 1, vl[i], (t + h.t) * R->len);
+      uint16_t c = lit565((uint16_t)tc, 1, vl[i], (t + h.t) * R->len);
       if (R->wa) c = pack((r5(c) * (256 - R->wa) + R->wr * R->wa) >> 8, (g6(c) * (256 - R->wa) + R->wg * R->wa) >> 8,
                        (b5(c) * (256 - R->wa) + R->wb * R->wa) >> 8);
       else hit_kind = 3, hit_i = i;
@@ -462,7 +461,6 @@ static __attribute__((noinline)) int cell_hit(Ray *R, int b, int i, int x, int y
     for (int k = 0; k < nbx; k++)
       if (hit_box(bxs[k], lx, ly, lz, dd, iv, tl0 + 1e-4f, &hk) && hk.t < h.t) h = hk;
     if (h.t < 1e9f) {
-      int r, g, bb;
       int tex = face_tex(b, h.face, x, y, z);
       if (m == M_BED && h.face == 1) {
         /* the bed's top turned so the pillow is at its head */
@@ -471,10 +469,11 @@ static __attribute__((noinline)) int cell_hit(Ray *R, int b, int i, int x, int y
         else if (w == 5) h.u = v, h.v = 15 - u;
         else if (w == 4) h.u = 15 - v, h.v = u;
       }
-      if (texel_rgb(b, tex, h.u, h.v, col, &r, &g, &bb) == 0) {
+      int tc = texel565(b, tex, h.u, h.v, col);
+      if (tc >= 0) {
         /* (a face R->inside the cell is lit by the cell's light, one on its side by the cell in front) */
         int lt = vl[m == M_LIQUID || m == M_TORCH || h.t > 0 ? i : came_from(i, face, x, y, z)];
-        uint16_t c = lit(r, g, bb, h.face, lt, (t + h.t) * R->len);
+        uint16_t c = lit565((uint16_t)tc, h.face, lt, (t + h.t) * R->len);
         if (!R->wa && one_box(b) && i != cam_i) {
           /* a face of a block of one box (slab, snow layer...): the pixels between can find it too */
           int a = h.face >> 1, k = a == 0 ? 1 : a == 1 ? 2 : 0;
@@ -1037,10 +1036,10 @@ static uint16_t agreed(float dx, float dy, float dz, const Sample *a, bool one) 
     int i = a->cell, x = i % VCX, z = i / VCX % VCZ, y = i / (VCX * VCZ), b = vc[i];
     Hit h;
     if (hit_cross(blk_tex[b][3], ox - x, oy - y, oz - z, dx, dy, dz, 0, 1e9f, &h)) {
-      int r, g, bb;
       last_t = h.t;
-      texel_rgb(b, blk_tex[b][3], h.u, h.v, z * VCX + x, &r, &g, &bb);
-      return lit(r, g, bb, 1, vl[i], h.t * sqrtf(dx * dx + dy * dy + dz * dz));
+      int tc = texel565(b, blk_tex[b][3], h.u, h.v, z * VCX + x);
+      float d2 = h.t * h.t * (dx * dx + dy * dy + dz * dz);
+      return lit565((uint16_t)tc, 1, vl[i], d2 > fog0 * fog0 ? sqrtf(d2) : 0);
     }
   }
   last_t = 1e9f;

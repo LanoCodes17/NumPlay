@@ -8,6 +8,7 @@
  * are merged into the records. */
 #include "edits.h"
 #include "nb.h"
+#pragma GCC optimize("Os")   /* (not where the time goes: small) */
 
 typedef struct {
   int16_t rx, rz;

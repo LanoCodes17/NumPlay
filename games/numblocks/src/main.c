@@ -3,6 +3,7 @@
  * placed between the last two ticks so it moves smoothly. */
 #include <math.h>
 #include "nb.h"
+#pragma GCC optimize("Os")   /* (not where the time goes: small) */
 
 #ifndef HOST
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "NumBlocks";
@@ -11,6 +12,7 @@ const uint32_t eadk_api_level __attribute__((section(".rodata.eadk_api_level")))
 
 uint32_t perf_frames __attribute__((used));   /* read by tools/emu.py */
 uint32_t perf_max __attribute__((used));      /* (and the slowest frame in a world, ms) */
+uint32_t ticks_run;   /* ticks played (what waits a few ticks counts these: the time of day can stop or jump) */
 uint32_t game_time = 1000;                    /* Minecraft's time of day: 0 sunrise, 6000 noon */
 bool start_in_world;                          /* tests: straight into a new world */
 int64_t start_seed;                           /* (its seed) */
@@ -20,7 +22,7 @@ static float px, py, pz;
 static bool in_world;      /* playing; else the title screens, the world turning behind */
 static float title_yaw;
 
-static void camera_reset(void) {
+void camera_reset(void) {
   px = pl.x, py = pl.y, pz = pl.z;
   player_look(pl.x, pl.y + 1.62f, pl.z, pl.yaw, pl.pitch);
 }
@@ -91,7 +93,7 @@ void game_init(void) {
 #endif
   last = plat_millis();
   if (start_in_world) {
-    new_world(1, start_seed, 0, "New World");
+    new_world(1, start_seed, 0, false, "New World");
     game_time = 1000;
     loading();
     return;
@@ -137,7 +139,7 @@ bool game_frame(void) {
         while (b > a && name_text[b - 1] == ' ') b--;
         name_text[b] = 0;
         world_unique_name(name_text + a, name);
-        new_world(slot, parse_seed(), create_mode, name);
+        new_world(slot, parse_seed(), create_mode, create_cheats, name);
         game_time = 0;
         loading();
         save_world();
@@ -184,7 +186,7 @@ bool game_frame(void) {
     if (pl.pitch > 90) pl.pitch = 90;
     if (pl.pitch < -90) pl.pitch = -90;
   }
-  bool paused = gui == GUI_PAUSE || gui == GUI_OPTIONS || gui == GUI_CONTROLS;
+  bool paused = gui == GUI_PAUSE || gui == GUI_OPTIONS || gui == GUI_CONTROLS || gui == GUI_LAN;
   if (!paused) acc += dt;
   /* a key pressed on a frame between ticks waits for the next tick (else that press is lost) */
   static uint32_t game_pressed;
@@ -198,7 +200,8 @@ bool game_frame(void) {
     world_tick();
     gui_tick();
     hand_tick();
-    game_time++;
+    ticks_run++;
+    if (rule(GR_DAYLIGHT_CYCLE)) game_time++;
     acc -= 50;
     /* Minecraft saves every 45 seconds */
     if (++autosave >= 900) {

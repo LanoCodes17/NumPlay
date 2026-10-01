@@ -3,7 +3,9 @@
  * saves every 45 seconds of play, as Minecraft does, and when you quit; block changes reach
  * storage as they fill the journal. Worlds live in slots: the records of slot 3 are
  * "nb3.nbw" and "nb3r..." (its regions). */
+#include <stddef.h>
 #include "nb.h"
+#pragma GCC optimize("Os")   /* (not where the time goes: small) */
 #include "edits.h"
 
 #define OPTIONS_REC "numblocks.cfg"
@@ -23,11 +25,17 @@ typedef struct {
   Head1 h;
   char name[WORLD_NAME + 1];
   uint32_t played;
+} Head2;   /* version 2 had no cheats or game rules */
+typedef struct {
+  Head2 h2;
+  uint8_t cheats, rules, pad[2];
 } Head;
 
 extern uint32_t game_time;
 void *tiles_data(uint32_t *len);
 
+uint8_t game_rules = GR_DEFAULT;
+bool world_cheats, lan_open, lan_cheats;
 static int slot = 1;                   /* the world being played */
 static char cur_name[WORLD_NAME + 1];  /* its name */
 static uint32_t cur_played;
@@ -51,16 +59,24 @@ static const uint8_t *read_head(int s, Head *h, uint32_t *len, uint32_t *head_le
   if (!d || *len < sizeof(Head1)) return NULL;
   memset(h, 0, sizeof *h);
   if (!memcmp(d, "NBW1", 4)) {
-    memcpy(&h->h, d, sizeof(Head1));
-    copy_name(h->name, "New World");
+    memcpy(&h->h2.h, d, sizeof(Head1));
+    copy_name(h->h2.name, "New World");
     *head_len = sizeof(Head1);
-  } else if (!memcmp(d, "NBW2", 4) && *len >= sizeof(Head)) {
+  } else if (!memcmp(d, "NBW2", 4) && *len >= sizeof(Head2)) {
+    memcpy(&h->h2, d, sizeof(Head2));
+    *head_len = sizeof(Head2);
+  } else if (!memcmp(d, "NBW3", 4) && *len >= sizeof(Head)) {
     memcpy(h, d, sizeof(Head));
-    h->name[WORLD_NAME] = 0;
     *head_len = sizeof(Head);
   } else
     return NULL;
-  if (h->h.player_size != sizeof pl || *len < *head_len + sizeof pl) return NULL;
+  h->h2.name[WORLD_NAME] = 0;
+  if (h->h2.h.player_size != sizeof pl || *len < *head_len + sizeof pl) return NULL;
+  if (*head_len < sizeof(Head)) {
+    /* (older worlds: cheats as a new world of their mode would have them, the rules as they start) */
+    h->cheats = d[*head_len + offsetof(Player, mode)] == 1;
+    h->rules = GR_DEFAULT;
+  }
   return d;
 }
 
@@ -71,10 +87,11 @@ bool world_info(int s, WorldInfo *w) {
   if (!d) return false;
   Player p;
   memcpy(&p, d + hl, sizeof p);
-  copy_name(w->name, h.name);
+  copy_name(w->name, h.h2.name);
   w->mode = p.mode;
-  w->seed = h.h.seed;
-  w->played = h.played;
+  w->cheats = h.cheats;
+  w->seed = h.h2.h.seed;
+  w->played = h.h2.played;
   return true;
 }
 
@@ -115,9 +132,10 @@ bool save_world(void) {
   void *t = tiles_data(&tl);
   Head h;
   memset(&h, 0, sizeof h);
-  h.h = (Head1){{'N', 'B', 'W', '2'}, (uint16_t)sizeof pl, (uint16_t)tl, world_seed, game_time, weather};
-  copy_name(h.name, cur_name);
-  h.played = cur_played;
+  h.h2.h = (Head1){{'N', 'B', 'W', '3'}, (uint16_t)sizeof pl, (uint16_t)tl, world_seed, game_time, weather};
+  copy_name(h.h2.name, cur_name);
+  h.h2.played = cur_played;
+  h.cheats = world_cheats, h.rules = game_rules;
   /* one record: the head, the player, the tiles (written from a buffer made in the merge scratch) */
   uint32_t n = sizeof h + sizeof pl + tl;
   uint8_t *b = (uint8_t *)edits_scratch(n);
@@ -144,14 +162,15 @@ bool load_world(int s) {
   uint32_t len, hl, tl;
   const uint8_t *d = read_head(s, &h, &len, &hl);
   void *t = tiles_data(&tl);
-  if (!d || h.h.tiles_size != tl || len != hl + sizeof pl + tl) return false;
+  if (!d || h.h2.h.tiles_size != tl || len != hl + sizeof pl + tl) return false;
   slot = s;
-  copy_name(cur_name, h.name);
-  cur_played = h.played;
-  world_seed = h.h.seed;
-  game_time = h.h.time;
+  copy_name(cur_name, h.h2.name);
+  cur_played = h.h2.played;
+  world_seed = h.h2.h.seed;
+  game_time = h.h2.h.time;
+  world_cheats = h.cheats, lan_open = lan_cheats = false, game_rules = h.rules;
   /* World.calculateInitialWeather */
-  weather = h.h.weather;
+  weather = h.h2.h.weather;
   rain_str = weather.raining ? 1 : 0;
   thunder_str = weather.thundering ? 1 : 0;
   memcpy(&pl, d + hl, sizeof pl);
@@ -160,11 +179,11 @@ bool load_world(int s) {
   char pre[4];
   prefix_of(s, pre);
   world_new(world_seed, pre);
-  if (s != opt.last_world || h.played != opt.plays) played(s);
+  if (s != opt.last_world || h.h2.played != opt.plays) played(s);
   return true;
 }
 
-void new_world(int s, int64_t seed, int mode, const char *name) {
+void new_world(int s, int64_t seed, int mode, bool cheats, const char *name) {
   char pre[4];
   prefix_of(s, pre);
   plat_remove_prefix(pre);
@@ -176,6 +195,7 @@ void new_world(int s, int64_t seed, int mode, const char *name) {
   memset(ents, 0, sizeof ents);
   world_seed = seed;
   game_time = 0;
+  world_cheats = cheats, lan_open = lan_cheats = false, game_rules = GR_DEFAULT;
   memset(&weather, 0, sizeof weather);
   rain_str = thunder_str = 0;
   world_new(seed, pre);
@@ -194,8 +214,8 @@ bool rename_world(int s, const char *name) {
   uint8_t *b = (uint8_t *)edits_scratch(n);
   if (!b) return false;
   memcpy(b + sizeof h, d + hl, body);   /* (first: the scratch may be where nothing else is) */
-  memcpy(h.h.magic, "NBW2", 4);
-  copy_name(h.name, name);
+  memcpy(h.h2.h.magic, "NBW3", 4);
+  copy_name(h.h2.name, name);
   memcpy(b, &h, sizeof h);
   char rec[8];
   record_of(s, rec);

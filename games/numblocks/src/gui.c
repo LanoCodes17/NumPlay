@@ -11,10 +11,9 @@
 #include <math.h>
 #include <stdlib.h>
 #include "nb.h"
+#pragma GCC optimize("Os")   /* (not where the time goes: small) */
 
 int gui;
-static char msg[64];   /* the message shown (gui_message) and for how long */
-static int msg_timer;
 static int clip_y0, clip_y1;   /* the strip: screen rows [clip_y0, clip_y1) */
 static uint16_t *clip_buf;
 static uint32_t frame_no;
@@ -97,12 +96,14 @@ static void dark_background(void) {
 #define RGB(r, g, b) (uint16_t)(((r) & 0xF8) << 8 | ((g) & 0xFC) << 3 | (b) >> 3)
 
 /* ---------------------------------------------------------------- text (FontRenderer) */
-/* three symbols the font lacks, for the key sheet: \1 pi, \2 the square root, \3 backspace */
-static const uint8_t sym_bits[3][8] = {{0x00, 0x3F, 0x12, 0x12, 0x12, 0x12, 0x21, 0x00},
+/* symbols the font lacks, for the key sheet: \1 pi, \2 the square root, \3 backspace, \4 times, \5 divided by */
+static const uint8_t sym_bits[5][8] = {{0x00, 0x3F, 0x12, 0x12, 0x12, 0x12, 0x21, 0x00},
                                        {0x78, 0x08, 0x08, 0x08, 0x09, 0x0A, 0x04, 0x00},
-                                       {0xFC, 0x82, 0xA9, 0x91, 0xA9, 0x82, 0xFC, 0x00}};
-static const uint8_t sym_w[3] = {7, 8, 9};
-static int char_w(int c) { return c >= 1 && c <= 3 ? sym_w[c - 1] : c >= 32 && c < 127 ? font_w[c - 32] : 0; }
+                                       {0xFC, 0x82, 0xA9, 0x91, 0xA9, 0x82, 0xFC, 0x00},
+                                       {0x00, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x00, 0x00},
+                                       {0x00, 0x04, 0x00, 0x1F, 0x00, 0x04, 0x00, 0x00}};
+static const uint8_t sym_w[5] = {7, 8, 9, 6, 6};
+static int char_w(int c) { return c >= 1 && c <= 5 ? sym_w[c - 1] : c >= 32 && c < 127 ? font_w[c - 32] : 0; }
 int text_width(const char *s) {
   int w = 0;
   for (; *s; s++) w += char_w((unsigned char)*s);
@@ -174,19 +175,85 @@ static void draw_stack(const Stack *s, int x, int y) {
   }
 }
 
-/* ---------------------------------------------------------------- messages (GuiNewChat) */
-void gui_message(const char *s) {
-  int i = 0;
-  for (; s[i] && i < 63; i++) msg[i] = s[i];
-  msg[i] = 0;
-  msg_timer = 200;
+/* ---------------------------------------------------------------- the chat (GuiNewChat) */
+/* what was said, oldest first, each: its colour, the tick it came (2 bytes), the text, 0 */
+#define CHAT_BUF 512
+static char chat[CHAT_BUF];
+static int chat_used;
+static uint16_t chat_clock;   /* ticks (GuiIngame.updateCounter) */
+static bool chat_list;        /* the last line is a list of completions (the next one replaces it) */
+static const uint16_t chat_col[5] = {0xFFFF, RGB(0xFF, 0x55, 0x55), RGB(0x55, 0xFF, 0x55), RGB(0x00, 0xAA, 0x00),
+                                     RGB(0xAA, 0xAA, 0xAA)};
+static int chat_size(int i) { return 3 + (int)strlen(chat + i + 3) + 1; }
+static void chat_drop_last(void) {
+  int i = 0, last = -1;
+  for (; i < chat_used; i += chat_size(i)) last = i;
+  if (last >= 0) chat_used = last;
 }
-static void message(void) {
-  if (!msg_timer) return;
-  /* a dark band behind, fading for the last second */
-  int y = SCREEN_H - 48, a = msg_timer < 20 ? msg_timer : 20;
-  tint_rect(2, y - 1, text_width(msg) + 4, 9, 0, a * 16 / 20);
-  if (a > 4) text(msg, 4, y, 0xFFFF, true);
+void chat_add(const char *s, int color) {
+  int n = (int)strlen(s);
+  if (n > CHAT_BUF - 4) n = CHAT_BUF - 4;
+  if (chat_list) chat_drop_last(), chat_list = false;
+  while (chat_used + n + 4 > CHAT_BUF) {
+    int l = chat_size(0);
+    memmove(chat, chat + l, (size_t)(chat_used - l));
+    chat_used -= l;
+  }
+  char *d = chat + chat_used;
+  d[0] = (char)color, d[1] = (char)(chat_clock & 255), d[2] = (char)(chat_clock >> 8);
+  memcpy(d + 3, s, (size_t)n), d[3 + n] = 0;
+  chat_used += n + 4;
+}
+void gui_message(const char *s) { chat_add(s, CHAT_WHITE); }
+static int chat_age(int i) { return (uint16_t)(chat_clock - ((uint8_t)chat[i + 1] | (uint8_t)chat[i + 2] << 8)); }
+
+/* how much of s fits on a line w pixels wide: up to a space if it can (FontRenderer.sizeStringToWidth) */
+static int wrap_len(const char *s, int w) {
+  int x = 0, i = 0, sp = -1;
+  for (; s[i]; i++) {
+    if (s[i] == ' ') sp = i;
+    x += char_w((unsigned char)s[i]);
+    if (x > w) return sp > 0 ? sp : i > 0 ? i : 1;
+  }
+  return i;
+}
+
+/* GuiNewChat.drawChat: the newest at the bottom, 9 pixels a line on a dark band; each fades out after
+ * 10 seconds (10 lines at most), or with the chat open all of them (20 lines) */
+static void chat_lines(void) {
+  bool open = gui == GUI_CHAT;
+  if (SCREEN_H - 28 - (open ? 20 : 10) * 9 >= clip_y1 || SCREEN_H - 28 <= clip_y0) return;
+  int at[64], n = 0;
+  for (int i = 0; i < chat_used && n < 64; i += chat_size(i)) at[n++] = i;
+  int line = 0, most = open ? 20 : 10;
+  for (int m = n - 1; m >= 0 && line < most; m--) {
+    int age = chat_age(at[m]), a = 32;
+    if (!open) {
+      if (age >= 200) break;
+      float d = (1 - age / 200.0f) * 10;
+      if (d > 1) d = 1;
+      a = (int)(d * d * 32);
+    }
+    /* its lines, wrapped, drawn upwards from the last */
+    const char *s = chat + at[m] + 3, *ls[8];
+    int ll[8], k = 0;
+    while (*s && k < 8) {
+      int l = wrap_len(s, SCREEN_W - 4);
+      ls[k] = s, ll[k++] = l, s += l;
+      if (*s == ' ') s++;
+    }
+    for (int j = k - 1; j >= 0 && line < most; j--, line++) {
+      int y = SCREEN_H - 28 - line * 9;
+      if (y <= clip_y0 || y - 9 >= clip_y1) continue;
+      tint_rect(2, y - 9, SCREEN_W - 2, 9, 0, a / 2);
+      if (a > 3) {
+        char t[64];
+        int l = ll[j] < 63 ? ll[j] : 63;
+        memcpy(t, ls[j], (size_t)l), t[l] = 0;
+        text(t, 2, y - 8, chat_col[(int)chat[at[m]]], true);
+      }
+    }
+  }
 }
 
 /* ---------------------------------------------------------------- the HUD (GuiIngame) */
@@ -194,7 +261,7 @@ static int name_timer, last_slot = -1, last_id;
 
 static void hud(void) {
   int hx = (SCREEN_W - 182) / 2, hy = SCREEN_H - 22;
-  if (gui == GUI_NONE) {
+  if (gui == GUI_NONE || gui == GUI_CHAT) {
     /* Minecraft draws its crosshair inverting what is behind it */
     for (int k = -4; k <= 4; k++) {
       int pts[2][2] = {{SCREEN_W / 2 + k, SCREEN_H / 2}, {SCREEN_W / 2, SCREEN_H / 2 + k}};
@@ -329,6 +396,13 @@ void tiles_removed(int x, int y, int z) {
     if (s[i].id) ent_drop(s[i].id, item_count(&s[i]), s[i].aux, x + 0.5f, y + 0.5f, z + 0.5f, false);
 }
 
+void tiles_forget(int x, int y, int z) {
+  Chest *c = chest_at(x, y, z, false);
+  if (c) c->used = 0;
+  Furnace *f = furnace_at(x, y, z, false);
+  if (f) f->used = 0;
+}
+
 /* TileEntityFurnace.update */
 static bool can_smelt(const Furnace *f) {
   if (!f->s[0].id) return false;
@@ -338,7 +412,11 @@ static bool can_smelt(const Furnace *f) {
   return f->s[2].id == out && f->s[2].aux < item_max(out);
 }
 void gui_tick(void) {
-  if (msg_timer) msg_timer--;
+  chat_clock++;
+  /* (old lines kept old, as the clock comes round) */
+  if (!(chat_clock & 255))
+    for (int i = 0; i < chat_used; i += chat_size(i))
+      if (chat_age(i) > 1000) chat[i + 1] = (char)((chat_clock - 1000) & 255), chat[i + 2] = (char)((chat_clock - 1000) >> 8);
   for (int i = 0; i < N_FURNACES; i++) {
     Furnace *f = &furnaces[i];
     if (!f->used) continue;
@@ -749,9 +827,13 @@ static Button buttons[12];
 static int nbuttons, bcur;
 enum { B_NO, B_SINGLE, B_OPTIONS, B_QUITAPP, B_PLAY, B_CREATE, B_DELETE, B_CANCEL, B_MODE, B_SEED, B_DOCREATE,
        B_DODELETE, B_DIFF, B_GFX, B_LOOK, B_CLOUDS, B_BOB, B_DONE, B_BACK_GAME, B_SAVEQUIT, B_RESPAWN, B_TITLE,
-       B_CONTROLS, B_CONTROLS_DONE, B_NAME, B_RENAME, B_DORENAME, B_RECREATE };
+       B_CONTROLS, B_CONTROLS_DONE, B_NAME, B_RENAME, B_DORENAME, B_RECREATE, B_CHEATS, B_LAN, B_LAN_MODE,
+       B_LAN_CHEATS, B_LAN_START };
 int menu_choice;            /* an action for main.c (ACT_*) */
 int create_mode;            /* the new world's game mode */
+bool create_cheats;         /* and whether it allows cheats */
+static bool cheats_set;     /* (chosen, not following the game mode) */
+static bool lan_mode, lan_allow;   /* Open to LAN's settings: the game mode for others, cheats */
 char seed_text[21];         /* the new world's seed, as typed */
 char name_text[WORLD_NAME + 1];   /* the new world's name, or the world being renamed's */
 int play_slot;              /* the world to play */
@@ -834,6 +916,144 @@ static void field_input(void) {
   }
 }
 
+/* ---------------------------------------------------------------- the chat line (GuiChat) */
+/* typed as fields are, and some keys type what commands need: x,n,t ":", var "_", x10^x "~",
+ * ans a space, and 0 among the letters "@"; toolbox finishes the word (as Tab does), up brings
+ * back the line sent last; OK or EXE sends, Back closes */
+#define CHAT_MAX 60
+#define RK_TOOLBOX 16
+static char chat_text[CHAT_MAX + 1], chat_last[CHAT_MAX + 1];
+static char cmp_word[24];   /* completing: the word as it was typed, where it starts, the way shown */
+static int cmp_at, cmp_k = -1;
+static void chat_open(const char *s) {
+  strcpy(chat_text, s);
+  gui = GUI_CHAT;
+  f_digits = 0, f_caps = 0, cmp_k = -1;
+  raw_held = ~(uint64_t)0;
+}
+static char chat_key(int k) {
+  switch (k) {
+    case 14: return ':';
+    case 15: return '_';
+    case 50: return '~';
+    case 51: return ' ';
+    case 48: if (!f_digits) return '@'; break;
+  }
+  return key_char(k);
+}
+static void put_word(int at, const char *w) {
+  int n = (int)strlen(w);
+  if (at + n > CHAT_MAX) n = CHAT_MAX - at;
+  memcpy(chat_text + at, w, (size_t)n), chat_text[at + n] = 0;
+}
+/* GuiChat.autocompletePlayerNames: the first press finishes the word as far as every way agrees,
+ * else lists the ways and shows the first; each press after shows the next */
+static void complete(void) {
+  char line[CHAT_MAX + 25], w[40];
+  int at;
+  if (cmp_k >= 0) {
+    memcpy(line, chat_text, (size_t)cmp_at);
+    strcpy(line + cmp_at, cmp_word);
+    if (!command_complete(line, cmp_k, &at, w, sizeof w)) cmp_k = 0, command_complete(line, 0, &at, w, sizeof w);
+    put_word(cmp_at, w);
+    cmp_k++;
+    return;
+  }
+  char common[40];
+  int n = 0;
+  while (n < 400 && command_complete(chat_text, n, &at, w, sizeof w)) {
+    if (!n) strcpy(common, w);
+    else {
+      int i = 0;
+      while (common[i] && common[i] == w[i]) i++;
+      common[i] = 0;
+    }
+    n++;
+  }
+  if (!n) return;
+  if ((int)strlen(common) > (int)strlen(chat_text + at)) {
+    put_word(at, common);
+    return;
+  }
+  if (strlen(chat_text + at) >= sizeof cmp_word) return;
+  strcpy(cmp_word, chat_text + at);
+  cmp_at = at;
+  if (n > 1) {
+    /* the list, in the chat (as much as fits) */
+    char list[200];
+    int l = 0;
+    for (int k = 0; k < n && command_complete(chat_text, k, &at, w, sizeof w); k++) {
+      int wl = (int)strlen(w);
+      if (l + wl + 7 > (int)sizeof list) {
+        strcpy(list + l, ", ...");
+        l += 5;
+        break;
+      }
+      if (l) list[l++] = ',', list[l++] = ' ';
+      memcpy(list + l, w, (size_t)wl), l += wl;
+    }
+    list[l] = 0;
+    chat_add(list, CHAT_WHITE);
+    chat_list = true;
+  }
+  memcpy(line, chat_text, (size_t)cmp_at);
+  strcpy(line + cmp_at, cmp_word);
+  command_complete(line, 0, &at, w, sizeof w);
+  put_word(cmp_at, w);
+  cmp_k = 1;
+}
+static void chat_input(void) {
+  uint64_t raw = plat_scan(), down = raw & ~raw_held;
+  raw_held = raw;
+  for (int k = 0; k < 64; k++) {
+    if (!(down >> k & 1)) continue;
+    int n = (int)strlen(chat_text);
+    if (k == RK_ALPHA) f_digits = !f_digits;
+    else if (k == RK_SHIFT) f_caps = (uint8_t)((f_caps + 1) % 3);
+    else if (k == RK_BACK) {
+      gui = GUI_NONE;
+      return;
+    } else if (k == RK_OK || k == RK_EXE) {
+      /* GuiChat.sendChatMessage: without the spaces around it */
+      gui = GUI_NONE;
+      char *t = chat_text;
+      while (*t == ' ') t++;
+      while (n > 0 && chat_text[n - 1] == ' ') chat_text[--n] = 0;
+      if (*t) {
+        strcpy(chat_last, t);
+        command_run(t);
+      }
+      return;
+    } else if (k == RK_TOOLBOX) complete();
+    else {
+      cmp_k = -1;
+      if (k == 1 && chat_last[0]) strcpy(chat_text, chat_last);   /* up */
+      else if (k == RK_BACKSPACE) {
+        if (n) chat_text[n - 1] = 0;
+      } else {
+        char c = chat_key(k);
+        if (c && n < CHAT_MAX) chat_text[n] = c, chat_text[n + 1] = 0;
+      }
+    }
+  }
+}
+/* the line being typed, on a dark band at the bottom, and the keys that type what */
+static void chat_screen(void) {
+  if (clip_y0 < 22) {
+    tint_rect(0, 0, SCREEN_W, 22, 0, 16);
+    text_center("alpha: abc/123   shift: Abc   toolbox: finish the word", SCREEN_W / 2, 2, RGB(0xA0, 0xA0, 0xA0));
+    text_center("x,n,t  :     var  _     x10^x  ~     ans  space     0  @", SCREEN_W / 2, 12, RGB(0xA0, 0xA0, 0xA0));
+  }
+  if (clip_y1 <= SCREEN_H - 14) return;
+  tint_rect(2, SCREEN_H - 14, SCREEN_W - 4, 12, 0, 16);
+  const char *t = chat_text, *m = f_digits ? "123" : f_caps == 2 ? "ABC" : f_caps ? "Abc" : "abc";
+  while (text_width(t) > SCREEN_W - 40) t++;   /* (a long line: its end) */
+  uint16_t c = RGB(0xE0, 0xE0, 0xE0);
+  text(t, 4, SCREEN_H - 12, c, true);
+  if (!((chat_clock / 6) & 1)) text("_", 4 + text_width(t), SCREEN_H - 12, c, true);
+  text(m, SCREEN_W - 6 - text_width(m), SCREEN_H - 12, RGB(0x80, 0x80, 0x80), true);
+}
+
 static void add_button(int x, int y, int w, int on, int id, const char *label) {
   Button *b = &buttons[nbuttons++];
   *b = (Button){(int16_t)x, (int16_t)y, (int16_t)w, (uint8_t)on, (uint8_t)id, {0}};
@@ -873,7 +1093,9 @@ static void menu(int screen) {
     case GUI_CREATE:
       add_button(w / 2 - 100, 60, 200, 1, B_NAME, name_text);   /* (drawn as a field) */
       cat(t, "Game Mode: ", create_mode ? "Creative" : "Survival");
-      add_button(w / 2 - 75, 100, 150, 1, B_MODE, t);
+      add_button(w / 2 - 155, 100, 150, 1, B_MODE, t);
+      cat(t, "Allow Cheats: ", create_cheats ? "ON" : "OFF");
+      add_button(w / 2 + 5, 100, 150, 1, B_CHEATS, t);
       cat(t, "Seed: ", seed_text[0] ? seed_text : (field == F_SEED ? "" : "(random)"));
       add_button(w / 2 - 100, 150, 200, 1, B_SEED, t);
       add_button(w / 2 - 155, h - 28, 150, 1, B_DOCREATE, "Create New World");
@@ -917,8 +1139,17 @@ static void menu(int screen) {
       add_button(w / 2 - 100, h / 4 + 48 - 16, 98, 0, B_NO, "Achievements");
       add_button(w / 2 + 2, h / 4 + 48 - 16, 98, 0, B_NO, "Statistics");
       add_button(w / 2 - 100, h / 4 + 96 - 16, 98, 1, B_OPTIONS, "Options...");
-      add_button(w / 2 + 2, h / 4 + 96 - 16, 98, 0, B_NO, "Open to LAN");
+      add_button(w / 2 + 2, h / 4 + 96 - 16, 98, !lan_open, B_LAN, "Open to LAN");
       add_button(w / 2 - 100, h / 4 + 120 - 16, 200, 1, B_SAVEQUIT, "Save and Quit to Title");
+      break;
+    case GUI_LAN:
+      /* GuiShareToLan */
+      cat(t, "Game Mode: ", lan_mode ? "Creative" : "Survival");
+      add_button(w / 2 - 155, 100, 150, 1, B_LAN_MODE, t);
+      cat(t, "Allow Cheats: ", lan_allow ? "ON" : "OFF");
+      add_button(w / 2 + 5, 100, 150, 1, B_LAN_CHEATS, t);
+      add_button(w / 2 - 155, h - 28, 150, 1, B_LAN_START, "Start LAN World");
+      add_button(w / 2 + 5, h - 28, 150, 1, B_CANCEL, "Cancel");
       break;
     case GUI_DEATH:
       add_button(w / 2 - 100, h / 4 + 72, 200, 1, B_RESPAWN, "Respawn");
@@ -964,6 +1195,7 @@ static void press(int id) {
       break;
     case B_CREATE:
       create_mode = 0;
+      create_cheats = cheats_set = false;
       seed_text[0] = 0;
       world_unique_name("New World", name_text);
       gui_menu(GUI_CREATE);
@@ -976,6 +1208,7 @@ static void press(int id) {
       n[WORLD_NAME] = 0;
       world_unique_name(n, name_text);
       create_mode = wi.mode;
+      create_cheats = wi.cheats, cheats_set = false;
       /* (its seed, as it would be typed) */
       uint64_t v = wi.seed < 0 ? 0 - (uint64_t)wi.seed : (uint64_t)wi.seed;
       char d[21];
@@ -1004,8 +1237,24 @@ static void press(int id) {
       if (nworlds) delete_world(wlist[wsel]);
       gui_menu(GUI_WORLDS);
       break;
-    case B_CANCEL: gui_menu(gui == GUI_WORLDS ? GUI_TITLE : GUI_WORLDS); break;
-    case B_MODE: create_mode = !create_mode; break;
+    case B_CANCEL: gui_menu(gui == GUI_WORLDS ? GUI_TITLE : gui == GUI_LAN ? GUI_PAUSE : GUI_WORLDS); break;
+    case B_MODE:
+      /* (cheats follow the game mode until they are chosen) */
+      create_mode = !create_mode;
+      if (!cheats_set) create_cheats = create_mode;
+      break;
+    case B_CHEATS: create_cheats = !create_cheats, cheats_set = true; break;
+    case B_LAN:
+      lan_mode = lan_allow = false;
+      gui_menu(GUI_LAN);
+      break;
+    case B_LAN_MODE: lan_mode = !lan_mode; break;
+    case B_LAN_CHEATS: lan_allow = !lan_allow; break;
+    case B_LAN_START:
+      /* IntegratedServer.shareToLAN: the game mode is for players who join; cheats for everyone */
+      lan_open = true, lan_cheats = lan_allow;
+      gui = GUI_NONE;
+      break;
     case B_NAME: field_open(F_NAME); break;
     case B_SEED: field_open(F_SEED); break;
     case B_DOCREATE: menu_choice = ACT_NEW; break;
@@ -1056,7 +1305,8 @@ static void menu_input(uint32_t keys, uint32_t pressed) {
     if (gui == GUI_PAUSE) gui = GUI_NONE;
     else if (gui == GUI_OPTIONS) press(B_DONE);
     else if (gui == GUI_CONTROLS) press(B_CONTROLS_DONE);
-    else if (gui == GUI_WORLDS || gui == GUI_CREATE || gui == GUI_CONFIRM || gui == GUI_RENAME) press(B_CANCEL);
+    else if (gui == GUI_WORLDS || gui == GUI_CREATE || gui == GUI_CONFIRM || gui == GUI_RENAME || gui == GUI_LAN)
+      press(B_CANCEL);
   }
 }
 
@@ -1190,7 +1440,7 @@ static void key_sheet(void) {
   for (int r = 0; r < 3; r++)
     for (int c = 0; c < 6; c++)
       key(c < 2 ? 5 + c * 37 : 79 + (c - 2) * 60, 80 + r * 32, c < 2 ? 34 : 57, caps[r][c], acts[r][c]);
-  static const char *const notes[4] = {"1 to 9: hotbar slot.   EXE: same as OK.",
+  static const char *const notes[4] = {"1 to 9: hotbar slot.  EXE: as OK.  \4: chat.  \5: command.",
                                        "Forward twice: sprint.   Jump twice: fly (Creative).",
                                        "Menus: OK takes or puts, EXE one, shift+OK moves.",
                                        "Hold OK and move over slots to spread a stack out."};
@@ -1238,7 +1488,9 @@ static void menu_screen(void) {
         text(wi.name, x + 2, y + 1, 0xFFFF, true);
         char f[4] = {'n', 'b', (char)('0' + wlist[k]), 0};
         text(f, x + 2, y + 12, RGB(0x80, 0x80, 0x80), true);
-        text(wi.mode == 1 ? "Creative Mode" : "Survival Mode", x + 2, y + 22, RGB(0x80, 0x80, 0x80), true);
+        char m[24];
+        cat(m, wi.mode == 1 ? "Creative Mode" : "Survival Mode", wi.cheats ? ", Cheats" : "");
+        text(m, x + 2, y + 22, RGB(0x80, 0x80, 0x80), true);
       }
       if (!nworlds) text_center("No worlds yet", w / 2, 60, RGB(0x80, 0x80, 0x80));
       char t[40], n[12];
@@ -1275,6 +1527,10 @@ static void menu_screen(void) {
     case GUI_OPTIONS: text_center("Options", w / 2, 15, 0xFFFF); break;
     case GUI_CONTROLS: key_sheet(); break;
     case GUI_PAUSE: text_center("Game menu", w / 2, 40, 0xFFFF); break;
+    case GUI_LAN:
+      text_center("LAN World", w / 2, 50, 0xFFFF);
+      text_center("Settings for Other Players", w / 2, 82, 0xFFFF);
+      break;
     case GUI_LOADING:
       text_center("Loading world", w / 2, h / 2 - 50, 0xFFFF);
       text_center("Building terrain", w / 2, h / 2 - 20, 0xFFFF);
@@ -1308,10 +1564,16 @@ void gui_input(uint32_t keys, uint32_t pressed) {
     menu_input(keys, pressed);
     return;
   }
+  if (gui == GUI_CHAT) {
+    chat_input();
+    return;
+  }
   if (gui == GUI_NONE) {
     nbuttons = 0;
     if (pressed & K_INV && !pl.dead) gui_open(pl.mode == 1 ? GUI_CREATIVE : GUI_INVENTORY, 0, 0, 0);
     else if (pressed & K_PAUSE) gui_menu(GUI_PAUSE);
+    else if (pressed & K_COMMAND && !pl.dead) chat_open("/");
+    else if (pressed & K_CHAT && !pl.dead) chat_open("");
     if (held()->id != last_id || pl.slot != last_slot) name_timer = 40, last_id = held()->id, last_slot = pl.slot;
     if (name_timer) name_timer--;
     return;
@@ -1473,8 +1735,10 @@ void hud_strip(uint16_t *buf, int y0, int rows) {
     int a = pl.sleep_timer * 32 / 100;
     tint_rect(0, y0, SCREEN_W, rows, 0x0841, a > 30 ? 30 : a);
   }
-  if (gui < GUI_PAUSE || gui == GUI_PAUSE || gui == GUI_DEATH || (gui == GUI_OPTIONS && options_from == GUI_PAUSE)) hud();
-  if (gui == GUI_NONE) message();
+  if (gui < GUI_PAUSE || gui == GUI_PAUSE || gui == GUI_DEATH || gui == GUI_LAN ||
+      (gui == GUI_OPTIONS && options_from == GUI_PAUSE))
+    hud();
+  if (gui == GUI_NONE || gui == GUI_CHAT) chat_lines();
   if (pl.hurt_time > 0 && gui == GUI_NONE) {
     /* (Minecraft tilts the camera; a red flash says the same here) */
     tint_rect(0, y0, SCREEN_W, rows, RGB(0xFF, 0, 0), pl.hurt_time * 2 / 3);
@@ -1484,10 +1748,11 @@ void hud_strip(uint16_t *buf, int y0, int rows) {
       dark_background();
       container();
       break;
-    case GUI_PAUSE:
+    case GUI_PAUSE: case GUI_LAN:
       dark_background();
       menu_screen();
       break;
+    case GUI_CHAT: chat_screen(); break;
     case GUI_OPTIONS: case GUI_CONTROLS:
       if (options_from == GUI_PAUSE) dark_background();
       else dirt_background();

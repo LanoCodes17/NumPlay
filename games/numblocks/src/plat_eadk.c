@@ -30,8 +30,8 @@ uint32_t plat_keys(void) {
   if (k & KEY(eadk_key_exe)) r |= K_EXE;
   if (k & KEY(eadk_key_shift)) r |= K_SHIFT;
   if (k & KEY(eadk_key_back)) r |= K_BACK;
-  if (k & KEY(eadk_key_zero)) r |= K_ZERO;
-  if (k & KEY(eadk_key_minus)) r |= K_MINUS;
+  if (k & KEY(eadk_key_multiplication)) r |= K_CHAT;
+  if (k & KEY(eadk_key_division)) r |= K_COMMAND;
   if (k & KEY(eadk_key_back)) r |= K_ATTACK;
   if (k & KEY(eadk_key_var)) r |= K_INV;
   if (k & (KEY(eadk_key_home) | KEY(eadk_key_on_off))) r |= K_HOME;

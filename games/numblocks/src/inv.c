@@ -2,6 +2,7 @@
  * and what blocks drop (Minecraft 1.8.8: InventoryPlayer, ShapedRecipes,
  * ShapelessRecipes, the Block*.getItemDropped and quantityDropped methods). */
 #include "nb.h"
+#pragma GCC optimize("Os")   /* (not where the time goes: small) */
 
 /* ---------------------------------------------------------------- items */
 int item_max(int id) {

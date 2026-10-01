@@ -27,8 +27,8 @@ enum {
   K_SHIFT = 1 << 27,     /* shift (also K_JUMP): shift click in screens */
   K_BACK = 1 << 28,      /* Back alone: closes screens */
   K_OK = 1 << 29,        /* OK alone */
-  K_ZERO = 1 << 30,      /* 0 (typing a seed) */
-  K_MINUS = 1u << 31     /* - (typing a seed) */
+  K_CHAT = 1 << 30,      /* x: the chat */
+  K_COMMAND = 1u << 31   /* division: the chat, with "/" typed */
 };
 uint32_t plat_keys(void);
 uint64_t plat_scan(void);   /* the keys down as the calculator numbers them (bit RK_*), for typing */
@@ -184,6 +184,7 @@ typedef struct {
 #define N_ENT 24
 extern Entity ents[N_ENT];
 Entity *ent_new(int type, float x, float y, float z);
+Entity *mob_summon(int type, float x, float y, float z);   /* a mob as one spawns */
 Entity *ent_drop(int id, int count, int dmg, float x, float y, float z, bool thrown);
 void ents_tick(void);
 /* particles: a block's bits when it breaks; drops (a texel or two, falling
@@ -202,7 +203,7 @@ void fish_cast(void);
 int fish_reel(Entity *e);   /* how much it wears the rod */
 void mob_tick(Entity *e);
 void mobs_spawn(void);
-void explode(float x, float y, float z, float power);
+void explode(float x, float y, float z, float power, bool blocks);
 void throw_item(int id, float speed, bool from_player);   /* arrows, snowballs, eggs */
 bool mob_attack(const Entity *e);   /* the player hits this mob (with the held item) */
 bool mob_use(Entity *e);            /* the player uses the held item on it (shears, bucket) */
@@ -239,21 +240,23 @@ void neighbours_changed(int x, int y, int z);
 void break_block_at(int x, int y, int z, bool drops);
 
 /* ---------------------------------------------------------------- screens (gui.c) */
-enum { GUI_NONE, GUI_INVENTORY, GUI_CRAFTING, GUI_FURNACE, GUI_CHEST, GUI_CREATIVE,
+enum { GUI_NONE, GUI_INVENTORY, GUI_CRAFTING, GUI_FURNACE, GUI_CHEST, GUI_CREATIVE, GUI_CHAT,
        GUI_PAUSE, GUI_DEATH, GUI_OPTIONS, GUI_TITLE, GUI_WORLDS, GUI_CREATE, GUI_CONFIRM, GUI_LOADING, GUI_CONTROLS,
-       GUI_RENAME };
+       GUI_RENAME, GUI_LAN };
 extern int gui;            /* the screen open */
 void gui_open(int screen, int x, int y, int z);
 void gui_close(void);
 void gui_input(uint32_t keys, uint32_t pressed);
 void gui_tick(void);       /* 20 a second: furnaces */
 void tiles_removed(int x, int y, int z);   /* a chest or furnace broken: its items fall out */
+void tiles_forget(int x, int y, int z);    /* (or replaced by a command: they are gone) */
 void gui_menu(int screen);  /* opens a menu screen */
 enum { ACT_NONE, ACT_PLAY, ACT_NEW, ACT_QUIT_APP, ACT_SAVE_QUIT, ACT_RESPAWN, ACT_TITLE };
 extern int menu_choice;    /* what a menu asks main.c to do (ACT_*), 0 if nothing */
 extern int play_slot;      /* (ACT_PLAY) the world chosen */
 extern char name_text[];   /* (ACT_NEW) the new world's name, as typed */
 extern int create_mode;
+extern bool create_cheats;
 extern char seed_text[21];
 
 /* ---------------------------------------------------------------- saves and options (save.c) */
@@ -266,7 +269,7 @@ typedef struct {
   uint8_t last_world;   /* the world played last (its slot, 0: none): the title's backdrop */
   uint32_t plays;       /* worlds opened so far: each world keeps the count when it was last played */
 } Options;
-#define KEY_SHEET 2       /* (2: jump and sneak on shift and alpha) */
+#define KEY_SHEET 3       /* (2: jump and sneak on shift and alpha; 3: chat and commands) */
 extern Options opt;
 extern int64_t world_seed;
 /* Worlds: up to MAX_WORLDS, each in a slot (1..MAX_WORLDS) whose records start "nb<slot>" */
@@ -275,6 +278,7 @@ extern int64_t world_seed;
 typedef struct {
   char name[WORLD_NAME + 1];
   int mode;          /* 0 survival, 1 creative */
+  bool cheats;
   int64_t seed;
   uint32_t played;   /* opt.plays when it was last played (the latest first in the list) */
 } WorldInfo;
@@ -283,11 +287,31 @@ int world_free_slot(void);                 /* 0: all taken */
 void world_unique_name(const char *base, char *out);   /* base, or "base (2)"... if taken */
 bool save_world(void);
 bool load_world(int slot);
-void new_world(int slot, int64_t seed, int mode, const char *name);
+void new_world(int slot, int64_t seed, int mode, bool cheats, const char *name);
 bool rename_world(int slot, const char *name);
 void delete_world(int slot);
 void load_options(void);
 void save_options(void);
+/* the world's settings, saved with it: cheats (Allow Cheats; or opened to LAN with them, until it
+ * is left) and the game rules (GameRules) */
+extern bool world_cheats, lan_open, lan_cheats;
+#define cheats_on() (world_cheats || lan_cheats)
+extern uint8_t game_rules;
+enum { GR_KEEP_INVENTORY = 1, GR_DAYLIGHT_CYCLE = 2, GR_MOB_SPAWNING = 4, GR_MOB_GRIEFING = 8, GR_NATURAL_REGEN = 16,
+       GR_TILE_DROPS = 32, GR_MOB_LOOT = 64, GR_FIRE_TICK = 128 };
+#define GR_DEFAULT 0xFE   /* (all on but keepInventory) */
+#define rule(r) ((game_rules & (r)) != 0)
+
+/* ---------------------------------------------------------------- chat and commands (command.c) */
+enum { CHAT_WHITE, CHAT_RED, CHAT_GREEN, CHAT_DARK_GREEN, CHAT_GRAY };
+void chat_add(const char *s, int color);   /* a line in the chat (gui.c) */
+void command_run(const char *line);        /* a line sent from the chat: a command ("/...") or said */
+/* tab completion: the k-th way to finish the last word of line (the word starts at *at); false: no more */
+bool command_complete(const char *line, int k, int *at, char *out, int max);
+extern const char *const mc_block_name[198], *const mc_item_name[176];   /* (names.c) */
+extern const uint8_t mc_block_item[25];
+extern const uint16_t give_key[], give_id[];   /* Minecraft's id << 4 | data, and NumBlocks' id */
+extern const int n_give;
 
 /* ---------------------------------------------------------------- drawing (render.c, hud.c) */
 #define RW 160
@@ -296,4 +320,6 @@ typedef struct { float x, y, z, yaw, pitch; } Camera;
 void render_frame(const Camera *c, uint32_t time_of_day);
 /* the HUD and screens draw over each strip of the screen before it is sent */
 void hud_strip(uint16_t *buf, int y0, int rows);
+void camera_reset(void);
+extern uint32_t ticks_run;   /* the player moved at once: the camera with them (main.c) */
 #endif

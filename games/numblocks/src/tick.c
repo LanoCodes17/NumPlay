@@ -14,7 +14,7 @@ extern uint32_t game_time;
 typedef struct {
   int16_t x, z;
   uint8_t y, pad;
-  uint16_t due;   /* the tick it runs (low 16 bits of game_time) */
+  uint16_t due;   /* the tick it runs (low 16 bits of ticks_run) */
 } Pending;
 #define N_PENDING 160
 static Pending pend[N_PENDING];
@@ -27,7 +27,7 @@ void fluid_schedule(int x, int y, int z) {
     if (pend[i].x == x && pend[i].y == y && pend[i].z == z) return;
   if (npend >= N_PENDING) return;
   /* water moves every 5 ticks, lava every 30 */
-  pend[npend++] = (Pending){(int16_t)x, (int16_t)z, (uint8_t)y, 0, (uint16_t)(game_time + (is_lava(b) ? 30 : 5))};
+  pend[npend++] = (Pending){(int16_t)x, (int16_t)z, (uint8_t)y, 0, (uint16_t)(ticks_run + (is_lava(b) ? 30 : 5))};
 }
 
 static int level_of(int b) { return blk_meta[b]; }   /* 0 source, 1-7 flowing, 8 falling */
@@ -164,7 +164,7 @@ static void fluid_update(int x, int y, int z) {
 }
 
 static void fluids_tick(void) {
-  uint16_t now = (uint16_t)game_time;
+  uint16_t now = (uint16_t)ticks_run;
   int done = 0;
   for (int i = 0; i < npend && done < 24;) {
     if ((int16_t)(now - pend[i].due) < 0) {

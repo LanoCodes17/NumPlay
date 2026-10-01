@@ -212,6 +212,7 @@ static Entity *spawn(int type, float x, float y, float z) {
   e->gx = x, e->gz = z;
   return e;
 }
+Entity *mob_summon(int type, float x, float y, float z) { return spawn(type, x, y, z); }
 
 /* SpawnerAnimals, made small: a try every second */
 void mobs_spawn(void) {
@@ -256,7 +257,7 @@ static void drop(int id, int n, const Entity *e) {
   if (n > 0) ent_drop(id, n, 0, e->x, e->y + 0.5f, e->z, false);
 }
 static void loot(Entity *e) {
-  if (e->growth < 0) return;   /* babies drop nothing */
+  if (e->growth < 0 || !rule(GR_MOB_LOOT)) return;   /* babies drop nothing */
   switch (e->type) {
     case E_ZOMBIE: drop(I_ROTTEN_FLESH, rnd(3), e); break;
     case E_SKELETON:
@@ -431,8 +432,8 @@ static void push_player(float kx, float kz, float s) {
 }
 
 /* ---------------------------------------------------------------- explosions (Explosion, power 3) */
-void explode(float x, float y, float z, float power) {
-  int r = (int)ceilf(power);
+void explode(float x, float y, float z, float power, bool blocks) {
+  int r = blocks ? (int)ceilf(power) : -1;
   for (int dy = -r; dy <= r; dy++)
     for (int dz = -r; dz <= r; dz++)
       for (int dx = -r; dx <= r; dx++) {
@@ -453,7 +454,7 @@ void explode(float x, float y, float z, float power) {
           continue;
         }
         /* one in power of the blocks drop */
-        if (rnd((int)power) == 0) {
+        if (rnd((int)power) == 0 && rule(GR_TILE_DROPS)) {
           Stack out[2];
           int n = block_drops(b, I_DIAMOND_PICKAXE, out);
           for (int i = 0; i < n; i++) ent_drop(out[i].id, out[i].aux, 0, bx + 0.5f, by + 0.5f, bz + 0.5f, false);
@@ -570,7 +571,7 @@ static void tnt_tick(Entity *e) {
   if (ground) e->vx *= 0.7f, e->vz *= 0.7f, e->vy *= -0.5f;
   if (--e->delay <= 0) {
     e->type = E_NONE;
-    explode(e->x, e->y + 0.49f, e->z, 4);
+    explode(e->x, e->y + 0.49f, e->z, 4, true);
   }
 }
 
@@ -660,7 +661,7 @@ void mob_tick(Entity *e) {
       else if (e->delay > 0) e->delay++, go = dist > 2;
       if (e->delay >= 30) {
         e->type = E_NONE;
-        explode(e->x, e->y + 0.85f, e->z, opt.difficulty ? 3 : 0);
+        explode(e->x, e->y + 0.85f, e->z, opt.difficulty ? 3 : 0, rule(GR_MOB_GRIEFING));
         return;
       }
     }

@@ -375,6 +375,6 @@ void ents_tick(void) {
   static int spawn_wait;
   if (++spawn_wait >= 20) {
     spawn_wait = 0;
-    mobs_spawn();
+    if (rule(GR_MOB_SPAWNING)) mobs_spawn();
   }
 }

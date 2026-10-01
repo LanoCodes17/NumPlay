@@ -7,6 +7,7 @@
  * air, a 0.6 x 1.8 box that steps up 0.6, eyes at 1.62. */
 #include <math.h>
 #include "nb.h"
+#pragma GCC optimize("Os")   /* (not where the time goes: small) */
 
 Player pl;
 
@@ -162,7 +163,8 @@ void player_hurt(float amount, int kind) {
   if (pl.health <= 0) {
     pl.health = 0;
     pl.dead = true;
-    /* everything falls out (InventoryPlayer.dropAllItems) */
+    /* everything falls out (InventoryPlayer.dropAllItems), unless the game rule keeps it */
+    if (rule(GR_KEEP_INVENTORY)) return;
     for (int i = 0; i < 36; i++)
       if (pl.inv[i].id) ent_drop(pl.inv[i].id, item_count(&pl.inv[i]), pl.inv[i].aux, pl.x, pl.y + 1.3f, pl.z, false);
     for (int i = 0; i < 4; i++)
@@ -176,8 +178,8 @@ void player_hurt(float amount, int kind) {
 extern uint32_t game_time;
 static void food_tick(void) {
   if (opt.difficulty == 0) {
-    if (pl.health < 20 && game_time % 20 == 0) pl.health = pl.health + 1 > 20 ? 20 : pl.health + 1;
-    if (pl.food < 20 && game_time % 10 == 0) pl.food++;
+    if (pl.health < 20 && ticks_run % 20 == 0 && rule(GR_NATURAL_REGEN)) pl.health = pl.health + 1 > 20 ? 20 : pl.health + 1;
+    if (pl.food < 20 && ticks_run % 10 == 0) pl.food++;
     return;
   }
   if (pl.exhaustion > 4) {
@@ -185,7 +187,7 @@ static void food_tick(void) {
     if (pl.sat > 0) pl.sat = pl.sat > 1 ? pl.sat - 1 : 0;
     else if (pl.food > 0) pl.food--;
   }
-  if (pl.food >= 18 && pl.health > 0 && pl.health < 20) {
+  if (pl.food >= 18 && pl.health > 0 && pl.health < 20 && rule(GR_NATURAL_REGEN)) {
     if (++pl.food_timer >= 80) {
       pl.health += 1;
       if (pl.health > 20) pl.health = 20;
@@ -289,7 +291,7 @@ static void break_block(int x, int y, int z, bool drops) {
   if (b == B_CHEST || b == B_FURNACE || b == B_FURNACE_LIT) tiles_removed(x, y, z);
   if (depth == 1 && blk_model[b] != M_LIQUID) particles_break(x, y, z, b);
   world_set(x, y, z, B_AIR);
-  if (drops && pl.mode == 0) {
+  if (drops && pl.mode == 0 && rule(GR_TILE_DROPS)) {
     Stack out[2];
     int n = block_drops(b, held()->id, out);
     for (int i = 0; i < n; i++)
@@ -303,7 +305,7 @@ static void break_block(int x, int y, int z, bool drops) {
     if (world_get(x, y - 1, z) == b - 1) world_set(x, y - 1, z, B_AIR);
   if (is_door_lower(b) && world_get(x, y + 1, z) == B_DOOR_OAK_UPPER) world_set(x, y + 1, z, B_AIR);
   if (b == B_DOOR_OAK_UPPER && is_door_lower(world_get(x, y - 1, z))) {
-    if (drops && pl.mode == 0) ent_drop(I_WOODEN_DOOR, 1, 0, x + 0.5f, y - 0.5f, z + 0.5f, false);
+    if (drops && pl.mode == 0 && rule(GR_TILE_DROPS)) ent_drop(I_WOODEN_DOOR, 1, 0, x + 0.5f, y - 0.5f, z + 0.5f, false);
     world_set(x, y - 1, z, B_AIR);
   }
   if (b == B_BED_FOOT || b == B_BED_HEAD)
@@ -715,7 +717,7 @@ void player_respawn(void) {
   pl.x = pl.spawn_x + 0.5f, pl.y = (float)pl.spawn_y, pl.z = pl.spawn_z + 0.5f;
   pl.vx = pl.vy = pl.vz = 0;
   pl.health = 20, pl.food = 20, pl.sat = 5, pl.exhaustion = 0, pl.air = 300, pl.fall = 0, pl.fire = 0;
-  pl.xp = 0, pl.xp_level = 0, pl.xp_total = 0;
+  if (!rule(GR_KEEP_INVENTORY)) pl.xp = 0, pl.xp_level = 0, pl.xp_total = 0;
   pl.dead = false;
   pl.pitch = 0;
 }

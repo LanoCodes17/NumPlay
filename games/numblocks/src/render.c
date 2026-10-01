@@ -1848,7 +1848,7 @@ static uint32_t strip_hash(void) {
 }
 static bool still_screen(void) {
   return gui == GUI_PAUSE || gui == GUI_OPTIONS || gui == GUI_CONTROLS || gui == GUI_WORLDS || gui == GUI_CREATE ||
-         gui == GUI_CONFIRM || gui == GUI_RENAME || gui == GUI_LOADING;
+         gui == GUI_CONFIRM || gui == GUI_RENAME || gui == GUI_LOADING || gui == GUI_LAN;
 }
 static void send_strip(int py, bool still) {
   if (still) {

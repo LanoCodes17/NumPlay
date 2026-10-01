@@ -99,7 +99,6 @@ int main(void) {
   }
   /* water: 7 blocks out on a flat floor, then dry when the source is gone; lava meets water */
   {
-    extern uint32_t game_time;
     world_new(0, "ut2");
     world_follow(8, 70, 8);
     int y = 70;
@@ -110,20 +109,20 @@ int main(void) {
       }
     world_set(8, y, 8, B_WATER);
     neighbours_changed(8, y, 8);
-    for (int t = 0; t < 400; t++) game_time++, world_tick();
+    for (int t = 0; t < 400; t++) ticks_run++, world_tick();
     CHECK(world_get(9, y, 8) == B_FLOWING_WATER);
     CHECK(world_get(15, y, 8) == B_FLOWING_WATER_7);
     CHECK(world_get(16, y, 8) == B_AIR);
     CHECK(world_get(11, y, 10) == B_FLOWING_WATER_5);
     world_set(8, y, 8, B_AIR);
     neighbours_changed(8, y, 8);
-    for (int t = 0; t < 600; t++) game_time++, world_tick();
+    for (int t = 0; t < 600; t++) ticks_run++, world_tick();
     CHECK(world_get(9, y, 8) == B_AIR && world_get(12, y, 8) == B_AIR);
     /* lava source next to water: obsidian */
     world_set(4, y, 4, B_WATER);
     world_set(5, y, 4, B_LAVA);
     neighbours_changed(5, y, 4);
-    for (int t = 0; t < 60; t++) game_time++, world_tick();
+    for (int t = 0; t < 60; t++) ticks_run++, world_tick();
     CHECK(world_get(5, y, 4) == B_OBSIDIAN);
     plat_remove_prefix("ut2");
   }
@@ -320,12 +319,12 @@ int main(void) {
     WorldInfo w;
     world_unique_name("New World", n);
     CHECK(!strcmp(n, "New World"));
-    new_world(world_free_slot(), 5, 0, n);
+    new_world(world_free_slot(), 5, 0, false, n);
     save_world();
     world_unique_name("New World", n);
     CHECK(!strcmp(n, "New World (2)"));
     int s2 = world_free_slot();
-    new_world(s2, 6, 1, n);
+    new_world(s2, 6, 1, true, n);
     save_world();
     CHECK(s2 == 2 && world_info(1, &w) && !strcmp(w.name, "New World") && w.mode == 0 && w.seed == 5);
     CHECK(world_info(2, &w) && !strcmp(w.name, "New World (2)") && w.mode == 1 && w.seed == 6);
@@ -361,6 +360,80 @@ int main(void) {
     player_look(8.5f, 100.25f, 8.5f, 0, 0);
     CHECK(pl.hit_face == 2 && pl.hit_z == 10);
     plat_remove_prefix("ut10");
+  }
+  {
+    /* commands: what they do; most need cheats */
+    extern uint32_t game_time;
+    new_world(1, 9, 0, false, "Commands");
+    world_follow(pl.x, pl.y, pl.z);
+    while (world_pending()) world_follow(pl.x, pl.y, pl.z);
+    command_run("/gamemode 1");
+    CHECK(pl.mode == 0);
+    world_cheats = true;
+    command_run("/gamemode c");
+    CHECK(pl.mode == 1);
+    command_run("/gamemode survival");
+    CHECK(pl.mode == 0);
+    memset(pl.inv, 0, sizeof pl.inv);
+    command_run("/give @p minecraft:diamond_sword");
+    CHECK(pl.inv[0].id == I_DIAMOND_SWORD);
+    command_run("/give Player wool 5 14");
+    CHECK(pl.inv[1].id == B_WOOL_RED && item_count(&pl.inv[1]) == 5);
+    command_run("/give @p 5 64 2");
+    CHECK(pl.inv[2].id == B_PLANKS_BIRCH && item_count(&pl.inv[2]) == 64);
+    command_run("/give @p dye 1 15");
+    CHECK(pl.inv[3].id == I_DYE_WHITE);
+    command_run("/give @p 276 1 100");
+    CHECK(pl.inv[4].id == I_DIAMOND_SWORD && pl.inv[4].aux == 100);
+    command_run("/give @p nothing");
+    CHECK(!pl.inv[5].id);
+    command_run("/clear @p wool");
+    CHECK(!pl.inv[1].id && pl.inv[0].id);
+    command_run("/clear");
+    CHECK(!pl.inv[0].id && !pl.inv[2].id);
+    command_run("/time set night");
+    CHECK(game_time == 13000);
+    command_run("/time add 100");
+    CHECK(game_time == 13100);
+    command_run("/weather thunder 60");
+    CHECK(weather.thundering && weather.raining && weather.rain_time == 1200);
+    command_run("/weather clear");
+    CHECK(!weather.raining);
+    command_run("/xp 5L");
+    CHECK(pl.xp_level == 5);
+    command_run("/xp -2L");
+    CHECK(pl.xp_level == 3);
+    int sx = (int)floorf(pl.x), sy = (int)floorf(pl.y + 0.5f), sz = (int)floorf(pl.z);
+    command_run("/setblock ~ ~3 ~ wool 4");
+    CHECK(world_get(sx, sy + 3, sz) == B_WOOL_YELLOW);
+    command_run("/gamerule keepInventory true");
+    CHECK(rule(GR_KEEP_INVENTORY) && rule(GR_DAYLIGHT_CYCLE));
+    command_run("/gamerule doDaylightCycle false");
+    CHECK(!rule(GR_DAYLIGHT_CYCLE));
+    command_run("/effect @p poison 10 1");
+    CHECK(pl.eff[EF_POISON] == 200 && pl.eff_amp[EF_POISON] == 1);
+    command_run("/effect @p clear");
+    CHECK(!pl.eff[EF_POISON]);
+    command_run("/tp 10 80 -20");
+    CHECK(pl.x == 10.5f && pl.y == 80 && pl.z == -19.5f);
+    command_run("/tp ~1 ~ ~-0.5");
+    CHECK(pl.x == 11.5f && pl.z == -20);
+    /* the world keeps its cheats and rules */
+    save_world();
+    world_cheats = false, game_rules = GR_DEFAULT;
+    CHECK(load_world(1) && world_cheats && rule(GR_KEEP_INVENTORY) && !rule(GR_DAYLIGHT_CYCLE));
+    WorldInfo wi;
+    CHECK(world_info(1, &wi) && wi.cheats);
+    /* finishing words, as Tab does */
+    char o[40];
+    int at;
+    CHECK(command_complete("/gam", 0, &at, o, sizeof o) && at == 1 && !strcmp(o, "gamemode"));
+    CHECK(command_complete("/gam", 1, &at, o, sizeof o) && !strcmp(o, "gamerule"));
+    CHECK(!command_complete("/gam", 2, &at, o, sizeof o));
+    CHECK(command_complete("/give @p diamond_sw", 0, &at, o, sizeof o) && at == 9 && !strcmp(o, "minecraft:diamond_sword"));
+    CHECK(command_complete("/gamemode cr", 0, &at, o, sizeof o) && !strcmp(o, "creative"));
+    CHECK(command_complete("/time set ", 1, &at, o, sizeof o) && !strcmp(o, "night"));
+    delete_world(1);
   }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;

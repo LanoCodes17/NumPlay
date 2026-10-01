@@ -261,7 +261,9 @@ SPRITES = [
     ('food_hunger_half', 'gui/icons', 97, 27, 9, 9),
     ('bobber', 'particle/particles', 8, 16, 8, 8),
     ('fishing_rod_cast', 'items/fishing_rod_cast', 0, 0, 16, 16),
-]
+    # the sun (its glow) and the moon's eight phases (their middles; drawn adding light)
+    ('sun', 'environment/sun', 2, 2, 28, 28),
+] + [(f'moon_{k}', 'environment/moon_phases', (k % 4) * 32 + 8, (k // 4) * 32 + 8, 16, 16) for k in range(8)]
 
 
 # what the inventory tints its icons with: plains grass and foliage, and the fixed colours
@@ -534,6 +536,12 @@ def main():
     out.append('const uint8_t blk_meta[B_COUNT] = {' + ','.join(str(s['meta']) for s in blocks.S) + '};')
     # GUI sprites and block icons: 4 bits a pixel, a palette each; index 0 see-through
     sprites = [(n, jar.image(f).crop((x, y, x + w, y + h))) for n, f, x, y, w, h in SPRITES]
+    # the moon's faintest halo left out: cut to its middle, it would show as a square
+    for k, (n, im) in enumerate(sprites):
+        if n.startswith('moon_'):
+            im = im.copy()
+            im.putdata([(r, g, b, 0 if r + g + b < 60 else 255) for r, g, b, a in pixels(im)])
+            sprites[k] = (n, im)
     for st in blocks.S:
         if st['tex'] is not None:
             sprites.append(('icon_' + st['name'].lower(), iso_icon(jar, st, None)))

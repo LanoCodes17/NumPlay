@@ -25,6 +25,9 @@ static int fog_r, fog_g, fog_b, sky_r, sky_g, sky_b;   /* 0..255 */
 static int shade[4][16];           /* face shade x sky light level -> 0..32 */
 static int shade_blk[4][16];       /* face shade x block light level -> 0..32 */
 static float sun_x, sun_y, sun_z;  /* towards the sun */
+static float sun_tx, sun_ty;       /* the way the sun moves */
+static float cos_c, sin_c;         /* the sky's turn (the celestial angle) */
+static int moon_phase, star_k;     /* the moon's phase (0 full), how bright the stars are (0..255) */
 static float cloud_off;
 static int cloud_r, cloud_g, cloud_b;   /* the clouds' colour (0..255) */
 static float sun_a;                     /* how much of the sun or moon shows (rain hides it) */
@@ -101,12 +104,36 @@ static uint16_t sky(float dx, float dy, float dz, float len) {
   float k = e <= 0 ? 0 : e > 0.4f ? 1 : e / 0.4f;
   int r = fog_r + (int)((sky_r - fog_r) * k), g = fog_g + (int)((sky_g - fog_g) * k), b = fog_b + (int)((sky_b - fog_b) * k);
   if (under_water) return pack(r / 4, g / 3, b / 2 + 40);
-  /* the sun (or the moon): a square 1/3 of the way to the horizon, as in 1.8 */
-  float sd = (dx * sun_x + dy * sun_y + dz * sun_z) / len;
-  if (sd > 0.94f && sun_a > 0) {
-    float s = (sd > 0.985f ? 1.0f : (sd - 0.94f) / 0.045f) * sun_a;   /* (hidden by rain) */
-    if (night) r += (int)(190 * s), g += (int)(200 * s), b += (int)(210 * s);
-    else r += (int)(255 * s), g += (int)(250 * s), b += (int)(200 * s);
+  /* RenderGlobal.renderSky: the sun, the moon in its phase and the stars turn with the
+   * sky; their textures add light (and rain hides them) */
+  if (sun_a > 0) {
+    float sd = dx * sun_x + dy * sun_y + dz * sun_z;
+    float tx = dx * sun_tx + dy * sun_ty;   /* along the sky's turn; dz across it */
+    int sp = -1;
+    float u = 0, v = 0;
+    if (sd > 0.9f * len) sp = SP_SUN, u = (dz / sd / 0.3f + 1) * 16, v = (tx / sd / 0.3f + 1) * 16;
+    else if (sd < -0.95f * len)
+      sp = SP_MOON_0 + moon_phase, u = 32 - (dz / -sd / 0.2f + 1) * 16, v = (tx / -sd / 0.2f + 1) * 16;
+    if (sp >= 0) {
+      int c0 = sp == SP_SUN ? 2 : 8, w = spr_w[sp];
+      int iu = (int)u - c0, iv = (int)v - c0;
+      if ((unsigned)iu < (unsigned)w && (unsigned)iv < (unsigned)w) {
+        uint8_t q = spr_px[spr_off[sp] + iv * ((w + 1) / 2) + (iu >> 1)];
+        uint16_t c = spr_pal[sp][(iu & 1) ? q >> 4 : q & 15];
+        r += (int)(r5(c) * sun_a), g += (int)(g6(c) * sun_a), b += (int)(b5(c) * sun_a);
+      }
+    }
+    if (star_k > 0) {
+      /* renderStars: about 800 white dots over the whole sky (here a pixel each), seen at night */
+      float sx = dz, sy = dy * cos_c + -dx * sin_c, sz = -dy * sin_c + -dx * cos_c;
+      float ax = fabsf(sx), ay = fabsf(sy), az = fabsf(sz), m = ax > ay ? (ax > az ? ax : az) : (ay > az ? ay : az);
+      int face = m == ax ? (sx > 0) : m == ay ? 2 + (sy > 0) : 4 + (sz > 0);
+      float p = m == ax ? sy : sx, q = m == az ? sy : sz;
+      int cu = (int)((p / m + 1) * 78), cv = (int)((q / m + 1) * 78);
+      uint32_t h = ((uint32_t)face * 73856093u) ^ ((uint32_t)cu * 19349663u) ^ ((uint32_t)cv * 83492791u);
+      h = (h ^ (h >> 13)) * 1274126177u;
+      if (((h ^ (h >> 16)) & 1023) < 6) r += star_k, g += star_k, b += star_k;
+    }
   }
   /* clouds: Minecraft's 12-block cells at y = 128.33 */
   if (dy > 0.01f && opt.clouds) {
@@ -1363,7 +1390,16 @@ void render_frame(const Camera *c, uint32_t tod) {
   sun_x = -sinf(sa);
   sun_y = cosf(sa);
   sun_z = 0;
-  if (night) sun_x = -sun_x, sun_y = -sun_y;
+  sun_tx = -cosf(sa), sun_ty = -sinf(sa);   /* (the sky's turn) */
+  cos_c = cosf(sa), sin_c = sinf(sa);
+  moon_phase = (int)((tod / 24000) % 8);
+  /* World.getStarBrightness, added as RenderGlobal blends it (its square) */
+  {
+    float f = 1 - (cosf(sa) * 2 + 0.25f);
+    f = f < 0 ? 0 : f > 1 ? 1 : f;
+    float k = f * f * 0.5f * (1 - rain_str);
+    star_k = (int)(k * k * 255);
+  }
   /* the sky's colour from the biome's temperature (1.8: HSB), and the fog's */
   int col = (int)(oz) * VCX + (int)(ox);
   if (col < 0 || col >= VCX * VCZ) col = 0;

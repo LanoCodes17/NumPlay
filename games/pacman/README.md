@@ -23,7 +23,7 @@ The 1980 arcade game for the NumWorks calculator: the maze, the four ghosts, the
 
 Pac-Man was created by Toru Iwatani at Namco in 1980; this remake follows the arcade's look and rules.
 
-It is rewritten in C for NumPlay from Tatone26's version in [Numworks-games](https://github.com/Tatone26/Numworks-games/tree/main/apps/pacman) (All the Apps), which is released into the public domain ([UNLICENSE](UNLICENSE)). What changed:
+It is written in C for NumPlay, inspired by Tatone26's version in [Numworks-games](https://github.com/Tatone26/Numworks-games/tree/main/apps/pacman) (All the Apps), with no code copied from it. Compared with that one:
 
 - The full arcade maze (the ghost house was one row shorter to fit the screen) drawn with 7-pixel tiles, and the arcade's colours, sprites, screens and HUD instead of the original's.
 - The arcade's ghost behaviour, wave timers, house counters, Cruise Elroy, dot pauses and fruit timings.

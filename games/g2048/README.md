@@ -27,7 +27,7 @@ Everything is drawn with code, and all the text comes from one small stroke font
 
 2048 is **[Gabriele Cirulli](https://github.com/gabrielecirulli/2048)**'s game (2014), itself based on 1024 by Veewo Studio and similar in concept to Threes by Asher Vollmer.
 
-The starting point for this version was **[Tatone26](https://github.com/Tatone26)**'s Python 2048 in [Numworks-games](https://github.com/Tatone26/Numworks-games/blob/main/python%20games/g2048.py) (All the Apps), released into the public domain. This one is written in C for NumPlay. Compared with it:
+This version is written in C for NumPlay, inspired by **[Tatone26](https://github.com/Tatone26)**'s Python 2048 in [Numworks-games](https://github.com/Tatone26/Numworks-games/blob/main/python%20games/g2048.py) (All the Apps), with no code copied from it. Compared with that one:
 
 - the look of Cirulli's original: its colours, rounded tiles and bold numbers, the score and best boxes, and the You win! and Game over! messages;
 - smooth animations, and Undo;

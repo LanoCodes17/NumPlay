@@ -26,7 +26,7 @@ It comes inside [NumPlay](https://github.com/Mason363/NumPlay), or on its own as
 
 ## Credits
 
-Flappy Bird was made by Dong Nguyen (.GEARS, 2013). This version was rewritten in C for NumPlay from Tatone26's in [Numworks-games](https://github.com/Tatone26/Numworks-games/tree/main/apps/flappybird) (All the Apps), which is released into the public domain ([UNLICENSE](UNLICENSE)). What changed:
+Flappy Bird was made by Dong Nguyen (.GEARS, 2013). This version is written in C for NumPlay, inspired by Tatone26's in [Numworks-games](https://github.com/Tatone26/Numworks-games/tree/main/apps/flappybird) (All the Apps), with no code copied from it. Compared with that one:
 
 - The look of the original: the sky with clouds, a city and bushes, by day or by night; the green pipes; the striped ground; a bird in three colours that flaps and tilts; the big outlined score; the title, Get Ready, Game Over and score board screens, with a fade between them.
 - A Classic game with the original's rules next to the Custom one, each with its own best score.

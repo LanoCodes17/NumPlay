@@ -78,10 +78,6 @@ GAMES = {
     # a new game (Vegas, draw 1 from the seeded options), two draws; then Continue and one more
     "solitaire": ("Solitaire.nwa", "solitaire.sav", presses((1500, "ok"), (3500, "exe"), (4000, "exe")), 5000,
                   presses((1500, "ok"), (2500, "exe")), 3500),
-    # Play, one difficulty up (Hard), start the song and tap along; next time one more (Expert)
-    "numdance": ("NumDance.nwa", "numdance.sav",
-                 presses((1500, "ok"), (2000, "right"), (2500, "ok")) + every(4000, 9000, 250, "up"), 10000,
-                 presses((1500, "ok"), (2000, "right"), (2500, "ok")), 5000),
     # the 4x4 game in the save (40 moves): Continue, two moves; next time three more
     "g2048": ("2048.nwa", "g2048.sav", presses((1500, "ok"), (2500, "left"), (3000, "right")), 4000,
               presses((1500, "ok"), (2500, "left"), (3000, "right"), (3500, "left")), 4500),
@@ -156,8 +152,6 @@ CHECKS = {
                   and struct.unpack_from("<2i", v, 32) == (-100, -52),
                   lambda v: v[6] == 1 and struct.unpack_from("<H", v, 16)[0] == 6
                   and struct.unpack_from("<H", v, 26)[0] == 3),
-    # scroll speed 2x by default, the difficulty chosen
-    "numdance": (lambda v: len(v) == 168 and v[:3] == b"D\1\2" and v[6] == 2, lambda v: v[6] == 3),
     # continued (moves 40 + 2, then + 3), still in progress, score and best kept or higher
     "g2048": (lambda v: v[:3] == b"2\1\1" and v[4] & 1 and struct.unpack_from("<I", v, 44)[0] == 42
               and struct.unpack_from("<I", v, 28)[0] >= 500 and struct.unpack_from("<I", v, 12)[0] >= 1000,

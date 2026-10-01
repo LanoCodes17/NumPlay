@@ -13,7 +13,7 @@
 #include "nb.h"
 
 #define SR 4                       /* picture rows per strip (8 screen rows) */
-static uint16_t strip[SCREEN_W * SR * 2];
+static uint16_t strip[SCREEN_W * SR * 2] __attribute__((aligned(4)));
 static uint16_t cbuf[SR][RW];      /* a strip of the picture */
 static float zbuf[SR][RW];         /* and how far each pixel's ray went (entities are hidden behind) */
 
@@ -102,7 +102,7 @@ static inline int texel_rgb(int b, int tex, int u, int v, int col, int *r, int *
 }
 
 /* ---------------------------------------------------------------- the sky */
-static uint16_t sky(float dx, float dy, float dz, float len) {
+static __attribute__((noinline)) uint16_t sky(float dx, float dy, float dz, float len) {
   float e = dy / len;   /* elevation, -1..1 */
   /* horizon (fog colour) to the sky's colour above; below the horizon, fog */
   uint32_t gc = sky_grad[e <= 0 ? 0 : e >= 0.4f ? 128 : (int)(e * 320)];
@@ -328,6 +328,134 @@ static inline int came_from(int i, int face, int x, int y, int z) {
   return i;
 }
 
+/* a ray: its direction, and a see-through layer (water) it went through: its colour and how much */
+typedef struct {
+  float dx, dy, dz, len, ivx, ivy, ivz;
+  int wr, wg, wb, wa, inside;
+} Ray;
+
+/* what the ray meets in cell i (x, y, z) of block b, entered at t through `face`, with tl to go
+ * to the cell's far side: its colour, or -1 to go on (kept out of the trace's loop, whose
+ * registers it would take) */
+static __attribute__((noinline)) int cell_hit(Ray *R, int b, int i, int x, int y, int z, int face, float t, float tl) {
+  int m = blk_model[b];
+  int col = z * VCX + x;
+  float lx = ox + R->dx * t - x, ly = oy + R->dy * t - y, lz = oz + R->dz * t - z;
+  if (m == M_CUBE || m == M_LEAVES || m == M_GLASS) {
+    /* the face the ray came in through */
+    float hx = lx, hy = ly, hz = lz;
+    int u, v, f = face < 0 ? 1 : face;
+    switch (f) {
+      case 0: case 1: u = (int)(hx * 16); v = (int)(hz * 16); break;
+      case 2: u = 15 - (int)(hx * 16); v = 15 - (int)(hy * 16); break;
+      case 3: u = (int)(hx * 16); v = 15 - (int)(hy * 16); break;
+      case 4: u = (int)(hz * 16); v = 15 - (int)(hy * 16); break;
+      default: u = 15 - (int)(hz * 16); v = 15 - (int)(hy * 16); break;
+    }
+    u &= 15;
+    v &= 15;
+    int tc = texel565(b, blk_front[b] ? face_tex(b, f, x, y, z) : blk_tex[b][f], u, v, col);
+    if (tc < 0 && m == M_LEAVES && !opt.fancy) tc = 0;   /* Fast graphics: the holes are black */
+    if (tc >= 0) {
+      tc = cracked(tc, i, u, v);
+      last_t = t;
+      int lt = vl[came_from(i, face, x, y, z)];
+      uint16_t c = lit565((uint16_t)tc, f, lt, t * R->len);
+      if (R->wa) {
+        c = pack((r5(c) * (256 - R->wa) + R->wr * R->wa) >> 8, (g6(c) * (256 - R->wa) + R->wg * R->wa) >> 8,
+                 (b5(c) * (256 - R->wa) + R->wb * R->wa) >> 8);
+        if (face >= 0 && hit_w >= 0) hit_kind = 4, hit_f = f;
+      } else if (face >= 0) hit_kind = 1, hit_f = f, hit_i = i, hit_l = lt;
+      hit_p = (((f >> 1) == 0 ? y : (f >> 1) == 1 ? z : x) + (f & 1)) * 16;
+      return c;
+    }
+  } else if (m == M_CROSS) {
+    Hit h = {0};
+    float t1 = tl;
+    if (hit_cross(blk_tex[b][3], lx, ly, lz, R->dx, R->dy, R->dz, 0, t1, &h)) {
+      int r, g, bb;
+      texel_rgb(b, blk_tex[b][3], h.u, h.v, col, &r, &g, &bb);
+      last_t = t + h.t;
+      uint16_t c = lit(r, g, bb, 1, vl[i], (t + h.t) * R->len);
+      if (R->wa) c = pack((r5(c) * (256 - R->wa) + R->wr * R->wa) >> 8, (g6(c) * (256 - R->wa) + R->wg * R->wa) >> 8,
+                       (b5(c) * (256 - R->wa) + R->wb * R->wa) >> 8);
+      else hit_kind = 3, hit_i = i;
+      return c;
+    }
+  } else {
+    int8_t shp[5][6];
+    const int8_t (*bxs)[6] = shp;   /* the shape: its boxes */
+    int nbx;
+    if (m == M_LIQUID) {
+      /* BlockLiquid: (8 - level) / 9 high, full when falling or under the same liquid */
+      static const int8_t LIQH[9] = {14, 12, 11, 9, 7, 5, 4, 2, 16};
+      int lv = blk_meta[b] > 8 ? 8 : blk_meta[b];
+      int above = y + 1 < VCY ? vc[i + VCX * VCZ] : B_AIR;
+      if (is_water(b) ? is_water(above) : is_lava(above)) lv = 8;
+      shp[0][0] = shp[0][1] = shp[0][2] = 0, shp[0][3] = shp[0][5] = 16, shp[0][4] = LIQH[lv];
+      nbx = 1;
+    } else if (m == M_LADDER || m == M_VINE || m == M_FENCE || m == M_PANE || m == M_DOOR)
+      nbx = block_boxes(b, x + vc_x0, y + vc_y0, z + vc_z0, shp);   /* (shaped by what is around) */
+    else nbx = blk_nbox[b], bxs = blk_box[b];
+    Hit h = {0}, hk;
+    h.t = 1e9f;
+    float dd[3] = {R->dx, R->dy, R->dz}, iv[3] = {R->ivx, R->ivy, R->ivz}, tl0 = tl;
+    for (int k = 0; k < nbx; k++)
+      if (hit_box(bxs[k], lx, ly, lz, dd, iv, tl0 + 1e-4f, &hk) && hk.t < h.t) h = hk;
+    if (h.t < 1e9f) {
+      int r, g, bb;
+      int tex = face_tex(b, h.face, x, y, z);
+      if (m == M_BED && h.face == 1) {
+        /* the bed's top turned so the pillow is at its head */
+        int w = bed_way(b, x, y, z), u = h.u, v = h.v;
+        if (w == 3) h.u = 15 - u, h.v = 15 - v;
+        else if (w == 5) h.u = v, h.v = 15 - u;
+        else if (w == 4) h.u = 15 - v, h.v = u;
+      }
+      if (texel_rgb(b, tex, h.u, h.v, col, &r, &g, &bb) == 0) {
+        /* (a face R->inside the cell is lit by the cell's light, one on its side by the cell in front) */
+        int lt = vl[m == M_LIQUID || m == M_TORCH || h.t > 0 ? i : came_from(i, face, x, y, z)];
+        uint16_t c = lit(r, g, bb, h.face, lt, (t + h.t) * R->len);
+        if (!R->wa && one_box(b) && i != cam_i) {
+          /* a face of a block of one box (slab, snow layer...): the pixels between can find it too */
+          int a = h.face >> 1, k = a == 0 ? 1 : a == 1 ? 2 : 0;
+          hit_kind = 1, hit_f = h.face, hit_i = i, hit_l = lt;
+          hit_p = (a == 0 ? y : a == 1 ? z : x) * 16 + bxs[0][k + ((h.face & 1) ? 3 : 0)];
+        }
+        if (m == M_LIQUID && !R->wa) {
+          /* water: see through it (lava is opaque) */
+          if (is_water(b)) {
+            R->wr = r5(c), R->wg = g6(c), R->wb = b5(c), R->wa = 150;
+            R->inside = b;
+            hit_w = h.face == 1 ? y * 16 + shp[0][4] : -1;
+            return -1;
+          }
+        }
+        if (R->wa) c = pack((r5(c) * (256 - R->wa) + R->wr * R->wa) >> 8, (g6(c) * (256 - R->wa) + R->wg * R->wa) >> 8,
+                         (b5(c) * (256 - R->wa) + R->wb * R->wa) >> 8);
+        last_t = t + h.t;
+        return c;
+      }
+    }
+  }
+  return -1;
+}
+
+/* the top of each block's shape, sixteenths (16: whole, or shaped by its place): a ray going
+ * over a lower one (a snow layer, a slab) has nothing to meet in its cell */
+static uint8_t shape_top[B_COUNT];
+static void shape_tops(void) {
+  for (int b = 0; b < B_COUNT; b++) {
+    int m = blk_model[b], top = 16;
+    if (blk_nbox[b] && !(m == M_LIQUID || m == M_LADDER || m == M_VINE || m == M_FENCE || m == M_PANE || m == M_DOOR)) {
+      top = 0;
+      for (int k = 0; k < blk_nbox[b]; k++)
+        if (blk_box[b][k][4] > top) top = blk_box[b][k][4];
+    }
+    shape_top[b] = (uint8_t)top;
+  }
+}
+
 static uint16_t trace(float dx, float dy, float dz) {
   hit_kind = 0;
   hit_w = -1;
@@ -345,11 +473,9 @@ static uint16_t trace(float dx, float dy, float dz) {
   float tx = (x + bx - ox) * ivx, ty = (y + by - oy) * ivy, tz = (z + bz - oz) * ivz;
   float tmax = MAX_T / len, t = 0;
   int face = -1;
-  /* a see-through layer in front (water): its colour and how much of it */
-  int wr = 0, wg = 0, wb = 0, wa = 0;
   if (cam_i < 0) return hit_kind = 2, sky(dx, dy, dz, len);
   int i = cam_i;
-  int inside = cam_b;   /* the block the camera is in (water...) */
+  Ray R = {dx, dy, dz, len, ivx, ivy, ivz, 0, 0, 0, 0, cam_b};   /* (in the block the camera is in: water...) */
   int fresh = 1;        /* just entered a 4 x 4 x 4 region */
   int ex0 = sx > 0 ? 0 : 3, ey0 = sy > 0 ? 0 : 3, ez0 = sz > 0 ? 0 : 3;
   /* steps through the cache and its regions (mi: the region of cell i) along each axis */
@@ -359,111 +485,16 @@ static uint16_t trace(float dx, float dy, float dz) {
   for (;;) {
     ST(st_steps++);
     int b = vc[i];
-    if (b != B_AIR && !(blk_model[b] == M_LIQUID && (is_water(b) ? is_water(inside) : is_lava(inside)))) {
-      int m = blk_model[b];
-      int col = z * VCX + x;
-      float lx = ox + dx * t - x, ly = oy + dy * t - y, lz = oz + dz * t - z;
-      if (m == M_CUBE || m == M_LEAVES || m == M_GLASS) {
-        /* the face the ray came in through */
-        float hx = lx, hy = ly, hz = lz;
-        int u, v, f = face < 0 ? 1 : face;
-        switch (f) {
-          case 0: case 1: u = (int)(hx * 16); v = (int)(hz * 16); break;
-          case 2: u = 15 - (int)(hx * 16); v = 15 - (int)(hy * 16); break;
-          case 3: u = (int)(hx * 16); v = 15 - (int)(hy * 16); break;
-          case 4: u = (int)(hz * 16); v = 15 - (int)(hy * 16); break;
-          default: u = 15 - (int)(hz * 16); v = 15 - (int)(hy * 16); break;
-        }
-        u &= 15;
-        v &= 15;
-        int tc = texel565(b, blk_front[b] ? face_tex(b, f, x, y, z) : blk_tex[b][f], u, v, col);
-        if (tc < 0 && m == M_LEAVES && !opt.fancy) tc = 0;   /* Fast graphics: the holes are black */
-        if (tc >= 0) {
-          tc = cracked(tc, i, u, v);
-          last_t = t;
-          int lt = vl[came_from(i, face, x, y, z)];
-          uint16_t c = lit565((uint16_t)tc, f, lt, t * len);
-          if (wa) {
-            c = pack((r5(c) * (256 - wa) + wr * wa) >> 8, (g6(c) * (256 - wa) + wg * wa) >> 8,
-                     (b5(c) * (256 - wa) + wb * wa) >> 8);
-            if (face >= 0 && hit_w >= 0) hit_kind = 4, hit_f = f;
-          } else if (face >= 0) hit_kind = 1, hit_f = f, hit_i = i, hit_l = lt;
-          hit_p = (((f >> 1) == 0 ? y : (f >> 1) == 1 ? z : x) + (f & 1)) * 16;
-          return c;
-        }
-      } else if (m == M_CROSS) {
-        Hit h = {0};
-        float t1 = fminf(fminf(tx, ty), tz) - t;
-        if (hit_cross(blk_tex[b][3], lx, ly, lz, dx, dy, dz, 0, t1, &h)) {
-          int r, g, bb;
-          texel_rgb(b, blk_tex[b][3], h.u, h.v, col, &r, &g, &bb);
-          last_t = t + h.t;
-          uint16_t c = lit(r, g, bb, 1, vl[i], (t + h.t) * len);
-          if (wa) c = pack((r5(c) * (256 - wa) + wr * wa) >> 8, (g6(c) * (256 - wa) + wg * wa) >> 8,
-                           (b5(c) * (256 - wa) + wb * wa) >> 8);
-          else hit_kind = 3, hit_i = i;
-          return c;
-        }
-      } else {
-        int8_t shp[5][6];
-        const int8_t (*bxs)[6] = shp;   /* the shape: its boxes */
-        int nbx;
-        if (m == M_LIQUID) {
-          /* BlockLiquid: (8 - level) / 9 high, full when falling or under the same liquid */
-          static const int8_t LIQH[9] = {14, 12, 11, 9, 7, 5, 4, 2, 16};
-          int lv = blk_meta[b] > 8 ? 8 : blk_meta[b];
-          int above = y + 1 < VCY ? vc[i + VCX * VCZ] : B_AIR;
-          if (is_water(b) ? is_water(above) : is_lava(above)) lv = 8;
-          shp[0][0] = shp[0][1] = shp[0][2] = 0, shp[0][3] = shp[0][5] = 16, shp[0][4] = LIQH[lv];
-          nbx = 1;
-        } else if (m == M_LADDER || m == M_VINE || m == M_FENCE || m == M_PANE || m == M_DOOR)
-          nbx = block_boxes(b, x + vc_x0, y + vc_y0, z + vc_z0, shp);   /* (shaped by what is around) */
-        else nbx = blk_nbox[b], bxs = blk_box[b];
-        Hit h = {0}, hk;
-        h.t = 1e9f;
-        float dd[3] = {dx, dy, dz}, iv[3] = {ivx, ivy, ivz}, tl = fminf(fminf(tx, ty), tz) - t;   /* (the rest of the cell) */
-        for (int k = 0; k < nbx; k++)
-          if (hit_box(bxs[k], lx, ly, lz, dd, iv, tl + 1e-4f, &hk) && hk.t < h.t) h = hk;
-        if (h.t < 1e9f) {
-          int r, g, bb;
-          int tex = face_tex(b, h.face, x, y, z);
-          if (m == M_BED && h.face == 1) {
-            /* the bed's top turned so the pillow is at its head */
-            int w = bed_way(b, x, y, z), u = h.u, v = h.v;
-            if (w == 3) h.u = 15 - u, h.v = 15 - v;
-            else if (w == 5) h.u = v, h.v = 15 - u;
-            else if (w == 4) h.u = 15 - v, h.v = u;
-          }
-          if (texel_rgb(b, tex, h.u, h.v, col, &r, &g, &bb) == 0) {
-            /* (a face inside the cell is lit by the cell's light, one on its side by the cell in front) */
-            int lt = vl[m == M_LIQUID || m == M_TORCH || h.t > 0 ? i : came_from(i, face, x, y, z)];
-            uint16_t c = lit(r, g, bb, h.face, lt, (t + h.t) * len);
-            if (!wa && one_box(b) && i != cam_i) {
-              /* a face of a block of one box (slab, snow layer...): the pixels between can find it too */
-              int a = h.face >> 1, k = a == 0 ? 1 : a == 1 ? 2 : 0;
-              hit_kind = 1, hit_f = h.face, hit_i = i, hit_l = lt;
-              hit_p = (a == 0 ? y : a == 1 ? z : x) * 16 + bxs[0][k + ((h.face & 1) ? 3 : 0)];
-            }
-            if (m == M_LIQUID && !wa) {
-              /* water: see through it (lava is opaque) */
-              if (is_water(b)) {
-                wr = r5(c), wg = g6(c), wb = b5(c), wa = 150;
-                inside = b;
-                hit_w = h.face == 1 ? y * 16 + shp[0][4] : -1;
-                goto next;
-              }
-            }
-            if (wa) c = pack((r5(c) * (256 - wa) + wr * wa) >> 8, (g6(c) * (256 - wa) + wg * wa) >> 8,
-                             (b5(c) * (256 - wa) + wb * wa) >> 8);
-            last_t = t + h.t;
-            return c;
-          }
-        }
+    if (b != B_AIR && !(blk_model[b] == M_LIQUID && (is_water(b) ? is_water(R.inside) : is_lava(R.inside)))) {
+      float te = fminf(fminf(tx, ty), tz);
+      /* (over a low shape the whole way through its cell: nothing there) */
+      if (shape_top[b] >= 16 || oy + dy * (dy > 0 ? t : te) - y <= shape_top[b] * (1 / 16.0f)) {
+        int c = cell_hit(&R, b, i, x, y, z, face, t, te - t);
+        if (c >= 0) return (uint16_t)c;
       }
     }
-  next:;
     int reg = fresh ? vmac[mi] : 1;
-    if (!reg || (reg == 2 && is_water(inside))) {
+    if (!reg || (reg == 2 && is_water(R.inside))) {
       /* an empty 4 x 4 x 4 region (or all water, seen from in the water): jump to where the ray leaves it */
       ST(st_jumps++);
       float ex = ((x & ~3) + (bx ? 4 : 0) - ox) * ivx, ey = ((y & ~3) + (by ? 4 : 0) - oy) * ivy,
@@ -536,8 +567,9 @@ static uint16_t trace(float dx, float dy, float dz) {
     if (t > tmax) break;
   }
   uint16_t c = sky(dx, dy, dz, len);
+  int wa = R.wa;
   if (!wa) hit_kind = 2;
-  if (wa) c = pack((r5(c) * (256 - wa) + wr * wa) >> 8, (g6(c) * (256 - wa) + wg * wa) >> 8, (b5(c) * (256 - wa) + wb * wa) >> 8);
+  if (wa) c = pack((r5(c) * (256 - wa) + R.wr * wa) >> 8, (g6(c) * (256 - wa) + R.wg * wa) >> 8, (b5(c) * (256 - wa) + R.wb * wa) >> 8);
   return c;
 }
 
@@ -610,16 +642,21 @@ typedef struct {
   int16_t w;      /* (kind 4) the water's top plane, sixteenths */
   uint16_t cell;  /* (kinds 1, 3) the cell met */
   uint8_t x, y, z, light;   /* (kind 1) the cell's place and the face's light */
+  /* (kind 1) what the face's pixels need: its texture, its tint (the biome's), the shade its light
+   * gives, and: 1 nothing stands in front, 2 a whole block (cracks show), 4 Fast leaves (holes black) */
+  uint16_t tex, tint;
+  uint8_t shade, flags;
   float t;
 } Sample;
-static Sample rows[3][RW / 2 + 1];
+/* (the ray of picture column px across: rgx, rgz times this, on top of the row's base) */
+static float col_su[RW + 1];
 
 /* a pixel between samples that all met the same face of the same block: that face there */
 static int face_cell(float dx, float dy, float dz, const Sample *s) {
+  if (!(s->flags & 1)) return -1;   /* something in front the samples went past (grass): trace */
   int f = s->f, a = f >> 1;
   float t = (s->plane * (1 / 16.0f) - (a == 0 ? oy : a == 1 ? oz : ox)) / (a == 0 ? dy : a == 1 ? dz : dx);
-  int x = s->x, y = s->y, z = s->z;
-  float lx = ox + dx * t - x, ly = oy + dy * t - y, lz = oz + dz * t - z;
+  float lx = ox + dx * t - s->x, ly = oy + dy * t - s->y, lz = oz + dz * t - s->z;
   int u, v;
   switch (f) {
     case 0: case 1: u = (int)(lx * 16); v = (int)(lz * 16); break;
@@ -629,19 +666,27 @@ static int face_cell(float dx, float dy, float dz, const Sample *s) {
     default: u = 15 - (int)(lz * 16); v = 15 - (int)(ly * 16); break;
   }
   if ((unsigned)u > 15 || (unsigned)v > 15) return -1;
-  int i = s->cell, b = vc[i], m = blk_model[b];
-  if (!(s->plane & 15)) {
-    /* a face on the cell's side: anything in front (grass) that the samples went past shows */
-    int fb = vc[came_from(i, f, x, y, z)];
-    if (fb != B_AIR && !(is_water(fb) && is_water(cam_b))) return -1;
+  int tex = s->tex, tx = texel(tex, u, v), fl = tex_flags[tex];
+  uint16_t c;
+  if (!tx && (fl & 0x20)) {
+    if (!(s->flags & 4)) return -1;
+    c = 0;   /* (Fast leaves: black) */
+  } else {
+    c = tex_pal[tex][tx];
+    if (tx >= (fl & 0x1F)) {
+      uint16_t k = s->tint;
+      c = pack(r5(c) * r5(k) >> 8, g6(c) * g6(k) >> 8, b5(c) * b5(k) >> 8);
+    }
+    if (s->flags & 2) c = (uint16_t)cracked(c, s->cell, u, v);
   }
-  int tc = texel565(b, blk_front[b] ? face_tex(b, f, x, y, z) : blk_tex[b][f], u, v, z * VCX + x);
-  if (tc < 0 && m == M_LEAVES && !opt.fancy) tc = 0;
-  if (tc < 0) return -1;
-  if (m == M_CUBE || m == M_LEAVES || m == M_GLASS) tc = cracked(tc, i, u, v);
   last_t = t;
+  c = shade565(c, s->shade);
   float d2 = t * t * (dx * dx + dy * dy + dz * dz);
-  return lit565((uint16_t)tc, f, s->light, d2 > fog0 * fog0 ? sqrtf(d2) : 0);
+  if (d2 > fog0 * fog0) {
+    float dist = sqrtf(d2);
+    c = mix565(c, fog565, dist >= fog1 ? 32 : (int)((dist - fog0) * fog_k * 32));
+  }
+  return c;
 }
 
 /* a pixel between samples that all saw faces of the same plane through the
@@ -668,23 +713,35 @@ static int water_pixel(float dx, float dy, float dz, int wplane, int plane, int 
 }
 
 
-static void sample_row(Sample *s, int py) {
+/* trace picture pixel (px, py) as a sample */
+static void sample_at(Sample *s, int px, int py) {
   float sv = (1 - 2 * (py + 0.5f) / RH) * TAN_V;
-  float bx = fwx + upx * sv, by = fwy + upy * sv, bz = fwz + upz * sv;
-  for (int k = 0; k <= RW / 2; k++) {
-    float su = (2 * (2 * k + 0.5f) / RW - 1) * TAN_H;
-    s[k].c = trace(bx + rgx * su, by, bz + rgz * su);
-    s[k].kind = (uint8_t)hit_kind;
-    s[k].f = (uint8_t)hit_f;
-    s[k].plane = (int16_t)hit_p;
-    s[k].cell = (uint16_t)hit_i;
-    if (hit_kind == 1) {
-      s[k].x = (uint8_t)(hit_i % VCX), s[k].z = (uint8_t)(hit_i / VCX % VCZ), s[k].y = (uint8_t)(hit_i / (VCX * VCZ));
-      s[k].light = (uint8_t)hit_l;
+  float bx = fwx + upx * sv, by = fwy + upy * sv, bz = fwz + upz * sv, su = col_su[px];
+  s->c = trace(bx + rgx * su, by, bz + rgz * su);
+  s->kind = (uint8_t)hit_kind;
+  s->f = (uint8_t)hit_f;
+  s->plane = (int16_t)hit_p;
+  s->cell = (uint16_t)hit_i;
+  if (hit_kind == 1) {
+    int x = hit_i % VCX, z = hit_i / VCX % VCZ, y = hit_i / (VCX * VCZ), b = vc[hit_i], m = blk_model[b], f = hit_f;
+    s->x = (uint8_t)x, s->z = (uint8_t)z, s->y = (uint8_t)y;
+    s->light = (uint8_t)hit_l;
+    s->tex = (uint16_t)(blk_front[b] ? face_tex(b, f, x, y, z) : blk_tex[b][f]);
+    s->tint = tint_of(b, z * VCX + x);
+    static const uint8_t side[6] = {3, 0, 1, 1, 2, 2};
+    s->shade = (uint8_t)light_shade(side[f], hit_l);
+    int flags = 0;
+    if (hit_p & 15) flags |= 1;   /* (inside its cell: nothing else there) */
+    else {
+      int fb = vc[came_from(hit_i, f, x, y, z)];
+      if (fb == B_AIR || (is_water(fb) && is_water(cam_b))) flags |= 1;
     }
-    s[k].w = (int16_t)hit_w;
-    s[k].t = last_t;
+    if (m == M_CUBE || m == M_LEAVES || m == M_GLASS) flags |= 2;
+    if (m == M_LEAVES && !opt.fancy) flags |= 4;
+    s->flags = (uint8_t)flags;
   }
+  s->w = (int16_t)hit_w;
+  s->t = last_t;
 }
 
 static inline bool same(const Sample *a, const Sample *b) {
@@ -699,27 +756,18 @@ static inline bool same(const Sample *a, const Sample *b) {
 }
 
 /* the pixel (px, py) knowing the samples around it agree (a, b) or not */
-/* (the ray of picture column px across: rgx, rgz times this, on top of the row's base) */
-static float col_su[RW];
-static uint16_t between(const float *row, int px, const Sample *a, const Sample *b, const Sample *c, const Sample *d) {
-  float su = col_su[px], dx = row[0] + rgx * su, dy = row[1], dz = row[2] + rgz * su;
-#ifdef FULL_TRACE
-  return trace(dx, dy, dz);   /* the reference picture, for the tests */
-#endif
-  bool agree = same(a, b) && (!c || (same(a, c) && same(a, d)));
-  ST(agree ? 0 : st_dis++);
-  ST(agree && a->kind == 0 ? st_k0++ : 0);
-  if (agree && a->kind == 1) {
-    bool one = a->cell == b->cell && (!c || (a->cell == c->cell && a->cell == d->cell));
+/* the pixel of ray (dx, dy, dz) between samples that agree (one: they met the same cell) */
+static uint16_t agreed(float dx, float dy, float dz, const Sample *a, bool one) {
+  if (a->kind == 1) {
     int r = one ? face_cell(dx, dy, dz, a) : face_pixel(dx, dy, dz, a->plane, a->f, is_water(cam_b));
     if (r >= 0) return ST(st_fpok++), (uint16_t)r;
     ST(st_fpfail++);
   }
-  if (agree && a->kind == 4) {
+  if (a->kind == 4) {
     int r = water_pixel(dx, dy, dz, a->w, a->plane, a->f);
     if (r >= 0) return ST(st_wok++), (uint16_t)r;
   }
-  if (agree && a->kind == 3) {
+  if (a->kind == 3) {
     /* the same plant: its two planes, from the camera */
     int i = a->cell, x = i % VCX, z = i / VCX % VCZ, y = i / (VCX * VCZ), b = vc[i];
     Hit h;
@@ -731,8 +779,29 @@ static uint16_t between(const float *row, int px, const Sample *a, const Sample 
     }
   }
   last_t = 1e9f;
-  if (agree && a->kind == 2) return ST(st_sky++), sky(dx, dy, dz, sqrtf(dx * dx + dy * dy + dz * dz));
+  if (a->kind == 2) return ST(st_sky++), sky(dx, dy, dz, sqrtf(dx * dx + dy * dy + dz * dz));
   return trace(dx, dy, dz);
+}
+
+static uint16_t between(const float *row, int px, const Sample *a, const Sample *b, const Sample *c, const Sample *d) {
+  float su = col_su[px], dx = row[0] + rgx * su, dy = row[1], dz = row[2] + rgz * su;
+#ifdef FULL_TRACE
+  return trace(dx, dy, dz);   /* the reference picture, for the tests */
+#endif
+  bool agree = same(a, b) && (!c || (same(a, c) && same(a, d)));
+  ST(agree ? 0 : st_dis++);
+  ST(agree && a->kind == 0 ? st_k0++ : 0);
+  if (!agree) return last_t = 1e9f, trace(dx, dy, dz);
+  return agreed(dx, dy, dz, a, a->cell == b->cell && (!c || (a->cell == c->cell && a->cell == d->cell)));
+}
+
+/* the 2 x 2 pixels from (x, r) of the strip, corners tl tr bl br traced (tl is the first) */
+static void quad(uint16_t (*cb)[RW], float (*zb)[RW], float (*rb)[3], int r, int x, const Sample *tl, const Sample *tr,
+                 const Sample *bl, const Sample *br) {
+  cb[r][x] = tl->c, zb[r][x] = tl->t;
+  cb[r][x + 1] = between(rb[r], x + 1, tl, tr, NULL, NULL), zb[r][x + 1] = last_t;
+  cb[r + 1][x] = between(rb[r + 1], x, tl, bl, NULL, NULL), zb[r + 1][x] = last_t;
+  cb[r + 1][x + 1] = between(rb[r + 1], x + 1, tl, tr, bl, br), zb[r + 1][x + 1] = last_t;
 }
 
 /* ---------------------------------------------------------------- entities
@@ -1696,45 +1765,75 @@ void render_frame(const Camera *c, uint32_t tod) {
   bolt_frame();
   line_frame();
   select_frame();
-  /* every other pixel of every other row is traced; the others come from
-   * their neighbours when those met the same face (or the sky) */
-  Sample *top = rows[0], *mid = rows[1], *bot = rows[2];
-  for (int px = 0; px < RW; px++) col_su[px] = (2 * (px + 0.5f) / RW - 1) * TAN_H;
-  sample_row(top, 0);
+  /* The picture in 4 x 4 cells: their corners and middles are traced. A cell whose corners
+   * and middle met the same thing (a face, the sky, a plant) is drawn from them; any other is
+   * cut in four of 2 x 2, the points between traced as needed (once, for both sides) */
+  for (int px = 0; px <= RW; px++) col_su[px] = (2 * (px + 0.5f) / RW - 1) * TAN_H;
+  static bool tops;
+  if (!tops) shape_tops(), tops = true;
+  enum { NC = RW / 4 };
+  static Sample cn[2][NC + 1], ed[2][NC + 1], md[2 * NC + 1];   /* corners, edges' middles, the middle row */
+  static uint8_t ed_ok[2][NC + 1], md_ok[2 * NC + 1];
+  Sample *ct = cn[0], *cbt = cn[1], *et = ed[0], *eb = ed[1];
+  uint8_t *et_ok = ed_ok[0], *eb_ok = ed_ok[1];
+  for (int k = 0; k <= NC; k++) sample_at(&ct[k], 4 * k, 0);
+  memset(et_ok, 0, NC + 1);
   for (int py = 0; py < RH; py += SR) {
-    for (int r = 0; r < SR; r += 2) {
-      int y = py + r;
-      sample_row(bot, y + 2);
-      uint16_t *c0 = cbuf[r], *c1 = cbuf[r + 1];
-      float *z0 = zbuf[r], *z1 = zbuf[r + 1];
-      /* the rays' bases for the two rows (the forward and up parts) */
-      float sv0 = (1 - 2 * (y + 0.5f) / RH) * TAN_V, sv1 = (1 - 2 * (y + 1.5f) / RH) * TAN_V;
-      float r0[3] = {fwx + upx * sv0, fwy + upy * sv0, fwz + upz * sv0}, r1[3] = {fwx + upx * sv1, fwy + upy * sv1, fwz + upz * sv1};
-      for (int k = 0; k < RW / 2; k++) {
-        int x = 2 * k;
-        c0[x] = top[k].c;
-        z0[x] = top[k].t;
-        c0[x + 1] = between(r0, x + 1, &top[k], &top[k + 1], NULL, NULL);
-        z0[x + 1] = last_t;
-        c1[x] = between(r1, x, &top[k], &bot[k], NULL, NULL);
-        z1[x] = last_t;
-        c1[x + 1] = between(r1, x + 1, &top[k], &top[k + 1], &bot[k], &bot[k + 1]);
-        z1[x + 1] = last_t;
-      }
-      Sample *t = top;
-      top = bot;
-      bot = t;
+    for (int k = 0; k <= NC; k++) sample_at(&cbt[k], 4 * k, py + 4);
+    memset(eb_ok, 0, NC + 1);
+    memset(md_ok, 0, sizeof md_ok);
+    for (int k = 0; k < NC; k++) sample_at(&md[2 * k + 1], 4 * k + 2, py + 2), md_ok[2 * k + 1] = 1;
+    /* the rays' bases for the strip's rows (the forward and up parts) */
+    float rb[SR][3];
+    for (int r = 0; r < SR; r++) {
+      float sv = (1 - 2 * (py + r + 0.5f) / RH) * TAN_V;
+      rb[r][0] = fwx + upx * sv, rb[r][1] = fwy + upy * sv, rb[r][2] = fwz + upz * sv;
     }
+    for (int k = 0; k < NC; k++) {
+      int x0 = 4 * k;
+      const Sample *a = &ct[k], *b = &ct[k + 1], *c = &cbt[k], *d = &cbt[k + 1], *m = &md[2 * k + 1];
+      if (same(a, b) && same(a, c) && same(a, d) && same(a, m)) {
+        bool one = a->cell == b->cell && a->cell == c->cell && a->cell == d->cell && a->cell == m->cell;
+        (void)one;
+        for (int r = 0; r < SR; r++)
+          for (int x = x0; x < x0 + 4; x++) {
+            if (r == 0 && x == x0) cbuf[0][x] = a->c, zbuf[0][x] = a->t;
+            else if (r == 2 && x == x0 + 2) cbuf[2][x] = m->c, zbuf[2][x] = m->t;
+            else {
+#ifdef FULL_TRACE
+              cbuf[r][x] = between(rb[r], x, a, b, c, d);
+#else
+              float su = col_su[x];
+              cbuf[r][x] = agreed(rb[r][0] + rgx * su, rb[r][1], rb[r][2] + rgz * su, a, one);
+#endif
+              zbuf[r][x] = last_t;
+            }
+          }
+        continue;
+      }
+      if (!et_ok[k]) sample_at(&et[k], x0 + 2, py), et_ok[k] = 1;
+      if (!md_ok[2 * k]) sample_at(&md[2 * k], x0, py + 2), md_ok[2 * k] = 1;
+      if (!md_ok[2 * k + 2]) sample_at(&md[2 * k + 2], x0 + 4, py + 2), md_ok[2 * k + 2] = 1;
+      if (!eb_ok[k]) sample_at(&eb[k], x0 + 2, py + 4), eb_ok[k] = 1;
+      quad(cbuf, zbuf, rb, 0, x0, a, &et[k], &md[2 * k], m);
+      quad(cbuf, zbuf, rb, 0, x0 + 2, &et[k], b, m, &md[2 * k + 2]);
+      quad(cbuf, zbuf, rb, 2, x0, &md[2 * k], m, c, &eb[k]);
+      quad(cbuf, zbuf, rb, 2, x0 + 2, m, &md[2 * k + 2], &eb[k], d);
+    }
+    Sample *ts = ct;
+    ct = cbt, cbt = ts;
+    ts = et, et = eb, eb = ts;
+    uint8_t *to = et_ok;
+    et_ok = eb_ok, eb_ok = to;
     ents_strip(py, SR, cbuf, zbuf);
     /* 2 x 2 screen pixels each */
     for (int r = 0; r < SR; r++) {
-      uint16_t *d = strip + r * 2 * SCREEN_W;
+      /* (a word a picture pixel: the C library's memcpy here goes a byte at a time) */
+      uint32_t *d = (uint32_t *)(strip + r * 2 * SCREEN_W), *d2 = d + SCREEN_W / 2;
       const uint16_t *c = cbuf[r];
-      for (int x = 0; x < RW; x++) d[2 * x] = d[2 * x + 1] = c[x];
-      memcpy(d + SCREEN_W, d, SCREEN_W * 2);
+      for (int x = 0; x < RW; x++) d[x] = d2[x] = c[x] * 0x10001u;
     }
     hud_strip(strip, py * 2, SR * 2);
     plat_push(0, py * 2, SCREEN_W, SR * 2, strip);
   }
-  (void)mid;
 }

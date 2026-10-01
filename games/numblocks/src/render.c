@@ -728,22 +728,19 @@ typedef struct {
 /* (the ray of picture column px across: rgx, rgz times this, on top of the row's base) */
 static float col_su[RW + 1];
 
-/* A 4 x 4 cell of daytime sky. A row of it where the sun and the moon cannot be (the brighter
- * of its ends too far from them) is one colour of the sky's gradient (packed once a frame,
- * sky_pk) where the gradient is the same at its ends (and in its middle, if it is the
- * highest there), unless a cloud is in front */
+/* A 4 x 4 cell of daytime sky. Along a row of it where the sun and the moon cannot be (the
+ * brighter of its ends too far from them) the sky's gradient goes from what it is at one end to
+ * what it is at the other (worked out there, the rest in between: it bends little over 4
+ * pixels), its colours packed once a frame (sky_pk); only a pixel with a cloud in front is
+ * worked out on its own */
 static uint16_t sky_pk[129];   /* (render_frame) */
-static inline int sky_gi(float dy, float l2) {
-  return dy <= 0 ? 0 : dy * dy >= 0.16f * l2 ? 128 : (int)(dy / sqrtf(l2) * 320);
-}
 static __attribute__((unused)) void sky_fill(uint16_t (*cb)[RW], float (*zb)[RW], float (*rb)[3], const SkyRow *skr, int x0) {
   float s0 = col_su[x0], s3 = col_su[x0 + 3], lo2 = fminf(s0 * s0, s3 * s3);
-  bool mid = s0 < 0 && s3 > 0;   /* (the gradient is highest where su is 0) */
+  bool mid = s0 < 0 && s3 > 0;   /* (the elevation is highest where su is 0: not between its ends) */
   for (int r = 0; r < SR; r++) {
     const SkyRow *k = &skr[r];
     float dy = k->dy, l2 = k->len2 + lo2;
-    int gi = sky_gi(dy, k->len2 + s0 * s0);
-    bool plain = !under_water && gi == sky_gi(dy, k->len2 + s3 * s3) && (!mid || gi == sky_gi(dy, k->len2));
+    bool plain = !under_water && !mid;
     if (plain && sun_a > 0) {
       float a = fabsf(k->sd0 + k->sds * s0), b = fabsf(k->sd0 + k->sds * s3), m = fmaxf(a, b);
       plain = m * m <= 0.81f * l2;
@@ -751,10 +748,17 @@ static __attribute__((unused)) void sky_fill(uint16_t (*cb)[RW], float (*zb)[RW]
     if (!plain) {
       for (int x = x0; x < x0 + 4; x++) cb[r][x] = sky_px(k, col_su[x], rb[r][2] + rgz * col_su[x]);
     } else {
-      uint16_t base = sky_pk[gi];
+      /* the gradient's place (320 a unit of elevation) at the row's ends, and its step a pixel */
+      float g0 = 0, gs = 0;
+      if (dy > 0) {
+        g0 = dy / sqrtf(k->len2 + s0 * s0) * 320;
+        gs = (dy / sqrtf(k->len2 + s3 * s3) * 320 - g0) * (1 / 3.0f);
+      }
       bool cloud = dy > 0.01f && k->ct > 0 && opt.clouds && k->ct * k->ct * l2 < 200 * 200;
-      for (int x = x0; x < x0 + 4; x++) {
-        uint16_t c = base;
+      for (int q = 0; q < 4; q++) {
+        int x = x0 + q;
+        float g = g0 + gs * q;
+        uint16_t c = sky_pk[g >= 128 ? 128 : (int)g];
         if (cloud) {
           float su = col_su[x];
           int ix = (int)floorf((k->cx0 + k->cxs * su) / 12) & 255, iz = (int)floorf((k->cz0 + k->czs * su) / 12) & 255;

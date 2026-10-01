@@ -501,8 +501,10 @@ static __attribute__((noinline)) int cell_hit(Ray *R, int b, int i, int x, int y
 /* the top of each block's shape, sixteenths (16: whole, or shaped by its place): a ray going
  * over a lower one (a snow layer, a slab) has nothing to meet in its cell */
 static uint8_t shape_top[B_COUNT];
+static uint8_t liquid[B_COUNT];   /* 1 water, 2 lava (a ray in one goes through more of it) */
 static void shape_tops(void) {
   for (int b = 0; b < B_COUNT; b++) {
+    liquid[b] = blk_model[b] != M_LIQUID ? 0 : is_water(b) ? 1 : is_lava(b) ? 2 : 0;
     int m = blk_model[b], top = 16;
     if (blk_nbox[b] && !(m == M_LIQUID || m == M_LADDER || m == M_VINE || m == M_FENCE || m == M_PANE || m == M_DOOR)) {
       top = 0;
@@ -542,6 +544,7 @@ static uint16_t trace(float dx, float dy, float dz) {
    * behind), except where the ray starts (-1) or comes out of a jump (jf, at t = tj) */
   float tj = 0;
   int jf = -1;
+  int in_liq = liquid[R.inside] ? liquid[R.inside] : 255;   /* (the liquid the ray is in: cells of it are skipped) */
   if (trace_top >= 0 && dy < 0) {
     /* start where the ray comes down through plane y = trace_top, in through the top of the cell below */
     float t0 = (trace_top - oy) * ivy;
@@ -556,11 +559,11 @@ static uint16_t trace(float dx, float dy, float dz) {
       }
     }
   }
-  if (!vmac[mi] || (vmac[mi] == 2 && is_water(R.inside))) goto jump;
+  if (!vmac[mi] || (vmac[mi] == 2 && in_liq == 1)) goto jump;
   for (;;) {
     ST(st_steps++);
     int b = vc[i];
-    if (b != B_AIR && !(blk_model[b] == M_LIQUID && (is_water(b) ? is_water(R.inside) : is_lava(R.inside)))) {
+    if (b != B_AIR && liquid[b] != in_liq) {
       float te = fminf(fminf(tx, ty), tz);
       /* (over a low shape the whole way through its cell: nothing there) */
       if (shape_top[b] >= 16 || oy + dy * (dy > 0 ? t : te) - y <= shape_top[b] * (1 / 16.0f)) {
@@ -568,6 +571,7 @@ static uint16_t trace(float dx, float dy, float dz) {
         int face = t == tj ? jf : px > py ? (px > pz ? fx : fz) : (py > pz ? fy : fz);
         int c = cell_hit(&R, b, i, x, y, z, face, t, te - t);
         if (c >= 0) return (uint16_t)c;
+        in_liq = liquid[R.inside] ? liquid[R.inside] : 255;   /* (it may have gone into water) */
       }
     }
     /* the next cell */
@@ -596,11 +600,11 @@ static uint16_t trace(float dx, float dy, float dz) {
       if ((z & 3) != ez0) goto next;
       mi += mz;
     }
-    if (!vmac[mi] || (vmac[mi] == 2 && is_water(R.inside))) {
+    if (!vmac[mi] || (vmac[mi] == 2 && in_liq == 1)) {
     jump:;
       /* an empty 4 x 4 x 4 region (or all water, seen from in the water): on from region to
        * region (the times the ray crosses their sides) while they are empty */
-      bool wet = is_water(R.inside);
+      bool wet = in_liq == 1;
       int rx = x >> 2, ry = y >> 2, rz = z >> 2, ax, reg;
       float ex = ((rx + bx) * 4 - ox) * ivx, ey = ((ry + by) * 4 - oy) * ivy, ez = ((rz + bz) * 4 - oz) * ivz, te;
       for (;;) {
@@ -722,10 +726,41 @@ typedef struct {
 /* (the ray of picture column px across: rgx, rgz times this, on top of the row's base) */
 static float col_su[RW + 1];
 
-/* a 4 x 4 cell of daytime sky */
+/* A 4 x 4 cell of daytime sky. A row of it where the sun and the moon cannot be (the brighter
+ * of its ends too far from them) and above the horizon's glow (or below the horizon) is one
+ * colour of the sky's (made once a frame, sky_base), unless a cloud is in front. */
+static uint16_t sky_base[2];   /* below the horizon, above its glow (render_frame) */
 static __attribute__((unused)) void sky_fill(uint16_t (*cb)[RW], float (*zb)[RW], float (*rb)[3], const SkyRow *skr, int x0) {
-  for (int r = 0; r < SR; r++)
-    for (int x = x0; x < x0 + 4; x++) cb[r][x] = sky_px(&skr[r], col_su[x], rb[r][2] + rgz * col_su[x]), zb[r][x] = 1e9f;
+  float s0 = col_su[x0], s3 = col_su[x0 + 3], lo2 = fminf(s0 * s0, s3 * s3), hi2 = fmaxf(s0 * s0, s3 * s3);
+  for (int r = 0; r < SR; r++) {
+    const SkyRow *k = &skr[r];
+    float dy = k->dy, l2 = k->len2 + lo2;
+    bool plain = !under_water && (dy <= 0 || dy * dy >= 0.16f * (k->len2 + hi2));
+    if (plain && sun_a > 0) {
+      float a = fabsf(k->sd0 + k->sds * s0), b = fabsf(k->sd0 + k->sds * s3), m = fmaxf(a, b);
+      plain = m * m <= 0.81f * l2;
+    }
+    if (!plain) {
+      for (int x = x0; x < x0 + 4; x++) cb[r][x] = sky_px(k, col_su[x], rb[r][2] + rgz * col_su[x]);
+    } else {
+      uint16_t base = sky_base[dy > 0];
+      bool cloud = dy > 0.01f && k->ct > 0 && opt.clouds && k->ct * k->ct * l2 < 200 * 200;
+      for (int x = x0; x < x0 + 4; x++) {
+        uint16_t c = base;
+        if (cloud) {
+          float su = col_su[x];
+          int ix = (int)floorf((k->cx0 + k->cxs * su) / 12) & 255, iz = (int)floorf((k->cz0 + k->czs * su) / 12) & 255;
+          extern const uint8_t clouds[256 * 256 / 8];
+          if (clouds[(iz * 256 + ix) >> 3] & (1 << (ix & 7))) {
+            float pl2 = k->len2 + su * su;
+            if (k->ct * k->ct * pl2 < 200 * 200) c = sky_px(k, su, rb[r][2] + rgz * su);
+          }
+        }
+        cb[r][x] = c;
+      }
+    }
+    for (int x = x0; x < x0 + 4; x++) zb[r][x] = 1e9f;
+  }
 }
 
 /* a pixel between samples that all met the same face of the same block: that face there */
@@ -1990,6 +2025,10 @@ void render_frame(const Camera *c, uint32_t tod) {
   static bool tops;
   if (!tops) shape_tops(), tops = true;
   bool fast_sky = sky_fast();
+  for (int k = 0; k < 2; k++) {
+    uint32_t gc = sky_grad[k ? 128 : 0];
+    sky_base[k] = pack((int)(gc >> 20), (int)(gc >> 10) & 1023, (int)gc & 1023);
+  }
   enum { NC = RW / 4 };
   static Sample cn[2][NC + 1], ed[2][NC + 1], md[2 * NC + 1];   /* corners, edges' middles, the middle row */
   static uint8_t ed_ok[2][NC + 1], md_ok[2 * NC + 1];

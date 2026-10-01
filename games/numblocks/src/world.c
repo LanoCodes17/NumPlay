@@ -154,7 +154,8 @@ static void mac_box(int x0, int y0, int z0, int x1, int y1, int z1) {
 /* the chunk (cx, cz), rows [ylo, yhi) of the cache, for the columns of the
  * cache inside it; columns the old cache had (keep) keep the rows it had
  * (old bottom oy) */
-static void fill_chunk(int cx, int cz, const bool *keep, int oy, int ylo, int yhi, bool air) {
+#define BIT(set, i) ((set)[(i) >> 3] >> ((i) & 7) & 1)
+static void fill_chunk(int cx, int cz, const uint8_t *keep, int oy, int ylo, int yhi, bool air) {
   int h = yhi - ylo;
   if (air) memset(slab, B_AIR, (size_t)h * 256);   /* (rows above all it generates: only the edits) */
   else gen_slab(cx, cz, vc_y0 + ylo, h, slab);
@@ -166,7 +167,7 @@ static void fill_chunk(int cx, int cz, const bool *keep, int oy, int ylo, int yh
       int lx = cx * 16 + x - vc_x0;
       if (lx < 0 || lx >= VCX) continue;
       int col = lz * VCX + lx;
-      bool old_col = keep && keep[col];
+      bool old_col = keep && BIT(keep, col);
       for (int y = ylo; y < yhi; y++) {
         /* cells the old cache had are kept (their content is the same) */
         if (old_col && y + vc_y0 - oy >= 0 && y + vc_y0 - oy < VCY) continue;
@@ -186,7 +187,7 @@ static void fill_chunk(int cx, int cz, const bool *keep, int oy, int ylo, int yh
   }
 }
 
-static bool kept[VCZ * VCX];   /* columns the old cache covered (moved, not generated) */
+static uint8_t kept[VCZ * VCX / 8];   /* columns the old cache covered (moved, not generated): a bit each */
 
 /* Chunks still to generate after a move: the one under the player is made
  * at once, the others one a frame (world_follow), nearest first. Until then
@@ -228,7 +229,8 @@ static void recenter(int nx0, int ny0, int nz0, int px, int pz) {
       for (int x = xs; x != xe; x += xi) {
         int sx = x + dx, sz = z + dz;
         bool in = sx >= 0 && sx < VCX && sz >= 0 && sz < VCZ;
-        kept[z * VCX + x] = in;
+        int col = z * VCX + x;
+        kept[col >> 3] = (uint8_t)((kept[col >> 3] & ~(1 << (col & 7))) | in << (col & 7));
         if (in) {
           vbiome[z * VCX + x] = vbiome[sz * VCX + sx];
           vtop[z * VCX + x] = vtop[sz * VCX + sx];
@@ -249,7 +251,7 @@ static void recenter(int nx0, int ny0, int nz0, int px, int pz) {
       for (int z = 0; z < 16 && !cols; z++)
         for (int x = 0; x < 16 && !cols; x++) {
           int lx = cx * 16 + x - vc_x0, lz = cz * 16 + z - vc_z0;
-          if (lx >= 0 && lx < VCX && lz >= 0 && lz < VCZ && !kept[lz * VCX + lx]) cols = true;
+          if (lx >= 0 && lx < VCX && lz >= 0 && lz < VCZ && !BIT(kept, lz * VCX + lx)) cols = true;
         }
       int ylo = 0, yhi = VCY;
       bool air = false;
@@ -283,7 +285,7 @@ static void recenter(int nx0, int ny0, int nz0, int px, int pz) {
           if (lx < 0 || lx >= VCX || lz < 0 || lz >= VCZ) continue;
           int col = lz * VCX + lx;
           vpend[col] = 1;
-          bool old_col = any && kept[col];
+          bool old_col = any && BIT(kept, col);
           for (int y = ylo; y < yhi; y++)
             if (!(old_col && y + vc_y0 - oy >= 0 && y + vc_y0 - oy < VCY)) vc[VC_I(lx, y, lz)] = B_AIR;
           if (!old_col) vtop[col] = 0, vbiome[col] = 1;

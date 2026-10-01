@@ -57,7 +57,7 @@ typedef struct {
   uint32_t bss_size;
   const np_shot_t *shots;
   uint8_t nshots;
-  const char *const *records;            /* save files, deleted on uninstall */
+  const char *const *records;            /* save files, deleted on uninstall (name*: all starting so) */
   const char *const *progress;           /* the ones Reset deletes (not levels made in an editor) */
   uint32_t est_size;                     /* code and data, for the simulator */
 } np_game_t;

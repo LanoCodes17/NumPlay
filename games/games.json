@@ -87,6 +87,29 @@
     "repo": "https://github.com/Mason363/NumPlay/tree/main/games/buckshot"
   },
   {
+    "id": "numblocks",
+    "title": "NumBlocks",
+    "tagline": "Mine, craft, survive",
+    "credit": "Inspired by Minecraft, not affiliated with Mojang",
+    "top": "0x5D9C3A",
+    "bottom": "0x2E2116",
+    "accent": "0x7FCC4A",
+    "records": [
+      "numblocks.cfg",
+      "nb1.nbw",
+      "nb1r*"
+    ],
+    "reset": [
+      "nb1.nbw",
+      "nb1r*"
+    ],
+    "shots": [
+      "docs/shot.png"
+    ],
+    "app": "NumBlocks.nwa",
+    "repo": "https://github.com/Mason363/NumPlay/tree/main/games/numblocks"
+  },
+  {
     "id": "portal",
     "title": "Portal Returns",
     "tagline": "Think with portals",

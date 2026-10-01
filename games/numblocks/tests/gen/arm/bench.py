@@ -2,37 +2,46 @@
 """Builds bench.c + gen.c for the Cortex-M7 (-Os, hard float) and runs it in Unicorn,
 counting instructions per gen_slab call (1 instruction ~ 1 cycle at 216 MHz, the same
 convention as tools/emu.py). Also reports the deepest stack use (painted stack).
-Usage: bench.py [OUTDIR]"""
+Usage: bench.py [OUTDIR] [--side N] [--no-spawn] [--profile]"""
 import os
 import subprocess
 import sys
 
 from elftools.elf.elffile import ELFFile
 from unicorn import UC_ARCH_ARM, UC_MODE_MCLASS, UC_MODE_THUMB, Uc
-from unicorn.arm_const import UC_ARM_REG_PC, UC_ARM_REG_SP
+from unicorn.arm_const import UC_ARM_REG_LR, UC_ARM_REG_PC, UC_ARM_REG_SP
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "..", "..", "src")
-OUT = sys.argv[1] if len(sys.argv) > 1 else "/tmp"
+args = [a for a in sys.argv[1:] if not a.startswith("--")]
+OUT = args[0] if args else "/tmp"
+SIDE = int(sys.argv[sys.argv.index("--side") + 1]) if "--side" in sys.argv else 4
+if "--side" in sys.argv:
+    args = [a for a in args if a != str(SIDE)]
+NO_SPAWN = "--no-spawn" in sys.argv
+PROFILE = "--profile" in sys.argv
 ELF = os.path.join(OUT, "gen_bench.elf")
 CFLAGS = ["-mcpu=cortex-m7", "-mfpu=fpv5-sp-d16", "-mfloat-abi=hard", "-mthumb", "-Os", "-std=c11",
-          "-Wall", "-Wextra", "-Wdouble-promotion", "-ffunction-sections", "-fdata-sections"]
+          "-Wall", "-Wextra", "-Wdouble-promotion", "-ffunction-sections", "-fdata-sections", "-g"]
 subprocess.check_call(["arm-none-eabi-gcc", *CFLAGS, "-nostartfiles", "--specs=nano.specs", "--specs=nosys.specs",
                        "-T", os.path.join(HERE, "bench.ld"), "-Wl,--gc-sections",
-                       os.path.join(HERE, "bench.c"), os.path.join(SRC, "gen.c"), "-lm", "-o", ELF])
+                       os.path.join(HERE, "bench.c"), os.path.join(SRC, "gen.c"), "-lm", "-o", ELF,
+                       f"-DNSIDE={SIDE}"] + (["-DNO_SPAWN"] if NO_SPAWN else []))
 subprocess.call(["arm-none-eabi-size", ELF])
 
 syms = {}
+funcs = []
 with open(ELF, "rb") as f:
     elf = ELFFile(f)
     for s in elf.get_section_by_name(".symtab").iter_symbols():
         syms[s.name] = s["st_value"]
+        if s["st_info"]["type"] == "STT_FUNC" and s["st_size"]:
+            funcs.append((s["st_value"] & ~1, s["st_size"], s.name))
     segs = [(p["p_paddr"], p.data()) for p in elf.iter_segments() if p["p_type"] == "PT_LOAD"]
 
 uc = Uc(UC_ARCH_ARM, UC_MODE_THUMB | UC_MODE_MCLASS)
 uc.mem_map(0x08000000, 1 << 20)
 uc.mem_map(0x20000000, 512 << 10)
-uc.mem_map(0xE0000000, 1 << 20)
 for addr, data in segs:
     uc.mem_write(addr, data)
 STACK_TOP = 0x20000000 + (512 << 10)
@@ -43,15 +52,30 @@ sp = int.from_bytes(vec[0:4], "little")
 pc = int.from_bytes(vec[4:8], "little")
 uc.reg_write(UC_ARM_REG_SP, sp)
 
-CHUNK = 21600  # 0.1 ms
+CHUNK = 21600 if not PROFILE else 997  # 0.1 ms (prime-ish when sampling)
+samples = {}
+lrs = {}
 insns = 0
 marks = []
 last_phase = 0
 phase_addr = syms["phase"]
 while True:
-    uc.emu_start(pc | 1, 0xFFFFFFFF, count=CHUNK)
+    try:
+        uc.emu_start(pc | 1, 0xFFFFFFFF, count=CHUNK)
+    except Exception as e:
+        p = uc.reg_read(UC_ARM_REG_PC)
+        if uc.mem_read(p & ~1, 2) == b"\x00\xbe":  # bkpt: done
+            ph = int.from_bytes(uc.mem_read(phase_addr, 4), "little")
+            if ph != last_phase:
+                marks.append((ph, insns))
+            break
+        print(f"fault {e} at pc {p:#x} after ~{insns} insns", file=sys.stderr)
+        raise
     insns += CHUNK
     pc = uc.reg_read(UC_ARM_REG_PC)
+    if PROFILE:
+        samples[pc & ~1] = samples.get(pc & ~1, 0) + 1
+        lrs[pc & ~1] = uc.reg_read(UC_ARM_REG_LR) & ~1
     ph = int.from_bytes(uc.mem_read(phase_addr, 4), "little")
     if ph != last_phase:
         marks.append((ph, insns))
@@ -63,7 +87,7 @@ while True:
         break
 
 prev = 0
-names = ["gen_init"] + [f"gen_slab 0..128 #{i}" for i in range(16)] + ["gen_slab 32..64", "gen_spawn"]
+names = ["gen_init"] + [f"gen_slab 0..128 #{i}" for i in range(SIDE * SIDE)] + ["gen_slab 32..64", "gen_spawn"]
 slabs = []
 for i, (ph, n) in enumerate(marks):
     d = n - prev
@@ -79,5 +103,33 @@ used = PAINT - next(i for i in range(PAINT) if st[i] != 0xA5)
 print(f"deepest stack: {used} bytes")
 sums = uc.mem_read(syms["sums"], 64)
 print("checksums:", " ".join(f"{int.from_bytes(sums[i:i + 4], 'little'):08x}" for i in range(0, 64, 4)))
-sp3 = uc.mem_read(syms["spawn"], 12)
-print("spawn:", [int.from_bytes(sp3[i:i + 4], "little", signed=True) for i in range(0, 12, 4)])
+if not NO_SPAWN:
+    sp3 = uc.mem_read(syms["spawn"], 12)
+    print("spawn:", [int.from_bytes(sp3[i:i + 4], "little", signed=True) for i in range(0, 12, 4)])
+
+if PROFILE:
+    import bisect
+    funcs.sort()
+    starts = [f[0] for f in funcs]
+    per = {}
+    total = sum(samples.values())
+    for a, n in samples.items():
+        i = bisect.bisect_right(starts, a) - 1
+        name = funcs[i][2] if i >= 0 and a < funcs[i][0] + funcs[i][1] else f"{a:#x}"
+        per[name] = per.get(name, 0) + n
+    for name, n in sorted(per.items(), key=lambda t: -t[1])[:40]:
+        print(f"{100 * n / total:6.2f}%  {name}")
+    # helpers (libgcc): attribute to the caller's source line through lr
+    helper = {}
+    for a, n in samples.items():
+        i = bisect.bisect_right(starts, a) - 1
+        if i >= 0 and funcs[i][2].startswith("__"):
+            helper[lrs[a]] = helper.get(lrs[a], 0) + n
+    top = sorted(helper.items(), key=lambda t: -t[1])[:25]
+    if top:
+        out = subprocess.run(["arm-none-eabi-addr2line", "-f", "-i", "-e", ELF] + [hex(a - 2) for a, _ in top],
+                             capture_output=True, text=True).stdout.split("\n")
+        print("libgcc helper time by call site:")
+        for k, (a, n) in enumerate(top):
+            print(f"{100 * n / total:6.2f}%  {a:#x}")
+        print("\n".join(out))

@@ -5,11 +5,49 @@
 #include "np.h"
 #include "../../games/common/epsilon_files.h"
 
-bool np_storage_delete(const char *name) { return ef_remove(name); }
+/* A name ending with '*' stands for every record that starts with the rest
+ * (a game that keeps its world in many records, like NumBlocks). */
+static int prefix_len(const char *name) {
+  int n = (int)strlen(name);
+  return n > 0 && name[n - 1] == '*' ? n - 1 : -1;
+}
+
+/* the name of the first record starting with `p` (n bytes) into out, false if none */
+static bool first_with_prefix(const char *p, int n, char *out, uint32_t size) {
+  ef_fs_t fs;
+  if (!ef_open(&fs)) return false;
+  int end = ef_end(&fs);
+  for (uint32_t at = 0; end >= 0 && (int)at < end; at += ef_rd16(fs.buf + at)) {
+    const char *r = (const char *)fs.buf + at + 2;
+    if (strncmp(r, p, (size_t)n)) continue;
+    uint32_t k = 0;
+    while (r[k] && k < size - 1) out[k] = r[k], k++;
+    out[k] = 0;
+    return true;
+  }
+  return false;
+}
+
+bool np_storage_delete(const char *name) {
+  int n = prefix_len(name);
+  if (n < 0) return ef_remove(name);
+  char rec[64];
+  while (first_with_prefix(name, n, rec, sizeof rec))
+    if (!ef_remove(rec)) return false;
+  return true;
+}
 
 uint32_t np_storage_record_size(const char *name) {
   uint32_t len = 0;
-  return ef_read(name, &len) ? len : 0;
+  if (prefix_len(name) < 0) return ef_read(name, &len) ? len : 0;
+  /* every record with the prefix */
+  ef_fs_t fs;
+  if (!ef_open(&fs)) return 0;
+  int end = ef_end(&fs), n = prefix_len(name);
+  uint32_t total = 0;
+  for (uint32_t at = 0; end >= 0 && (int)at < end; at += ef_rd16(fs.buf + at))
+    if (!strncmp((const char *)fs.buf + at + 2, name, (size_t)n)) total += ef_rd16(fs.buf + at);
+  return total;
 }
 
 bool np_reset_game(int game) {

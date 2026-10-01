@@ -101,6 +101,11 @@ GAMES = {
     "championisland": ("ChampionIsland.nwa", "champion.sav",
                        presses((2000, "up", 1500)) + every(4000, 9000, 700, "ok"), 11000,
                        presses((2000, "up", 400)), 4000),
+    # Singleplayer, Create New World (Survival, a random seed), walk; then Play Selected World
+    "numblocks": ("NumBlocks.nwa", "nb1.nbw",
+                  presses((3000, "ok"), (3600, "ok"), (4200, "down"), (4500, "down"), (4800, "ok"),
+                          (7500, "ln", 1500)), 11000,
+                  presses((3000, "ok"), (3600, "ok")), 8000),
     # a level, its message, then play; then back to the level select
     "portal": ("PortalReturns.nwa", "portal.sav",
                presses((1500, "ok"), (2500, "ok"), (3500, "ok")) + every(4000, 7000, 400, "right", 300), 8000,
@@ -160,6 +165,9 @@ CHECKS = {
     "minesweeper": (lambda v: len(v) == 276 and v[:2] == b"M\1" and v[32:34] == bytes([9, 9]) and v[28] == 10
                     and v[34] == 5 and struct.unpack_from("<H", v, 14)[0] == 1,
                     lambda v: v[32] == 9 and struct.unpack_from("<H", v, 14)[0] == 2),
+    # the world's record: its magic, then (offset 16) the time of day, which goes on from one session to the next
+    "numblocks": (lambda v: v[:4] == b"NBW1" and struct.unpack_from("<I", v, 16)[0] > 0,
+                  lambda v: v[:4] == b"NBW1" and struct.unpack_from("<I", v, 16)[0] > 60),
     "breakout": (lambda v: len(v) == 12 and v[:2] == b"B\2" and v[4] == 1 and struct.unpack_from("<I", v, 8)[0] >= 10,
                  lambda v: v[4] == 0 and struct.unpack_from("<I", v, 8)[0] >= 1),  # best kept, shake off
 }

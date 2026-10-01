@@ -22,6 +22,8 @@ static float ox, oy, oz;           /* camera, cache coordinates */
 static float fwx, fwy, fwz, rgx, rgz, upx, upy, upz;
 static float fog0, fog1;           /* fog start and end (blocks) */
 static int fog_r, fog_g, fog_b, sky_r, sky_g, sky_b;   /* 0..255 */
+static uint32_t sky_grad[129];   /* the horizon to the sky, by elevation 0..0.4 (r << 20 | g << 10 | b) */
+static int sky_top;               /* the cache is empty from this row up: rays going up end there */
 static int shade[4][16];           /* face shade x sky light level -> 0..32 */
 static int shade_blk[4][16];       /* face shade x block light level -> 0..32 */
 static float sun_x, sun_y, sun_z;  /* towards the sun */
@@ -103,8 +105,8 @@ static inline int texel_rgb(int b, int tex, int u, int v, int col, int *r, int *
 static uint16_t sky(float dx, float dy, float dz, float len) {
   float e = dy / len;   /* elevation, -1..1 */
   /* horizon (fog colour) to the sky's colour above; below the horizon, fog */
-  float k = e <= 0 ? 0 : e > 0.4f ? 1 : e / 0.4f;
-  int r = fog_r + (int)((sky_r - fog_r) * k), g = fog_g + (int)((sky_g - fog_g) * k), b = fog_b + (int)((sky_b - fog_b) * k);
+  uint32_t gc = sky_grad[e <= 0 ? 0 : e >= 0.4f ? 128 : (int)(e * 320)];
+  int r = (int)(gc >> 20), g = (int)(gc >> 10) & 1023, b = (int)gc & 1023;
   if (under_water) return pack(r / 4, g / 3, b / 2 + 40);
   /* the sunrise and sunset glow (RenderGlobal's fan): towards the sun, low on the horizon */
   if (ss_a > 0 && dy >= 0) {
@@ -199,18 +201,15 @@ typedef struct {
 } Hit;
 
 /* the ray against a box (sixteenths) inside the cell at (cx, cy, cz), local ray origin p, dir d */
-static bool hit_box(const int8_t *bx, float px, float py, float pz, float dx, float dy, float dz, Hit *h) {
+/* the ray from (px, py, pz) (in the cell, its direction's signed inverses iv) meets box bx
+ * before leaving the cell (at tl)? */
+static bool hit_box(const int8_t *bx, float px, float py, float pz, const float *d, const float *iv, float tl, Hit *h) {
   float t0 = -1e9f, t1 = 1e9f;
   int f0 = 0;
-  float lo[3] = {bx[0] / 16.0f, bx[1] / 16.0f, bx[2] / 16.0f}, hi[3] = {bx[3] / 16.0f, bx[4] / 16.0f, bx[5] / 16.0f};
-  float p[3] = {px, py, pz}, d[3] = {dx, dy, dz};
+  float p[3] = {px, py, pz};
   static const int axis_face[3][2] = {{4, 5}, {0, 1}, {2, 3}};   /* entering through min / max side */
   for (int a = 0; a < 3; a++) {
-    if (d[a] == 0) {
-      if (p[a] < lo[a] || p[a] > hi[a]) return false;
-      continue;
-    }
-    float ta = (lo[a] - p[a]) / d[a], tb = (hi[a] - p[a]) / d[a];
+    float ta = (bx[a] * (1 / 16.0f) - p[a]) * iv[a], tb = (bx[a + 3] * (1 / 16.0f) - p[a]) * iv[a];
     int fa = axis_face[a][0], fb = axis_face[a][1];
     if (ta > tb) {
       float t = ta;
@@ -223,9 +222,9 @@ static bool hit_box(const int8_t *bx, float px, float py, float pz, float dx, fl
     if (ta > t0) t0 = ta, f0 = fa;
     if (tb < t1) t1 = tb;
   }
-  if (t0 > t1 || t1 < 0) return false;
+  if (t0 > t1 || t1 < 0 || t0 > tl) return false;
   if (t0 < 0) t0 = 0;
-  float hx = px + dx * t0, hy = py + dy * t0, hz = pz + dz * t0;
+  float hx = px + d[0] * t0, hy = py + d[1] * t0, hz = pz + d[2] * t0;
   h->t = t0;
   h->face = f0;
   int ux, vy;
@@ -295,10 +294,12 @@ static inline uint16_t lit(int r, int g, int b, int face, int light, float dist)
   return lit565(pack(r, g, b), face, light, dist);
 }
 
-/* what the last trace met: 1 a face of a whole block (cell hit_x, hit_y,
- * hit_z, face hit_f), 2 the sky, 3 a plant (cell index hit_i), 4 a face of a
- * whole block seen through the top of water (hit_w), 0 anything else */
-static int hit_kind, hit_x, hit_y, hit_z, hit_f, hit_i;
+/* what the last trace met: 1 a face (hit_f, of plane hit_p) of a whole block
+ * or a block of one box, 2 the sky, 3 a plant (cell index hit_i), 4 a face of
+ * a whole block seen through the top of water (hit_w), 0 anything else */
+static int hit_kind, hit_f, hit_i;
+static int hit_l;   /* 1: the light the face was lit with (its cell: hit_i) */
+static int hit_p;   /* 1, 4: the face's plane, its coordinate along the face's axis (sixteenths) */
 static int hit_w;   /* 4: a face seen through the top of water, whose plane is this (sixteenths) */
 static float last_t;   /* where the last pixel's ray stopped (in lengths of its direction), 1e9 for the sky */
 static int brk_i = -1, brk_stage;   /* the block being broken (cache index) and its crack stage */
@@ -307,6 +308,25 @@ static inline int cracked(int tc, int i, int u, int v) {
   return tc;
 }
 static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
+/* a block that is one box, the same wherever it is (its faces are planes like a cube's) */
+static inline bool one_box(int b) {
+  int m = blk_model[b];
+  return m == M_SLAB || m == M_LAYER || m == M_CACTUS || m == M_CHEST;
+}
+
+/* the cell a ray came from into cell i (x, y, z) through its face `face` (-1: none, it starts
+ * there); i itself if that is outside the cache */
+static inline int came_from(int i, int face, int x, int y, int z) {
+  switch (face) {
+    case 0: return y > 0 ? i - VCX * VCZ : i;
+    case 1: return y < VCY - 1 ? i + VCX * VCZ : i;
+    case 2: return z > 0 ? i - VCX : i;
+    case 3: return z < VCZ - 1 ? i + VCX : i;
+    case 4: return x > 0 ? i - 1 : i;
+    case 5: return x < VCX - 1 ? i + 1 : i;
+  }
+  return i;
+}
 
 static uint16_t trace(float dx, float dy, float dz) {
   hit_kind = 0;
@@ -328,10 +348,14 @@ static uint16_t trace(float dx, float dy, float dz) {
   /* a see-through layer in front (water): its colour and how much of it */
   int wr = 0, wg = 0, wb = 0, wa = 0;
   if (cam_i < 0) return hit_kind = 2, sky(dx, dy, dz, len);
-  int i = cam_i, prev = i;
+  int i = cam_i;
   int inside = cam_b;   /* the block the camera is in (water...) */
   int fresh = 1;        /* just entered a 4 x 4 x 4 region */
   int ex0 = sx > 0 ? 0 : 3, ey0 = sy > 0 ? 0 : 3, ez0 = sz > 0 ? 0 : 3;
+  /* steps through the cache and its regions (mi: the region of cell i) along each axis */
+  const int fx = sx > 0 ? 4 : 5, fy = sy > 0 ? 0 : 1, fz = sz > 0 ? 2 : 3;
+  const int iy = sy * VCX * VCZ, iz = sz * VCX, my = sy * MCZ * MCX, mz = sz * MCX;
+  int mi = MC_I(x, y, z);
   for (;;) {
     ST(st_steps++);
     int b = vc[i];
@@ -357,12 +381,14 @@ static uint16_t trace(float dx, float dy, float dz) {
         if (tc >= 0) {
           tc = cracked(tc, i, u, v);
           last_t = t;
-          uint16_t c = lit565((uint16_t)tc, f, vl[prev], t * len);
+          int lt = vl[came_from(i, face, x, y, z)];
+          uint16_t c = lit565((uint16_t)tc, f, lt, t * len);
           if (wa) {
             c = pack((r5(c) * (256 - wa) + wr * wa) >> 8, (g6(c) * (256 - wa) + wg * wa) >> 8,
                      (b5(c) * (256 - wa) + wb * wa) >> 8);
-            if (face >= 0 && hit_w >= 0) hit_kind = 4, hit_x = x, hit_y = y, hit_z = z, hit_f = f;
-          } else if (face >= 0) hit_kind = 1, hit_x = x, hit_y = y, hit_z = z, hit_f = f;
+            if (face >= 0 && hit_w >= 0) hit_kind = 4, hit_f = f;
+          } else if (face >= 0) hit_kind = 1, hit_f = f, hit_i = i, hit_l = lt;
+          hit_p = (((f >> 1) == 0 ? y : (f >> 1) == 1 ? z : x) + (f & 1)) * 16;
           return c;
         }
       } else if (m == M_CROSS) {
@@ -380,6 +406,7 @@ static uint16_t trace(float dx, float dy, float dz) {
         }
       } else {
         int8_t shp[5][6];
+        const int8_t (*bxs)[6] = shp;   /* the shape: its boxes */
         int nbx;
         if (m == M_LIQUID) {
           /* BlockLiquid: (8 - level) / 9 high, full when falling or under the same liquid */
@@ -389,11 +416,14 @@ static uint16_t trace(float dx, float dy, float dz) {
           if (is_water(b) ? is_water(above) : is_lava(above)) lv = 8;
           shp[0][0] = shp[0][1] = shp[0][2] = 0, shp[0][3] = shp[0][5] = 16, shp[0][4] = LIQH[lv];
           nbx = 1;
-        } else nbx = block_boxes(b, x + vc_x0, y + vc_y0, z + vc_z0, shp);
+        } else if (m == M_LADDER || m == M_VINE || m == M_FENCE || m == M_PANE || m == M_DOOR)
+          nbx = block_boxes(b, x + vc_x0, y + vc_y0, z + vc_z0, shp);   /* (shaped by what is around) */
+        else nbx = blk_nbox[b], bxs = blk_box[b];
         Hit h = {0}, hk;
         h.t = 1e9f;
+        float dd[3] = {dx, dy, dz}, iv[3] = {ivx, ivy, ivz}, tl = fminf(fminf(tx, ty), tz) - t;   /* (the rest of the cell) */
         for (int k = 0; k < nbx; k++)
-          if (hit_box(shp[k], lx, ly, lz, dx, dy, dz, &hk) && hk.t < h.t) h = hk;
+          if (hit_box(bxs[k], lx, ly, lz, dd, iv, tl + 1e-4f, &hk) && hk.t < h.t) h = hk;
         if (h.t < 1e9f) {
           int r, g, bb;
           int tex = face_tex(b, h.face, x, y, z);
@@ -405,7 +435,15 @@ static uint16_t trace(float dx, float dy, float dz) {
             else if (w == 4) h.u = 15 - v, h.v = u;
           }
           if (texel_rgb(b, tex, h.u, h.v, col, &r, &g, &bb) == 0) {
-            uint16_t c = lit(r, g, bb, h.face, vl[m == M_LIQUID || m == M_TORCH ? i : prev], (t + h.t) * len);
+            /* (a face inside the cell is lit by the cell's light, one on its side by the cell in front) */
+            int lt = vl[m == M_LIQUID || m == M_TORCH || h.t > 0 ? i : came_from(i, face, x, y, z)];
+            uint16_t c = lit(r, g, bb, h.face, lt, (t + h.t) * len);
+            if (!wa && one_box(b) && i != cam_i) {
+              /* a face of a block of one box (slab, snow layer...): the pixels between can find it too */
+              int a = h.face >> 1, k = a == 0 ? 1 : a == 1 ? 2 : 0;
+              hit_kind = 1, hit_f = h.face, hit_i = i, hit_l = lt;
+              hit_p = (a == 0 ? y : a == 1 ? z : x) * 16 + bxs[0][k + ((h.face & 1) ? 3 : 0)];
+            }
             if (m == M_LIQUID && !wa) {
               /* water: see through it (lava is opaque) */
               if (is_water(b)) {
@@ -423,9 +461,8 @@ static uint16_t trace(float dx, float dy, float dz) {
         }
       }
     }
-  next:
-    prev = i;
-    int reg = fresh ? vmac[MC_I(x, y, z)] : 1;
+  next:;
+    int reg = fresh ? vmac[mi] : 1;
     if (!reg || (reg == 2 && is_water(inside))) {
       /* an empty 4 x 4 x 4 region (or all water, seen from in the water): jump to where the ray leaves it */
       ST(st_jumps++);
@@ -443,19 +480,16 @@ static uint16_t trace(float dx, float dy, float dz) {
        * or two regions could hand the ray back and forth) */
       float hx = ox + dx * te, hy = oy + dy * te, hz = oz + dz * te;
       int rx = x & ~3, ry = y & ~3, rz = z & ~3;
-      x = ax == 0 ? rx + (bx ? 4 : -1) : clampi((int)floorf(hx), rx, rx + 3);
-      y = ax == 1 ? ry + (by ? 4 : -1) : clampi((int)floorf(hy), ry, ry + 3);
-      z = ax == 2 ? rz + (bz ? 4 : -1) : clampi((int)floorf(hz), rz, rz + 3);
-      if ((unsigned)x >= VCX || (unsigned)y >= VCY || (unsigned)z >= VCZ) break;
+      x = ax == 0 ? rx + (bx ? 4 : -1) : clampi((int)hx, rx, rx + 3);   /* ((int): the clamp does the floor) */
+      y = ax == 1 ? ry + (by ? 4 : -1) : clampi((int)hy, ry, ry + 3);
+      z = ax == 2 ? rz + (bz ? 4 : -1) : clampi((int)hz, rz, rz + 3);
+      if ((unsigned)x >= VCX || (unsigned)y >= VCY || (unsigned)z >= VCZ || (sy > 0 && y >= sky_top)) break;
       face = ax == 0 ? (sx > 0 ? 4 : 5) : ax == 1 ? (sy > 0 ? 0 : 1) : (sz > 0 ? 2 : 3);
       tx = (x + bx - ox) * ivx;
       ty = (y + by - oy) * ivy;
       tz = (z + bz - oz) * ivz;
       i = VC_I(x, y, z);
-      /* the air cell in front of the boundary lights what is hit there */
-      int bk = ax == 0 ? sx : ax == 1 ? sy * VCX * VCZ : sz * VCX;
-      int px = x - (ax == 0 ? sx : 0), py = y - (ax == 1 ? sy : 0), pz = z - (ax == 2 ? sz : 0);
-      prev = (unsigned)px < VCX && (unsigned)py < VCY && (unsigned)pz < VCZ ? i - bk : i;
+      mi = MC_I(x, y, z);
       fresh = 1;
       continue;
     }
@@ -467,33 +501,37 @@ static uint16_t trace(float dx, float dy, float dz) {
         x += sx;
         if ((unsigned)x >= VCX) break;
         i += sx;
-        face = sx > 0 ? 4 : 5;
+        face = fx;
         fresh = (x & 3) == ex0;
+        if (fresh) mi += sx;
       } else {
         t = tz;
         tz += idz;
         z += sz;
         if ((unsigned)z >= VCZ) break;
-        i += sz * VCX;
-        face = sz > 0 ? 2 : 3;
+        i += iz;
+        face = fz;
         fresh = (z & 3) == ez0;
+        if (fresh) mi += mz;
       }
     } else if (ty < tz) {
       t = ty;
       ty += idy;
       y += sy;
       if ((unsigned)y >= VCY) break;
-      i += sy * VCX * VCZ;
-      face = sy > 0 ? 0 : 1;
+      i += iy;
+      face = fy;
       fresh = (y & 3) == ey0;
+      if (fresh) mi += my;
     } else {
       t = tz;
       tz += idz;
       z += sz;
       if ((unsigned)z >= VCZ) break;
-      i += sz * VCX;
-      face = sz > 0 ? 2 : 3;
+      i += iz;
+      face = fz;
       fresh = (z & 3) == ez0;
+      if (fresh) mi += mz;
     }
     if (t > tmax) break;
   }
@@ -507,38 +545,45 @@ static uint16_t trace(float dx, float dy, float dz) {
  * same coordinate): the plane gives the point, and the block there is drawn
  * if it really shows that face; otherwise (-1) the pixel is traced */
 static int face_pixel(float dx, float dy, float dz, int plane, int f, bool wet) {
-  float t;
-  switch (f >> 1) {
-    case 0: t = (plane - oy) / dy; break;
-    case 1: t = (plane - oz) / dz; break;
-    default: t = (plane - ox) / dx; break;
-  }
+  int a = f >> 1;
+  float t = (plane * (1 / 16.0f) - (a == 0 ? oy : a == 1 ? oz : ox)) / (a == 0 ? dy : a == 1 ? dz : dx);
   if (!(t > 0)) return -1;
   float hx = ox + dx * t, hy = oy + dy * t, hz = oz + dz * t;
+  if (hx < 0 || hy < 0 || hz < 0) return -1;
   int x = (int)hx, y = (int)hy, z = (int)hz;
-  /* the block behind the plane: the plane is its min side for faces 0 2 4 */
-  switch (f) {
-    case 0: y = plane; break;
-    case 1: y = plane - 1; break;
-    case 2: z = plane; break;
-    case 3: z = plane - 1; break;
-    case 4: x = plane; break;
-    default: x = plane - 1; break;
-  }
-  if ((unsigned)x >= VCX || (unsigned)y >= VCY || (unsigned)z >= VCZ || hx < 0 || hy < 0 || hz < 0) return -1;
-  int b = vc[VC_I(x, y, z)];
-  int m = blk_model[b];
-  if (m != M_CUBE && m != M_LEAVES && m != M_GLASS) return -1;
-  static const int8_t nx[6] = {0, 0, 0, 0, -1, 1}, ny[6] = {-1, 1, 0, 0, 0, 0}, nz[6] = {0, 0, -1, 1, 0, 0};
-  int px = x + nx[f], py = y + ny[f], pz = z + nz[f];
-  int light = 15;
-  if ((unsigned)px < VCX && (unsigned)py < VCY && (unsigned)pz < VCZ) {
-    int fi = VC_I(px, py, pz);
-    /* hidden, or something stands in front: trace (wet: water in front is clear) */
-    if (vc[fi] != B_AIR && !(wet && is_water(vc[fi]))) return -1;
-    light = vl[fi];
-  }
+  /* the block the face is of: on the plane's near side for faces 1 3 5 (its max side), far for 0 2 4 */
+  int c = (f & 1) ? (plane - 1) >> 4 : plane >> 4;
+  if (a == 0) y = c;
+  else if (a == 1) z = c;
+  else x = c;
+  if ((unsigned)x >= VCX || (unsigned)y >= VCY || (unsigned)z >= VCZ) return -1;
+  int i = VC_I(x, y, z), b = vc[i], m = blk_model[b];
   float lx = hx - x, ly = hy - y, lz = hz - z;
+  int edge = plane - c * 16;   /* where the face is in its cell (0, 16: on its side) */
+  bool cube = m == M_CUBE || m == M_LEAVES || m == M_GLASS;
+  if (!cube) {
+    /* a block of one box: the face must be its face, and the point on it */
+    if (!one_box(b)) return -1;
+    const int8_t *q = blk_box[b][0];
+    int k = a == 0 ? 1 : a == 1 ? 2 : 0;
+    if (q[k + ((f & 1) ? 3 : 0)] != edge) return -1;
+    float u16 = (a == 2 ? lz : lx) * 16, v16 = (a == 0 ? lz : ly) * 16;
+    int ku = a == 2 ? 2 : 0, kv = a == 0 ? 2 : 1;
+    if (u16 < q[ku] || u16 > q[ku + 3] || v16 < q[kv] || v16 > q[kv + 3]) return -1;
+  } else if (edge & 15) return -1;
+  int light;
+  if ((edge & 15) == 0) {
+    /* on the cell's side: lit by the cell in front, which must be clear */
+    static const int8_t nx[6] = {0, 0, 0, 0, -1, 1}, ny[6] = {-1, 1, 0, 0, 0, 0}, nz[6] = {0, 0, -1, 1, 0, 0};
+    int px = x + nx[f], py = y + ny[f], pz = z + nz[f];
+    light = 15;
+    if ((unsigned)px < VCX && (unsigned)py < VCY && (unsigned)pz < VCZ) {
+      int fi = VC_I(px, py, pz);
+      /* hidden, or something stands in front: trace (wet: water in front is clear) */
+      if (vc[fi] != B_AIR && !(wet && is_water(vc[fi]))) return -1;
+      light = vl[fi];
+    }
+  } else light = vl[i];
   int u, v;
   switch (f) {
     case 0: case 1: u = (int)(lx * 16); v = (int)(lz * 16); break;
@@ -551,10 +596,52 @@ static int face_pixel(float dx, float dy, float dz, int plane, int f, bool wet) 
   int tc = texel565(b, blk_front[b] ? face_tex(b, f, x, y, z) : blk_tex[b][f], u, v, z * VCX + x);
   if (tc < 0 && m == M_LEAVES && !opt.fancy) tc = 0;
   if (tc < 0) return -1;
-  tc = cracked(tc, VC_I(x, y, z), u, v);
+  if (cube) tc = cracked(tc, i, u, v);
   last_t = t;
   float d2 = t * t * (dx * dx + dy * dy + dz * dz);
   return lit565((uint16_t)tc, f, light, d2 > fog0 * fog0 ? sqrtf(d2) : 0);
+}
+
+/* the samples of one row of the coarse grid (every other pixel, and one past the right edge) */
+typedef struct {
+  uint16_t c;
+  uint8_t kind, f;
+  int16_t plane;  /* a face's plane: its coordinate along the face's axis (sixteenths) */
+  int16_t w;      /* (kind 4) the water's top plane, sixteenths */
+  uint16_t cell;  /* (kinds 1, 3) the cell met */
+  uint8_t x, y, z, light;   /* (kind 1) the cell's place and the face's light */
+  float t;
+} Sample;
+static Sample rows[3][RW / 2 + 1];
+
+/* a pixel between samples that all met the same face of the same block: that face there */
+static int face_cell(float dx, float dy, float dz, const Sample *s) {
+  int f = s->f, a = f >> 1;
+  float t = (s->plane * (1 / 16.0f) - (a == 0 ? oy : a == 1 ? oz : ox)) / (a == 0 ? dy : a == 1 ? dz : dx);
+  int x = s->x, y = s->y, z = s->z;
+  float lx = ox + dx * t - x, ly = oy + dy * t - y, lz = oz + dz * t - z;
+  int u, v;
+  switch (f) {
+    case 0: case 1: u = (int)(lx * 16); v = (int)(lz * 16); break;
+    case 2: u = 15 - (int)(lx * 16); v = 15 - (int)(ly * 16); break;
+    case 3: u = (int)(lx * 16); v = 15 - (int)(ly * 16); break;
+    case 4: u = (int)(lz * 16); v = 15 - (int)(ly * 16); break;
+    default: u = 15 - (int)(lz * 16); v = 15 - (int)(ly * 16); break;
+  }
+  if ((unsigned)u > 15 || (unsigned)v > 15) return -1;
+  int i = s->cell, b = vc[i], m = blk_model[b];
+  if (!(s->plane & 15)) {
+    /* a face on the cell's side: anything in front (grass) that the samples went past shows */
+    int fb = vc[came_from(i, f, x, y, z)];
+    if (fb != B_AIR && !(is_water(fb) && is_water(cam_b))) return -1;
+  }
+  int tc = texel565(b, blk_front[b] ? face_tex(b, f, x, y, z) : blk_tex[b][f], u, v, z * VCX + x);
+  if (tc < 0 && m == M_LEAVES && !opt.fancy) tc = 0;
+  if (tc < 0) return -1;
+  if (m == M_CUBE || m == M_LEAVES || m == M_GLASS) tc = cracked(tc, i, u, v);
+  last_t = t;
+  float d2 = t * t * (dx * dx + dy * dy + dz * dz);
+  return lit565((uint16_t)tc, f, s->light, d2 > fog0 * fog0 ? sqrtf(d2) : 0);
 }
 
 /* a pixel between samples that all saw faces of the same plane through the
@@ -580,16 +667,6 @@ static int water_pixel(float dx, float dy, float dz, int wplane, int plane, int 
               (b5((uint16_t)c) * 106 + b5(w) * 150) >> 8);
 }
 
-/* the samples of one row of the coarse grid (every other pixel, and one past the right edge) */
-typedef struct {
-  uint16_t c;
-  uint8_t kind, f;
-  int8_t plane;   /* a face's plane: its coordinate along the face's axis */
-  int16_t w;      /* (kind 4) the water's top plane, sixteenths */
-  uint16_t cell;  /* a plant's cell */
-  float t;
-} Sample;
-static Sample rows[3][RW / 2 + 1];
 
 static void sample_row(Sample *s, int py) {
   float sv = (1 - 2 * (py + 0.5f) / RH) * TAN_V;
@@ -599,9 +676,12 @@ static void sample_row(Sample *s, int py) {
     s[k].c = trace(bx + rgx * su, by, bz + rgz * su);
     s[k].kind = (uint8_t)hit_kind;
     s[k].f = (uint8_t)hit_f;
-    int f = hit_f;
-    s[k].plane = (int8_t)((f >> 1) == 0 ? hit_y + (f & 1) : (f >> 1) == 1 ? hit_z + (f & 1) : hit_x + (f & 1));
+    s[k].plane = (int16_t)hit_p;
     s[k].cell = (uint16_t)hit_i;
+    if (hit_kind == 1) {
+      s[k].x = (uint8_t)(hit_i % VCX), s[k].z = (uint8_t)(hit_i / VCX % VCZ), s[k].y = (uint8_t)(hit_i / (VCX * VCZ));
+      s[k].light = (uint8_t)hit_l;
+    }
     s[k].w = (int16_t)hit_w;
     s[k].t = last_t;
   }
@@ -619,9 +699,10 @@ static inline bool same(const Sample *a, const Sample *b) {
 }
 
 /* the pixel (px, py) knowing the samples around it agree (a, b) or not */
-static uint16_t between(int px, int py, const Sample *a, const Sample *b, const Sample *c, const Sample *d) {
-  float sv = (1 - 2 * (py + 0.5f) / RH) * TAN_V, su = (2 * (px + 0.5f) / RW - 1) * TAN_H;
-  float dx = fwx + upx * sv + rgx * su, dy = fwy + upy * sv, dz = fwz + upz * sv + rgz * su;
+/* (the ray of picture column px across: rgx, rgz times this, on top of the row's base) */
+static float col_su[RW];
+static uint16_t between(const float *row, int px, const Sample *a, const Sample *b, const Sample *c, const Sample *d) {
+  float su = col_su[px], dx = row[0] + rgx * su, dy = row[1], dz = row[2] + rgz * su;
 #ifdef FULL_TRACE
   return trace(dx, dy, dz);   /* the reference picture, for the tests */
 #endif
@@ -629,7 +710,8 @@ static uint16_t between(int px, int py, const Sample *a, const Sample *b, const 
   ST(agree ? 0 : st_dis++);
   ST(agree && a->kind == 0 ? st_k0++ : 0);
   if (agree && a->kind == 1) {
-    int r = face_pixel(dx, dy, dz, a->plane, a->f, is_water(cam_b));
+    bool one = a->cell == b->cell && (!c || (a->cell == c->cell && a->cell == d->cell));
+    int r = one ? face_cell(dx, dy, dz, a) : face_pixel(dx, dy, dz, a->plane, a->f, is_water(cam_b));
     if (r >= 0) return ST(st_fpok++), (uint16_t)r;
     ST(st_fpfail++);
   }
@@ -1590,6 +1672,16 @@ void render_frame(const Camera *c, uint32_t tod) {
   }
   fog_k = 1 / (fog1 - fog0);
   fog565 = pack(fog_r, fog_g, fog_b);
+  for (int k = 0; k <= 128; k++)
+    sky_grad[k] = (uint32_t)(fog_r + (sky_r - fog_r) * k / 128) << 20 | (uint32_t)(fog_g + (sky_g - fog_g) * k / 128) << 10 |
+                  (uint32_t)(fog_b + (sky_b - fog_b) * k / 128);
+  /* the highest row with anything in it */
+  sky_top = 0;
+  for (int k = MCY * MCZ * MCX - 1; k >= 0; k--)
+    if (vmac[k]) {
+      sky_top = (k / (MCZ * MCX) + 1) * 4;
+      break;
+    }
   cloud_off = (tod % 24000) * 0.03f;
 
   /* the block being broken */
@@ -1607,6 +1699,7 @@ void render_frame(const Camera *c, uint32_t tod) {
   /* every other pixel of every other row is traced; the others come from
    * their neighbours when those met the same face (or the sky) */
   Sample *top = rows[0], *mid = rows[1], *bot = rows[2];
+  for (int px = 0; px < RW; px++) col_su[px] = (2 * (px + 0.5f) / RW - 1) * TAN_H;
   sample_row(top, 0);
   for (int py = 0; py < RH; py += SR) {
     for (int r = 0; r < SR; r += 2) {
@@ -1614,15 +1707,18 @@ void render_frame(const Camera *c, uint32_t tod) {
       sample_row(bot, y + 2);
       uint16_t *c0 = cbuf[r], *c1 = cbuf[r + 1];
       float *z0 = zbuf[r], *z1 = zbuf[r + 1];
+      /* the rays' bases for the two rows (the forward and up parts) */
+      float sv0 = (1 - 2 * (y + 0.5f) / RH) * TAN_V, sv1 = (1 - 2 * (y + 1.5f) / RH) * TAN_V;
+      float r0[3] = {fwx + upx * sv0, fwy + upy * sv0, fwz + upz * sv0}, r1[3] = {fwx + upx * sv1, fwy + upy * sv1, fwz + upz * sv1};
       for (int k = 0; k < RW / 2; k++) {
         int x = 2 * k;
         c0[x] = top[k].c;
         z0[x] = top[k].t;
-        c0[x + 1] = between(x + 1, y, &top[k], &top[k + 1], NULL, NULL);
+        c0[x + 1] = between(r0, x + 1, &top[k], &top[k + 1], NULL, NULL);
         z0[x + 1] = last_t;
-        c1[x] = between(x, y + 1, &top[k], &bot[k], NULL, NULL);
+        c1[x] = between(r1, x, &top[k], &bot[k], NULL, NULL);
         z1[x] = last_t;
-        c1[x + 1] = between(x + 1, y + 1, &top[k], &top[k + 1], &bot[k], &bot[k + 1]);
+        c1[x + 1] = between(r1, x + 1, &top[k], &top[k + 1], &bot[k], &bot[k + 1]);
         z1[x + 1] = last_t;
       }
       Sample *t = top;

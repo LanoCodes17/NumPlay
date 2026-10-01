@@ -10,6 +10,7 @@ const uint32_t eadk_api_level __attribute__((section(".rodata.eadk_api_level")))
 #endif
 
 uint32_t perf_frames __attribute__((used));   /* read by tools/emu.py */
+uint32_t perf_max __attribute__((used));      /* (and the slowest frame in a world, ms) */
 uint32_t game_time = 1000;                    /* Minecraft's time of day: 0 sunrise, 6000 noon */
 bool start_in_world;                          /* tests: straight into a new world */
 int64_t start_seed;                           /* (its seed) */
@@ -69,6 +70,10 @@ static int64_t parse_seed(void) {
 
 void game_init(void) {
   load_options();
+#ifdef BENCH
+  /* (a build for timing: straight into a new world of seed BENCH) */
+  start_in_world = true, start_seed = BENCH, opt.keys_seen = KEY_SHEET;
+#endif
   last = plat_millis();
   if (start_in_world) {
     new_world(start_seed, 0);
@@ -85,6 +90,7 @@ bool game_frame(void) {
   uint32_t now = plat_millis();
   uint32_t dt = now - last;
   last = now;
+  if (in_world && gui == GUI_NONE && dt > perf_max) perf_max = dt;
   if (dt > 250) dt = 250;
   uint32_t k = plat_keys();
   uint32_t pressed = k & ~keys_held;

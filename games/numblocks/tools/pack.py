@@ -536,6 +536,31 @@ def main():
     for g, members in items.GROUP_OF.items():
         out.append(f'const uint16_t group_{g[2:].lower()}[] = {{' +
                    ','.join(str(items.BNAMES.index(m)) for m in members) + ',0xFFFF};')
+    # mob skins: 64 x 32, 4 bits a texel, index 0 see-through
+    SKINS = ['zombie/zombie', 'skeleton/skeleton', 'creeper/creeper', 'spider/spider', 'pig/pig', 'cow/cow',
+             'sheep/sheep', 'sheep/sheep_fur', 'chicken']
+    out.append(f'const uint8_t skin_px[{len(SKINS)}][1024] = {{')
+    spal = []
+    for n in SKINS:
+        im = jar.image('entity/' + n).crop((0, 0, 64, 32))
+        bs, pal, alpha = pack_sprite(im)
+        out.append('  {' + ','.join(str(v) for v in bs) + '},')
+        spal.append(pal)
+    out.append('};')
+    out.append(f'const uint16_t skin_pal[{len(SKINS)}][16] = {{')
+    for pal in spal:
+        out.append('  {' + ','.join(f'0x{rgb565(*c):04X}' for c in pal) + '},')
+    out.append('};')
+    # the cracks of a block being broken: 10 stages, 1 bit a texel (dark where set)
+    cr = []
+    for st in range(10):
+        im = jar.image(f'blocks/destroy_stage_{st}')
+        bits = [0] * 32
+        for i, (r, g, b, a) in enumerate(pixels(im)):
+            if a >= 100:
+                bits[i >> 3] |= 1 << (i & 7)
+        cr.append(bits)
+    out.append('const uint8_t cracks[10][32] = {' + ','.join('{' + ','.join(str(v) for v in b) + '}' for b in cr) + '};')
     # the font
     fb, fw = font_bits(jar)
     out.append('const uint8_t font_bits[96 * 8] = {' + ','.join(str(v) for v in fb) + '};')
@@ -616,6 +641,10 @@ def main():
           f'#define N_SMELTING {len(items.SMELT)}', 'extern const uint16_t smelting[N_SMELTING][2];']
     for g in items.GROUP_OF:
         h.append(f'extern const uint16_t group_{g[2:].lower()}[];   /* ends with 0xFFFF */')
+    h += ['extern const uint8_t skin_px[][1024];   /* mob skins, 64 x 32 */', 'extern const uint16_t skin_pal[][16];',
+          'enum { SKIN_ZOMBIE, SKIN_SKELETON, SKIN_CREEPER, SKIN_SPIDER, SKIN_PIG, SKIN_COW, SKIN_SHEEP, SKIN_SHEEP_FUR,'
+          ' SKIN_CHICKEN };',
+          'extern const uint8_t cracks[10][32];   /* destroy stages, 1 bit a texel */']
     h += ['extern const uint8_t font_bits[96 * 8], font_w[96];   /* characters 32-127 */',
           'extern const uint8_t img_rle[], img_w[], img_h[];', 'extern const uint32_t img_rows[];',
           'extern const uint16_t img_row0[], img_pal[][16];']

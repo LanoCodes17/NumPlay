@@ -132,10 +132,14 @@ void player_add_xp(int n);
 /* ---------------------------------------------------------------- entities (entity.c) */
 enum { E_NONE, E_ITEM, E_ZOMBIE, E_SKELETON, E_CREEPER, E_SPIDER, E_PIG, E_COW, E_SHEEP, E_CHICKEN, E_ARROW };
 typedef struct {
-  uint8_t type, on_ground, hurt, state;
-  int16_t age, health, timer, delay;   /* delay: an item's pickup delay */
+  uint8_t type, on_ground, hurt, state;   /* hurt: ticks of red; state 255: dying (timer counts) */
+  int16_t age, health, timer, delay;   /* delay: an item's pickup delay, a mob's attack wait, a creeper's fuse */
   float x, y, z, vx, vy, vz, yaw, pitch;
   float px, py, pz;       /* last tick's position */
+  float limb, limb_amt;   /* the walk's swing */
+  float gx, gz;           /* where it is going */
+  int16_t panic, fire;
+  uint8_t invuln, sheared;
   Stack item;
 } Entity;
 #define N_ENT 24
@@ -143,6 +147,12 @@ extern Entity ents[N_ENT];
 Entity *ent_new(int type, float x, float y, float z);
 void ent_drop(int id, int count, int dmg, float x, float y, float z, bool thrown);
 void ents_tick(void);
+void mob_tick(Entity *e);
+void mobs_spawn(void);
+bool mob_attack(const Entity *e);   /* the player hits this mob (with the held item) */
+bool mob_use(Entity *e);            /* the player uses the held item on it (shears, bucket) */
+Entity *entity_looked_at(float reach, float block_t);   /* the mob under the crosshair, nearer than block_t */
+extern float tick_frac;
 
 void player_respawn(void);
 

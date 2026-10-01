@@ -618,6 +618,19 @@ void player_tick(uint32_t keys, uint32_t pressed) {
   if (pl.mode == 0) food_tick();
   if (pl.dead) return;
   pick();
+  /* a mob under the crosshair, nearer than the block: Back hits it, OK uses on it */
+  float bt = 1e9f;
+  if (pl.hit_face >= 0) {
+    float bx = pl.hit_x + 0.5f - pl.x, by = pl.hit_y + 0.5f - (pl.y + 1.62f), bz = pl.hit_z + 0.5f - pl.z;
+    bt = sqrtf(bx * bx + by * by + bz * bz) - 0.5f;
+  }
+  Entity *target = entity_looked_at(pl.mode ? 5.0f : 3.0f, bt);
+  if (target) {
+    if (pressed & K_ATTACK) mob_attack(target);
+    if ((pressed & K_USE) && mob_use(target)) pressed &= ~K_USE;
+    keys &= ~K_ATTACK;
+    pl.breaking = 0;
+  }
   /* mining (Back held) */
   if (break_cooldown) break_cooldown--;
   if ((keys & K_ATTACK) && pl.hit_face >= 0 && !break_cooldown) {

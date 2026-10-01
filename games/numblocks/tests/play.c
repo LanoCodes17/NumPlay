@@ -33,7 +33,7 @@ static uint32_t key_bit(const char *s) {
 
 int main(int argc, char **argv) {
   const char *out = "build/play", *shots = "";
-  int give = 0, title_screen = 0;
+  int give = 0, title_screen = 0, mobs = 0, start_time = -1;
   float hurt = 0;
   int frames = 60, mspf = 50;
   for (int i = 1; i < argc; i++) {
@@ -43,6 +43,8 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "--shots") && i + 1 < argc) shots = argv[++i];
     else if (!strcmp(argv[i], "--give")) give = 1;
     else if (!strcmp(argv[i], "--title")) title_screen = 1;
+    else if (!strcmp(argv[i], "--mobs")) mobs = 1;
+    else if (!strcmp(argv[i], "--time") && i + 1 < argc) start_time = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--hurt") && i + 1 < argc) hurt = (float)atof(argv[++i]);
     else if (!strcmp(argv[i], "--keys") && i + 1 < argc) {
       char *s = strdup(argv[++i]);
@@ -68,6 +70,22 @@ int main(int argc, char **argv) {
                                  {I_BUCKET, 1}, {B_SAND, 20}, {I_APPLE, 2}};
     for (unsigned i = 0; i < sizeof kit / sizeof kit[0]; i++) inv_add(pl.inv, 36, kit[i][0], kit[i][1], 0);
     pl.inv[0].aux = 100;   /* a worn pickaxe */
+  }
+  if (start_time >= 0) {
+    extern uint32_t game_time;
+    game_time = (uint32_t)start_time;
+  }
+  if (mobs) {
+    /* a row of every mob, 4 blocks ahead, facing the player, on a cleared grass field */
+    int fy = (int)pl.y;
+    for (int z = (int)pl.z - 3; z < (int)pl.z + 9; z++)
+      for (int x = (int)pl.x - 9; x < (int)pl.x + 10; x++)
+        for (int y = fy - 1; y < fy + 8; y++) world_set(x, y, z, y == fy - 1 ? B_GRASS : B_AIR);
+    for (int k = 0; k < 8; k++) {
+      float x = pl.x - 5.6f + k * 1.6f, z = pl.z + 4.5f;
+      Entity *e = ent_new(E_ZOMBIE + k, x, (float)fy, z);
+      if (e) e->health = 20, e->yaw = 180, e->gx = e->x, e->gz = e->z;
+    }
   }
   if (hurt > 0) pl.health -= hurt, pl.food -= 7, pl.xp_level = 7, pl.xp = 0.4f;
   double init_ms = (clock() - c0) * 1000.0 / CLOCKS_PER_SEC;

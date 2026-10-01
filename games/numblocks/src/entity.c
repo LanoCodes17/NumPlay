@@ -1,4 +1,4 @@
-/* Entities: dropped items for now (EntityItem), mobs to come.
+/* Entities: dropped items (EntityItem) here, mobs and arrows in mob.c.
  *
  * An item falls (0.04 a tick, drag 0.98), slides (0.6 x 0.98 on the ground),
  * bounces a little, joins the same items near it, can be picked up after 10
@@ -108,11 +108,17 @@ void ents_tick(void) {
     e->px = e->x, e->py = e->y, e->pz = e->z;
     e->age++;
     /* far outside the loaded blocks: gone */
-    if (!world_loaded((int)floorf(e->x), 64, (int)floorf(e->z))) {
+    if (!world_loaded((int)floorf(e->x), vc_y0, (int)floorf(e->z))) {
       e->type = E_NONE;
       continue;
     }
     if (e->type == E_ITEM) item_tick(e);
+    else mob_tick(e);
     if (e->y < -64) e->type = E_NONE;
+  }
+  static int spawn_wait;
+  if (++spawn_wait >= 20) {
+    spawn_wait = 0;
+    mobs_spawn();
   }
 }

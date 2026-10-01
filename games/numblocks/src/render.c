@@ -14,6 +14,8 @@
 
 #define SR 4                       /* picture rows per strip (8 screen rows) */
 static uint16_t strip[SCREEN_W * SR * 2];
+static uint16_t cbuf[SR][RW];      /* a strip of the picture */
+static float zbuf[SR][RW];         /* and how far each pixel's ray went (entities are hidden behind) */
 
 /* per frame */
 static float ox, oy, oz;           /* camera, cache coordinates */
@@ -248,8 +250,15 @@ static inline uint16_t lit(int r, int g, int b, int face, int light, float dist)
 /* what the last trace met: 1 a face of a whole block (cell hit_x, hit_y,
  * hit_z, face hit_f), 2 the sky, 3 a plant (cell index hit_i), 0 anything else */
 static int hit_kind, hit_x, hit_y, hit_z, hit_f, hit_i;
+static float last_t;   /* where the last pixel's ray stopped (in lengths of its direction), 1e9 for the sky */
+static int brk_i = -1, brk_stage;   /* the block being broken (cache index) and its crack stage */
+static inline int cracked(int tc, int i, int u, int v) {
+  if (i == brk_i && (cracks[brk_stage][(v * 16 + u) >> 3] >> (u & 7) & 1)) tc = shade565((uint16_t)tc, 13);
+  return tc;
+}
 static uint16_t trace(float dx, float dy, float dz) {
   hit_kind = 0;
+  last_t = 1e9f;
   ST(st_pixels++);
   float len = sqrtf(dx * dx + dy * dy + dz * dz);
   int x = cam_x, y = cam_y, z = cam_z;
@@ -291,6 +300,8 @@ static uint16_t trace(float dx, float dy, float dz) {
         int tc = texel565(b, blk_tex[b][f], u, v, col);
         if (tc < 0 && m == M_LEAVES) tc = 0;   /* Fast graphics: the holes are black */
         if (tc >= 0) {
+          tc = cracked(tc, i, u, v);
+          last_t = t;
           uint16_t c = lit565((uint16_t)tc, f, light_at(prev), t * len);
           if (wa) c = pack((r5(c) * (256 - wa) + wr * wa) >> 8, (g6(c) * (256 - wa) + wg * wa) >> 8,
                            (b5(c) * (256 - wa) + wb * wa) >> 8);
@@ -303,6 +314,7 @@ static uint16_t trace(float dx, float dy, float dz) {
         if (hit_cross(blk_tex[b][3], lx, ly, lz, dx, dy, dz, 0, t1, &h)) {
           int r, g, bb;
           texel_rgb(b, blk_tex[b][3], h.u, h.v, col, &r, &g, &bb);
+          last_t = t + h.t;
           uint16_t c = lit(r, g, bb, 1, light_at(i), (t + h.t) * len);
           if (wa) c = pack((r5(c) * (256 - wa) + wr * wa) >> 8, (g6(c) * (256 - wa) + wg * wa) >> 8,
                            (b5(c) * (256 - wa) + wb * wa) >> 8);
@@ -327,6 +339,7 @@ static uint16_t trace(float dx, float dy, float dz) {
             }
             if (wa) c = pack((r5(c) * (256 - wa) + wr * wa) >> 8, (g6(c) * (256 - wa) + wg * wa) >> 8,
                              (b5(c) * (256 - wa) + wb * wa) >> 8);
+            last_t = t + h.t;
             return c;
           }
         }
@@ -455,6 +468,8 @@ static int face_pixel(float dx, float dy, float dz, int plane, int f) {
   int tc = texel565(b, blk_tex[b][f], u, v, z * VCX + x);
   if (tc < 0 && m == M_LEAVES) tc = 0;
   if (tc < 0) return -1;
+  tc = cracked(tc, VC_I(x, y, z), u, v);
+  last_t = t;
   float d2 = t * t * (dx * dx + dy * dy + dz * dz);
   return lit565((uint16_t)tc, f, light, d2 > fog0 * fog0 ? sqrtf(d2) : 0);
 }
@@ -465,6 +480,7 @@ typedef struct {
   uint8_t kind, f;
   int8_t plane;   /* a face's plane: its coordinate along the face's axis */
   uint16_t cell;  /* a plant's cell */
+  float t;
 } Sample;
 static Sample rows[3][RW / 2 + 1];
 
@@ -479,6 +495,7 @@ static void sample_row(Sample *s, int py) {
     int f = hit_f;
     s[k].plane = (int8_t)((f >> 1) == 0 ? hit_y + (f & 1) : (f >> 1) == 1 ? hit_z + (f & 1) : hit_x + (f & 1));
     s[k].cell = (uint16_t)hit_i;
+    s[k].t = last_t;
   }
 }
 
@@ -513,12 +530,352 @@ static uint16_t between(int px, int py, const Sample *a, const Sample *b, const 
     Hit h;
     if (hit_cross(blk_tex[b][3], ox - x, oy - y, oz - z, dx, dy, dz, 0, 1e9f, &h)) {
       int r, g, bb;
+      last_t = h.t;
       texel_rgb(b, blk_tex[b][3], h.u, h.v, z * VCX + x, &r, &g, &bb);
       return lit(r, g, bb, 1, light_at(i), h.t * sqrtf(dx * dx + dy * dy + dz * dz));
     }
   }
+  last_t = 1e9f;
   if (agree && a->kind == 2) return ST(st_sky++), sky(dx, dy, dz, sqrtf(dx * dx + dy * dy + dz * dz));
   return trace(dx, dy, dz);
+}
+
+/* ---------------------------------------------------------------- entities
+ * Mobs are their models' boxes, each ray tested in the box's own frame and
+ * textured from the skin as Minecraft maps a box (ModelBox, TexturedQuad);
+ * dropped blocks are small spinning cubes, dropped items flat pictures facing
+ * the camera, as Fast graphics draws them. A pixel shows the nearest hit that
+ * is closer than the world behind it. */
+#include "mob.h"
+
+float tick_frac;   /* how far between the last two ticks this frame is (main.c) */
+#define N_DRAW 12
+typedef struct {
+  const Entity *e;
+  int x0, y0, x1, y1;          /* its rectangle on the picture (internal pixels) */
+  float ex, ey, ez;            /* where it is (cache coordinates) */
+  int light;
+  float dist;
+} Draw;
+static Draw draws[N_DRAW];
+static int ndraws;
+
+static inline void ray_dir(int px, int py, float *d) {
+  float sv = (1 - 2 * (py + 0.5f) / RH) * TAN_V, su = (2 * (px + 0.5f) / RW - 1) * TAN_H;
+  d[0] = fwx + upx * sv + rgx * su;
+  d[1] = fwy + upy * sv;
+  d[2] = fwz + upz * sv + rgz * su;
+}
+
+/* a point (cache coordinates) on the picture; false if behind the camera */
+static bool project(float x, float y, float z, float *sx, float *sy) {
+  float rx = x - ox, ry = y - oy, rz = z - oz;
+  float cz = rx * fwx + ry * fwy + rz * fwz;
+  if (cz < 0.05f) return false;
+  float cx = rx * rgx + rz * rgz, cy = rx * upx + ry * upy + rz * upz;
+  *sx = (cx / cz / TAN_H + 1) * RW / 2;
+  *sy = (1 - cy / cz / TAN_V) * RH / 2;
+  return true;
+}
+
+static void ents_frame(void) {
+  ndraws = 0;
+  for (int i = 0; i < N_ENT && ndraws < N_DRAW; i++) {
+    const Entity *e = &ents[i];
+    if (e->type == E_NONE) continue;
+    float t = tick_frac;
+    float ex = e->px + (e->x - e->px) * t - vc_x0, ey = e->py + (e->y - e->py) * t - vc_y0,
+          ez = e->pz + (e->z - e->pz) * t - vc_z0;
+    float dx = ex - ox, dy = ey - oy, dz = ez - oz;
+    float dist = sqrtf(dx * dx + dy * dy + dz * dz);
+    if (dist > MAX_T + 1) continue;
+    float w, h;
+    if (e->type == E_ITEM) w = 0.5f, h = 0.6f;
+    else if (e->type == E_ARROW) w = 0.6f, h = 0.6f, ey -= 0.3f;
+    else w = mob_width(e->type) * 2.2f, h = mob_height(e->type) * 1.2f;
+    if (e->type >= E_ZOMBIE && e->type <= E_CHICKEN && e->state == 255) w = h = 2.4f;   /* dying: lying down */
+    float sx0 = 1e9f, sy0 = 1e9f, sx1 = -1e9f, sy1 = -1e9f;
+    bool all = true;
+    for (int k = 0; k < 8; k++) {
+      float sx, sy;
+      if (!project(ex + ((k & 1) ? w : -w) / 2, ey + ((k & 2) ? h : 0), ez + ((k & 4) ? w : -w) / 2, &sx, &sy)) {
+        all = false;
+        break;
+      }
+      if (sx < sx0) sx0 = sx;
+      if (sx > sx1) sx1 = sx;
+      if (sy < sy0) sy0 = sy;
+      if (sy > sy1) sy1 = sy;
+    }
+    Draw *d = &draws[ndraws];
+    if (all) {
+      if (sx1 < 0 || sx0 >= RW || sy1 < 0 || sy0 >= RH) continue;
+      d->x0 = sx0 < 0 ? 0 : (int)sx0, d->x1 = sx1 >= RW ? RW : (int)sx1 + 1;
+      d->y0 = sy0 < 0 ? 0 : (int)sy0, d->y1 = sy1 >= RH ? RH : (int)sy1 + 1;
+    } else {
+      if (dist > 2.5f) continue;   /* (behind the camera) */
+      d->x0 = 0, d->x1 = RW, d->y0 = 0, d->y1 = RH;
+    }
+    d->e = e, d->ex = ex, d->ey = ey, d->ez = ez, d->dist = dist;
+    int cx = (int)floorf(ex), cy = (int)floorf(ey + 0.2f), cz = (int)floorf(ez);
+    d->light = (unsigned)cx < VCX && (unsigned)cy < VCY && (unsigned)cz < VCZ ? light_at(VC_I(cx, cy, cz)) : 15;
+    ndraws++;
+  }
+}
+
+/* a part, ready to test: world (cache) to box frame */
+typedef struct {
+  float A[9], o[3];      /* box-frame ray: origin o, direction A d */
+  float x0, y0, z0, x1, y1, z1;
+  uint8_t u, v, w, h, d, mirror, skin;
+  uint8_t shade[6];      /* each face's shade (0..32) */
+} Box;
+
+static inline void mul3(const float *a, const float *b, float *o) {   /* o = a b */
+  for (int r = 0; r < 3; r++)
+    for (int c = 0; c < 3; c++) o[r * 3 + c] = a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c];
+}
+static void rot(float *m, int axis, float a) {   /* m = rotation about the axis */
+  float c = cosf(a), s = sinf(a);
+  for (int i = 0; i < 9; i++) m[i] = (i % 4 == 0);
+  int i = (axis + 1) % 3, j = (axis + 2) % 3;
+  m[i * 3 + i] = c, m[i * 3 + j] = -s, m[j * 3 + i] = s, m[j * 3 + j] = c;
+}
+
+/* M: model frame to world (Ry (180 - yaw) . death turn . S(-1,-1,1) . scale) */
+static int make_boxes(const Draw *dr, Box *bx) {
+  const Entity *e = dr->e;
+  Part parts[MAX_PARTS];
+  int n = mob_parts(e, tick_frac, parts);
+  float yaw = e->yaw * 0.017453292f;
+  float M[9], R[9], Z[9];
+  rot(R, 1, 3.14159265f - yaw);
+  /* dying: falls on its side over a second (RendererLivingEntity.rotateCorpse) */
+  float death = e->state == 255 ? (e->timer + tick_frac) / 20.0f * 1.6f : 0;
+  if (death > 0) {
+    death = sqrtf(death);
+    if (death > 1) death = 1;
+  }
+  rot(Z, 2, death * 1.5707963f);
+  mul3(R, Z, M);
+  float sc = mob_scale(e, tick_frac) / 16;
+  for (int i = 0; i < 9; i++) M[i] *= sc;
+  for (int i = 0; i < 9; i += 3) M[i + 1] = -M[i + 1], M[i] = -M[i];   /* S: x and y flipped */
+  float light_sh[6];
+  static const float face_shade[6] = {0.6f, 0.6f, 1.0f, 0.5f, 0.8f, 0.8f};   /* +x -x top bottom front back */
+  for (int p = 0; p < n; p++) {
+    const Part *pt = &parts[p];
+    float P[9], Ry[9], Rx[9], Rz[9], T[9];
+    rot(Rz, 2, pt->rz);
+    rot(Ry, 1, pt->ry);
+    rot(Rx, 0, pt->rx);
+    mul3(Rz, Ry, T);
+    mul3(T, Rx, P);
+    float W[9];   /* part frame to world */
+    mul3(M, P, W);
+    /* world = E + M (T0 + rp) + W v, T0 = (0, -24.125) model pixels: the feet on the ground */
+    float c[3] = {pt->px, pt->py - 24.125f, pt->pz};
+    float base[3];
+    for (int r = 0; r < 3; r++) base[r] = M[r * 3] * c[0] + M[r * 3 + 1] * c[1] + M[r * 3 + 2] * c[2];
+    base[0] += dr->ex, base[1] += dr->ey, base[2] += dr->ez;
+    /* the inverse of W: its transpose over its scale squared */
+    float k = 1 / (sc * sc);
+    Box *b = &bx[p];
+    for (int r = 0; r < 3; r++)
+      for (int q = 0; q < 3; q++) b->A[r * 3 + q] = W[q * 3 + r] * k;
+    float rel[3] = {ox - base[0], oy - base[1], oz - base[2]};
+    for (int r = 0; r < 3; r++) b->o[r] = b->A[r * 3] * rel[0] + b->A[r * 3 + 1] * rel[1] + b->A[r * 3 + 2] * rel[2];
+    b->x0 = pt->x - pt->grow, b->y0 = pt->y - pt->grow, b->z0 = pt->z - pt->grow;
+    b->x1 = pt->x + pt->w + pt->grow, b->y1 = pt->y + pt->h + pt->grow, b->z1 = pt->z + pt->d + pt->grow;
+    b->u = pt->u, b->v = pt->v, b->w = pt->w, b->h = pt->h, b->d = pt->d, b->mirror = pt->mirror, b->skin = pt->skin;
+    /* each face lit by how it faces in the world (like blocks: up 1.0, down 0.5, sides 0.8 and 0.6) */
+    for (int f = 0; f < 6; f++) {
+      int ax = f < 2 ? 0 : f < 4 ? 1 : 2;
+      float sgn = (f & 1) ? -1.0f : 1.0f;
+      if (ax == 1) sgn = -sgn;   /* model y is down: face 2 (y0) points up */
+      float nx = W[ax] * sgn / sc, ny = W[3 + ax] * sgn / sc, nz = W[6 + ax] * sgn / sc;
+      float sh = ny > 0.7f ? 1.0f : ny < -0.7f ? 0.5f : fabsf(nz) > fabsf(nx) ? 0.8f : 0.6f;
+      (void)face_shade;
+      light_sh[f] = sh;
+      b->shade[f] = (uint8_t)(shade[0][dr->light] * sh + 0.5f);
+    }
+  }
+  (void)light_sh;
+  return n;
+}
+
+/* the skin texel the ray meets on a box face (ModelBox's layout), -1 if see-through */
+static int box_texel(const Box *b, int face, float x, float y, float z) {
+  if (b->mirror) {
+    x = b->x0 + b->x1 - x;
+    if (face < 2) face ^= 1;
+  }
+  /* pixel coordinates inside the box (the inflation of wool keeps the layout) */
+  float sx = (b->x1 - b->x0) / b->w, sy = (b->y1 - b->y0) / b->h, sz = (b->z1 - b->z0) / b->d;
+  int lx = (int)((x - b->x0) / sx), ly = (int)((y - b->y0) / sy), lz = (int)((z - b->z0) / sz);
+  if (lx >= b->w) lx = b->w - 1;
+  if (ly >= b->h) ly = b->h - 1;
+  if (lz >= b->d) lz = b->d - 1;
+  if (lx < 0) lx = 0;
+  if (ly < 0) ly = 0;
+  if (lz < 0) lz = 0;
+  int U = b->u, V = b->v, w = b->w, d = b->d, u, v;
+  switch (face) {
+    case 0: u = U + d + w + lz, v = V + d + ly; break;              /* +x */
+    case 1: u = U + (d - 1 - lz), v = V + d + ly; break;            /* -x */
+    case 2: u = U + d + lx, v = V + (d - 1 - lz); break;            /* y0 (the top) */
+    case 3: u = U + d + w + lx, v = V + d - 1 - lz; break;          /* y1 (the bottom) */
+    case 4: u = U + d + lx, v = V + d + ly; break;                  /* z0 (the front) */
+    default: u = U + d + w + d + (w - 1 - lx), v = V + d + ly; break;   /* z1 (the back) */
+  }
+  if ((unsigned)u >= 64 || (unsigned)v >= 32) return -1;
+  uint8_t p = skin_px[b->skin][(v * 64 + u) >> 1];
+  int i = (u & 1) ? p >> 4 : p & 15;
+  return i ? skin_pal[b->skin][i] : -1;
+}
+
+/* the nearest box the ray meets (t > 0), its colour; false if none */
+static bool boxes_hit(const Box *bx, int n, const float *d, float *best_t, uint16_t *col) {
+  bool any = false;
+  for (int p = 0; p < n; p++) {
+    const Box *b = &bx[p];
+    float dl[3];
+    for (int r = 0; r < 3; r++) dl[r] = b->A[r * 3] * d[0] + b->A[r * 3 + 1] * d[1] + b->A[r * 3 + 2] * d[2];
+    float t0 = 0, t1 = *best_t;
+    int f0 = -1;
+    const float lo[3] = {b->x0, b->y0, b->z0}, hi[3] = {b->x1, b->y1, b->z1};
+    bool miss = false;
+    for (int a = 0; a < 3 && !miss; a++) {
+      if (fabsf(dl[a]) < 1e-9f) {
+        if (b->o[a] < lo[a] || b->o[a] > hi[a]) miss = true;
+        continue;
+      }
+      float inv = 1 / dl[a];
+      float ta = (lo[a] - b->o[a]) * inv, tb = (hi[a] - b->o[a]) * inv;
+      int fa = a * 2 + 1, fb = a * 2;   /* entering through the low side: -x (1), y0 (2)... */
+      if (a == 1) fa = 2, fb = 3;
+      if (a == 2) fa = 4, fb = 5;
+      if (ta > tb) {
+        float t = ta;
+        ta = tb, tb = t;
+        int f = fa;
+        fa = fb, fb = f;
+      }
+      if (ta > t0) t0 = ta, f0 = fa;
+      if (tb < t1) t1 = tb;
+      if (t0 > t1) miss = true;
+    }
+    if (miss || f0 < 0) continue;
+    float hx = b->o[0] + dl[0] * t0, hy = b->o[1] + dl[1] * t0, hz = b->o[2] + dl[2] * t0;
+    int c = box_texel(b, f0, hx, hy, hz);
+    if (c < 0) continue;   /* (see-through: the ray is not followed further in this box) */
+    *best_t = t0;
+    *col = shade565((uint16_t)c, b->shade[f0]);
+    any = true;
+  }
+  return any;
+}
+
+/* a dropped item: a small cube of its block, or its picture */
+static bool item_hit(const Draw *dr, const float *d, float *best_t, uint16_t *col) {
+  const Entity *e = dr->e;
+  int id = e->item.id;
+  float age = e->age + tick_frac;
+  float bob = sinf(age / 10.0f + e->yaw) * 0.1f + 0.1f;
+  bool cube = id < 256 && (blk_model[id] == M_CUBE || blk_model[id] == M_LEAVES || blk_model[id] == M_GLASS ||
+                           blk_model[id] == M_SLAB);
+  float cx = dr->ex, cy = dr->ey + bob + 0.125f, cz = dr->ez;
+  if (cube) {
+    /* EntityItem render: a quarter block, turning */
+    float a = age / 20.0f + e->yaw, ca = cosf(a), sa = sinf(a);
+    float rel[3] = {ox - cx, oy - cy, oz - cz};
+    float o[3] = {ca * rel[0] + sa * rel[2], rel[1], -sa * rel[0] + ca * rel[2]};
+    float dl[3] = {ca * d[0] + sa * d[2], d[1], -sa * d[0] + ca * d[2]};
+    const float hs = 0.125f;
+    float t0 = 0, t1 = *best_t;
+    int f0 = -1;
+    for (int k = 0; k < 3; k++) {
+      if (fabsf(dl[k]) < 1e-9f) {
+        if (fabsf(o[k]) > hs) return false;
+        continue;
+      }
+      float ta = (-hs - o[k]) / dl[k], tb = (hs - o[k]) / dl[k];
+      static const int8_t lowf[3] = {4, 0, 2};   /* block faces: -x 4, -y 0, -z 2 */
+      int fa = lowf[k], fb = lowf[k] + 1;
+      if (ta > tb) {
+        float t = ta;
+        ta = tb, tb = t;
+        int f = fa;
+        fa = fb, fb = f;
+      }
+      if (ta > t0) t0 = ta, f0 = fa;
+      if (tb < t1) t1 = tb;
+      if (t0 > t1) return false;
+    }
+    if (f0 < 0) return false;
+    float hx = o[0] + dl[0] * t0 + hs, hy = o[1] + dl[1] * t0 + hs, hz = o[2] + dl[2] * t0 + hs;
+    int u, v;
+    float k4 = 16 / (2 * hs);
+    switch (f0) {
+      case 0: case 1: u = (int)(hx * k4); v = (int)(hz * k4); break;
+      case 2: case 3: u = (int)(hx * k4); v = 15 - (int)(hy * k4); break;
+      default: u = (int)(hz * k4); v = 15 - (int)(hy * k4); break;
+    }
+    u &= 15, v &= 15;
+    int tc = texel565(id, blk_tex[id][f0], u, v, 0);
+    if (tc < 0) tc = 0;
+    *best_t = t0;
+    *col = lit565((uint16_t)tc, f0, dr->light, t0 * sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]));
+    return true;
+  }
+  /* a flat picture half a block wide, facing the camera */
+  int ic = item_icon(id);
+  if (ic < 0) return false;
+  float rel[3] = {cx - ox, cy + 0.125f - oy, cz - oz};
+  float den = d[0] * fwx + d[1] * fwy + d[2] * fwz;
+  float t = (rel[0] * fwx + rel[1] * fwy + rel[2] * fwz) / den;
+  if (!(t > 0) || t >= *best_t) return false;
+  float hx = d[0] * t - rel[0], hy = d[1] * t - rel[1], hz = d[2] * t - rel[2];
+  float u = (hx * rgx + hz * rgz) / 0.5f + 0.5f, v = 0.5f - (hx * upx + hy * upy + hz * upz) / 0.5f;
+  if (u < 0 || u >= 1 || v < 0 || v >= 1) return false;
+  int w = spr_w[ic], hh = spr_h[ic], pxu = (int)(u * w), pyv = (int)(v * hh);
+  const uint8_t *px = spr_px + spr_off[ic] + pyv * ((w + 1) / 2);
+  int i = (pxu & 1) ? px[pxu >> 1] >> 4 : px[pxu >> 1] & 15;
+  if (!i) return false;
+  *best_t = t;
+  *col = lit565(spr_pal[ic][i], 1, dr->light, t * sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]));
+  return true;
+}
+
+static void ents_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
+  Box bx[MAX_PARTS];
+  for (int k = 0; k < ndraws; k++) {
+    const Draw *dr = &draws[k];
+    if (dr->y1 <= py0 || dr->y0 >= py0 + rows) continue;
+    const Entity *e = dr->e;
+    bool mob = e->type >= E_ZOMBIE && e->type <= E_CHICKEN;
+    int n = mob ? make_boxes(dr, bx) : 0;
+    /* hurt (and dying): a red tint; a creeper about to blow flashes white */
+    int red = mob && (e->hurt > 0 || e->state == 255) ? 10 : 0;
+    int white = e->type == E_CREEPER && e->delay > 0 && ((e->delay / 3) & 1) ? 16 : 0;
+    for (int py = py0 > dr->y0 ? py0 : dr->y0; py < dr->y1 && py < py0 + rows; py++)
+      for (int px = dr->x0; px < dr->x1; px++) {
+        float d[3];
+        ray_dir(px, py, d);
+        float t = zb[py - py0][px];
+        uint16_t c;
+        bool hit = mob ? boxes_hit(bx, n, d, &t, &c) : item_hit(dr, d, &t, &c);
+        if (!hit) continue;
+        if (mob) {
+          if (red) c = mix565(c, 0xF800, red);
+          if (white) c = mix565(c, 0xFFFF, white);
+          float dist = t * sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+          if (dist > fog0) c = mix565(c, fog565, dist >= fog1 ? 32 : (int)((dist - fog0) * fog_k * 32));
+        }
+        cb[py - py0][px] = c;
+        zb[py - py0][px] = t;
+      }
+  }
 }
 
 /* ---------------------------------------------------------------- the frame */
@@ -622,6 +979,14 @@ void render_frame(const Camera *c, uint32_t tod) {
   fog565 = pack(fog_r, fog_g, fog_b);
   cloud_off = (tod % 24000) * 0.03f;
 
+  /* the block being broken */
+  brk_i = -1;
+  if (pl.breaking > 0 && pl.hit_face >= 0 && world_loaded(pl.hit_x, pl.hit_y, pl.hit_z)) {
+    brk_i = VC_I(pl.hit_x - vc_x0, pl.hit_y - vc_y0, pl.hit_z - vc_z0);
+    brk_stage = (int)(pl.breaking * 10);
+    if (brk_stage > 9) brk_stage = 9;
+  }
+  ents_frame();
   /* every other pixel of every other row is traced; the others come from
    * their neighbours when those met the same face (or the sky) */
   Sample *top = rows[0], *mid = rows[1], *bot = rows[2];
@@ -630,23 +995,30 @@ void render_frame(const Camera *c, uint32_t tod) {
     for (int r = 0; r < SR; r += 2) {
       int y = py + r;
       sample_row(bot, y + 2);
-      uint16_t *row0 = strip + (r * 2) * SCREEN_W, *row1 = strip + (r * 2 + 2) * SCREEN_W;
+      uint16_t *c0 = cbuf[r], *c1 = cbuf[r + 1];
+      float *z0 = zbuf[r], *z1 = zbuf[r + 1];
       for (int k = 0; k < RW / 2; k++) {
         int x = 2 * k;
-        uint16_t c00 = top[k].c;
-        uint16_t c10 = between(x + 1, y, &top[k], &top[k + 1], NULL, NULL);
-        uint16_t c01 = between(x, y + 1, &top[k], &bot[k], NULL, NULL);
-        uint16_t c11 = between(x + 1, y + 1, &top[k], &top[k + 1], &bot[k], &bot[k + 1]);
-        row0[x * 2] = row0[x * 2 + 1] = c00;
-        row0[x * 2 + 2] = row0[x * 2 + 3] = c10;
-        row1[x * 2] = row1[x * 2 + 1] = c01;
-        row1[x * 2 + 2] = row1[x * 2 + 3] = c11;
+        c0[x] = top[k].c;
+        z0[x] = top[k].t;
+        c0[x + 1] = between(x + 1, y, &top[k], &top[k + 1], NULL, NULL);
+        z0[x + 1] = last_t;
+        c1[x] = between(x, y + 1, &top[k], &bot[k], NULL, NULL);
+        z1[x] = last_t;
+        c1[x + 1] = between(x + 1, y + 1, &top[k], &top[k + 1], &bot[k], &bot[k + 1]);
+        z1[x + 1] = last_t;
       }
-      memcpy(row0 + SCREEN_W, row0, SCREEN_W * 2);
-      memcpy(row1 + SCREEN_W, row1, SCREEN_W * 2);
       Sample *t = top;
       top = bot;
       bot = t;
+    }
+    ents_strip(py, SR, cbuf, zbuf);
+    /* 2 x 2 screen pixels each */
+    for (int r = 0; r < SR; r++) {
+      uint16_t *d = strip + r * 2 * SCREEN_W;
+      const uint16_t *c = cbuf[r];
+      for (int x = 0; x < RW; x++) d[2 * x] = d[2 * x + 1] = c[x];
+      memcpy(d + SCREEN_W, d, SCREEN_W * 2);
     }
     hud_strip(strip, py * 2, SR * 2);
     plat_push(0, py * 2, SCREEN_W, SR * 2, strip);

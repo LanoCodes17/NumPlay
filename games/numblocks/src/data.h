@@ -283,6 +283,10 @@ extern const uint16_t group_planks[];   /* ends with 0xFFFF */
 extern const uint16_t group_wool[];   /* ends with 0xFFFF */
 extern const uint16_t group_log[];   /* ends with 0xFFFF */
 extern const uint16_t group_sapling[];   /* ends with 0xFFFF */
+extern const uint8_t skin_px[][1024];   /* mob skins, 64 x 32 */
+extern const uint16_t skin_pal[][16];
+enum { SKIN_ZOMBIE, SKIN_SKELETON, SKIN_CREEPER, SKIN_SPIDER, SKIN_PIG, SKIN_COW, SKIN_SHEEP, SKIN_SHEEP_FUR, SKIN_CHICKEN };
+extern const uint8_t cracks[10][32];   /* destroy stages, 1 bit a texel */
 extern const uint8_t font_bits[96 * 8], font_w[96];   /* characters 32-127 */
 extern const uint8_t img_rle[], img_w[], img_h[];
 extern const uint32_t img_rows[];

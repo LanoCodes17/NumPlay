@@ -273,3 +273,129 @@ static void ref_chunk(int cx, int cz, uint8_t *chunk) {
         r_b(chunk, bb, &rr, ii, jj, d0, ak, al);
     }
 }
+
+/* ---- literal caves/canyons (double, recursive) on a [y][z][x] chunk ---- */
+static float r_sintab[65536];
+static void r_sin_init(void) { for (int i = 0; i < 65536; i++) r_sintab[i] = (float)sin((double)i * 3.141592653589793 * 2.0 / 65536.0); }
+static float r_sin(float f) { return r_sintab[(int)(f * 10430.378F) & 65535]; }
+static float r_cos(float f) { return r_sintab[(int)(f * 10430.378F + 16384.0F) & 65535]; }
+static uint8_t *rc_chunk; static const uint8_t *rc_b16; static float rc_d[1024];
+static int r_floor(double d) { int i = (int)d; return d < (double)i ? i - 1 : i; }
+static void rcave_a(long long i, int j, int k, double d0, double d1, double d2, float f, float f1, float f2, int l, int i1, double d3) {
+    uint8_t *chunk = rc_chunk;
+    double d4 = (double)(j * 16 + 8), d5 = (double)(k * 16 + 8); float f3 = 0, f4 = 0; JRand random; jr_seed(&random, i);
+    if (i1 <= 0) { int j1 = 8 * 16 - 16; i1 = j1 - jr_int(&random, j1 / 4); }
+    int flag = 0; if (l == -1) { l = i1 / 2; flag = 1; }
+    int k1 = jr_int(&random, i1 / 2) + i1 / 4;
+    for (int flag1 = jr_int(&random, 6) == 0; l < i1; ++l) {
+        double d6 = 1.5 + (double)(r_sin((float)l * 3.1415927F / (float)i1) * f * 1.0F), d7 = d6 * d3;
+        float f5 = r_cos(f2), f6 = r_sin(f2);
+        d0 += (double)(r_cos(f1) * f5); d1 += (double)f6; d2 += (double)(r_sin(f1) * f5);
+        if (flag1) f2 *= 0.92F; else f2 *= 0.7F;
+        f2 += f4 * 0.1F; f1 += f3 * 0.1F; f4 *= 0.9F; f3 *= 0.75F;
+        { float a = jr_float(&random), b = jr_float(&random), c = jr_float(&random); f4 += (a - b) * c * 2.0F; }
+        { float a = jr_float(&random), b = jr_float(&random), c = jr_float(&random); f3 += (a - b) * c * 4.0F; }
+        if (!flag && l == k1 && f > 1.0F && i1 > 0) {
+            long long s1 = jr_long(&random); float w1 = jr_float(&random) * 0.5F + 0.5F;
+            rcave_a(s1, j, k, d0, d1, d2, w1, f1 - 1.5707964F, f2 / 3.0F, l, i1, 1.0);
+            long long s2 = jr_long(&random); float w2 = jr_float(&random) * 0.5F + 0.5F;
+            rcave_a(s2, j, k, d0, d1, d2, w2, f1 + 1.5707964F, f2 / 3.0F, l, i1, 1.0);
+            return;
+        }
+        if (flag || jr_int(&random, 4) != 0) {
+            double d8 = d0 - d4, d9 = d2 - d5, d10 = (double)(i1 - l), d11 = (double)(f + 2.0F + 16.0F);
+            if (d8 * d8 + d9 * d9 - d10 * d10 > d11 * d11) return;
+            if (d0 >= d4 - 16.0 - d6 * 2.0 && d2 >= d5 - 16.0 - d6 * 2.0 && d0 <= d4 + 16.0 + d6 * 2.0 && d2 <= d5 + 16.0 + d6 * 2.0) {
+                int l1 = r_floor(d0 - d6) - j * 16 - 1, i2 = r_floor(d0 + d6) - j * 16 + 1, j2 = r_floor(d1 - d7) - 1, k2 = r_floor(d1 + d7) + 1, l2 = r_floor(d2 - d6) - k * 16 - 1, i3 = r_floor(d2 + d6) - k * 16 + 1;
+                if (l1 < 0) l1 = 0; if (i2 > 16) i2 = 16; if (j2 < 1) j2 = 1; if (k2 > 248) k2 = 248; if (l2 < 0) l2 = 0; if (i3 > 16) i3 = 16;
+                int flag2 = 0;
+                for (int k3 = l1; !flag2 && k3 < i2; ++k3) for (int j3 = l2; !flag2 && j3 < i3; ++j3) for (int l3 = k2 + 1; !flag2 && l3 >= j2 - 1; --l3) if (l3 >= 0 && l3 < 256) {
+                    int b = RS(k3, l3, j3); if (b == B_WATER || b == B_FLOWING_WATER) flag2 = 1;
+                    if (l3 != j2 - 1 && k3 != l1 && k3 != i2 - 1 && j3 != l2 && j3 != i3 - 1) l3 = j2; }
+                if (!flag2) {
+                    for (int j3 = l1; j3 < i2; ++j3) { double d12 = ((double)(j3 + j * 16) + 0.5 - d0) / d6;
+                        for (int i4 = l2; i4 < i3; ++i4) { double d13 = ((double)(i4 + k * 16) + 0.5 - d2) / d6; int flag3 = 0;
+                            if (d12 * d12 + d13 * d13 < 1.0) for (int j4 = k2; j4 > j2; --j4) { double d14 = ((double)(j4 - 1) + 0.5 - d1) / d7;
+                                if (d14 > -0.7 && d12 * d12 + d14 * d14 + d13 * d13 < 1.0) {
+                                    int b1 = RS(j3, j4, i4), b2 = j4 + 1 < 256 ? RS(j3, j4 + 1, i4) : B_AIR;
+                                    if (b1 == B_GRASS || b1 == B_MYCELIUM) flag3 = 1;
+                                    int carv = b1 == B_STONE || b1 == B_DIRT || b1 == B_COARSE_DIRT || b1 == B_PODZOL || b1 == B_GRASS || IS_CLAY(b1) || b1 == B_SANDSTONE || b1 == B_RED_SANDSTONE || b1 == B_MYCELIUM || b1 == B_SNOW_LAYER || ((b1 == B_SAND || b1 == B_RED_SAND || b1 == B_GRAVEL) && !(b2 == B_WATER || b2 == B_FLOWING_WATER));
+                                    if (carv) {
+                                        if (j4 - 1 < 10) RS(j3, j4, i4) = B_LAVA;
+                                        else { RS(j3, j4, i4) = B_AIR; if (b2 == B_SAND) RS(j3, j4 + 1, i4) = B_SANDSTONE; else if (b2 == B_RED_SAND) RS(j3, j4 + 1, i4) = B_RED_SANDSTONE;
+                                            int bd = RS(j3, j4 - 1, i4);
+                                            if (flag3 && (bd == B_DIRT || bd == B_COARSE_DIRT || bd == B_PODZOL)) { int t = bio(rc_b16[j3 + i4 * 16])->top; if (t == B_PODZOL || t == B_COARSE_DIRT) t = B_DIRT; RS(j3, j4 - 1, i4) = t; } }
+                                    } } } } }
+                    if (flag) break;
+                }
+            }
+        }
+    }
+}
+static void rcanyon_a(long long i, int j, int k, double d0, double d1, double d2, float f, float f1, float f2, int l, int i1, double d3) {
+    uint8_t *chunk = rc_chunk;
+    JRand random; jr_seed(&random, i); double d4 = (double)(j * 16 + 8), d5 = (double)(k * 16 + 8); float f3 = 0, f4 = 0;
+    if (i1 <= 0) { int j1 = 8 * 16 - 16; i1 = j1 - jr_int(&random, j1 / 4); }
+    int flag = 0; if (l == -1) { l = i1 / 2; flag = 1; }
+    float f5 = 1.0F;
+    for (int k1 = 0; k1 < 256; ++k1) { if (k1 == 0 || jr_int(&random, 3) == 0) { float a = jr_float(&random), b = jr_float(&random); f5 = 1.0F + a * b * 1.0F; } rc_d[k1] = f5 * f5; }
+    for (; l < i1; ++l) {
+        double d6 = 1.5 + (double)(r_sin((float)l * 3.1415927F / (float)i1) * f * 1.0F), d7 = d6 * d3;
+        d6 *= (double)jr_float(&random) * 0.25 + 0.75; d7 *= (double)jr_float(&random) * 0.25 + 0.75;
+        float f6 = r_cos(f2), f7 = r_sin(f2);
+        d0 += (double)(r_cos(f1) * f6); d1 += (double)f7; d2 += (double)(r_sin(f1) * f6);
+        f2 *= 0.7F; f2 += f4 * 0.05F; f1 += f3 * 0.05F; f4 *= 0.8F; f3 *= 0.5F;
+        { float a = jr_float(&random), b = jr_float(&random), c = jr_float(&random); f4 += (a - b) * c * 2.0F; }
+        { float a = jr_float(&random), b = jr_float(&random), c = jr_float(&random); f3 += (a - b) * c * 4.0F; }
+        if (flag || jr_int(&random, 4) != 0) {
+            double d8 = d0 - d4, d9 = d2 - d5, d10 = (double)(i1 - l), d11 = (double)(f + 2.0F + 16.0F);
+            if (d8 * d8 + d9 * d9 - d10 * d10 > d11 * d11) return;
+            if (d0 >= d4 - 16.0 - d6 * 2.0 && d2 >= d5 - 16.0 - d6 * 2.0 && d0 <= d4 + 16.0 + d6 * 2.0 && d2 <= d5 + 16.0 + d6 * 2.0) {
+                int l1 = r_floor(d0 - d6) - j * 16 - 1, i2 = r_floor(d0 + d6) - j * 16 + 1, j2 = r_floor(d1 - d7) - 1, k2 = r_floor(d1 + d7) + 1, l2 = r_floor(d2 - d6) - k * 16 - 1, i3 = r_floor(d2 + d6) - k * 16 + 1;
+                if (l1 < 0) l1 = 0; if (i2 > 16) i2 = 16; if (j2 < 1) j2 = 1; if (k2 > 248) k2 = 248; if (l2 < 0) l2 = 0; if (i3 > 16) i3 = 16;
+                int flag1 = 0;
+                for (int k3 = l1; !flag1 && k3 < i2; ++k3) for (int j3 = l2; !flag1 && j3 < i3; ++j3) for (int l3 = k2 + 1; !flag1 && l3 >= j2 - 1; --l3) if (l3 >= 0 && l3 < 256) {
+                    int b = RS(k3, l3, j3); if (b == B_WATER || b == B_FLOWING_WATER) flag1 = 1;
+                    if (l3 != j2 - 1 && k3 != l1 && k3 != i2 - 1 && j3 != l2 && j3 != i3 - 1) l3 = j2; }
+                if (!flag1) {
+                    for (int j3 = l1; j3 < i2; ++j3) { double d12 = ((double)(j3 + j * 16) + 0.5 - d0) / d6;
+                        for (int i4 = l2; i4 < i3; ++i4) { double d13 = ((double)(i4 + k * 16) + 0.5 - d2) / d6; int flag2 = 0;
+                            if (d12 * d12 + d13 * d13 < 1.0) for (int j4 = k2; j4 > j2; --j4) { double d14 = ((double)(j4 - 1) + 0.5 - d1) / d7;
+                                if ((d12 * d12 + d13 * d13) * (double)rc_d[j4 - 1] + d14 * d14 / 6.0 < 1.0) {
+                                    int b1 = RS(j3, j4, i4); if (b1 == B_GRASS) flag2 = 1;
+                                    if (b1 == B_STONE || b1 == B_DIRT || b1 == B_COARSE_DIRT || b1 == B_PODZOL || b1 == B_GRASS) {
+                                        if (j4 - 1 < 10) RS(j3, j4, i4) = B_LAVA;
+                                        else { RS(j3, j4, i4) = B_AIR; int bd = RS(j3, j4 - 1, i4); if (flag2 && (bd == B_DIRT || bd == B_COARSE_DIRT || bd == B_PODZOL)) RS(j3, j4 - 1, i4) = bio(rc_b16[j3 + i4 * 16])->top; }
+                                    } } } } }
+                    if (flag) break;
+                }
+            }
+        }
+    }
+}
+static void ref_caves(int i, int j, uint8_t *chunk, const uint8_t *b16) {
+    rc_chunk = chunk; rc_b16 = b16;
+    JRand b; jr_seed(&b, g_seed); long long l = jr_long(&b), i1 = jr_long(&b);
+    for (int pass = 0; pass < 2; pass++)
+    for (int j1 = i - 8; j1 <= i + 8; ++j1) for (int k1 = j - 8; k1 <= j + 8; ++k1) {
+        long long l1 = (long long)((unsigned long long)(long long)j1 * (unsigned long long)l), i2 = (long long)((unsigned long long)(long long)k1 * (unsigned long long)i1);
+        jr_seed(&b, l1 ^ i2 ^ g_seed);
+        if (pass == 0) {
+            int n = jr_int(&b, jr_int(&b, jr_int(&b, 15) + 1) + 1); if (jr_int(&b, 7) != 0) n = 0;
+            for (int c = 0; c < n; ++c) {
+                double d0 = (double)(j1 * 16 + jr_int(&b, 16)), d1 = (double)jr_int(&b, jr_int(&b, 120) + 8), d2 = (double)(k1 * 16 + jr_int(&b, 16));
+                int kk = 1;
+                if (jr_int(&b, 4) == 0) { long long s = jr_long(&b); float w = 1.0F + jr_float(&b) * 6.0F; rcave_a(s, i, j, d0, d1, d2, w, 0, 0, -1, -1, 0.5); kk += jr_int(&b, 4); }
+                for (int l1b = 0; l1b < kk; ++l1b) {
+                    float f = jr_float(&b) * 3.1415927F * 2.0F, f1 = (jr_float(&b) - 0.5F) * 2.0F / 8.0F, f2 = jr_float(&b) * 2.0F + jr_float(&b);
+                    if (jr_int(&b, 10) == 0) { float a = jr_float(&b), c2 = jr_float(&b); f2 *= a * c2 * 3.0F + 1.0F; }
+                    rcave_a(jr_long(&b), i, j, d0, d1, d2, f2, f, f1, 0, 0, 1.0);
+                }
+            }
+        } else if (jr_int(&b, 50) == 0) {
+            double d0 = (double)(j1 * 16 + jr_int(&b, 16)), d1 = (double)(jr_int(&b, jr_int(&b, 40) + 8) + 20), d2 = (double)(k1 * 16 + jr_int(&b, 16));
+            float f = jr_float(&b) * 3.1415927F * 2.0F, f1 = (jr_float(&b) - 0.5F) * 2.0F / 8.0F, f2 = (jr_float(&b) * 2.0F + jr_float(&b)) * 2.0F;
+            rcanyon_a(jr_long(&b), i, j, d0, d1, d2, f2, f, f1, 0, 0, 3.0);
+        }
+    }
+}

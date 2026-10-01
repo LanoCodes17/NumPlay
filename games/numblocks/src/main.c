@@ -159,6 +159,7 @@ bool game_frame(void) {
   }
   world_follow(pl.x, pl.y, pl.z);
   float t = acc / 50.0f;
+  tick_frac = t;
   Camera c = {px + (pl.x - px) * t, py + (pl.y - py) * t + (pl.sneaking ? 1.54f : 1.62f), pz + (pl.z - pz) * t, pl.yaw,
               pl.pitch};
   if (pl.dead) c.y = pl.y + 0.3f;

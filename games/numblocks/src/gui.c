@@ -1138,8 +1138,8 @@ void gui_input(uint32_t keys, uint32_t pressed) {
   }
   bool scrolled = false;
   if (gui == GUI_CREATIVE && slots[cur].kind == SL_CREATIVE) {
-    /* past the top or bottom row: scroll the tab */
-    if ((pressed & K_DOWN) && cur >= 36 && cscroll + 5 < tab_rows()) cscroll++, scrolled = true;
+    /* past the top or bottom row: scroll the tab; holding a stack, down goes to the hotbar instead */
+    if ((pressed & K_DOWN) && cur >= 36 && cscroll + 5 < tab_rows() && !pl.cursor.id) cscroll++, scrolled = true;
     if ((pressed & K_UP) && cur < 9 && cscroll > 0) cscroll--, scrolled = true;
     if (scrolled) creative_refresh();
   }

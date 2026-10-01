@@ -743,6 +743,57 @@ static int face_cell(float dx, float dy, float dz, const Sample *s) {
   return c;
 }
 
+/* A 4 x 4 cell whose corners and middle all met the same face of the same block, nothing in
+ * front: that face over the whole cell. Its texture's palette comes tinted and shaded once
+ * (kept for the next cells, mostly the same); a top or bottom face is met as far all along a
+ * row, its texels then a line across it. False for a pixel it could not draw (traced). */
+static __attribute__((unused)) void face_fill(uint16_t (*cb)[RW], float (*zb)[RW], float (*rb)[3], int x0, const Sample *s) {
+  static uint16_t pal[16], k_tex = 0xFFFF, k_tint;
+  static uint8_t k_shade;
+  int tex = s->tex, fl = tex_flags[tex];
+  if (tex != k_tex || s->tint != k_tint || s->shade != k_shade) {
+    k_tex = (uint16_t)tex, k_tint = s->tint, k_shade = s->shade;
+    for (int n = 0; n < 16; n++) {
+      uint16_t c = tex_pal[tex][n];
+      if (n >= (fl & 0x1F)) c = pack(r5(c) * r5(k_tint) >> 8, g6(c) * g6(k_tint) >> 8, b5(c) * b5(k_tint) >> 8);
+      pal[n] = shade565(c, k_shade);
+    }
+  }
+  /* the plane's axis, and the axes across it the texture's u and v go along (15 - when flipped) */
+  static const uint8_t KA[3] = {1, 2, 0}, KU[3] = {0, 0, 2}, KV[3] = {2, 1, 1};
+  int f = s->f, a = f >> 1, ka = KA[a], ku = KU[a], kv = KV[a];
+  int fu = f == 2 || f == 5 ? 15 : 0, fv = a ? 15 : 0;
+  const float o[3] = {ox, oy, oz}, sc[3] = {s->x, s->y, s->z};
+  float K = s->plane * (1 / 16.0f) - o[ka], U0 = o[ku] - sc[ku], V0 = o[kv] - sc[kv];
+  const uint8_t *px = tex_px[tex];
+  bool see = fl & 0x20, black = s->flags & 4;
+  for (int r = 0; r < SR; r++) {
+    const float *b = rb[r];
+    float tr = K / b[1];   /* (a top or bottom face: the same all along the row) */
+    for (int x = x0; x < x0 + 4; x++) {
+      float su = col_su[x], d[3] = {b[0] + rgx * su, b[1], b[2] + rgz * su};
+      float t = a == 0 ? tr : K / d[ka];
+      int iu = (int)((U0 + d[ku] * t) * 16), iv = (int)((V0 + d[kv] * t) * 16);
+      uint16_t c;
+      if ((unsigned)iu > 15 || (unsigned)iv > 15) goto miss;
+      int u = iu ^ fu, v = iv ^ fv, p = px[(v * 16 + u) >> 1], tx = (u & 1) ? p >> 4 : p & 15;
+      if (!tx && see) {
+        if (!black) goto miss;
+        c = 0;   /* (Fast leaves: black) */
+      } else c = pal[tx];
+      float d2 = t * t * (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+      if (d2 > fog0 * fog0) {
+        float dist = sqrtf(d2);
+        c = mix565(c, fog565, dist >= fog1 ? 32 : (int)((dist - fog0) * fog_k * 32));
+      }
+      cb[r][x] = c, zb[r][x] = t;
+      continue;
+    miss:
+      cb[r][x] = trace(d[0], d[1], d[2]), zb[r][x] = last_t;
+    }
+  }
+}
+
 /* a pixel between samples that all saw faces of the same plane through the
  * same plane of water's top: the water there, over the face beneath it */
 static int water_pixel(float dx, float dy, float dz, int wplane, int plane, int f) {
@@ -1853,6 +1904,12 @@ void render_frame(const Camera *c, uint32_t tod) {
         bool one = a->cell == b->cell && a->cell == c->cell && a->cell == d->cell && a->cell == m->cell;
         (void)one;
 #ifndef FULL_TRACE
+        if (a->kind == 1 && one && (a->flags & 1) && a->cell != brk_i) {
+          face_fill(cbuf, zbuf, rb, x0, a);
+          cbuf[0][x0] = a->c, zbuf[0][x0] = a->t;
+          cbuf[2][x0 + 2] = m->c, zbuf[2][x0 + 2] = m->t;
+          continue;
+        }
         if (a->kind == 2 && fast_sky) {
           for (int r = 0; r < SR; r++)
             for (int x = x0; x < x0 + 4; x++) {

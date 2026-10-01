@@ -1106,6 +1106,45 @@ static bool project(float x, float y, float z, float *sx, float *sy) {
   return true;
 }
 
+/* the rectangle a box (its 8 corners, cache coordinates) covers on the picture: what of it is in front of
+ * the camera, its edges cut where they pass behind (false: none of it is) */
+static bool rect_of(const float (*p)[3], int *r) {
+  const float NEAR = 0.05f;
+  float cx[8], cy[8], cz[8], u0 = 1e9f, v0 = 1e9f, u1 = -1e9f, v1 = -1e9f;
+  bool any = false;
+  for (int k = 0; k < 8; k++) {
+    float rx = p[k][0] - ox, ry = p[k][1] - oy, rz = p[k][2] - oz;
+    cz[k] = rx * fwx + ry * fwy + rz * fwz;
+    cx[k] = rx * rgx + rz * rgz, cy[k] = rx * upx + ry * upy + rz * upz;
+  }
+  for (int k = 0; k < 8; k++)
+    for (int bit = 0; bit <= 4; bit = bit ? bit * 2 : 1) {
+      int j = k ^ bit;
+      float x, y, z;
+      if (!bit) {
+        if (cz[k] < NEAR) continue;
+        x = cx[k], y = cy[k], z = cz[k];
+      } else {
+        if (j < k || (cz[k] >= NEAR) == (cz[j] >= NEAR)) continue;
+        float t = (NEAR - cz[k]) / (cz[j] - cz[k]);
+        x = cx[k] + (cx[j] - cx[k]) * t, y = cy[k] + (cy[j] - cy[k]) * t, z = NEAR;
+      }
+      float u = x / z, v = y / z;
+      if (u < u0) u0 = u;
+      if (u > u1) u1 = u;
+      if (v < v0) v0 = v;
+      if (v > v1) v1 = v;
+      any = true;
+    }
+  if (!any) return false;
+  float sx0 = (u0 / TAN_H + 1) * RW / 2, sx1 = (u1 / TAN_H + 1) * RW / 2;
+  float sy0 = (1 - v1 / TAN_V) * RH / 2, sy1 = (1 - v0 / TAN_V) * RH / 2;
+  if (sx1 < 0 || sx0 >= RW || sy1 < 0 || sy0 >= RH) return false;
+  r[0] = sx0 < 0 ? 0 : (int)sx0, r[2] = sx1 >= RW ? RW : (int)sx1 + 1;
+  r[1] = sy0 < 0 ? 0 : (int)sy0, r[3] = sy1 >= RH ? RH : (int)sy1 + 1;
+  return true;
+}
+
 /* a block's texel as the hand holds it (tinted as where the player stands); -1: see-through */
 int held_texel(int b, int face, int u, int v) {
   int col = cam_i >= 0 ? cam_i % (VCX * VCZ) : 0;
@@ -1132,28 +1171,13 @@ static void ents_frame(void) {
     else if (e->type == E_ARROW || e->type == E_BOBBER) w = 0.6f, h = 0.6f, ey -= 0.3f;
     else w = mob_width(e->type) * 2.2f, h = mob_height(e->type) * 1.2f;
     if (e->type >= E_ZOMBIE && e->type <= E_CHICKEN && e->state == 255) w = h = 2.4f;   /* dying: lying down */
-    float sx0 = 1e9f, sy0 = 1e9f, sx1 = -1e9f, sy1 = -1e9f;
-    bool all = true;
-    for (int k = 0; k < 8; k++) {
-      float sx, sy;
-      if (!project(ex + ((k & 1) ? w : -w) / 2, ey + ((k & 2) ? h : 0), ez + ((k & 4) ? w : -w) / 2, &sx, &sy)) {
-        all = false;
-        break;
-      }
-      if (sx < sx0) sx0 = sx;
-      if (sx > sx1) sx1 = sx;
-      if (sy < sy0) sy0 = sy;
-      if (sy > sy1) sy1 = sy;
-    }
+    float c[8][3];
+    for (int k = 0; k < 8; k++)
+      c[k][0] = ex + ((k & 1) ? w : -w) / 2, c[k][1] = ey + ((k & 2) ? h : 0), c[k][2] = ez + ((k & 4) ? w : -w) / 2;
     Draw *d = &draws[ndraws];
-    if (all) {
-      if (sx1 < 0 || sx0 >= RW || sy1 < 0 || sy0 >= RH) continue;
-      d->x0 = sx0 < 0 ? 0 : (int)sx0, d->x1 = sx1 >= RW ? RW : (int)sx1 + 1;
-      d->y0 = sy0 < 0 ? 0 : (int)sy0, d->y1 = sy1 >= RH ? RH : (int)sy1 + 1;
-    } else {
-      if (dist > 2.5f) continue;   /* (behind the camera) */
-      d->x0 = 0, d->x1 = RW, d->y0 = 0, d->y1 = RH;
-    }
+    int r[4];
+    if (!rect_of(c, r)) continue;
+    d->x0 = r[0], d->y0 = r[1], d->x1 = r[2], d->y1 = r[3];
     d->e = e, d->ex = ex, d->ey = ey, d->ez = ez, d->dist = dist;
     int cx = (int)floorf(ex), cy = (int)floorf(ey + 0.2f), cz = (int)floorf(ez);
     d->light = (unsigned)cx < VCX && (unsigned)cy < VCY && (unsigned)cz < VCZ ? vl[VC_I(cx, cy, cz)] : 15;
@@ -1167,6 +1191,7 @@ typedef struct {
   float x0, y0, z0, x1, y1, z1;
   uint8_t u, v, w, h, d, mirror, skin;
   uint8_t shade[6];      /* each face's shade (0..32) */
+  int16_t r[4];          /* its rectangle on the picture (x0 y0 x1 y1; empty: not seen, or the camera in it) */
 } Box;
 
 static inline void mul3(const float *a, const float *b, float *o) {   /* o = a b */
@@ -1226,6 +1251,18 @@ static int make_boxes(const Draw *dr, Box *bx) {
     b->x0 = pt->x - pt->grow, b->y0 = pt->y - pt->grow, b->z0 = pt->z - pt->grow;
     b->x1 = pt->x + pt->w + pt->grow, b->y1 = pt->y + pt->h + pt->grow, b->z1 = pt->z + pt->d + pt->grow;
     b->u = pt->u, b->v = pt->v, b->w = pt->w, b->h = pt->h, b->d = pt->d, b->mirror = pt->mirror, b->skin = pt->skin;
+    /* where it is on the picture: none of it with the camera inside (its faces turn away: culled) */
+    b->r[0] = b->r[2] = 0;
+    if (!(b->o[0] > b->x0 && b->o[0] < b->x1 && b->o[1] > b->y0 && b->o[1] < b->y1 && b->o[2] > b->z0 && b->o[2] < b->z1)) {
+      float cn[8][3];
+      int r[4];
+      for (int k = 0; k < 8; k++) {
+        float v[3] = {(k & 1) ? b->x1 : b->x0, (k & 2) ? b->y1 : b->y0, (k & 4) ? b->z1 : b->z0};
+        for (int q = 0; q < 3; q++) cn[k][q] = base[q] + W[q * 3] * v[0] + W[q * 3 + 1] * v[1] + W[q * 3 + 2] * v[2];
+      }
+      if (rect_of(cn, r))
+        for (int q = 0; q < 4; q++) b->r[q] = (int16_t)r[q];
+    }
     /* each face lit by how it faces in the world (like blocks: up 1.0, down 0.5, sides 0.8 and 0.6) */
     for (int f = 0; f < 6; f++) {
       int ax = f < 2 ? 0 : f < 4 ? 1 : 2;
@@ -1793,23 +1830,28 @@ static void ents_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
     /* hurt (and dying): a red tint; a creeper about to blow flashes white */
     int red = mob && (e->hurt > 0 || e->state == 255) ? 10 : 0;
     int white = e->type == E_CREEPER && e->delay > 0 && ((e->delay / 3) & 1) ? 16 : 0;
-    for (int py = py0 > dr->y0 ? py0 : dr->y0; py < dr->y1 && py < py0 + rows; py++)
-      for (int px = dr->x0; px < dr->x1; px++) {
-        float d[3];
-        ray_dir(px, py, d);
-        float t = zb[py - py0][px];
-        uint16_t c;
-        bool hit = mob ? boxes_hit(bx, n, d, &t, &c) : item_hit(dr, d, &t, &c);
-        if (!hit) continue;
-        if (mob) {
-          if (red) c = mix565(c, 0xF800, red);
-          if (white) c = mix565(c, 0xFFFF, white);
-          float dist = t * sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-          if (dist > fog0) c = mix565(c, fog565, dist >= fog1 ? 32 : (int)((dist - fog0) * fog_k * 32));
+    /* each part over its own rectangle (the depth buffer keeps the nearest); an item over the draw's */
+    for (int p = 0; p < (mob ? n : 1); p++) {
+      int x0 = dr->x0, y0 = dr->y0, x1 = dr->x1, y1 = dr->y1;
+      if (mob) x0 = bx[p].r[0], y0 = bx[p].r[1], x1 = bx[p].r[2], y1 = bx[p].r[3];
+      for (int py = py0 > y0 ? py0 : y0; py < y1 && py < py0 + rows; py++)
+        for (int px = x0; px < x1; px++) {
+          float d[3];
+          ray_dir(px, py, d);
+          float t = zb[py - py0][px];
+          uint16_t c;
+          bool hit = mob ? boxes_hit(&bx[p], 1, d, &t, &c) : item_hit(dr, d, &t, &c);
+          if (!hit) continue;
+          if (mob) {
+            if (red) c = mix565(c, 0xF800, red);
+            if (white) c = mix565(c, 0xFFFF, white);
+            float dist = t * sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+            if (dist > fog0) c = mix565(c, fog565, dist >= fog1 ? 32 : (int)((dist - fog0) * fog_k * 32));
+          }
+          cb[py - py0][px] = c;
+          zb[py - py0][px] = t;
         }
-        cb[py - py0][px] = c;
-        zb[py - py0][px] = t;
-      }
+    }
   }
   select_strip(py0, rows, cb, zb);
   line_strip(py0, rows, cb, zb);

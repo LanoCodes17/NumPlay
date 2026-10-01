@@ -82,16 +82,28 @@ static void light_box(int x0, int y0, int z0, int x1, int y1, int z1) {
             if ((cur & 15) == 15 && !blk) continue;
             int op = opacity(vc[i]);
             if (op >= 15) continue;
-            int bs = cur & 15, bb = cur >> 4, dec = op ? op : 1;
-            int n[6] = {x > 0 ? i - 1 : -1, x < VCX - 1 ? i + 1 : -1, z > 0 ? i - VCX : -1,
-                        z < VCZ - 1 ? i + VCX : -1, y < VCY - 1 ? i + VCX * VCZ : -1, y > 0 ? i - VCX * VCZ : -1};
-            for (int k = 0; k < 6; k++)
-              if (n[k] >= 0) {
-                int v = vl[n[k]];
-                int s = (v & 15) - dec, b = (v >> 4) - dec;
-                if (s > bs) bs = s;
-                if (b > bb) bb = b;
-              }
+            /* the brightest neighbours (sky and block light apart), less what this cell takes */
+            int ms = 0, mb = 0;
+            if (x > 0 && x < VCX - 1 && z > 0 && z < VCZ - 1 && y > 0 && y < VCY - 1) {
+              const uint8_t *c = &vl[i];
+              int a = c[-1], b = c[1], d = c[-VCX], e = c[VCX], f = c[VCX * VCZ], g = c[-VCX * VCZ];
+#define MX(p, q) ((p) > (q) ? (p) : (q))
+              ms = MX(MX(MX(a & 15, b & 15), MX(d & 15, e & 15)), MX(f & 15, g & 15));
+              if (blk) mb = MX(MX(MX(a >> 4, b >> 4), MX(d >> 4, e >> 4)), MX(f >> 4, g >> 4));
+#undef MX
+            } else {
+              int n[6] = {x > 0 ? i - 1 : -1, x < VCX - 1 ? i + 1 : -1, z > 0 ? i - VCX : -1,
+                          z < VCZ - 1 ? i + VCX : -1, y < VCY - 1 ? i + VCX * VCZ : -1, y > 0 ? i - VCX * VCZ : -1};
+              for (int k = 0; k < 6; k++)
+                if (n[k] >= 0) {
+                  int v = vl[n[k]];
+                  if ((v & 15) > ms) ms = v & 15;
+                  if ((v >> 4) > mb) mb = v >> 4;
+                }
+            }
+            int dec = op ? op : 1, bs = cur & 15, bb = cur >> 4;
+            if (ms - dec > bs) bs = ms - dec;
+            if (mb - dec > bb) bb = mb - dec;
             int nv = bs | bb << 4;
             if (nv != cur) vl[i] = (uint8_t)nv;
           }

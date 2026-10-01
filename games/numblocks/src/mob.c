@@ -367,6 +367,9 @@ static int food_of(int type) {
   return 0;
 }
 
+/* hit by a fishing hook: no damage, but it flinches (and runs, if it can) */
+void mob_hooked(Entity *e) { hurt(e, 0, 0, 0); }
+
 /* Entity.onStruckByLightning */
 void mob_struck(Entity *e) {
   hurt(e, 5, 0, 0);

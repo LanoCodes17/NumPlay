@@ -14,7 +14,7 @@ import blocks  # noqa: E402
 
 KINDS = ['none', 'block', 'pickaxe', 'axe', 'shovel', 'hoe', 'sword', 'shears', 'helmet', 'chestplate', 'leggings',
          'boots', 'food', 'stew', 'bucket', 'water_bucket', 'lava_bucket', 'milk_bucket', 'placer', 'flint_and_steel',
-         'bow', 'bone_meal', 'snowball', 'egg']
+         'bow', 'bone_meal', 'snowball', 'egg', 'fishing_rod']
 # tool materials: harvest level, uses, efficiency, attack bonus (Item.EnumToolMaterial)
 TOOL_MAT = {'wood': (0, 59, 2, 0), 'stone': (1, 131, 4, 1), 'iron': (2, 250, 6, 2), 'diamond': (3, 1561, 8, 3),
             'gold': (0, 32, 12, 0)}
@@ -97,6 +97,7 @@ item('MILK_BUCKET', 'Milk', 'bucket_milk', 'milk_bucket', stack=1)
 item('WOODEN_DOOR', 'Oak Door', 'door_wood', 'placer', place='DOOR_OAK_LOWER')
 item('BED', 'Bed', 'bed', 'placer', stack=1, place='BED_FOOT')
 item('COMPASS', 'Compass', 'compass')
+item('FISHING_ROD', 'Fishing Rod', 'fishing_rod_uncast', 'fishing_rod', stack=1, dur=64)
 item('CLOCK', 'Clock', 'clock')
 # dyes, in Minecraft's damage order (0 black (ink sac) .. 15 white (bone meal))
 DYES = [('BLACK', 'Ink Sac', 'black'), ('RED', 'Rose Red', 'red'), ('GREEN', 'Cactus Green', 'green'),
@@ -130,7 +131,11 @@ food('BAKED_POTATO', 'Baked Potato', 'potato_baked', 5, 0.6)
 food('POISONOUS_POTATO', 'Poisonous Potato', 'potato_poisonous', 2, 0.3)
 food('PUMPKIN_PIE', 'Pumpkin Pie', 'pumpkin_pie', 8, 0.3)
 food('RAW_FISH', 'Raw Fish', 'fish_cod_raw', 2, 0.1)
+food('RAW_SALMON', 'Raw Salmon', 'fish_salmon_raw', 2, 0.1)
+food('CLOWNFISH', 'Clownfish', 'fish_clownfish_raw', 1, 0.1)
+food('PUFFERFISH', 'Pufferfish', 'fish_pufferfish_raw', 1, 0.1)
 food('COOKED_FISH', 'Cooked Fish', 'fish_cod_cooked', 5, 0.6)
+food('COOKED_SALMON', 'Cooked Salmon', 'fish_salmon_cooked', 6, 0.8)
 
 INAMES = [x['name'] for x in I]
 assert len(set(INAMES)) == len(INAMES)
@@ -263,6 +268,7 @@ for m, x in TOOL_IN.items():
     shaped(f'{m}_SWORD', 1, ['X', 'X', '#'], {'X': x, '#': 'STICK'})
 shaped('SHEARS', 1, [' #', '# '], {'#': 'IRON_INGOT'})
 shaped('BOW', 1, [' #X', '# X', ' #X'], {'X': 'STRING', '#': 'STICK'})
+shaped('FISHING_ROD', 1, ['  #', ' #X', '# X'], {'#': 'STICK', 'X': 'STRING'})
 shaped('ARROW', 4, ['X', '#', 'Y'], {'Y': 'FEATHER', 'X': 'FLINT', '#': 'STICK'})
 for m, x in [('LEATHER', 'LEATHER'), ('IRON', 'IRON_INGOT'), ('DIAMOND', 'DIAMOND'), ('GOLDEN', 'GOLD_INGOT')]:
     shaped(f'{m}_HELMET', 1, ['XXX', 'X X'], {'X': x})
@@ -375,7 +381,8 @@ SMELT = [('IRON_ORE', 'IRON_INGOT'), ('GOLD_ORE', 'GOLD_INGOT'), ('DIAMOND_ORE',
          ('CHICKEN', 'COOKED_CHICKEN'), ('MUTTON', 'COOKED_MUTTON'), ('COBBLESTONE', 'STONE'),
          ('STONE_BRICKS', 'CRACKED_STONE_BRICKS'), ('CLAY_BALL', 'BRICK'), ('CLAY', 'HARDENED_CLAY'),
          ('CACTUS', 'DYE_GREEN'), ('EMERALD_ORE', 'EMERALD'), ('POTATO', 'BAKED_POTATO'), ('COAL_ORE', 'COAL'),
-         ('REDSTONE_ORE', 'REDSTONE'), ('LAPIS_ORE', 'DYE_BLUE'), ('RAW_FISH', 'COOKED_FISH')]
+         ('REDSTONE_ORE', 'REDSTONE'), ('LAPIS_ORE', 'DYE_BLUE'), ('RAW_FISH', 'COOKED_FISH'),
+         ('RAW_SALMON', 'COOKED_SALMON')]
 SMELT += [(n, 'CHARCOAL') for n in GROUP_OF['G_LOG']]
 
 
@@ -428,7 +435,8 @@ def tab_of(iid):
     k = it['kind']
     if k in ('sword', 'bow', 'helmet', 'chestplate', 'leggings', 'boots') or it['name'] == 'ARROW':
         return 8
-    if k in ('pickaxe', 'axe', 'shovel', 'hoe', 'shears', 'flint_and_steel') or it['name'] in ('COMPASS', 'CLOCK'):
+    if k in ('pickaxe', 'axe', 'shovel', 'hoe', 'shears', 'flint_and_steel', 'fishing_rod') or \
+            it['name'] in ('COMPASS', 'CLOCK'):
         return 7
     if k in ('food', 'stew'):
         return 6

@@ -416,9 +416,34 @@ static bool place(int b) {
   return true;
 }
 
+/* EntityLivingBase.addPotionEffect: a stronger or longer one replaces it */
+static void add_effect(int k, int ticks, int amp) {
+  if (amp > pl.eff_amp[k] || (amp == pl.eff_amp[k] && ticks > pl.eff[k]) || !pl.eff[k])
+    pl.eff[k] = (uint16_t)ticks, pl.eff_amp[k] = (uint8_t)amp;
+}
+
+/* PotionEffect.onUpdate, Potion.isReady and performEffect */
+static void effects_tick(void) {
+  for (int k = 0; k < 3; k++) {
+    if (!pl.eff[k]) continue;
+    int a = pl.eff_amp[k], d = pl.eff[k], n = (k == EF_POISON ? 25 : 50) >> a;
+    bool ready = n <= 0 || d % n == 0;
+    if (k == EF_POISON && ready && pl.health > 1) player_hurt(1, DMG_MAGIC);
+    else if (k == EF_REGEN && ready && pl.health < 20) pl.health = pl.health + 1 > 20 ? 20 : pl.health + 1;
+    else if (k == EF_HUNGER) exhaust(0.025f * (a + 1));
+    pl.eff[k]--;
+  }
+}
+
 static void eat_done(void) {
   Stack *h = held();
   int i = h->id - 256;
+  if (h->id == I_MILK_BUCKET) {
+    /* ItemBucketMilk: drunk, the effects are gone */
+    memset(pl.eff, 0, sizeof pl.eff);
+    if (pl.mode == 0) h->id = I_BUCKET, h->aux = 1;
+    return;
+  }
   pl.food += it_a[i];
   if (pl.food > 20) pl.food = 20;
   pl.sat += it_a[i] * it_b[i] / 10.0f * 2;
@@ -427,7 +452,15 @@ static void eat_done(void) {
     h->id = I_BOWL, h->aux = 1;
     return;
   }
-  if (h->id == I_GOLDEN_APPLE) pl.health = pl.health + 4 > 20 ? 20 : pl.health + 4;   /* regeneration II, 5 s */
+  /* ItemFood.onFoodEaten, ItemFishFood, ItemAppleGold: their effects (and how likely) */
+  switch (h->id) {
+    case I_GOLDEN_APPLE: add_effect(EF_REGEN, 100, 1); break;
+    case I_ROTTEN_FLESH: if (rndf() < 0.8f) add_effect(EF_HUNGER, 600, 0); break;
+    case I_CHICKEN: if (rndf() < 0.3f) add_effect(EF_HUNGER, 600, 0); break;
+    case I_SPIDER_EYE: add_effect(EF_POISON, 100, 0); break;
+    case I_POISONOUS_POTATO: if (rndf() < 0.6f) add_effect(EF_POISON, 100, 0); break;
+    case I_PUFFERFISH: add_effect(EF_POISON, 1200, 3), add_effect(EF_HUNGER, 300, 2); break;
+  }
   use_up();
 }
 
@@ -519,6 +552,10 @@ static void use(uint32_t pressed) {
         int base = b <= B_CARROTS_3 ? B_CARROTS_0 : B_POTATOES_0;
         set_block(x, y, z, b + 1 > base + 3 ? base + 3 : b + 1);
         use_up();
+      } else if (b >= B_SAPLING_OAK && b <= B_SAPLING_DARK_OAK) {
+        /* ItemDye.applyBonemeal: 45% of a step each time */
+        if (rndf() < 0.45f) sapling_grow(x, y, z);
+        use_up();
       } else if (b == B_GRASS && world_get(x, y + 1, z) == B_AIR) {
         /* ItemDye.applyBonemeal on grass: tall grass and flowers around */
         for (int i = 0; i < 64; i++) {
@@ -554,9 +591,6 @@ static void use(uint32_t pressed) {
         }
       }
       return;
-    case IK_MILK_BUCKET:
-      if (pl.mode == 0) h->id = I_BUCKET, h->aux = 1;
-      return;
     case IK_HELMET: case IK_CHESTPLATE: case IK_LEGGINGS: case IK_BOOTS: {
       /* ItemArmor.onItemRightClick: worn at once if that slot is free */
       int slot = IK_BOOTS - k;
@@ -568,6 +602,18 @@ static void use(uint32_t pressed) {
       use_up();
       player_swing();
       return;
+    case IK_FISHING_ROD: {
+      /* ItemFishingRod.onItemRightClick: cast, or reel in (which wears it: 1 for a catch,
+       * 2 off the ground, 3 with a creature) */
+      Entity *bob = bobber();
+      if (!bob) fish_cast();
+      else {
+        int w = fish_reel(bob);
+        if (pl.mode == 0 && w) stack_wear(h, w);
+      }
+      player_swing();
+      return;
+    }
     case IK_FLINT_AND_STEEL:
       if (on_block && b == B_TNT) {
         /* BlockTNT: lit, it falls and blows after 4 seconds */
@@ -739,6 +785,7 @@ void player_tick(uint32_t keys, uint32_t pressed) {
   pl.bob += (want - pl.bob) * 0.4f;
   if (pl.mode == 0) exhaust(moved * (pl.in_water ? 0.015f : pl.sprinting ? 0.1f : 0.0f));
   hazards(y0);
+  effects_tick();
   if (pl.mode == 0) food_tick();
   if (pl.dead) return;
   pick();
@@ -822,9 +869,9 @@ void player_tick(uint32_t keys, uint32_t pressed) {
     return;
   }
   draw = 0;
-  /* eating: OK held for 32 ticks */
-  bool edible = k == IK_FOOD || k == IK_STEW;
-  if (edible && (keys & K_USE) && (pl.food < 20 || held()->id == I_GOLDEN_APPLE || pl.mode == 1) &&
+  /* eating (and drinking milk): OK held for 32 ticks */
+  bool edible = k == IK_FOOD || k == IK_STEW || k == IK_MILK_BUCKET;
+  if (edible && (keys & K_USE) && (pl.food < 20 || held()->id == I_GOLDEN_APPLE || k == IK_MILK_BUCKET || pl.mode == 1) &&
       !(pl.hit_face >= 0 && it_place[held()->id - 256] != 255 &&
         world_get(pl.hit_x, pl.hit_y, pl.hit_z) == B_FARMLAND)) {
     if (++pl.using_ticks >= 32) {

@@ -180,6 +180,13 @@ static void fluids_tick(void) {
 
 /* ---------------------------------------------------------------- growing */
 static bool soil(int b) { return b == B_GRASS || b == B_DIRT || b == B_PODZOL || b == B_COARSE_DIRT; }
+static void grow_tree(int x, int y, int z, int sapling);
+
+/* BlockSapling.grow: two stages, then a tree (the stage is not kept: half a chance) */
+void sapling_grow(int x, int y, int z) {
+  int b = world_get(x, y, z);
+  if (b >= B_SAPLING_OAK && b <= B_SAPLING_DARK_OAK && soil(world_get(x, y - 1, z)) && rnd(2)) grow_tree(x, y, z, b);
+}
 
 /* WorldGenTrees: a small tree of this wood (oak, birch, spruce and the others alike), if there is room */
 static void grow_tree(int x, int y, int z, int sapling) {
@@ -261,7 +268,7 @@ static void random_tick(int x, int y, int z) {
   }
   if (b >= B_SAPLING_OAK && b <= B_SAPLING_DARK_OAK) {
     /* BlockSapling: 1 in 7 in the light, two stages */
-    if (lit >= 9 && rnd(14) == 0 && soil(world_get(x, y - 1, z))) grow_tree(x, y, z, b);
+    if (lit >= 9 && rnd(7) == 0) sapling_grow(x, y, z);
     return;
   }
   if (b == B_SUGAR_CANE || b == B_CACTUS) {

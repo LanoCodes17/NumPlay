@@ -196,6 +196,33 @@ int main(void) {
     CHECK(!weather.raining && !weather.thundering);
     plat_remove_prefix("ut4");
   }
+  {
+    /* fishing: cast into a pond, wait for a bite, reel it in */
+    world_new(0, "ut5");
+    world_follow(8, 70, 8);
+    memset(&weather, 0, sizeof weather);
+    rain_str = thunder_str = 0;
+    int y = 70;
+    for (int z = 0; z <= 16; z++)
+      for (int x = 0; x <= 16; x++)
+        for (int k = -3; k < 5; k++) world_set(x, y + k, z, k >= 0 ? B_AIR : z >= 6 && k >= -2 ? B_WATER : B_STONE);
+    memset(ents, 0, sizeof ents);
+    memset(pl.inv, 0, sizeof pl.inv);
+    pl.x = 8.5f, pl.y = (float)y, pl.z = 2.5f, pl.yaw = 0, pl.pitch = 30, pl.dead = false, pl.mode = 0;
+    pl.inv[0].id = I_FISHING_ROD, pl.slot = 0;
+    fish_cast();
+    Entity *b = bobber();
+    CHECK(b != NULL);
+    int t = 0;
+    while (t < 3000 && (b = bobber()) && b->timer <= 0) ents_tick(), t++;
+    CHECK(b && b->timer > 0 && is_water(world_get((int)b->x, (int)b->y, (int)b->z)));
+    CHECK(fish_reel(b) == 1 && !bobber());
+    for (int k = 0; k < 60; k++) ents_tick();
+    int caught = 0;
+    for (int i = 1; i < 36; i++) caught += pl.inv[i].id != 0;
+    CHECK(caught == 1);
+    plat_remove_prefix("ut5");
+  }
   printf("%s (%d recipes)\n", fails ? "FAILED" : "all good", N_RECIPES);
   return fails != 0;
 }

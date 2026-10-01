@@ -261,27 +261,34 @@ extern const uint16_t blk_icon[B_COUNT];   /* sprite of its icon */
 #define SP_XP_BG 10
 #define SP_XP 11
 #define SP_BUBBLE 12
-#define SP_FLAME 387
-#define SP_ARROW 388
-#define SP_ARMOR_FULL 389
-#define SP_ARMOR_HALF 390
-#define SP_BUBBLE_POP 391
-#define SP_HEART_HIT 392
-#define SP_TAB_TOP 393
-#define SP_TAB_TOP_SEL 394
-#define SP_TAB_BOTTOM 395
-#define SP_TAB_BOTTOM_SEL 396
-#define SP_SCROLLER 397
-#define SP_BUTTON 398
-#define SP_BUTTON_HOVER 399
-#define SP_BUTTON_OFF 400
-#define SP_SLOT_HELMET 401
-#define SP_SLOT_CHESTPLATE 402
-#define SP_SLOT_LEGGINGS 403
-#define SP_SLOT_BOOTS 404
-#define SP_STEVE 405
-#define SP_ARM 406
-#define SP_DIRT_BG 407
+#define SP_HEART_POISON 13
+#define SP_HEART_POISON_HALF 14
+#define SP_FOOD_HUNGER_BG 15
+#define SP_FOOD_HUNGER 16
+#define SP_FOOD_HUNGER_HALF 17
+#define SP_BOBBER 18
+#define SP_FISHING_ROD_CAST 19
+#define SP_FLAME 399
+#define SP_ARROW 400
+#define SP_ARMOR_FULL 401
+#define SP_ARMOR_HALF 402
+#define SP_BUBBLE_POP 403
+#define SP_HEART_HIT 404
+#define SP_TAB_TOP 405
+#define SP_TAB_TOP_SEL 406
+#define SP_TAB_BOTTOM 407
+#define SP_TAB_BOTTOM_SEL 408
+#define SP_SCROLLER 409
+#define SP_BUTTON 410
+#define SP_BUTTON_HOVER 411
+#define SP_BUTTON_OFF 412
+#define SP_SLOT_HELMET 413
+#define SP_SLOT_CHESTPLATE 414
+#define SP_SLOT_LEGGINGS 415
+#define SP_SLOT_BOOTS 416
+#define SP_STEVE 417
+#define SP_ARM 418
+#define SP_DIRT_BG 419
 
 #include "items.h"
 extern const uint16_t blk_item[B_COUNT];   /* the item a block state counts as (0xFFFF: none) */
@@ -292,9 +299,9 @@ extern const uint16_t it_icon[N_ITEMS], it_dur[N_ITEMS], it_fuel[N_ITEMS];
 extern const uint8_t it_kind[N_ITEMS], it_stack[N_ITEMS], it_tier[N_ITEMS], it_a[N_ITEMS], it_b[N_ITEMS];
 extern const uint8_t it_place[N_ITEMS];   /* the block it places (255: none) */
 typedef struct { uint16_t out; uint8_t n, w, h; uint16_t in[9]; } Recipe;   /* w 0: shapeless, h of them */
-#define N_RECIPES 186
+#define N_RECIPES 187
 extern const Recipe recipes[N_RECIPES];
-#define N_SMELTING 26
+#define N_SMELTING 27
 extern const uint16_t smelting[N_SMELTING][2];
 extern const uint16_t group_planks[];   /* ends with 0xFFFF */
 extern const uint16_t group_wool[];   /* ends with 0xFFFF */

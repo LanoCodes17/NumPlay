@@ -136,21 +136,25 @@ typedef struct {
   float xp;               /* 0..1 of the way to the next level */
   int spawn_x, spawn_y, spawn_z;
   uint8_t mode;           /* 0 survival, 1 creative */
+  uint8_t eff_amp[3];     /* effects: their amplifiers (0: level I) */
+  uint16_t eff[3];        /* effects: ticks left (poison, hunger, regeneration) */
 } Player;
+enum { EF_POISON, EF_HUNGER, EF_REGEN };
 extern Player pl;
 void player_spawn(void);
 void player_tick(uint32_t keys, uint32_t pressed);   /* 20 a second */
 static inline Stack *held(void) { return &pl.inv[pl.slot]; }
 void player_hurt(float amount, int kind);   /* kind: DMG_* */
 enum { DMG_GENERIC, DMG_FALL, DMG_DROWN, DMG_LAVA, DMG_FIRE, DMG_STARVE, DMG_WALL, DMG_VOID, DMG_MOB, DMG_ARROW,
-       DMG_EXPLOSION, DMG_CACTUS, DMG_LIGHTNING };
+       DMG_EXPLOSION, DMG_CACTUS, DMG_LIGHTNING, DMG_MAGIC };
 void player_add_xp(int n);
 void player_swing(void);   /* the arm swings (gui.c) */
 void hand_tick(void);
 void gui_message(const char *s);   /* a line at the bottom left, as Minecraft's chat shows */
 
 /* ---------------------------------------------------------------- entities (entity.c) */
-enum { E_NONE, E_ITEM, E_ZOMBIE, E_SKELETON, E_CREEPER, E_SPIDER, E_PIG, E_COW, E_SHEEP, E_CHICKEN, E_ARROW, E_TNT };
+enum { E_NONE, E_ITEM, E_ZOMBIE, E_SKELETON, E_CREEPER, E_SPIDER, E_PIG, E_COW, E_SHEEP, E_CHICKEN, E_ARROW, E_TNT,
+       E_BOBBER };
 typedef struct {
   uint8_t type, on_ground, hurt, state;   /* hurt: ticks of red; state 255: dying (timer counts) */
   int16_t age, health, timer, delay;   /* delay: an item's pickup delay, a mob's attack wait, a creeper's fuse */
@@ -166,14 +170,22 @@ typedef struct {
 #define N_ENT 24
 extern Entity ents[N_ENT];
 Entity *ent_new(int type, float x, float y, float z);
-void ent_drop(int id, int count, int dmg, float x, float y, float z, bool thrown);
+Entity *ent_drop(int id, int count, int dmg, float x, float y, float z, bool thrown);
 void ents_tick(void);
-/* particles: a block's bits when it breaks, rain splashing (life + RAIN_DROP) */
+/* particles: a block's bits when it breaks; drops (a texel or two, falling
+ * faster) and floating bits (wakes, bubbles): life (ticks, up to 63) + kind */
 typedef struct { float x, y, z, vx, vy, vz; uint16_t c; uint8_t age, life; } Particle;
 #define N_PART 32
 #define RAIN_DROP 128
+#define P_FLOAT 64
+#define P_LIFE 63
 extern Particle parts[N_PART];
 void particles_break(int x, int y, int z, int b);
+void particle_add(float x, float y, float z, float vx, float vy, float vz, uint16_t c, int life);
+/* fishing (EntityFishHook) */
+Entity *bobber(void);       /* the player's hook, if out */
+void fish_cast(void);
+int fish_reel(Entity *e);   /* how much it wears the rod */
 void mob_tick(Entity *e);
 void mobs_spawn(void);
 void explode(float x, float y, float z, float power);
@@ -181,6 +193,7 @@ void throw_item(int id, float speed, bool from_player);   /* arrows, snowballs, 
 bool mob_attack(const Entity *e);   /* the player hits this mob (with the held item) */
 bool mob_use(Entity *e);            /* the player uses the held item on it (shears, bucket) */
 void mob_struck(Entity *e);         /* hit by lightning */
+void mob_hooked(Entity *e);         /* hit by a fishing hook */
 Entity *entity_looked_at(float reach, float block_t);   /* the mob under the crosshair, nearer than block_t */
 extern float tick_frac;
 
@@ -207,6 +220,7 @@ bool rain_at(int x, int y, int z);    /* rain (not snow) falls on it */
 typedef struct { float x, y, z; int8_t state, living, on; uint32_t seed; } Bolt;
 extern Bolt bolt;
 extern int last_bolt;                 /* ticks of the sky's flash left (World.lastLightningBolt) */
+void sapling_grow(int x, int y, int z);      /* a step towards a tree */
 void neighbours_changed(int x, int y, int z);
 void break_block_at(int x, int y, int z, bool drops);
 

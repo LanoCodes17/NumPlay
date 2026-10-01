@@ -663,7 +663,7 @@ static void ents_frame(void) {
     float w, h;
     if (e->type == E_ITEM) w = 0.5f, h = 0.6f;
     else if (e->type == E_TNT) w = 1.2f, h = 1.1f;
-    else if (e->type == E_ARROW) w = 0.6f, h = 0.6f, ey -= 0.3f;
+    else if (e->type == E_ARROW || e->type == E_BOBBER) w = 0.6f, h = 0.6f, ey -= 0.3f;
     else w = mob_width(e->type) * 2.2f, h = mob_height(e->type) * 1.2f;
     if (e->type >= E_ZOMBIE && e->type <= E_CHICKEN && e->state == 255) w = h = 2.4f;   /* dying: lying down */
     float sx0 = 1e9f, sy0 = 1e9f, sx1 = -1e9f, sy1 = -1e9f;
@@ -859,6 +859,7 @@ static bool item_hit(const Draw *dr, const float *d, float *best_t, uint16_t *co
                            blk_model[id] == M_SLAB);
   float hs = tnt ? 0.49f : 0.125f;
   float cx = dr->ex, cy = dr->ey + bob + hs, cz = dr->ez;
+  if (e->type == E_BOBBER) cy = dr->ey + 0.3f - 0.125f, cube = false;   /* RenderFish: centred where it is */
   if (cube) {
     /* EntityItem render: a quarter block, turning (lit TNT: a whole block, still) */
     float a = tnt ? 0 : age / 20.0f + e->yaw, ca = cosf(a), sa = sinf(a);
@@ -903,7 +904,7 @@ static bool item_hit(const Draw *dr, const float *d, float *best_t, uint16_t *co
     return true;
   }
   /* a flat picture half a block wide, facing the camera */
-  int ic = item_icon(id);
+  int ic = e->type == E_BOBBER ? SP_BOBBER : item_icon(id);
   if (ic < 0) return false;
   float rel[3] = {cx - ox, cy + 0.125f - oy, cz - oz};
   float den = d[0] * fwx + d[1] * fwy + d[2] * fwz;
@@ -925,12 +926,12 @@ static bool item_hit(const Draw *dr, const float *d, float *best_t, uint16_t *co
 static void particles_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
   for (int i = 0; i < N_PART; i++) {
     const Particle *p = &parts[i];
-    if (p->age >= (p->life & ~RAIN_DROP)) continue;
+    if (p->age >= (p->life & P_LIFE)) continue;
     float x = p->x - vc_x0, y = p->y - vc_y0, z = p->z - vc_z0, sx, sy;
     if (!project(x, y, z, &sx, &sy)) continue;
     float rx = x - ox, ry = y - oy, rz = z - oz;
     float t = rx * fwx + ry * fwy + rz * fwz;   /* (the ray's length along the view, as zbuf keeps it) */
-    int half = p->life & RAIN_DROP ? 1 : (int)(0.05f / t / TAN_V * RH / 2 + 0.5f);   /* (a drop: a texel or two) */
+    int half = p->life & (RAIN_DROP | P_FLOAT) ? 1 : (int)(0.05f / t / TAN_V * RH / 2 + 0.5f);   /* (drops: a texel or two) */
     if (half < 1) half = 1;
     int cx = (int)floorf(x), cy = (int)floorf(y), cz = (int)floorf(z);
     int lb = (unsigned)cx < VCX && (unsigned)cy < VCY && (unsigned)cz < VCZ ? vl[VC_I(cx, cy, cz)] : 15;
@@ -1207,6 +1208,54 @@ static void bolt_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
   }
 }
 
+/* ---------------------------------------------------------------- the fishing line */
+/* RenderFish: from the rod's tip (in the right hand, 0.4 ahead of the eyes)
+ * to the hook in 16 pieces, sagging, black */
+static float line_pt[17][3];   /* picture x, y, 1 / depth (0: behind the camera) */
+static bool line_on;
+
+static void line_frame(void) {
+  const Entity *e = bobber();
+  line_on = e != NULL;
+  if (!e) return;
+  float t = tick_frac;
+  float bx = e->px + (e->x - e->px) * t - vc_x0, by = e->py + (e->y - e->py) * t - vc_y0;
+  float bz = e->pz + (e->z - e->pz) * t - vc_z0;
+  /* the tip: (-0.36, -0.045, 0.4) x fov / 100, turned as the view is */
+  float p = pl.pitch * 0.017453292f, yw = pl.yaw * 0.017453292f;
+  float vx = -0.36f * 0.7f, vy = 0, vz = 0.4f;   /* (raised to the tip of the rod as drawn here) */
+  float y1 = vy * cosf(p) - vz * sinf(p), z1 = vz * cosf(p) + vy * sinf(p);
+  float x2 = vx * cosf(yw) - z1 * sinf(yw), z2 = z1 * cosf(yw) + vx * sinf(yw);
+  float dx = ox + x2 - bx, dy = oy + y1 - by - 0.25f, dz = oz + z2 - bz;
+  for (int l = 0; l <= 16; l++) {
+    float f = l / 16.0f, *q = line_pt[l];
+    float rx = bx + dx * f - ox, ry = by + dy * (f * f + f) / 2 + 0.25f - oy, rz = bz + dz * f - oz;
+    float cz = rx * fwx + ry * fwy + rz * fwz;
+    q[2] = 0;
+    if (cz < 0.05f) continue;
+    float cx = rx * rgx + rz * rgz, cy = rx * upx + ry * upy + rz * upz;
+    q[0] = (cx / cz / TAN_H + 1) * RW / 2, q[1] = (1 - cy / cz / TAN_V) * RH / 2, q[2] = 1 / cz;
+  }
+}
+
+static void line_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
+  if (!line_on) return;
+  for (int l = 0; l < 16; l++) {
+    const float *a = line_pt[l], *b = line_pt[l + 1];
+    if (a[2] <= 0 || b[2] <= 0) continue;
+    float dx = b[0] - a[0], dy = b[1] - a[1];
+    if ((a[1] < py0 && b[1] < py0) || (a[1] >= py0 + rows && b[1] >= py0 + rows)) continue;
+    int n = (int)ceilf(fabsf(dx) > fabsf(dy) ? fabsf(dx) : fabsf(dy));
+    if (n < 1) n = 1;
+    for (int k = 0; k <= n; k++) {
+      float s = (float)k / n;
+      int x = (int)floorf(a[0] + dx * s), y = (int)floorf(a[1] + dy * s);
+      if (y < py0 || y >= py0 + rows || (unsigned)x >= RW) continue;
+      if (zb[y - py0][x] * (a[2] + (b[2] - a[2]) * s) > 1) cb[y - py0][x] = 0;
+    }
+  }
+}
+
 static void ents_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
   Box bx[MAX_PARTS];
   particles_strip(py0, rows, cb, zb);
@@ -1237,6 +1286,7 @@ static void ents_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
         zb[py - py0][px] = t;
       }
   }
+  line_strip(py0, rows, cb, zb);
   rain_strip(py0, rows, cb, zb);
   bolt_strip(py0, rows, cb, zb);
 }
@@ -1391,6 +1441,7 @@ void render_frame(const Camera *c, uint32_t tod) {
   ents_frame();
   rain_frame();
   bolt_frame();
+  line_frame();
   /* every other pixel of every other row is traced; the others come from
    * their neighbours when those met the same face (or the sky) */
   Sample *top = rows[0], *mid = rows[1], *bot = rows[2];

@@ -246,7 +246,10 @@ static void hand(void) {
   else if (id < 256 && blk_model[id] != M_CROSS && blk_model[id] != M_TORCH && blk_model[id] != M_FLAT &&
            blk_model[id] != M_VINE && blk_model[id] != M_LADDER)
     draw_held_cube(clip_buf, clip_y0, clip_y1 - clip_y0, id, 248 + dx, 182 + dy, 84, sh);
-  else sprite_affine(item_icon(id), 240 + dx, 166 + dy, 5.6f, -0.35f + rot, sh);
+  else {
+    int ic = id == I_FISHING_ROD && bobber() ? SP_FISHING_ROD_CAST : item_icon(id);   /* (the line out) */
+    sprite_affine(ic, 240 + dx, 166 + dy, 5.6f, -0.35f + rot, sh);
+  }
 }
 
 /* ---------------------------------------------------------------- messages (GuiNewChat) */
@@ -306,12 +309,17 @@ static void hud(void) {
     int top = SCREEN_H - 39, left = SCREEN_W / 2 - 91, right = SCREEN_W / 2 + 91;
     int hp = (int)ceilf(pl.health);
     bool flash = pl.invuln > 10 && (pl.invuln / 3) % 2 == 1;
+    /* poisoned: green; regenerating: a wave runs along them (GuiIngame.renderPlayerStats) */
+    extern uint32_t game_time;
+    bool poison = pl.eff[EF_POISON] > 0;
+    int wave = pl.eff[EF_REGEN] ? (int)(game_time % 25) : -1;
     for (int i = 0; i < 10; i++) {
       int x = left + i * 8, y = top;
       if (hp <= 4) y += (int)((frame_no * 7 + i * 13) % 3) - 1;
+      if (i == wave) y -= 2;
       sprite(flash ? SP_HEART_HIT : SP_HEART_BG, x, y);
-      if (i * 2 + 1 < hp) sprite(SP_HEART, x, y);
-      else if (i * 2 + 1 == hp) sprite(SP_HEART_HALF, x, y);
+      if (i * 2 + 1 < hp) sprite(poison ? SP_HEART_POISON : SP_HEART, x, y);
+      else if (i * 2 + 1 == hp) sprite(poison ? SP_HEART_POISON_HALF : SP_HEART_HALF, x, y);
     }
     /* armour, over the hearts */
     int ap = 0;
@@ -326,9 +334,10 @@ static void hud(void) {
     for (int i = 0; i < 10; i++) {
       int x = right - i * 8 - 9, y = top;
       if (pl.sat <= 0 && (frame_no % (unsigned)(pl.food * 3 + 1)) == 0) y += (int)(frame_no % 3) - 1;
-      sprite(SP_FOOD_BG, x, y);
-      if (i * 2 + 1 < pl.food) sprite(SP_FOOD, x, y);
-      else if (i * 2 + 1 == pl.food) sprite(SP_FOOD_HALF, x, y);
+      bool hunger = pl.eff[EF_HUNGER] > 0;   /* (green with the hunger effect) */
+      sprite(hunger ? SP_FOOD_HUNGER_BG : SP_FOOD_BG, x, y);
+      if (i * 2 + 1 < pl.food) sprite(hunger ? SP_FOOD_HUNGER : SP_FOOD, x, y);
+      else if (i * 2 + 1 == pl.food) sprite(hunger ? SP_FOOD_HUNGER_HALF : SP_FOOD_HALF, x, y);
     }
     /* air, over the food */
     if (pl.air < 300) {

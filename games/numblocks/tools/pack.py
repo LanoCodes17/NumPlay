@@ -254,6 +254,13 @@ SPRITES = [
     ('xp_bg', 'gui/icons', 0, 64, 182, 5),
     ('xp', 'gui/icons', 0, 69, 182, 5),
     ('bubble', 'gui/icons', 16, 18, 9, 9),
+    ('heart_poison', 'gui/icons', 88, 0, 9, 9),
+    ('heart_poison_half', 'gui/icons', 97, 0, 9, 9),
+    ('food_hunger_bg', 'gui/icons', 133, 27, 9, 9),
+    ('food_hunger', 'gui/icons', 88, 27, 9, 9),
+    ('food_hunger_half', 'gui/icons', 97, 27, 9, 9),
+    ('bobber', 'particle/particles', 8, 16, 8, 8),
+    ('fishing_rod_cast', 'items/fishing_rod_cast', 0, 0, 16, 16),
 ]
 
 

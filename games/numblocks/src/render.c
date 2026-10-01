@@ -1858,14 +1858,66 @@ static void setup_light(float sun) {
   }
 }
 
+/* What each strip on screen shows, as a hash. On a screen that holds still (a menu, or the
+ * world paused under one) a strip goes to the screen only when it changed: the calculator's
+ * screen shows a picture as it arrives, so sending all of it again made a change (a button lit,
+ * a menu opening) sweep down the screen. */
+static uint32_t shown[RH / SR];
+static bool shown_ok;
+static uint32_t strip_hash(void) {
+  const uint32_t *w = (const uint32_t *)strip;
+  uint32_t h = 2166136261u;
+  for (unsigned k = 0; k < sizeof strip / 4; k++) h = (h ^ w[k]) * 16777619u;
+  return h;
+}
+static bool still_screen(void) {
+  return gui == GUI_PAUSE || gui == GUI_OPTIONS || gui == GUI_CONTROLS || gui == GUI_WORLDS || gui == GUI_CREATE ||
+         gui == GUI_CONFIRM || gui == GUI_RENAME || gui == GUI_LOADING;
+}
+static void send_strip(int py, bool still) {
+  if (still) {
+    uint32_t h = strip_hash();
+    if (shown_ok && shown[py / SR] == h) return;
+    shown[py / SR] = h;
+  }
+  plat_push(0, py * 2, SCREEN_W, SR * 2, strip);
+}
+static void strips_sent(bool still) { shown_ok = still; }
+
 void render_frame(const Camera *c, uint32_t tod) {
+  bool still = still_screen();
+  static int last_gui;
+  bool opening_pause = gui == GUI_PAUSE && last_gui == GUI_NONE && c;
+  last_gui = gui;
+  if (opening_pause) {
+    /* the game paused: its picture stays as it is on screen, darkened under the menu (read back
+     * from the screen a strip at a time, not drawn again, so the menu comes up at once) */
+    for (int py = 0; py < RH; py += SR) {
+      plat_pull(0, py * 2, SCREEN_W, SR * 2, strip);
+      /* (the crosshair, drawn inverting what was behind it, inverted back: menus have none) */
+      for (int k = -4; k <= 4; k++) {
+        int pts[2][2] = {{SCREEN_W / 2 + k, SCREEN_H / 2}, {SCREEN_W / 2, SCREEN_H / 2 + k}};
+        for (int q = 0; q < 2; q++) {
+          int x = pts[q][0], y = pts[q][1] - py * 2;
+          if ((q == 1 && k == 0) || y < 0 || y >= SR * 2) continue;
+          strip[y * SCREEN_W + x] = (uint16_t)~strip[y * SCREEN_W + x];
+        }
+      }
+      hud_strip(strip, py * 2, SR * 2);
+      send_strip(py, false);
+      shown[py / SR] = strip_hash();
+    }
+    shown_ok = true;
+    return;
+  }
   if (!c) {
     /* no world: only what the screens draw */
     for (int py = 0; py < RH; py += SR) {
       memset(strip, 0, sizeof strip);
       hud_strip(strip, py * 2, SR * 2);
-      plat_push(0, py * 2, SCREEN_W, SR * 2, strip);
+      send_strip(py, still);
     }
+    strips_sent(still);
     return;
   }
   float yaw = c->yaw * 0.017453292f, pitch = c->pitch * 0.017453292f;
@@ -2145,6 +2197,7 @@ void render_frame(const Camera *c, uint32_t tod) {
       }
     }
     hud_strip(strip, py * 2, SR * 2);
-    plat_push(0, py * 2, SCREEN_W, SR * 2, strip);
+    send_strip(py, still);
   }
+  strips_sent(still);
 }

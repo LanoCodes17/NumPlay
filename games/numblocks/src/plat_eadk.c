@@ -52,6 +52,9 @@ void plat_sleep(uint32_t ms) { eadk_timing_msleep(ms); }
 void plat_push(int x, int y, int w, int h, const uint16_t *px) {
   eadk_display_push_rect((eadk_rect_t){(uint16_t)x, (uint16_t)y, (uint16_t)w, (uint16_t)h}, px);
 }
+void plat_pull(int x, int y, int w, int h, uint16_t *px) {
+  eadk_display_pull_rect((eadk_rect_t){(uint16_t)x, (uint16_t)y, (uint16_t)w, (uint16_t)h}, px);
+}
 bool plat_save(const char *name, const void *data, uint32_t len) { return ef_write(name, data, len); }
 const uint8_t *plat_load(const char *name, uint32_t *len) { return ef_read(name, len); }
 

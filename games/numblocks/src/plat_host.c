@@ -20,6 +20,12 @@ void plat_push(int x, int y, int w, int h, const uint16_t *px) {
       if ((unsigned)(x + c) < SCREEN_W && (unsigned)(y + r) < SCREEN_H) host_fb[(y + r) * SCREEN_W + x + c] = px[r * w + c];
 }
 
+void plat_pull(int x, int y, int w, int h, uint16_t *px) {
+  for (int r = 0; r < h; r++)
+    for (int c = 0; c < w; c++)
+      px[r * w + c] = (unsigned)(x + c) < SCREEN_W && (unsigned)(y + r) < SCREEN_H ? host_fb[(y + r) * SCREEN_W + x + c] : 0;
+}
+
 static char save_dir[256] = "build/host-saves";
 void host_save_dir(const char *d) { snprintf(save_dir, sizeof save_dir, "%s", d); }
 bool plat_save(const char *name, const void *data, uint32_t len) {

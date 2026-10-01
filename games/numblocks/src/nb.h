@@ -38,6 +38,7 @@ enum {
 uint32_t plat_millis(void);
 void plat_sleep(uint32_t ms);
 void plat_push(int x, int y, int w, int h, const uint16_t *px);
+void plat_pull(int x, int y, int w, int h, uint16_t *px);   /* what the screen shows there */
 bool plat_save(const char *name, const void *data, uint32_t len);
 const uint8_t *plat_load(const char *name, uint32_t *len);   /* unaligned, valid until storage changes */
 void plat_remove_prefix(const char *prefix);

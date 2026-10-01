@@ -314,7 +314,9 @@ static uint16_t trace(float dx, float dy, float dz) {
   int x = cam_x, y = cam_y, z = cam_z;
   int sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1, sz = dz > 0 ? 1 : -1;
   /* signed inverses: the ray reaches plane x = X at t = (X - ox) * ivx */
-  float ivx = dx != 0 ? 1 / dx : 1e9f, ivy = dy != 0 ? 1 / dy : 1e9f, ivz = dz != 0 ? 1 / dz : 1e9f;
+  /* (a 0 component steps the negative way: its inverse must be "minus infinity", or the
+   * boundaries behind the camera would come first) */
+  float ivx = dx != 0 ? 1 / dx : -1e9f, ivy = dy != 0 ? 1 / dy : -1e9f, ivz = dz != 0 ? 1 / dz : -1e9f;
   float idx = fabsf(ivx), idy = fabsf(ivy), idz = fabsf(ivz);
   int bx = dx > 0, by = dy > 0, bz = dz > 0;
   float tx = (x + bx - ox) * ivx, ty = (y + by - oy) * ivy, tz = (z + bz - oz) * ivz;

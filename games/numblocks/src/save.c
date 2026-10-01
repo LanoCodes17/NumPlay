@@ -84,7 +84,8 @@ bool load_world(void) {
 void new_world(int64_t seed, int mode) {
   plat_remove_prefix(WORLD);
   uint32_t tl;
-  memset(tiles_data(&tl), 0, tl);
+  void *t = tiles_data(&tl);   /* (first: the length is only known after the call) */
+  memset(t, 0, tl);
   memset(ents, 0, sizeof ents);
   world_seed = seed;
   game_time = 0;

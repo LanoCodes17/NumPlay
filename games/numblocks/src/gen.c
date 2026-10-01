@@ -2947,6 +2947,7 @@ static int ncrec, crec_ok, crec_ax = 1 << 30, crec_az;
 static int64_t crec_seed;
 
 static void crec_add(int j1, int k1, int pass, int ord) {
+    if (rb_x0 > rb_x1) return; /* nothing carved (and its INT32_MAX box would overflow below) */
     int ox = crec_ax * 16, oz = crec_az * 16, n = CA_SIZE * 16 - 1;
     int x0 = rb_x0 - ox, x1 = rb_x1 - ox, z0 = rb_z0 - oz, z1 = rb_z1 - oz;
     if (x1 < 0 || x0 > n || z1 < 0 || z0 > n || rb_y1 < 0 || rb_y0 > 255) return; /* never came near */

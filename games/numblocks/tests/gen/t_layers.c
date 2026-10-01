@@ -1,20 +1,20 @@
+/* biome map (Minecraft colours) of a square around 0,0, as a PPM: t_layers SEED [R [FILE]] */
 #include "../../src/gen.c"
 #include <stdio.h>
 #include <stdlib.h>
 int main(int argc, char **argv) {
     i64 seed = argc > 1 ? strtoll(argv[1], 0, 10) : 12345;
     int R = argc > 2 ? atoi(argv[2]) : 512; /* half size in blocks */
-    jr_jump_init();
-    g_seed = seed;
-    layers_init_test();
+    gen_init(seed);
+    lay_mem = U.lay, lay_cap = LAY_INTS, lay_top = 0;
     int W = 2 * R;
     static uint8_t img[2048 * 2048 * 3];
     static i32 rm[64 * 64];
     static uint8_t bb[64 * 64];
     for (int tz = -R; tz < R; tz += 64)
         for (int tx = -R; tx < R; tx += 64) {
-            int rx, rz, rw, rh;
-            voronoi_rm_win(tx, tz, 64, 64, &rx, &rz, &rw, &rh);
+            /* rivermix cells the voronoi of blocks [tx, tx + 64) needs */
+            int rx = (tx - 2) >> 2, rz = (tz - 2) >> 2, rw = ((tx + 61) >> 2) - rx + 2, rh = ((tz + 61) >> 2) - rz + 2;
             layers_rivermix(rx, rz, rw, rh, rm);
             voronoi(rm, rx, rz, rw, tx, tz, 64, 64, bb, 64);
             for (int j = 0; j < 64; j++)
@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
                 }
         }
     printf("P6 %d %d peak lay ints %d\n", W, W, lay_peak);
-    FILE *f = fopen(argc > 3 ? argv[3] : "/tmp/claude-0/-home-user-NumPlay/3af2eb1c-20d9-554a-acfb-eb19ce4fa977/scratchpad/gen/biomes.ppm", "wb");
+    FILE *f = fopen(argc > 3 ? argv[3] : "biomes.ppm", "wb");
     fprintf(f, "P6 %d %d 255\n", W, W);
     fwrite(img, 1, (size_t)W * W * 3, f);
     fclose(f);

@@ -38,7 +38,7 @@ int main(int argc, char **argv) {
             int px = (cx + R) * 16 + x, pz = (cz + R) * 16 + z;
             uint8_t *p = img + 3 * (pz * W + px);
             int r = 128, g = 128, b = 128;
-            switch (s->blk) {
+            switch (cs_blk(s)) {
             case B_GRASS: r = 90; g = 160; b = 60; break;
             case B_SAND: r = 220; g = 210; b = 150; break;
             case B_RED_SAND: r = 200; g = 110; b = 40; break;
@@ -52,11 +52,11 @@ int main(int argc, char **argv) {
             case B_COARSE_DIRT: case B_DIRT: r = 130; g = 95; b = 60; break;
             default: r = 180; g = 120; b = 90; break;
             }
-            int hgt = s->top;
-            if (s->blk == B_WATER || s->blk == B_LILY_PAD) { float d = (63 - s->aux) / 40.0f; if (d > 1) d = 1; r *= 1 - d * 0.6f; g *= 1 - d * 0.6f; b *= 1 - d * 0.4f; }
+            int hgt = cs_top(s);
+            if (cs_blk(s) == B_WATER || cs_blk(s) == B_LILY_PAD) { float d = (63 - s->y) / 40.0f; /* floor */ if (d > 1) d = 1; r *= 1 - d * 0.6f; g *= 1 - d * 0.6f; b *= 1 - d * 0.4f; }
             else { float f = 0.55f + (hgt - 50) / 100.0f; if (f > 1.3f) f = 1.3f; r *= f; g *= f; b *= f; }
             /* hillshade */
-            if (x > 0) { int dh = (int)s->top - (int)sum[x - 1 + z * 16].top; float f = 1 + dh * 0.08f; if (f < 0.6f) f = 0.6f; if (f > 1.4f) f = 1.4f; r *= f; g *= f; b *= f; }
+            if (x > 0) { int dh = (int)cs_top(s) - (int)cs_top(&sum[x - 1 + z * 16]); float f = 1 + dh * 0.08f; if (f < 0.6f) f = 0.6f; if (f > 1.4f) f = 1.4f; r *= f; g *= f; b *= f; }
             p[0] = r > 255 ? 255 : r; p[1] = g > 255 ? 255 : g; p[2] = b > 255 ? 255 : b;
         }
     }

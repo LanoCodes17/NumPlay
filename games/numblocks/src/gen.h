@@ -12,21 +12,35 @@ void gen_init(int64_t seed);
 /* Blocks of chunk (cx, cz) for y in [y0, y0 + h), after terrain, caves, ravines
  * and the decoration (population) that Minecraft would put in this chunk:
  * out[(y - y0) * 256 + z * 16 + x], x and z in 0..15, values from blocks.h (B_*).
- * Only y < 128 is ever written (y0 + h must be <= 128). */
+ * Only y < 128 is ever written (y0 + h must be <= 128).
+ * Cost: work around the chunk is cached, so neighbouring chunks asked one after the
+ * other are much cheaper than scattered ones (Cortex-M7 at 216 MHz, h = 24, rows of
+ * 3-4 neighbours: about 60-80 ms per call; the first call after gen_init or after a
+ * jump to a new place about 190 ms). */
 void gen_slab(int cx, int cz, int y0, int h, uint8_t *out);
 
-/* Minecraft biome id at block (x, z) (0 ocean, 1 plains, ... 129+ mutated). */
+/* Minecraft biome id at block (x, z) (0 ocean, 1 plains, ... 129+ mutated).
+ * Cheap for the chunk of the last gen_slab call, a few ms elsewhere. */
 int gen_biome(int x, int z);
 
 /* y (0..127) of the highest non-air block of column (x, z) after generation
- * (including trees and other decoration), or -1 if the column is empty. */
+ * (including trees and other decoration, whatever the y range of the slab asked).
+ * Cheap for the chunk of the last gen_slab call; elsewhere it costs a gen_slab. */
 int gen_top(int x, int z);
 
+/* Temperature noise at block (x, z): Minecraft's BiomeBase.ae.a(x / 8.0, z / 8.0), the raw
+ * simplex value. BiomeBase.a(BlockPosition) is then, for y > 64:
+ *   temperature - (gen_temp_noise(x, z) * 4 + y - 64) * 0.05 / 30
+ * (and the biome temperature for y <= 64); below 0.15 it snows and water freezes.
+ * Cheap (one simplex sample), usable any time after gen_init. */
+float gen_temp_noise(int x, int z);
+
 /* The world spawn point, as Minecraft chooses it (WorldChunkManager.findBiomePosition
- * then the random walk until the top block is grass); y is the first air block above it. */
+ * then the random walk until the top block is grass); y is the first air block above it.
+ * About 0.4 s on the calculator. */
 void gen_spawn(int *x, int *y, int *z);
 
-/* Statistics for tests: bytes of static RAM the generator uses. */
+/* Statistics for tests: bytes of static RAM the generator uses (27108 on the M7). */
 unsigned gen_ram_bytes(void);
 
 #endif

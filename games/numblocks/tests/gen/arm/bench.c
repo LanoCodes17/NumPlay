@@ -9,6 +9,15 @@
 #ifndef Y0
 #define Y0 56
 #endif
+#ifndef SEED
+#define SEED 12345
+#endif
+#ifndef OX /* chunk offset of the area */
+#define OX 0
+#endif
+#ifndef OZ
+#define OZ 0
+#endif
 #ifndef H
 #define H 24
 #endif
@@ -20,6 +29,7 @@ static uint8_t out[H * 256];
 
 static int k;
 static void slab(int cx, int cz) {
+    cx += OX, cz += OZ;
     gen_slab(cx, cz, Y0, H, out);
     uint32_t s = 0;
     for (unsigned i = 0; i < sizeof out; i++) s = s * 31 + out[i];
@@ -30,7 +40,7 @@ static void slab(int cx, int cz) {
 }
 
 int main(void) {
-    gen_init(12345);
+    gen_init(SEED);
     phase = 1;
     /* world load: 4 x 3 chunks */
     for (int cz = -2; cz <= 0; cz++)

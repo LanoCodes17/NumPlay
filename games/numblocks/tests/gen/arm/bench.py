@@ -3,7 +3,8 @@
 counting instructions per gen_slab call (1 instruction ~ 1 cycle at 216 MHz, the same
 convention as tools/emu.py) in the game's calling pattern (see bench.c). Also reports the
 deepest stack use (painted stack) and gen.c's own static RAM.
-Usage: bench.py [OUTDIR] [--no-spawn] [--profile] [--y0 N] [--h N]"""
+Usage: bench.py [OUTDIR] [--no-spawn] [--profile] [--lines FUNC,...] [--y0 N] [--h N] [--seed S] [--ox CX] [--oz CZ]
+                [--game-flags]"""
 import os
 import subprocess
 import sys
@@ -27,15 +28,25 @@ def opt(name, default):
 
 Y0 = opt("--y0", 56)
 H = opt("--h", 24)
+SEED = opt("--seed", 12345)
+OX = opt("--ox", 0)
+OZ = opt("--oz", 0)
 NO_SPAWN = "--no-spawn" in sys.argv
-PROFILE = "--profile" in sys.argv
+LINES = sys.argv[sys.argv.index("--lines") + 1] if "--lines" in sys.argv else None
+if LINES:
+    args = [a for a in args if a != LINES]
+PROFILE = "--profile" in sys.argv or "--lines" in sys.argv
 ELF = os.path.join(OUT, "gen_bench.elf")
 CFLAGS = ["-mcpu=cortex-m7", "-mfpu=fpv5-sp-d16", "-mfloat-abi=hard", "-mthumb", "-Os", "-std=c11",
           "-Wall", "-Wextra", "-Wdouble-promotion", "-ffunction-sections", "-fdata-sections", "-g"]
+if "--game-flags" in sys.argv:  # the game's build of gen.c
+    CFLAGS = ["-std=gnu11", "-mcpu=cortex-m7", "-mthumb", "-mfloat-abi=hard", "-mfpu=fpv5-sp-d16", "-O2",
+              "-ffunction-sections", "-fdata-sections", "-fsingle-precision-constant", "-ffast-math", "-g",
+              "-Wall", "-Wextra", "-Wdouble-promotion"]
 subprocess.check_call(["arm-none-eabi-gcc", *CFLAGS, "-nostartfiles", "--specs=nano.specs", "--specs=nosys.specs",
                        "-T", os.path.join(HERE, "bench.ld"), "-Wl,--gc-sections",
                        os.path.join(HERE, "bench.c"), os.path.join(SRC, "gen.c"), "-lm", "-o", ELF,
-                       f"-DY0={Y0}", f"-DH={H}"] + (["-DNO_SPAWN"] if NO_SPAWN else []))
+                       f"-DY0={Y0}", f"-DH={H}", f"-DSEED={SEED}LL", f"-DOX={OX}", f"-DOZ={OZ}"] + (["-DNO_SPAWN"] if NO_SPAWN else []))
 OBJ = os.path.join(OUT, "gen_arm.o")
 subprocess.check_call(["arm-none-eabi-gcc", *CFLAGS, "-c", os.path.join(SRC, "gen.c"), "-o", OBJ])
 print("gen.c alone:")
@@ -148,3 +159,21 @@ if PROFILE:
         for k, (a, n) in enumerate(top):
             print(f"{100 * n / total:6.2f}%  {a:#x}")
         print("\n".join(out))
+
+if LINES:
+    tot = sum(samples.values())
+    for fname in LINES.split(","):
+        lo = hi = None
+        for a0, sz, name in funcs:
+            if name == fname:
+                lo, hi = a0, a0 + sz
+        pcs = {a: n for a, n in samples.items() if lo is not None and lo <= a < hi}
+        out = subprocess.run(["arm-none-eabi-addr2line", "-e", ELF] + [hex(a) for a in pcs],
+                             capture_output=True, text=True).stdout.split("\n")
+        per = {}
+        for (a, n), line in zip(pcs.items(), out):
+            line = line.split("/")[-1]
+            per[line] = per.get(line, 0) + n
+        print(f"lines of {fname}:")
+        for line, n in sorted(per.items(), key=lambda t: -t[1])[:12]:
+            print(f"{100 * n / tot:6.2f}%  {line}")

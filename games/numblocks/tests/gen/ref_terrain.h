@@ -3,6 +3,9 @@
  * as a reference to test gen.c's optimised float/fixed-point version. Include after gen.c. */
 #include <math.h>
 typedef struct { int d[512]; double a, b, c; } RPerlin;
+/* nextDouble in double (gen.c only keeps the exact numerator) */
+static double jr_double(JRand *r) { return (double)jr_double_bits(r) * (1.0 / 9007199254740992.0); }
+
 static void rperlin_init(RPerlin *p, JRand *r) {
     p->a = jr_double(r) * 256.0; p->b = jr_double(r) * 256.0; p->c = jr_double(r) * 256.0;
     for (int i = 0; i < 256; i++) p->d[i] = i;
@@ -276,7 +279,7 @@ static void ref_chunk(int cx, int cz, uint8_t *chunk) {
 
 /* ---- literal caves/canyons (double, recursive) on a [y][z][x] chunk ---- */
 static float r_sintab[65536];
-static void r_sin_init(void) { for (int i = 0; i < 65536; i++) r_sintab[i] = (float)sin((double)i * 3.141592653589793 * 2.0 / 65536.0); }
+__attribute__((unused)) static void r_sin_init(void) { for (int i = 0; i < 65536; i++) r_sintab[i] = (float)sin((double)i * 3.141592653589793 * 2.0 / 65536.0); }
 static float r_sin(float f) { return r_sintab[(int)(f * 10430.378F) & 65535]; }
 static float r_cos(float f) { return r_sintab[(int)(f * 10430.378F + 16384.0F) & 65535]; }
 static uint8_t *rc_chunk; static const uint8_t *rc_b16; static float rc_d[1024];
@@ -307,7 +310,12 @@ static void rcave_a(long long i, int j, int k, double d0, double d1, double d2, 
             if (d8 * d8 + d9 * d9 - d10 * d10 > d11 * d11) return;
             if (d0 >= d4 - 16.0 - d6 * 2.0 && d2 >= d5 - 16.0 - d6 * 2.0 && d0 <= d4 + 16.0 + d6 * 2.0 && d2 <= d5 + 16.0 + d6 * 2.0) {
                 int l1 = r_floor(d0 - d6) - j * 16 - 1, i2 = r_floor(d0 + d6) - j * 16 + 1, j2 = r_floor(d1 - d7) - 1, k2 = r_floor(d1 + d7) + 1, l2 = r_floor(d2 - d6) - k * 16 - 1, i3 = r_floor(d2 + d6) - k * 16 + 1;
-                if (l1 < 0) l1 = 0; if (i2 > 16) i2 = 16; if (j2 < 1) j2 = 1; if (k2 > 248) k2 = 248; if (l2 < 0) l2 = 0; if (i3 > 16) i3 = 16;
+                if (l1 < 0) l1 = 0;
+                if (i2 > 16) i2 = 16;
+                if (j2 < 1) j2 = 1;
+                if (k2 > 248) k2 = 248;
+                if (l2 < 0) l2 = 0;
+                if (i3 > 16) i3 = 16;
                 int flag2 = 0;
                 for (int k3 = l1; !flag2 && k3 < i2; ++k3) for (int j3 = l2; !flag2 && j3 < i3; ++j3) for (int l3 = k2 + 1; !flag2 && l3 >= j2 - 1; --l3) if (l3 >= 0 && l3 < 256) {
                     int b = RS(k3, l3, j3); if (b == B_WATER || b == B_FLOWING_WATER) flag2 = 1;
@@ -352,7 +360,12 @@ static void rcanyon_a(long long i, int j, int k, double d0, double d1, double d2
             if (d8 * d8 + d9 * d9 - d10 * d10 > d11 * d11) return;
             if (d0 >= d4 - 16.0 - d6 * 2.0 && d2 >= d5 - 16.0 - d6 * 2.0 && d0 <= d4 + 16.0 + d6 * 2.0 && d2 <= d5 + 16.0 + d6 * 2.0) {
                 int l1 = r_floor(d0 - d6) - j * 16 - 1, i2 = r_floor(d0 + d6) - j * 16 + 1, j2 = r_floor(d1 - d7) - 1, k2 = r_floor(d1 + d7) + 1, l2 = r_floor(d2 - d6) - k * 16 - 1, i3 = r_floor(d2 + d6) - k * 16 + 1;
-                if (l1 < 0) l1 = 0; if (i2 > 16) i2 = 16; if (j2 < 1) j2 = 1; if (k2 > 248) k2 = 248; if (l2 < 0) l2 = 0; if (i3 > 16) i3 = 16;
+                if (l1 < 0) l1 = 0;
+                if (i2 > 16) i2 = 16;
+                if (j2 < 1) j2 = 1;
+                if (k2 > 248) k2 = 248;
+                if (l2 < 0) l2 = 0;
+                if (i3 > 16) i3 = 16;
                 int flag1 = 0;
                 for (int k3 = l1; !flag1 && k3 < i2; ++k3) for (int j3 = l2; !flag1 && j3 < i3; ++j3) for (int l3 = k2 + 1; !flag1 && l3 >= j2 - 1; --l3) if (l3 >= 0 && l3 < 256) {
                     int b = RS(k3, l3, j3); if (b == B_WATER || b == B_FLOWING_WATER) flag1 = 1;
@@ -373,7 +386,7 @@ static void rcanyon_a(long long i, int j, int k, double d0, double d1, double d2
         }
     }
 }
-static void ref_caves(int i, int j, uint8_t *chunk, const uint8_t *b16) {
+__attribute__((unused)) static void ref_caves(int i, int j, uint8_t *chunk, const uint8_t *b16) {
     rc_chunk = chunk; rc_b16 = b16;
     JRand b; jr_seed(&b, g_seed); long long l = jr_long(&b), i1 = jr_long(&b);
     for (int pass = 0; pass < 2; pass++)

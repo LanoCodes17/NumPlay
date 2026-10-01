@@ -3,9 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 int main(int argc, char **argv) {
+    (void)argc;
     i64 seed = strtoll(argv[1], 0, 10);
     int x0 = atoi(argv[2]), z0 = atoi(argv[3]), w = atoi(argv[4]), h = atoi(argv[5]);
-    jr_jump_init(); g_seed = seed; layers_init_test();
+    gen_init(seed);
+    lay_mem = U.lay, lay_cap = LAY_INTS, lay_top = 0;
     int cx0 = x0 >> 2, cz0 = z0 >> 2, cw = ((x0 + w - 1) >> 2) - cx0 + 1, ch = ((z0 + h - 1) >> 2) - cz0 + 1;
     static i32 rm[64*64];
     static uint8_t cells[1024*1024];

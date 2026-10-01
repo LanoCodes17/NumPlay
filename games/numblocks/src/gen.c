@@ -9,19 +9,25 @@
  * DEVIATIONS FROM MINECRAFT 1.8.8 (everything else is meant to be exact)
  * ---------------------------------------------------------------------------
  * Arithmetic
- *  - java.util.Random, GenLayer LCGs and all integer logic are bit exact.
+ *  - java.util.Random, GenLayer LCGs and all integer logic are bit exact, and so
+ *    is MathHelper.sin/cos (its table value is rebuilt from a float kernel plus a
+ *    correction table, checked for all 65536 indices). Draws are made in Java's
+ *    left-to-right order (C leaves the order inside one expression open).
  *  - Perlin/simplex noise: the cell index and the fraction of every sample are
- *    computed exactly (double/fixed point setup per octave), but the gradient,
- *    fade and lerp math, the octave sums and the density formula run in float
- *    instead of double. Results differ by ~1e-6 relative, so a block flips only
- *    where the density is within that of 0 (very rare). Java's quirk of reusing
- *    stale x-lerps while the y cell does not change is kept.
- *  - Terrain interpolation is done per column (trilinear, float) rather than
- *    with Java's incremental double steps: same maths, different rounding.
- *  - MathHelper.sin/cos: the 65536-entry table is replaced by a float
- *    polynomial on the same table index (within ~1 ulp of the table value).
- *  - Caves, ravines, ore veins, lakes, big oak trees use float where Java uses
- *    double (cave positions are kept in 32.32 fixed point so they do not drift).
+ *    computed exactly (fixed point setup per octave), but the gradient, fade and
+ *    lerp math, the octave sums and the density formula run in float instead of
+ *    double, so a block can flip only where the density is within ~1e-6 of 0
+ *    (tests/gen/t_refcmp: 0 blocks in 500+ chunks against a double transcription).
+ *    Java's quirk of reusing stale x-lerps while the y cell does not change is kept.
+ *    Noise is only evaluated where it decides a block: the density is bounded
+ *    without noise, then with the 6 lowest-frequency octaves (each octave is < 2 in
+ *    magnitude), and only points of grid cells whose sign is not settled get the
+ *    exact Java-order sum.
+ *  - Terrain interpolation is done per column (bilinear then linear, float) rather
+ *    than with Java's incremental double steps: same maths, different rounding.
+ *  - Caves, ravines, ore veins, lakes, big oak trees, swamp/flower-forest noise use
+ *    float where Java uses double (cave positions are kept in 32.32 fixed point so
+ *    they do not drift; the few tests too close to call are redone in double).
  *  - Voronoi biome zoom uses exact integer distances (double only for ties).
  *  - Bedrock: nextInt(5) is drawn 256 times per column; the draws whose value is
  *    unused are skipped with an LCG jump (identical unless a draw would have hit
@@ -51,11 +57,40 @@
  *    against C's real blocks (caves included), e.g. leaves never replace logs.
  *  - Light is not computed: mushrooms need "shade" = an opaque block above in
  *    the view; snow and ice ignore block light.
- *  - Dungeon chests and spawners are placed; chest loot is not stored, but the
- *    random numbers Minecraft draws for it are (so later features match).
+ *  - Dungeon chests and spawners are placed; chest loot is not stored. The loot's
+ *    item draws are replayed, but not the enchanted book's enchantment draws
+ *    (TODO, see dungeon_book), so after a dungeon chest the rest of that
+ *    population draws differently from Minecraft (still a valid decoration).
  *  - Structures are not generated (see TODO below), which matches Minecraft
  *    only where no structure exists.
- * TODO: structures (villages, strongholds, mineshafts, temples, monuments).
+ * Slabs (gen_slab's y range)
+ *  - Everything is computed for the whole height except where only the slab's
+ *    rows can be affected; reads of C outside its slab come from the summary. The
+ *    blocks of a slab can therefore differ in rare cases with the y range asked
+ *    (e.g. a plant at the slab's bottom row over ground that a lake removed in
+ *    the row below; snowy grass under a snow layer above the slab's top row).
+ *    c_top (gen_top) follows the writes of the populations including those above
+ *    and below the slab, without their replace rules.
+ * TODO: structures (villages, strongholds, mineshafts, temples, monuments);
+ *       the enchanted book draws of dungeon chests.
+ *
+ * ---------------------------------------------------------------------------
+ * HOW IT STAYS FAST AND SMALL (Cortex-M7, ~28 KB of static RAM, no malloc)
+ * ---------------------------------------------------------------------------
+ *  - Noise permutations are rebuilt per octave from saved random states (68 per
+ *    chunk) instead of being kept (17 KB).
+ *  - Column summaries (2 bytes per column) of up to 20 chunks are cached, so the
+ *    chunks around the ones the game asks for are computed once per burst.
+ *  - Biomes: an 18 x 18 window of 1:4 cells is kept (the layers cost about the
+ *    same for one chunk as for 3 x 3); the 18 base layers run once per window.
+ *  - Caves: one walk records, for every tunnel that can reach a 9 x 9 chunk area,
+ *    its name and the box it may change; carving the chunk asked for and the
+ *    populations' cave queries replay only the tunnels whose box meets theirs,
+ *    each walked once for all its target chunks.
+ *  - Populations remember (per chunk, 16 kept) which lakes and dungeons passed;
+ *    a known failure only makes its random draws.
+ *  - The file asks for -Os, IEEE float semantics (no fast-math, no FMA
+ *    contraction, whatever the build flags) and -O2 for the hot loops (HOT).
  * ---------------------------------------------------------------------------
  */
 #include "gen.h"
@@ -65,8 +100,30 @@
 
 #include "blocks.h"
 
+/* The float arithmetic here must be done as written (IEEE single precision, each operation
+ * rounded): the game builds with -ffast-math, which would fuse multiply-adds, reassociate sums
+ * and turn divisions into multiplications, and change the terrain. Size first by default; the
+ * hot loops ask for O2 (HOT). Constants meant as doubles are written so that
+ * -fsingle-precision-constant cannot change them (exact in float, or computed). */
 #if defined(__clang__)
 #pragma clang fp contract(off)
+#pragma clang fp reassociate(off)
+#elif defined(__GNUC__)
+#pragma GCC optimize("no-fast-math", "fp-contract=off", "Os")
+#endif
+#if defined(__GNUC__) && !defined(__clang__)
+#define HOT __attribute__((hot, optimize("O2", "no-fast-math", "fp-contract=off")))
+#else
+#define HOT
+#endif
+
+/* small helpers of the hot loops: inlined even when the file is compiled for size */
+#if defined(__GNUC__)
+#define INLINE static inline __attribute__((always_inline))
+#define NOINLINE __attribute__((noinline))
+#else
+#define INLINE static inline
+#define NOINLINE
 #endif
 
 typedef int64_t i64;
@@ -93,10 +150,13 @@ typedef struct {
 
 static void jr_seed(JRand *r, i64 seed) { r->s = ((u64)seed ^ JMUL) & JMASK; }
 
-static inline i32 jr_next(JRand *r, int bits) {
+/* next(bits); the _i helpers are the inlined twins used by the hot loops (the file is compiled
+ * for size, and the compiler does not inline across optimisation levels) */
+INLINE i32 jr_next_i(JRand *r, int bits) {
     r->s = (r->s * JMUL + JADD) & JMASK;
     return (i32)(u32)(r->s >> (48 - bits));
 }
+static i32 jr_next(JRand *r, int bits) { return jr_next_i(r, bits); }
 
 /* float <-> int64 conversions done with integer operations: the C casts are exact and
  * cheap on a 64-bit host but go through soft double arithmetic on the Cortex-M7. */
@@ -106,7 +166,7 @@ typedef union {
 } FBits;
 
 /* (i64)(v * 2^k) for |v * 2^k| < 2^62: scaling by 2^k is exact, the cast truncates toward 0 */
-static inline i64 f2i64_scaled(float v, int k) {
+INLINE i64 f2i64_scaled(float v, int k) {
     FBits c = {v};
     int e = (int)((c.u >> 23) & 255) - 150 + k; /* v * 2^k = m * 2^e */
     if (e <= -25) return 0;
@@ -116,12 +176,18 @@ static inline i64 f2i64_scaled(float v, int k) {
 }
 
 /* (float)v * 2^-k, rounded to nearest even like the cast */
-static inline float i64_to_f_scaled(i64 v, int k) {
+static float i64_to_f_big(i64 v, int k);
+INLINE float i64_to_f_scaled(i64 v, int k) {
     FBits s;
     if (v >= INT32_MIN && v <= INT32_MAX) {
         s.u = (u32)(127 - k) << 23;
         return (float)(i32)v * s.f;
     }
+    return i64_to_f_big(v, k);
+}
+
+HOT static float i64_to_f_big(i64 v, int k) {
+    FBits s;
     u64 a = v < 0 ? 0 - (u64)v : (u64)v;
     int sh = 40 - __builtin_clzll(a); /* bits below the 24 kept, >= 8 here */
     u32 m = (u32)(a >> sh);
@@ -130,6 +196,17 @@ static inline float i64_to_f_scaled(i64 v, int k) {
     s.u = (u32)(127 + sh - k) << 23;
     float f = (float)m * s.f;
     return v < 0 ? -f : f;
+}
+
+/* nextInt(n), inlined in the hot loops (jr_int is the same, called) */
+INLINE i32 jr_int_i(JRand *r, i32 n) {
+    if ((n & -n) == n) return (i32)(((i64)n * (i64)jr_next_i(r, 31)) >> 31);
+    i32 bits, val;
+    do {
+        bits = jr_next_i(r, 31);
+        val = bits % n;
+    } while ((i32)((u32)bits - (u32)val + (u32)(n - 1)) < 0);
+    return val;
 }
 
 static i32 jr_int(JRand *r, i32 n) {
@@ -150,19 +227,23 @@ static i64 jr_long(JRand *r) {
 
 static inline int jr_bool(JRand *r) { return jr_next(r, 1) != 0; }
 
-static inline float jr_float(JRand *r) { return (float)jr_next(r, 24) * (1.0f / 16777216.0f); }
+INLINE float jr_float_i(JRand *r) { return (float)jr_next_i(r, 24) * (1.0f / 16777216.0f); }
+static float jr_float(JRand *r) { return jr_float_i(r); }
 
 /* nextDouble as the exact 53-bit integer numerator (value = n / 2^53) */
-static inline i64 jr_double_bits(JRand *r) {
+static i64 jr_double_bits(JRand *r) {
     i64 a = jr_next(r, 26);
     i64 b = jr_next(r, 27);
     return (a << 27) + b;
 }
 
-static inline double jr_double(JRand *r) { return (double)jr_double_bits(r) * (1.0 / 9007199254740992.0); }
 
 /* nextDouble rounded to float (one rounding from the exact value) */
-static inline float jr_doublef(JRand *r) { return i64_to_f_scaled(jr_double_bits(r), 53); }
+static float jr_doublef(JRand *r) { return i64_to_f_scaled(jr_double_bits(r), 53); }
+INLINE float jr_doublef_i(JRand *r) {
+    i64 a = jr_next_i(r, 26), b = jr_next_i(r, 27);
+    return i64_to_f_scaled((a << 27) + b, 53);
+}
 
 /* LCG jump: advance by n steps (n < 1024) */
 static u64 jump_mul[10], jump_add[10];
@@ -372,7 +453,7 @@ static const uint8_t SIN_CORR[4097] = {
 /* entries whose correction is beyond one ulp: index, exact float bits */
 static const u32 SIN_EXC[][2] = {{5295, 0x3ef8e592u},{5299, 0x3ef9117eu},{5301, 0x3ef92773u},{5313, 0x3ef9ab25u},{5412, 0x3efde662u},{5416, 0x3efe1207u},{5422, 0x3efe537au},{5424, 0x3efe694au},{65536, 0}};
 
-NO_CONTRACT static float sin_quadrant(u32 r) { /* r in [0, 16384] */
+HOT static float sin_quadrant(u32 r) { /* r in [0, 16384] */
     if (r <= 8192) {
         float x = (float)r * 9.58737992428526e-05f;
         float z = x * x, v = z * x;
@@ -387,7 +468,7 @@ NO_CONTRACT static float sin_quadrant(u32 r) { /* r in [0, 16384] */
     }
 }
 
-static float sin_index(u32 i) {
+HOT static float sin_index(u32 i) {
     i &= 65535;
     if (i == 32768) return 1.2246467991473532e-16f;
     u32 q = i >> 14, r = i & 16383;
@@ -409,18 +490,20 @@ static float sin_index(u32 i) {
     return (q & 2) ? -v : v;
 }
 
-static inline float mh_sin(float f) { return sin_index((u32)(i32)(f * 10430.378f)); }
-static inline float mh_cos(float f) { return sin_index((u32)(i32)(f * 10430.378f + 16384.0f)); }
+INLINE float mh_sin_i(float f) { return sin_index((u32)(i32)(f * 10430.378f)); }
+INLINE float mh_cos_i(float f) { return sin_index((u32)(i32)(f * 10430.378f + 16384.0f)); }
+static float mh_sin(float f) { return mh_sin_i(f); }
+static float mh_cos(float f) { return mh_cos_i(f); }
 
-static inline int floor_f(float f) {
+INLINE int floor_f_i(float f) {
+    int i = (int)f;
+    return f < (float)i ? i - 1 : i;
+}
+static int floor_f(float f) {
     int i = (int)f;
     return f < (float)i ? i - 1 : i;
 }
 
-static inline int floor_d(double d) {
-    int i = (int)d;
-    return d < (double)i ? i - 1 : i;
-}
 
 /* ======================================================================== */
 /* Biomes                                                                    */
@@ -644,7 +727,7 @@ typedef struct {
     i64 c, d;
 } LRand;
 
-static inline void lr_chunk(LRand *r, i64 x, i64 z) {
+INLINE void lr_chunk(LRand *r, i64 x, i64 z) {
     u64 d = (u64)r->c;
     d *= d * LMUL + LADD;
     d += (u64)x;
@@ -659,7 +742,10 @@ static inline void lr_chunk(LRand *r, i64 x, i64 z) {
 
 /* (d >> 24) mod n in [0, n) (Java's % then + n). The 40-bit dividend is split so that
  * only 32-bit divisions are needed (a 64-bit one is a slow library call on the M7). */
-static inline int lr_int(LRand *r, int n) {
+#if defined(__GNUC__)
+__attribute__((noinline))
+#endif
+HOT static int lr_int(LRand *r, int n) {
     i64 x = r->d >> 24;
     int j;
     if ((n & (n - 1)) == 0) {
@@ -1073,7 +1159,7 @@ typedef struct {
     int x, z, w, h;
 } Win;
 
-static i32 *run_chain(const LayerDef *const *defs, int n, int x, int z, int w, int h, const i32 *second) {
+static i32 *run_chain(const LayerDef *const *defs, int n, int x, int z, int w, int h, const i32 *second, const i32 *in0) {
     /* windows, top down */
     Win win[40];
     win[n - 1] = (Win){x, z, w, h};
@@ -1081,9 +1167,10 @@ static i32 *run_chain(const LayerDef *const *defs, int n, int x, int z, int w, i
         layer_parent_win(defs[i]->type, win[i].x, win[i].z, win[i].w, win[i].h, &win[i - 1].x, &win[i - 1].z,
                          &win[i - 1].w, &win[i - 1].h);
     /* bottom up: each layer's output is allocated right after its input, then moved down
-     * over it (peak = largest input + output pair) */
-    int mark = lay_top;
-    i32 *cur = 0;
+     * over it (peak = largest input + output pair); in0: input of the first layer, if any
+     * (it is overwritten) */
+    int mark = in0 ? (int)(in0 - lay_mem) : lay_top;
+    const i32 *cur = in0;
     for (int i = 0; i < n; i++) {
         i32 *dst = lay_alloc(win[i].w * win[i].h);
         layer_apply(defs[i], cur, (defs[i]->type == L_HILLS) ? second : 0, dst, win[i].x, win[i].z, win[i].w,
@@ -1092,7 +1179,21 @@ static i32 *run_chain(const LayerDef *const *defs, int n, int x, int z, int w, i
         cur = lay_mem + mark;
         lay_top = mark + win[i].w * win[i].h;
     }
-    return cur;
+    return lay_mem + mark;
+}
+
+/* window at the input of the first of n layers whose last outputs `top` */
+static Win chain_in_win(const LayerDef *defs, int n, Win top) {
+    for (int i = n - 1; i >= 0; i--) layer_parent_win(defs[i].type, top.x, top.z, top.w, top.h, &top.x, &top.z, &top.w, &top.h);
+    return top;
+}
+
+/* sub-window sw of the base layers' output (window bw at base) copied to a new block */
+static i32 *base_sub(const i32 *base, Win bw, Win sw) {
+    i32 *p = lay_alloc(sw.w * sw.h);
+    for (int j = 0; j < sw.h; j++)
+        memcpy(p + j * sw.w, base + (sw.z - bw.z + j) * bw.w + (sw.x - bw.x), sizeof(i32) * (size_t)sw.w);
+    return p;
 }
 
 static const LayerDef *chain_buf[40];
@@ -1107,7 +1208,7 @@ static int chain_build(const LayerDef *tail, int ntail, int with_base) {
 
 /* GenLayerRiverMix output for window (x,z,w,h) into dst (biome ids) */
 static void layers_rivermix(int x, int z, int w, int h, i32 *dst) {
-    int mark = lay_top;
+    int mark0 = lay_top, mark = mark0;
     /* biome branch: base + biome1 to desert, then hills (needs the hills river noise), then biome2 */
     /* window of the hills layer input */
     const LayerDef *b2[9];
@@ -1121,12 +1222,31 @@ static void layers_rivermix(int x, int z, int w, int h, i32 *dst) {
                          &wb2[i - 1].w, &wb2[i - 1].h);
     Win hin; /* input window of the hills layer */
     layer_parent_win(L_HILLS, wb2[0].x, wb2[0].z, wb2[0].w, wb2[0].h, &hin.x, &hin.z, &hin.w, &hin.h);
+    /* the base layers (shared by the three branches; each cell's value only depends on the
+     * cell) once, over the union of the windows the branches need from them */
+    Win w1 = chain_in_win(LHILLSRIVER, 3, hin), w2 = chain_in_win(LBIOME1, 4, hin);
+    Win w3 = chain_in_win(LRIVER, 9, (Win){x, z, w, h});
+    Win bw = w1;
+    for (int k = 0; k < 2; k++) {
+        Win o = k ? w3 : w2;
+        int x1 = bw.x + bw.w > o.x + o.w ? bw.x + bw.w : o.x + o.w, z1 = bw.z + bw.h > o.z + o.h ? bw.z + bw.h : o.z + o.h;
+        bw.x = bw.x < o.x ? bw.x : o.x;
+        bw.z = bw.z < o.z ? bw.z : o.z;
+        bw.w = x1 - bw.x;
+        bw.h = z1 - bw.z;
+    }
+    int n = chain_build(0, 0, 1);
+    i32 *base = run_chain(chain_buf, n, bw.x, bw.z, bw.w, bw.h, 0, 0);
+    /* river branch first (its result stays below the biome branch's work) */
+    n = chain_build(LRIVER, 9, 0);
+    i32 *river = run_chain(chain_buf, n, x, z, w, h, 0, base_sub(base, bw, w3));
     /* hills river noise */
-    int n = chain_build(LHILLSRIVER, 3, 1);
-    i32 *hr = run_chain(chain_buf, n, hin.x, hin.z, hin.w, hin.h, 0);
+    n = chain_build(LHILLSRIVER, 3, 0);
+    i32 *hr = run_chain(chain_buf, n, hin.x, hin.z, hin.w, hin.h, 0, base_sub(base, bw, w1));
     /* biome chain up to desert */
-    n = chain_build(LBIOME1, 4, 1);
-    i32 *bd = run_chain(chain_buf, n, hin.x, hin.z, hin.w, hin.h, 0);
+    n = chain_build(LBIOME1, 4, 0);
+    i32 *bd = run_chain(chain_buf, n, hin.x, hin.z, hin.w, hin.h, 0, base_sub(base, bw, w2));
+    mark = (int)(hr - lay_mem); /* the biome branch's results go over hr and bd */
     /* hills .. smooth, fed by bd (the hills layer also reads hr) */
     {
         int mark2 = (int)(bd - lay_mem);
@@ -1148,8 +1268,6 @@ static void layers_rivermix(int x, int z, int w, int h, i32 *dst) {
         (void)mark2;
     }
     i32 *biomes = lay_mem + mark;
-    n = chain_build(LRIVER, 9, 1);
-    i32 *river = run_chain(chain_buf, n, x, z, w, h, 0);
     for (int i = 0; i < w * h; i++) {
         int b = biomes[i], rv = river[i];
         int v;
@@ -1166,16 +1284,7 @@ static void layers_rivermix(int x, int z, int w, int h, i32 *dst) {
         }
         dst[i] = v;
     }
-    lay_top = mark;
-}
-
-/* GenLayerZoomVoronoi for the block window (x, z, w, h); rm = rivermix window
- * ((x-2)>>2, (z-2)>>2, rw, rh) as returned by voronoi_rm_win. Output uint8 biome ids. */
-static void voronoi_rm_win(int x, int z, int w, int h, int *rx, int *rz, int *rw, int *rh) {
-    *rx = (x - 2) >> 2;
-    *rz = (z - 2) >> 2;
-    *rw = ((x - 2 + w - 1) >> 2) - *rx + 2;
-    *rh = ((z - 2 + h - 1) >> 2) - *rz + 2;
+    lay_top = mark0;
 }
 
 static i64 vor_c;
@@ -1212,8 +1321,8 @@ static int vor_pick(const int u[8], int sx, int sz) {
         /* exact tie: replay Java's double arithmetic */
         double d[8];
         for (int k = 0; k < 8; k++) {
-            d[k] = ((double)(u[k] + 512) / 1024.0 - 0.5) * 3.6;
-            if ((k == 2) || (k == 5) || (k == 6) || (k == 7)) d[k] += 4.0;
+            d[k] = ((double)(u[k] + 512) / 1024 - (double)1 / 2) * ((double)36 / 10); /* 3.6 */
+            if ((k == 2) || (k == 5) || (k == 6) || (k == 7)) d[k] += 4;
         }
         double i4 = sz, k4 = sx;
         double d9 = (i4 - d[1]) * (i4 - d[1]) + (k4 - d[0]) * (k4 - d[0]);
@@ -1231,6 +1340,8 @@ static int vor_pick(const int u[8], int sx, int sz) {
     return 3;
 }
 
+/* GenLayerZoomVoronoi for the block window (x, z, w, h); rm = rivermix window starting at
+ * ((x-2)>>2, (z-2)>>2), row stride rw. Output uint8 biome ids, row stride ostride. */
 static void voronoi(const i32 *rm, int rx, int rz, int rw, int x, int z, int w, int h, uint8_t *out, int ostride) {
     int u[8];
     i64 lastx = INT64_MIN, lastz = INT64_MIN;
@@ -1260,15 +1371,22 @@ typedef struct {
     u64 st;
 } Octave;
 
-static void perm_build(u64 st, uint8_t *perm, i64 off[3]) {
+static const uint8_t PERM_ID[256] = {
+#define R16(b) b, b + 1, b + 2, b + 3, b + 4, b + 5, b + 6, b + 7, b + 8, b + 9, b + 10, b + 11, b + 12, b + 13, b + 14, b + 15
+    R16(0), R16(16), R16(32), R16(48), R16(64), R16(80), R16(96), R16(112),
+    R16(128), R16(144), R16(160), R16(176), R16(192), R16(208), R16(224), R16(240)
+#undef R16
+};
+
+HOT static void perm_build(u64 st, uint8_t *perm, i64 off[3]) {
     JRand r = {st};
     for (int k = 0; k < 3; k++) {
         i64 n = jr_double_bits(&r);
         if (off) off[k] = n >> 13; /* offset * 2^32 (offset = n / 2^53 * 256), Q32 */
     }
-    for (int i = 0; i < 256; i++) perm[i] = (uint8_t)i;
+    memcpy(perm, PERM_ID, 256);
     for (int i = 0; i < 256; i++) {
-        int j = jr_int(&r, 256 - i) + i;
+        int j = jr_int_i(&r, 256 - i) + i;
         uint8_t t = perm[i];
         perm[i] = perm[j];
         perm[j] = t;
@@ -1280,10 +1398,10 @@ static void perm_skip(JRand *r) {
     for (int i = 0; i < 256; i++) jr_int(r, 256 - i);
 }
 
-static inline float fade(float t) { return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); }
-static inline float lerp(float t, float a, float b) { return a + t * (b - a); }
+INLINE float fade(float t) { return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); }
+INLINE float lerp(float t, float a, float b) { return a + t * (b - a); }
 
-static inline float grad3(int h, float x, float y, float z) {
+INLINE float grad3(int h, float x, float y, float z) {
     switch (h & 15) {
     case 0: return x + y;
     case 1: return -x + y;
@@ -1309,69 +1427,91 @@ static inline float grad3(int h, float x, float y, float z) {
  * request starting at integer position base gives
  *   coord = (base * scale + n * scale) * 2^-oct + offset
  * We compute it modulo 2^32 * 256 in Q32 fixed point: cell = bits 32..39, frac = bits 0..31. */
-static inline u64 coord_q32(i64 base, u64 S_fx, int oct, i64 n, i64 off) {
+INLINE u64 coord_q32(i64 base, u64 S_fx, int oct, i64 n, i64 off) {
     u64 b = ((u64)base * S_fx) >> oct;
     return b + (u64)n * (S_fx >> oct) + (u64)off;
 }
 
-static inline void coord_split(u64 c, int *cell, float *frac) {
+INLINE void coord_split(u64 c, int *cell, float *frac) {
     *cell = (int)((c >> 32) & 255);
     *frac = (float)(u32)c * (1.0f / 4294967296.0f);
 }
 
 /* Fixed-point scales (value * 2^32) of the generators' sample spacings: Java passes
  * (double)float, and these floats are exactly representable in Q32. */
-#define FX(f) ((u64)((double)(f) * 4294967296.0))
+#define FX(f) ((u64)((double)(f) * (double)(1ULL << 32)))
 static u64 SC_LIMIT, SC_MAINXZ, SC_MAINY, SC_DEPTH;
 
 /* One 3D octave over the chunk grid (5 x 33 x 5, index (x*5+z)*33+y), Java's
- * NoiseGeneratorPerlin.a with its stale-cache quirk. need: bitmask per point or NULL.
- * mul: per-point multiplier array (or NULL for 1). */
-static void perlin3_octave(const uint8_t *P, float *acc, const uint8_t *need, int bit, const float *mul, const int *xc,
-                           const float *xf, const int *zc, const float *zf, const int *yc, const float *yf, float amp) {
-    int idx = 0;
+ * NoiseGeneratorPerlin.a with its stale-cache quirk: the four x-lerps are recomputed only
+ * when the y cell changes, with the y fraction of the first sample of that run of samples in
+ * the same cell. need: bitmask per point or NULL; rng: per column, the range [lo, hi] of y
+ * holding the points needed (or NULL: all); mul: per-point multiplier array (or NULL for 1). */
+HOT static void perlin3_octave(const uint8_t *P, float *acc, const uint8_t *need, int bit, const uint8_t *rng,
+                               const float *mul, const int *xc, const float *xf, const int *zc, const float *zf,
+                               const int *yc, const float *yf, float amp) {
+    float uyv[33];
+    uint8_t run[33]; /* first y of the run of samples in the same cell as y */
+    for (int y = 0; y < 33; y++) {
+        uyv[y] = fade(yf[y]);
+        run[y] = (uint8_t)(y > 0 && yc[y] == yc[y - 1] ? run[y - 1] : y);
+    }
     for (int x = 0; x < 5; x++) {
-        float fx = xf[x], ux = fade(fx);
-        int l1 = xc[x];
+        float fx = xf[x], ux = fade(fx), gx1 = fx - 1;
+        int l1 = xc[x], pa = P[l1], pb = P[(l1 + 1) & 255];
         for (int z = 0; z < 5; z++) {
-            float fz = zf[z], uz = fade(fz);
-            int j4 = zc[z];
-            int last = -1, pend = 0, valid = 0;
+            int col = x * 5 + z, lo = rng ? rng[col * 2] : 0, hi = rng ? rng[col * 2 + 1] : 32;
+            if (lo > hi) continue;
+            float fz = zf[z], uz = fade(fz), gz1 = fz - 1;
+            int j4 = zc[z], cur = -1;
             float d16 = 0, d7 = 0, d17 = 0, d8 = 0;
-            for (int y = 0; y < 33; y++, idx++) {
-                int i5 = yc[y];
-                if (y == 0 || i5 != last) {
-                    last = i5;
-                    pend = y;
-                    valid = 0;
-                }
+            for (int y = lo; y <= hi; y++) {
+                int idx = col * 33 + y;
                 if (need && !(need[idx] & bit)) continue;
-                if (!valid) {
-                    float fy = yf[pend];
-                    int ci = yc[pend];
-                    int j5 = P[l1] + ci;
+                if (run[y] != cur) {
+                    cur = run[y];
+                    float fy = yf[cur], gy1 = fy - 1;
+                    int i5 = yc[cur];
+                    int j5 = pa + i5;
                     int k5 = P[j5 & 255] + j4;
                     int l5 = P[(j5 + 1) & 255] + j4;
-                    int i6 = P[(l1 + 1) & 255] + ci;
+                    int i6 = pb + i5;
                     int i2 = P[i6 & 255] + j4;
                     int j6 = P[(i6 + 1) & 255] + j4;
-                    d16 = lerp(ux, grad3(P[k5 & 255], fx, fy, fz), grad3(P[i2 & 255], fx - 1, fy, fz));
-                    d7 = lerp(ux, grad3(P[l5 & 255], fx, fy - 1, fz), grad3(P[j6 & 255], fx - 1, fy - 1, fz));
-                    d17 = lerp(ux, grad3(P[(k5 + 1) & 255], fx, fy, fz - 1), grad3(P[(i2 + 1) & 255], fx - 1, fy, fz - 1));
-                    d8 = lerp(ux, grad3(P[(l5 + 1) & 255], fx, fy - 1, fz - 1),
-                              grad3(P[(j6 + 1) & 255], fx - 1, fy - 1, fz - 1));
-                    valid = 1;
+                    d16 = lerp(ux, grad3(P[k5 & 255], fx, fy, fz), grad3(P[i2 & 255], gx1, fy, fz));
+                    d7 = lerp(ux, grad3(P[l5 & 255], fx, gy1, fz), grad3(P[j6 & 255], gx1, gy1, fz));
+                    d17 = lerp(ux, grad3(P[(k5 + 1) & 255], fx, fy, gz1), grad3(P[(i2 + 1) & 255], gx1, fy, gz1));
+                    d8 = lerp(ux, grad3(P[(l5 + 1) & 255], fx, gy1, gz1), grad3(P[(j6 + 1) & 255], gx1, gy1, gz1));
                 }
-                float uy = fade(yf[y]);
+                float uy = uyv[y];
                 float v = lerp(uz, lerp(uy, d16, d7), lerp(uy, d17, d8));
-                acc[idx] += v * amp * (mul ? mul[idx] : 1.0f);
+                if (mul) acc[idx] += v * amp * mul[idx];
+                else acc[idx] += v * amp;
             }
         }
     }
 }
 
+/* per grid column, the range [lo, hi] of y whose points have one of the bits (lo > hi: none);
+ * returns whether any point has them */
+static int need_ranges(const uint8_t *cls, int bits, uint8_t *rng) {
+    int any = 0;
+    for (int c = 0; c < 25; c++) {
+        int lo = 33, hi = -1;
+        for (int y = 0; y < 33; y++)
+            if (cls[c * 33 + y] & bits) {
+                if (lo == 33) lo = y;
+                hi = y;
+            }
+        rng[c * 2] = (uint8_t)(lo == 33 ? 1 : lo);
+        rng[c * 2 + 1] = (uint8_t)(lo == 33 ? 0 : hi);
+        any |= lo != 33;
+    }
+    return any;
+}
+
 /* 2D octave (Java's j == 1 path) over 5 x 5 */
-static void perlin2_octave(const uint8_t *P, float *acc, const int *xc, const float *xf, const int *zc,
+HOT static void perlin2_octave(const uint8_t *P, float *acc, const int *xc, const float *xf, const int *zc,
                            const float *zf, float amp) {
     int idx = 0;
     for (int x = 0; x < 5; x++) {
@@ -1406,18 +1546,18 @@ static inline i64 mul_q64(i64 k, u64 q) {
     return a + b;
 }
 
-static const int8_t SGRAD[12][2] = {{1, 1}, {-1, 1}, {1, -1}, {-1, -1}, {1, 0}, {-1, 0},
-                                    {1, 0}, {-1, 0}, {0, 1}, {0, -1}, {0, 1}, {0, -1}};
+static const float SGRAD[12][2] = {{1, 1}, {-1, 1}, {1, -1}, {-1, -1}, {1, 0}, {-1, 0},
+                                   {1, 0}, {-1, 0}, {0, 1}, {0, -1}, {0, 1}, {0, -1}};
 
 /* simplex value at (xi + xf, zi + zf); xf, zf small (|.| < ~4) */
-static float simplex2(const uint8_t *P, i32 xi, float xf, i32 zi, float zf) {
+HOT static float simplex2(const uint8_t *P, i32 xi, float xf, i32 zi, float zf) {
     i32 K = xi + zi;
     i64 sq = mul_q64(K, F2_Q64); /* K*F2, Q32 */
     i32 si = (i32)(sq >> 32);
     float sf = (float)(u32)sq * (1.0f / 4294967296.0f);
     float t = (xf + zf) * (float)F2D;
     float sx = xf + sf + t, sz = zf + sf + t;
-    int fsx = floor_f(sx), fsz = floor_f(sz);
+    int fsx = floor_f_i(sx), fsz = floor_f_i(sz);
     i32 ci = xi + si + fsx, cj = zi + si + fsz;
     /* unskew: x0 = xf - fsx + (fsx + fsz) * G2 + (K * G2 - si * (1 - 2 G2)), and the last
      * term equals sf * (1 - 2 G2) because F2 * (1 - 2 G2) = G2 */
@@ -1458,36 +1598,36 @@ static float simplex2(const uint8_t *P, i32 xi, float xf, i32 zi, float zf) {
 
 /* Java's single-point NoiseGenerator3Handler.a(double, double) in double: used only to
  * settle values the float version puts within 1e-5 of a threshold that matters. */
-static int jfloor_s(double d) { return d > 0.0 ? (int)d : (int)d - 1; }
+static int jfloor_s(double d) { return d > 0 ? (int)d : (int)d - 1; }
 
 static double simplex2_d(const uint8_t *P, double d0, double d1) {
-    const double F = 0.5 * (1.7320508075688772 - 1.0), G = (3.0 - 1.7320508075688772) / 6.0;
+    const double s3 = sqrt((double)3), F = (s3 - 1) / 2, G = (3 - s3) / 6;
     double d3 = (d0 + d1) * F;
     int i = jfloor_s(d0 + d3), j = jfloor_s(d1 + d3);
     double d5 = (double)(i + j) * G;
     double d8 = d0 - ((double)i - d5), d9 = d1 - ((double)j - d5);
     int b0 = d8 > d9, b1 = !b0;
-    double d10 = d8 - b0 + G, d11 = d9 - b1 + G, d12 = d8 - 1.0 + 2.0 * G, d13 = d9 - 1.0 + 2.0 * G;
+    double d10 = d8 - b0 + G, d11 = d9 - b1 + G, d12 = d8 - 1 + 2 * G, d13 = d9 - 1 + 2 * G;
     int k = i & 255, l = j & 255;
     int g0 = P[(k + P[l]) & 255] % 12, g1 = P[(k + b0 + P[(l + b1) & 255]) & 255] % 12,
         g2 = P[(k + 1 + P[(l + 1) & 255]) & 255] % 12;
     double n = 0, t;
-    t = 0.5 - d8 * d8 - d9 * d9;
+    t = (double)1 / 2 - d8 * d8 - d9 * d9;
     if (t >= 0) {
         t *= t;
-        n += t * t * (SGRAD[g0][0] * d8 + SGRAD[g0][1] * d9);
+        n += t * t * ((double)SGRAD[g0][0] * d8 + (double)SGRAD[g0][1] * d9);
     }
-    t = 0.5 - d10 * d10 - d11 * d11;
+    t = (double)1 / 2 - d10 * d10 - d11 * d11;
     if (t >= 0) {
         t *= t;
-        n += t * t * (SGRAD[g1][0] * d10 + SGRAD[g1][1] * d11);
+        n += t * t * ((double)SGRAD[g1][0] * d10 + (double)SGRAD[g1][1] * d11);
     }
-    t = 0.5 - d12 * d12 - d13 * d13;
+    t = (double)1 / 2 - d12 * d12 - d13 * d13;
     if (t >= 0) {
         t *= t;
-        n += t * t * (SGRAD[g2][0] * d12 + SGRAD[g2][1] * d13);
+        n += t * t * ((double)SGRAD[g2][0] * d12 + (double)SGRAD[g2][1] * d13);
     }
-    return 70.0 * n;
+    return 70 * n;
 }
 
 /* ======================================================================== */
@@ -1525,7 +1665,7 @@ static float grass_noise_div(int x, int z, int d) {
 /* Scratch memory (phases never overlap)                                     */
 /* ======================================================================== */
 
-#define LAY_INTS 1200
+#define LAY_INTS 1650 /* the 18 x 18 biome window peaks at 1084 + its output; spawn_rows must fit in U */
 
 typedef struct {
     float grid[825];      /* main noise, then density */
@@ -1563,12 +1703,25 @@ typedef struct {
     uint8_t qmask[2048];
 } PopScratch;
 
+typedef struct {
+    int x, y, z, q;
+} BigPos;
+
+/* Scratch memory. The phases never overlap: layers (in the terrain pass), terrain, then caves
+ * and populations (PopScratch plus the cave walk's and big oak's tables after it). */
 static union {
     TerrainScratch t;
     i32 lay[LAY_INTS];
     PopScratch p;
+    struct {
+        PopScratch p_;
+        float canyon_w[256]; /* WorldGenCanyon.d */
+        BigPos big_list[48]; /* WorldGenBigTree's branch ends */
+    } x;
     uint8_t spawn_rows[sizeof(i32) * LAY_INTS + 8 * 129];
 } U;
+#define canyon_w (U.x.canyon_w)
+#define big_list (U.x.big_list)
 
 /* ======================================================================== */
 /* Terrain                                                                   */
@@ -1579,12 +1732,35 @@ static float bweights[25]; /* ChunkProviderGenerate.q */
 /* biomes of chunk (cx, cz): 1:4 grid 10x10 at (cx*4-2, cz*4-2) and 16x16 blocks */
 static uint8_t cb4[100], cb16[256];
 
+static int bc_cx = 0x7fffffff, bc_cz; /* chunk whose biomes cb16 holds */
+
+/* River-mix biomes (1:4 cells) of 3 x 3 chunks, kept between calls: running the layers costs
+ * mostly the same for a chunk's 10 x 10 cells as for this 18 x 18 window, and the chunks whose
+ * terrain a gen_slab call computes are around the same place. */
+#define BG_W 18
+static uint8_t bgrid[BG_W * BG_W];
+static int bg_x, bg_z; /* cell of bgrid[0] */
+static int64_t bg_seed;
+static int bg_ok;
+
 static void chunk_biomes(int cx, int cz) {
+    bc_cx = cx;
+    bc_cz = cz;
+    int x0 = cx * 4 - 2, z0 = cz * 4 - 2;
+    if (!bg_ok || bg_seed != g_seed || x0 < bg_x || z0 < bg_z || x0 + 10 > bg_x + BG_W || z0 + 10 > bg_z + BG_W) {
+        bg_x = x0 - 4;
+        bg_z = z0 - 4;
+        bg_seed = g_seed;
+        bg_ok = 1;
+        lay_mem = U.lay + BG_W * BG_W;
+        lay_cap = LAY_INTS - BG_W * BG_W;
+        lay_top = 0;
+        layers_rivermix(bg_x, bg_z, BG_W, BG_W, U.lay);
+        for (int i = 0; i < BG_W * BG_W; i++) bgrid[i] = (uint8_t)U.lay[i];
+    }
     i32 *rm = U.lay;
-    lay_mem = U.lay + 100;
-    lay_cap = LAY_INTS - 100;
-    lay_top = 0;
-    layers_rivermix(cx * 4 - 2, cz * 4 - 2, 10, 10, rm);
+    for (int j = 0; j < 10; j++)
+        for (int i = 0; i < 10; i++) rm[i + j * 10] = bgrid[(x0 - bg_x + i) + (z0 - bg_z + j) * BG_W];
     for (int i = 0; i < 100; i++) cb4[i] = (uint8_t)rm[i];
     /* voronoi window for blocks (cx*16, cz*16, 16, 16) is rivermix (cx*4-1, cz*4-1, 6, 6),
      * a sub-window of the 10x10 one at offset (1, 1) */
@@ -1593,8 +1769,24 @@ static void chunk_biomes(int cx, int cz) {
 
 static void octave_setup(const Octave *o, i64 off[3]) { perm_build(o->st, U.t.perm, off); }
 
+/* octave o (generator state oc) of a 3D noise over the chunk grid at grid origin (bx, bz):
+ * horizontal / vertical sample spacings sxz, sy (Q32), accumulated into acc as perlin3_octave */
+HOT static void noise3_octave(const Octave *oc, int o, i64 bx, i64 bz, u64 sxz, u64 sy, float *acc, const uint8_t *need,
+                          int bit, const uint8_t *rng, const float *mul) {
+    int xc[5], zc[5], yc[33];
+    float xf[5], zf[5], yf[33];
+    i64 off[3];
+    octave_setup(oc, off);
+    for (int n = 0; n < 5; n++) {
+        coord_split(coord_q32(bx, sxz, o, n, off[0]), &xc[n], &xf[n]);
+        coord_split(coord_q32(bz, sxz, o, n, off[2]), &zc[n], &zf[n]);
+    }
+    for (int n = 0; n < 33; n++) coord_split(coord_q32(0, sy, o, n, off[1]), &yc[n], &yf[n]);
+    perlin3_octave(U.t.perm, acc, need, bit, rng, mul, xc, xf, zc, zf, yc, yf, (float)(1 << o));
+}
+
 /* the density's height offset at grid level j2 (ChunkProviderGenerate: d4) */
-static inline float dens_offset(int j2, float d3, float d2) {
+INLINE float dens_offset(int j2, float d3, float d2) {
     float d4 = ((float)j2 - d3) * 12.0f * 128.0f / 256.0f / d2;
     return d4 < 0.0f ? d4 * 4.0f : d4;
 }
@@ -1605,10 +1797,10 @@ static inline float dens_offset(int j2, float d3, float d2) {
  * lerped), so the noise part is within +-256. Grid points where offset(y) alone decides the
  * sign for every cell around them do not need any noise: they get +-1 instead (cells whose
  * 8 corners all agree interpolate to the same sign whatever the values). */
-static void chunk_density(int cx, int cz) {
+HOT static void chunk_density(int cx, int cz) {
     TerrainScratch *T = &U.t;
-    int xc[5], zc[5], yc[33];
-    float xf[5], zf[5], yf[33];
+    int xc[5], zc[5];
+    float xf[5], zf[5];
     i64 off[3];
     i64 bx = (i64)cx * 4, bz = (i64)cz * 4;
     /* depth noise (2D, 16 octaves) */
@@ -1661,9 +1853,14 @@ static void chunk_density(int cx, int cz) {
             colD3[i1] = 8.5f + d1 * 4.0f;
             colD2[i1] = f2;
         }
-    /* T->cls per grid point: D_SOLID / D_EMPTY when the bounds decide the sign, D_NEED when
-     * the noise is needed, then D_MIN / D_MAX for the limit noises the clamped lerp uses */
-    enum { D_MIN = 1, D_MAX = 2, D_NEED = 4, D_SOLID = 16, D_EMPTY = 32 };
+    /* T->cls per grid point: D_SOLID / D_EMPTY when bounds decide the sign of the density,
+     * D_NEED when its exact value is needed, then D_MIN / D_MAX for the limit noises the
+     * clamped lerp uses. Bounds: each octave of a limit noise is below 2 in magnitude (gradient
+     * dots of fractions, lerped), times its amplitude 2^o; the clamped lerp lies between the two
+     * limits. First with no noise at all (+-256 after the / 512), then, for the points still
+     * undecided, with the sums of the 6 lowest-frequency octaves (10..15) of both limits, which
+     * leave +-2 * (2^10 - 1) / 512 < 4 for the rest (4.05 with room for float rounding). */
+    enum { D_MIN = 1, D_MAX = 2, D_NEED = 4, D_UND = 8, D_SOLID = 16, D_EMPTY = 32 };
     uint8_t *cls = T->cls;
     for (int c = 0; c < 25; c++)
         for (int j2 = 0; j2 < 33; j2++) {
@@ -1674,8 +1871,29 @@ static void chunk_density(int cx, int cz) {
                 lo = lo * (1.0f - d9) + -10.0f * d9;
                 hi = hi * (1.0f - d9) + -10.0f * d9;
             }
-            cls[c * 33 + j2] = lo > 0.0f ? D_SOLID : (hi <= 0.0f ? D_EMPTY : 0);
+            cls[c * 33 + j2] = lo > 0.0f ? D_SOLID : (hi <= 0.0f ? D_EMPTY : D_UND);
         }
+    memset(T->grid, 0, sizeof T->grid); /* min partial sums */
+    memset(T->acc, 0, sizeof T->acc);   /* max partial sums */
+    uint8_t rng[50];
+    if (need_ranges(cls, D_UND, rng))
+        for (int o = 10; o < 16; o++) {
+            noise3_octave(&oc_min[o], o, bx, bz, SC_LIMIT, SC_LIMIT, T->grid, cls, D_UND, rng, 0);
+            noise3_octave(&oc_max[o], o, bx, bz, SC_LIMIT, SC_LIMIT, T->acc, cls, D_UND, rng, 0);
+        }
+    for (int i = 0; i < 825; i++) {
+        if (!(cls[i] & D_UND)) continue;
+        int j2 = i % 33;
+        float a = T->grid[i], b = T->acc[i];
+        float d4 = dens_offset(j2, colD3[i / 33], colD2[i / 33]);
+        float lo = (a < b ? a : b) / 512.0f - 4.05f - d4, hi = (a < b ? b : a) / 512.0f + 4.05f - d4;
+        if (j2 > 29) {
+            float d9 = (float)(j2 - 29) / 3.0f;
+            lo = lo * (1.0f - d9) + -10.0f * d9;
+            hi = hi * (1.0f - d9) + -10.0f * d9;
+        }
+        cls[i] = lo > 0.0f ? D_SOLID : (hi <= 0.0f ? D_EMPTY : 0);
+    }
     /* a point needs noise if one of the cells around it has corners of different classes */
     for (int gx = 0; gx < 4; gx++)
         for (int gz = 0; gz < 4; gz++)
@@ -1693,15 +1911,8 @@ static void chunk_density(int cx, int cz) {
             }
     /* main noise (8 octaves) */
     memset(T->grid, 0, sizeof T->grid);
-    for (int o = 0; o < 8; o++) {
-        octave_setup(&oc_main[o], off);
-        for (int n = 0; n < 5; n++) {
-            coord_split(coord_q32(bx, SC_MAINXZ, o, n, off[0]), &xc[n], &xf[n]);
-            coord_split(coord_q32(bz, SC_MAINXZ, o, n, off[2]), &zc[n], &zf[n]);
-        }
-        for (int n = 0; n < 33; n++) coord_split(coord_q32(0, SC_MAINY, o, n, off[1]), &yc[n], &yf[n]);
-        perlin3_octave(T->perm, T->grid, cls, D_NEED, 0, xc, xf, zc, zf, yc, yf, (float)(1 << o));
-    }
+    if (need_ranges(cls, D_NEED, rng))
+        for (int o = 0; o < 8; o++) noise3_octave(&oc_main[o], o, bx, bz, SC_MAINXZ, SC_MAINY, T->grid, cls, D_NEED, rng, 0);
     /* which limits the clamped lerp needs: min only (d7 < 0), max only (d7 > 1) or both */
     for (int i = 0; i < 825; i++) {
         if (!(cls[i] & D_NEED)) continue;
@@ -1710,29 +1921,15 @@ static void chunk_density(int cx, int cz) {
         cls[i] |= d7 < 0.0f ? D_MIN : (d7 > 1.0f ? D_MAX : D_MIN | D_MAX);
     }
     memset(T->acc, 0, sizeof T->acc);
-    for (int o = 0; o < 16; o++) {
-        octave_setup(&oc_min[o], off);
-        for (int n = 0; n < 5; n++) {
-            coord_split(coord_q32(bx, SC_LIMIT, o, n, off[0]), &xc[n], &xf[n]);
-            coord_split(coord_q32(bz, SC_LIMIT, o, n, off[2]), &zc[n], &zf[n]);
-        }
-        for (int n = 0; n < 33; n++) coord_split(coord_q32(0, SC_LIMIT, o, n, off[1]), &yc[n], &yf[n]);
-        perlin3_octave(T->perm, T->acc, cls, D_MIN, 0, xc, xf, zc, zf, yc, yf, (float)(1 << o));
-    }
+    if (need_ranges(cls, D_MIN, rng))
+        for (int o = 0; o < 16; o++) noise3_octave(&oc_min[o], o, bx, bz, SC_LIMIT, SC_LIMIT, T->acc, cls, D_MIN, rng, 0);
     for (int i = 0; i < 825; i++) {
         int k = cls[i] & (D_MIN | D_MAX);
         if (k == (D_MIN | D_MAX)) T->acc[i] *= 1.0f - T->grid[i];
         if (k == D_MAX) T->grid[i] = 1.0f;
     }
-    for (int o = 0; o < 16; o++) {
-        octave_setup(&oc_max[o], off);
-        for (int n = 0; n < 5; n++) {
-            coord_split(coord_q32(bx, SC_LIMIT, o, n, off[0]), &xc[n], &xf[n]);
-            coord_split(coord_q32(bz, SC_LIMIT, o, n, off[2]), &zc[n], &zf[n]);
-        }
-        for (int n = 0; n < 33; n++) coord_split(coord_q32(0, SC_LIMIT, o, n, off[1]), &yc[n], &yf[n]);
-        perlin3_octave(T->perm, T->acc, cls, D_MAX, T->grid, xc, xf, zc, zf, yc, yf, (float)(1 << o));
-    }
+    if (need_ranges(cls, D_MAX, rng))
+        for (int o = 0; o < 16; o++) noise3_octave(&oc_max[o], o, bx, bz, SC_LIMIT, SC_LIMIT, T->acc, cls, D_MAX, rng, T->grid);
     /* density (decided points get +-1: only their sign matters) */
     for (int i = 0; i < 825; i++) {
         int j2 = i % 33;
@@ -1779,9 +1976,25 @@ static void chunk_surface_noise(int cx, int cz) {
 
 /* ---- surface builders (BiomeBase.b and the overrides) ---- */
 
+/* Column summary of the undecorated, cave-less terrain, in 2 bytes. Below the sea a column
+ * ends in water, so a column whose highest block is solid has it at y >= 62, and a column
+ * whose highest block is liquid (water, ice, or water under a lily pad) has it at y = 62
+ * with its floor (highest solid block below) at y <= 61. Hence:
+ *   y >= 62: solid top at y; c = top block code << 4 | filler depth (non-stone blocks below)
+ *   y <= 61: liquid top at 62, floor at y; c = liquid kind */
 typedef struct {
-    uint8_t top, blk, aux; /* see summary below */
+    uint8_t y, c;
 } ColSum;
+static const uint8_t SUM_TOPS[16] = {B_STONE, B_GRASS, B_COARSE_DIRT, B_PODZOL, B_SAND, B_RED_SAND, B_GRAVEL, B_SNOW,
+                                     B_MYCELIUM, B_HARDENED_CLAY, B_STAINED_CLAY_WHITE, B_STAINED_CLAY_ORANGE,
+                                     B_STAINED_CLAY_YELLOW, B_STAINED_CLAY_BROWN, B_STAINED_CLAY_RED,
+                                     B_STAINED_CLAY_SILVER};
+static const uint8_t SUM_LIQ[4] = {B_WATER, B_ICE, B_LILY_PAD, B_LAVA};
+static unsigned sum_odd; /* columns the encoding could not hold exactly (tests expect 0) */
+
+INLINE int cs_top(const ColSum *s) { return s->y < 62 ? 62 : s->y; }
+/* the top block; B_LILY_PAD means water at the top with a lily pad above */
+INLINE uint8_t cs_blk(const ColSum *s) { return s->y < 62 ? SUM_LIQ[s->c & 3] : SUM_TOPS[s->c >> 4]; }
 
 /* one step of BiomeBase.b's loop at height y (no bedrock); returns 1 if it needs a sandstone
  * draw (then the caller draws and calls sand_after) */
@@ -1791,7 +2004,7 @@ typedef struct {
     float temp;
 } SurfState;
 
-static inline int surf_step(SurfState *s, uint8_t *col, int y) {
+INLINE int surf_step(SurfState *s, uint8_t *col, int y) {
     uint8_t blk = col[y];
     if (blk == B_AIR) {
         s->l = -1;
@@ -1825,29 +2038,49 @@ static inline int surf_step(SurfState *s, uint8_t *col, int y) {
     return 0;
 }
 
-static void build_default(uint8_t *col, const Biome *b, JRand *r, float noise, uint8_t top0, uint8_t fill0) {
+/* highest non-air y of the column being built (column_density's result) */
+static int col_top;
+
+HOT static void build_default(uint8_t *col, const Biome *b, JRand *r, float noise, uint8_t top0, uint8_t fill0) {
     SurfState s;
     s.top0 = s.top = top0;
     s.fill0 = s.fill = fill0;
     s.l = -1;
     s.temp = b->temp;
     s.i1 = (int)(noise / 3.0f + 3.0f + jr_doublef(r) * 0.25f);
-    unsigned skip = 0;
-    for (int y = 255; y >= 0; y--) {
+    /* every y > 4 draws one bedrock nextInt(5) that is not used: count them, jump over them
+     * before a draw that matters. Above the top all is air (nothing to do); in stone with no
+     * filler left and in water, nothing happens either. */
+    int y = col_top > 4 ? col_top : 4;
+    unsigned skip = (unsigned)(255 - y);
+    for (; y >= 0; y--) {
         if (y <= 4) {
             jr_skip(r, skip);
             skip = 0;
-            if (y <= jr_int(r, 5)) {
+            if (y <= jr_int_i(r, 5)) {
                 col[y] = B_BEDROCK;
                 continue;
             }
         } else {
             skip++;
+            uint8_t blk = col[y];
+            if ((blk == B_STONE && s.l == 0) || blk == B_WATER) {
+                int y2 = y - 1;
+                /* 4 blocks at a time (col is word aligned) */
+                u32 w4 = blk * 0x01010101u, word;
+                while (y2 > 7 && (y2 & 3) != 3 && col[y2] == blk) y2--;
+                if ((y2 & 3) == 3)
+                    while (y2 > 7 && (memcpy(&word, col + y2 - 3, 4), word == w4)) y2 -= 4;
+                while (y2 > 4 && col[y2] == blk) y2--;
+                skip += (unsigned)(y - 1 - y2);
+                y = y2 + 1;
+                continue;
+            }
         }
         if (surf_step(&s, col, y)) {
             jr_skip(r, skip);
             skip = 0;
-            s.l = jr_int(r, 4) + (y - SEA > 0 ? y - SEA : 0);
+            s.l = jr_int_i(r, 4) + (y - SEA > 0 ? y - SEA : 0);
             s.fill = s.fill == B_RED_SAND ? B_RED_SANDSTONE : B_SANDSTONE;
         }
     }
@@ -1983,16 +2216,22 @@ static void build_surface(uint8_t *col, const Biome *b, JRand *r, int bx, int bz
         else if (noise > -0.5f) top = B_COARSE_DIRT;
         break;
     case S_SWAMP: {
+        /* Java: d1 = af.a(x * 0.25, z * 0.25) > 0, then < 0.12 for a lily pad. In float, the
+         * value is recomputed in double when it is too close to either threshold; for a float,
+         * "< 0.12" (the double) is "<= 0.12f". */
         float f1 = simplex2(perm_grass, bx >> 2, (float)(bx & 3) * 0.25f, bz >> 2, (float)(bz & 3) * 0.25f);
-        double d1 = f1;
-        if ((f1 > -1e-5f && f1 < 1e-5f) || (f1 > 0.12f - 1e-5f && f1 < 0.12f + 1e-5f))
-            d1 = simplex2_d(perm_grass, (double)bx * 0.25, (double)bz * 0.25);
-        if (d1 > 0.0) {
-            for (int y = 255; y >= 0; y--)
+        int pos = f1 > 0.0f, lily = f1 <= 0.12f;
+        if ((f1 > -1e-5f && f1 < 1e-5f) || (f1 > 0.12f - 1e-5f && f1 < 0.12f + 1e-5f)) {
+            double d1 = simplex2_d(perm_grass, (double)bx / 4, (double)bz / 4);
+            pos = d1 > 0;
+            lily = d1 < (double)12 / 100; /* 0.12 */
+        }
+        if (pos) {
+            for (int y = col_top; y >= 0; y--)
                 if (col[y] != B_AIR) {
                     if (y == 62 && col[y] != B_WATER) {
                         col[y] = B_WATER;
-                        if (d1 < 0.12) col[y + 1] = B_LILY_PAD;
+                        if (lily) col[y + 1] = B_LILY_PAD;
                     }
                     break;
                 }
@@ -2001,6 +2240,7 @@ static void build_surface(uint8_t *col, const Biome *b, JRand *r, int bx, int bz
     }
     case S_MESA:
         build_mesa(col, b, r, bx, bz, noise);
+        col_top = 255; /* bryce pillars rise above the terrain */
         return;
     }
     build_default(col, b, r, noise, top, fill);
@@ -2008,76 +2248,151 @@ static void build_surface(uint8_t *col, const Biome *b, JRand *r, int bx, int bz
 
 /* ---- per-chunk terrain pipeline ---- */
 
-static inline int is_liquid_top(int blk) { return blk == B_WATER || blk == B_ICE || blk == B_LILY_PAD || blk == B_LAVA; }
+INLINE int is_liquid_top(int blk) { return blk == B_WATER || blk == B_ICE || blk == B_LILY_PAD || blk == B_LAVA; }
 
-/* column summary of the undecorated, cave-less terrain:
- *   top: y of the highest non-air block (lily pads excluded)
- *   blk: that block; B_LILY_PAD means water at top with a lily pad above
- *   aux: water columns (blk water/ice/lily): y of the highest solid block below;
- *        others: number of non-stone blocks (filler) right below the top */
-static void column_summary(const uint8_t *col, ColSum *s) {
-    int y = 255;
+/* column summary of the undecorated, cave-less terrain (see ColSum) */
+HOT static void column_summary(const uint8_t *col, ColSum *s) {
+    int y = col_top + 2 < 255 ? col_top + 2 : 255; /* builders add at most a lily pad above it */
     while (y > 0 && col[y] == B_AIR) y--;
     int lily = 0;
     if (col[y] == B_LILY_PAD) {
         lily = 1;
         y--;
     }
-    s->top = (uint8_t)y;
-    s->blk = lily ? B_LILY_PAD : col[y];
-    if (is_liquid_top(s->blk)) {
+    uint8_t blk = lily ? B_LILY_PAD : col[y];
+    if (is_liquid_top(blk)) {
         int f = y;
         while (f > 0 && (col[f] == B_WATER || col[f] == B_ICE || col[f] == B_LAVA || col[f] == B_AIR)) f--;
-        s->aux = (uint8_t)f;
+        int k = blk == B_WATER ? 0 : blk == B_ICE ? 1 : blk == B_LILY_PAD ? 2 : 3;
+        if (y != 62 || f > 61) {
+            sum_odd++;
+            if (f > 61) f = 61;
+        }
+        s->y = (uint8_t)f;
+        s->c = (uint8_t)k;
     } else {
         int d = 0;
         for (int k = y - 1; k > 0 && d < 15; k--, d++) {
             uint8_t b = col[k];
             if (b == B_STONE || b == B_AIR || b == B_BEDROCK || b == B_WATER) break;
         }
-        s->aux = (uint8_t)d;
+        int code = 0;
+        while (code < 16 && SUM_TOPS[code] != blk) code++;
+        if (code == 16 || y < 62) {
+            sum_odd++;
+            if (code == 16) code = 0;
+            if (y < 62) y = 62;
+        }
+        s->y = (uint8_t)y;
+        s->c = (uint8_t)(code << 4 | d);
     }
 }
 
-static void column_density(int x, int z, uint8_t *col) {
+/* Sign classes of the density grid for column_density: for each of the 4 x 4 grid cells and
+ * each level, 1 if its four corners are > 0, 2 if they are all <= 0, else 0 (kept in U.t.cls,
+ * free after chunk_density). Bilinear values between corners of one sign keep it. */
+static void column_signs(void) {
+    const float *g = U.t.grid;
+    uint8_t *sg = U.t.cls;
+    for (int gx = 0; gx < 4; gx++)
+        for (int gz = 0; gz < 4; gz++) {
+            const float *c00 = g + (gx * 5 + gz) * 33, *c01 = c00 + 33, *c10 = c00 + 165, *c11 = c00 + 198;
+            uint8_t *o = sg + (gx * 4 + gz) * 33;
+            for (int k = 0; k < 33; k++) {
+                int pos = (c00[k] > 0.0f) + (c01[k] > 0.0f) + (c10[k] > 0.0f) + (c11[k] > 0.0f);
+                o[k] = (uint8_t)(pos == 4 ? 1 : pos == 0 ? 2 : 0);
+            }
+        }
+}
+
+/* Blocks of column (x, z) from the density grid: stone, water below the sea, air. Cells whose
+ * two ends have the same sign are filled at once (the interpolated values between them keep
+ * it: their distance to 0 is at least an eighth of an end's, far above rounding); levels are
+ * interpolated only for the other cells. Returns the highest non-air y. */
+HOT static int column_density(int x, int z, uint8_t *col) {
     const float *g = U.t.grid;
     int gx = x >> 2, gz = z >> 2;
     float fx = (float)(x & 3) * 0.25f, fz = (float)(z & 3) * 0.25f;
     const float *c00 = g + (gx * 5 + gz) * 33, *c01 = g + (gx * 5 + gz + 1) * 33;
     const float *c10 = g + ((gx + 1) * 5 + gz) * 33, *c11 = g + ((gx + 1) * 5 + gz + 1) * 33;
-    float v[33];
-    for (int k = 0; k < 33; k++) {
-        float a = c00[k] + (c10[k] - c00[k]) * fx;
-        float b = c01[k] + (c11[k] - c01[k]) * fx;
-        v[k] = a + (b - a) * fz;
-    }
+    const uint8_t *sg = U.t.cls + (gx * 4 + gz) * 33;
+    float v0 = 0.0f, v1;
+    int have = -1; /* level whose value v0 holds */
+    int top = 0;
     for (int k2 = 0; k2 < 32; k2++) {
-        float base = v[k2], step = (v[k2 + 1] - v[k2]) * 0.125f;
         int y = k2 * 8;
-        if (base <= 0.0f && v[k2 + 1] <= 0.0f && y >= SEA) {
-            memset(col + y, B_AIR, 8);
+        if (sg[k2] == 1 && sg[k2 + 1] == 1) {
+            memset(col + y, B_STONE, 8);
+            top = y + 7;
             continue;
+        }
+        if (sg[k2] == 2 && sg[k2 + 1] == 2) {
+            if (y >= SEA) {
+                memset(col + y, B_AIR, 8);
+                continue;
+            }
+            if (y + 8 <= SEA) {
+                memset(col + y, B_WATER, 8);
+                top = y + 7;
+                continue;
+            }
+            for (int l2 = 0; l2 < 8; l2++, y++) col[y] = y < SEA ? B_WATER : B_AIR;
+            top = SEA - 1;
+            continue;
+        }
+        if (have != k2) {
+            float a = c00[k2] + (c10[k2] - c00[k2]) * fx;
+            float b = c01[k2] + (c11[k2] - c01[k2]) * fx;
+            v0 = a + (b - a) * fz;
+        }
+        {
+            int k = k2 + 1;
+            float a = c00[k] + (c10[k] - c00[k]) * fx;
+            float b = c01[k] + (c11[k] - c01[k]) * fx;
+            v1 = a + (b - a) * fz;
+        }
+        float base = v0, step = (v1 - v0) * 0.125f;
+        v0 = v1;
+        have = k2 + 1;
+        if (base > 0.0f && v1 > 0.0f) {
+            memset(col + y, B_STONE, 8);
+            top = y + 7;
+            continue;
+        }
+        if (base <= 0.0f && v1 <= 0.0f) {
+            if (y >= SEA) {
+                memset(col + y, B_AIR, 8);
+                continue;
+            }
+            if (y + 8 <= SEA) {
+                memset(col + y, B_WATER, 8);
+                top = y + 7;
+                continue;
+            }
         }
         for (int l2 = 0; l2 < 8; l2++, y++) {
             float val = base + (float)l2 * step;
             col[y] = val > 0.0f ? B_STONE : (y < SEA ? B_WATER : B_AIR);
+            if (col[y] != B_AIR) top = y;
         }
     }
+    return top;
 }
 
 /* Terrain and surface of chunk (cx, cz) before caves. Rows y0..y0+h-1 go to out (if out),
  * the column summaries to sum (if sum). Also leaves the biomes in cb4/cb16. */
-static void chunk_terrain(int cx, int cz, uint8_t *out, int y0, int h, ColSum *sum) {
+HOT static void chunk_terrain(int cx, int cz, uint8_t *out, int y0, int h, ColSum *sum) {
     chunk_biomes(cx, cz);
     U.t.mesa_ready = 0;
     chunk_density(cx, cz);
+    column_signs();
     chunk_surface_noise(cx, cz);
     JRand r;
     jr_seed(&r, (i64)((u64)(i64)cx * 341873128712ULL + (u64)(i64)cz * 132897987541ULL));
     uint8_t *col = U.t.col;
     for (int z = 0; z < 16; z++)
         for (int x = 0; x < 16; x++) {
-            column_density(x, z, col);
+            col_top = column_density(x, z, col);
             const Biome *b = bio(cb16[x + z * 16]);
             build_surface(col, b, &r, cx * 16 + z, cz * 16 + x, U.t.surf[z * 16 + x]);
             if (sum) column_summary(col, &sum[x + z * 16]);
@@ -2173,21 +2488,22 @@ static uint8_t filler_of(uint8_t top) {
 }
 
 /* block of a column from its summary (no caves, no decoration) */
-static uint8_t sum_block(const ColSum *s, int y) {
+HOT static uint8_t sum_block(const ColSum *s, int y) {
     if (y < 0) return B_BEDROCK;
-    if (y > s->top) {
-        if (y == s->top + 1 && s->blk == B_LILY_PAD) return B_LILY_PAD;
-        return B_AIR;
-    }
-    if (y == 0) return B_BEDROCK;
-    if (is_liquid_top(s->blk)) {
-        if (y == s->top) return s->blk == B_LILY_PAD ? B_WATER : s->blk;
-        if (y > s->aux) return s->blk == B_LAVA ? B_LAVA : B_WATER;
-        if (y == s->aux) return B_SAND; /* floor (sand, gravel, dirt or clay: all buildable) */
+    if (s->y < 62) { /* liquid top at 62, floor at s->y */
+        uint8_t blk = SUM_LIQ[s->c & 3];
+        if (y > 62) return y == 63 && blk == B_LILY_PAD ? B_LILY_PAD : B_AIR;
+        if (y == 0) return B_BEDROCK;
+        if (y == 62) return blk == B_LILY_PAD ? B_WATER : blk;
+        if (y > s->y) return blk == B_LAVA ? B_LAVA : B_WATER;
+        if (y == s->y) return B_SAND; /* floor (sand, gravel, dirt or clay: all buildable) */
         return B_STONE;
     }
-    if (y == s->top) return s->blk;
-    if (y >= s->top - s->aux) return filler_of(s->blk);
+    if (y > s->y) return B_AIR;
+    if (y == 0) return B_BEDROCK;
+    uint8_t blk = SUM_TOPS[s->c >> 4];
+    if (y == s->y) return blk;
+    if (y >= s->y - (s->c & 15)) return filler_of(blk);
     return B_STONE;
 }
 
@@ -2198,9 +2514,8 @@ static uint8_t sum_block(const ColSum *s, int y) {
 /* A carve target: one chunk (tcx, tcz) and, inside it, the region we care about.
  * mode CAVE_OUT: the chunk being generated (blocks in out / its summary).
  * mode CAVE_MASK: a query box (world coords) whose carved blocks are marked in a bitmap;
- *   blocks come from the summary of the target chunk.
- * mode CAVE_REC: nothing is carved, the walk only records which tunnels come near. */
-enum { CAVE_OUT, CAVE_MASK, CAVE_REC };
+ *   blocks come from the summary of the target chunk. */
+enum { CAVE_OUT, CAVE_MASK };
 
 typedef struct {
     int mode;
@@ -2217,15 +2532,14 @@ typedef struct {
 } CaveCtx;
 
 static CaveCtx *cv;
-static float canyon_w[256]; /* WorldGenCanyon.d */
 static uint8_t c_b16[256];  /* biomes of the chunk being generated */
 
-static inline int mask_index(int X, int Y, int Z) {
+INLINE int mask_index(int X, int Y, int Z) {
     return ((Y - cv->by0) * (cv->bz1 - cv->bz0) + (Z - cv->bz0)) * (cv->bx1 - cv->bx0) + (X - cv->bx0);
 }
 
 /* block at chunk-local (x, y, z) of the target, as the carver sees it */
-static uint8_t cv_get(int x, int y, int z) {
+HOT static uint8_t cv_get(int x, int y, int z) {
     if (y < 0 || y > 255) return B_AIR;
     if (cv->mode == CAVE_OUT) {
         if (y >= cv->y0 && y < cv->y0 + cv->h) return cv->out[(y - cv->y0) * 256 + z * 16 + x];
@@ -2239,10 +2553,17 @@ static uint8_t cv_get(int x, int y, int z) {
     return sum_block(&cv->sum[x + z * 16], y);
 }
 
+/* chunk being generated: highest non-air y of each column (whole height, after caves and
+ * decoration so far) and highest solid-or-liquid y (precipitation height - 1) */
+static uint8_t c_top[256], c_sl[256];
+
 static int cave_track_on;
 static void cave_track(int x, int y, int z, uint8_t b);
+/* carving the chunk being generated: the lowest row that can still matter (the slab's, or a
+ * column's tracked top / surface, which only go down), checked before walking a tunnel */
+static int crep_dyn, crep_lo;
 
-static void cv_set(int x, int y, int z, uint8_t b) {
+HOT static void cv_set(int x, int y, int z, uint8_t b) {
     if (y < 0 || y > 255) return;
     if (cv->mode == CAVE_OUT) {
         if (y >= cv->y0 && y < cv->y0 + cv->h) cv->out[(y - cv->y0) * 256 + z * 16 + x] = b;
@@ -2254,24 +2575,88 @@ static void cv_set(int x, int y, int z, uint8_t b) {
         cv->mask[mask_index(X, y, Z)] = (uint8_t)(b + 1);
 }
 
-/* is (x, y, z) water, for the carver's abort test: Java reads the chunk being carved,
- * where water only comes from the terrain (summary-exact) */
-static inline int cv_water(int x, int y, int z) {
-    uint8_t b = cv_get(x, y, z);
-    return b == B_WATER || b == B_FLOWING_WATER;
-}
-
 /* position in 32.32 fixed point (world coordinates) */
 typedef i64 Q32;
 #define Q32_ONE (1LL << 32)
-static inline Q32 q32_of_float(float v) { return f2i64_scaled(v, 32); }
-static inline float q32_to_float(Q32 v) { return i64_to_f_scaled(v, 32); }
-static inline int q32_floor(Q32 v) { return (int)(v >> 32); }
+INLINE Q32 q32_of_float(float v) { return f2i64_scaled(v, 32); }
+INLINE float q32_to_float(Q32 v) { return i64_to_f_scaled(v, 32); }
+INLINE int q32_floor(Q32 v) { return (int)(v >> 32); }
+
+/* One block of a carve step: the body of WorldGenCaves / WorldGenCanyon's innermost loop at
+ * chunk-local (x, y, z), with h2 the horizontal part of the ellipsoid. Returns flag3 (a grass
+ * block was met above in this column). */
+INLINE int carve_block(int x, int y, int z, float h2, Q32 py, float d7, int canyon, int flag3) {
+    float d14 = q32_to_float(SHL(y - 1, 32) + (Q32_ONE >> 1) - py) / d7;
+    if (canyon) {
+        if (!(h2 * canyon_w[y - 1] + d14 * d14 / 6.0f < 1.0f)) return flag3;
+        uint8_t b = cv_get(x, y, z);
+        if (b == B_GRASS) flag3 = 1;
+        if (b == B_STONE || IS_DIRTISH(b) || b == B_GRASS) {
+            if (y - 1 < 10) {
+                cv_set(x, y, z, B_LAVA);
+            } else {
+                cv_set(x, y, z, B_AIR);
+                if (flag3 && IS_DIRTISH(cv_get(x, y - 1, z)))
+                    cv_set(x, y - 1, z, bio(cv->mode == CAVE_OUT ? c_b16[x + z * 16] : BI_PLAINS)->top);
+            }
+        }
+        return flag3;
+    }
+    if (!(d14 > -0.7f && h2 + d14 * d14 < 1.0f)) return flag3;
+    uint8_t b = cv_get(x, y, z), up = cv_get(x, y + 1, z);
+    if (b == B_GRASS || b == B_MYCELIUM) flag3 = 1;
+    int carvable = b == B_STONE || IS_DIRTISH(b) || b == B_GRASS || IS_CLAY(b) || b == B_SANDSTONE ||
+                   b == B_RED_SANDSTONE || b == B_MYCELIUM || b == B_SNOW_LAYER ||
+                   ((b == B_SAND || b == B_RED_SAND || b == B_GRAVEL) && !IS_WATER(up));
+    if (!carvable) return flag3;
+    if (y - 1 < 10) {
+        cv_set(x, y, z, B_LAVA);
+    } else {
+        cv_set(x, y, z, B_AIR);
+        if (up == B_SAND) cv_set(x, y + 1, z, B_SANDSTONE);
+        else if (up == B_RED_SAND) cv_set(x, y + 1, z, B_RED_SANDSTONE);
+        if (flag3 && IS_DIRTISH(cv_get(x, y - 1, z))) {
+            uint8_t t = bio(cv->mode == CAVE_OUT ? c_b16[x + z * 16] : BI_PLAINS)->top;
+            if (t == B_PODZOL || t == B_COARSE_DIRT) t = B_DIRT; /* ak.getBlock().getBlockData() */
+            cv_set(x, y - 1, z, t);
+        }
+    }
+    return flag3;
+}
+
+/* Is there water among blocks y of column (x, z) of the target chunk, for y in [a, b] (an
+ * empty range when a > b)? Caves add no water and never carve it, so this is the terrain's:
+ * in the slab of the chunk being generated from its blocks, elsewhere from the summary. */
+static int water_col(int x, int z, int a, int b) {
+    if (a < 0) a = 0;
+    if (b > 255) b = 255;
+    if (a > b) return 0;
+    const ColSum *s = &cv->sum[x + z * 16];
+    int wlo = 256, whi = -1; /* the summary's water: (floor, 62], or (floor, 61] under ice; none */
+    if (s->y < 62 && (s->c & 3) != 3) {
+        wlo = s->y + 1;
+        whi = (s->c & 3) == 1 ? 61 : 62;
+    }
+    if (cv->mode != CAVE_OUT) return a <= whi && b >= wlo;
+    int s0 = cv->y0, s1 = cv->y0 + cv->h - 1;
+    /* below and above the slab */
+    int lo = a, hi = b < s0 - 1 ? b : s0 - 1;
+    if (lo <= hi && hi >= wlo && lo <= whi) return 1;
+    lo = a > s1 + 1 ? a : s1 + 1, hi = b;
+    if (lo <= hi && hi >= wlo && lo <= whi) return 1;
+    /* in the slab */
+    lo = a > s0 ? a : s0, hi = b < s1 ? b : s1;
+    for (int y = lo; y <= hi; y++) {
+        uint8_t blk = cv->out[(y - s0) * 256 + z * 16 + x];
+        if (blk == B_WATER || blk == B_FLOWING_WATER) return 1;
+    }
+    return 0;
+}
 
 /* One carve step of a tunnel (cave or canyon) into the target chunk.
  * px,py,pz: centre; r6, r7: horizontal and vertical radii (Q32). Returns 0 when water aborts
  * the step (only rooms care: Java's room stops after its first unaborted step). */
-static int cave_carve(Q32 px, Q32 py, Q32 pz, Q32 r6, Q32 r7, int canyon, int room) {
+HOT static int cave_carve(Q32 px, Q32 py, Q32 pz, Q32 r6, Q32 r7, int canyon, int room) {
     int j = cv->tcx, k = cv->tcz;
     int l1 = q32_floor(px - r6) - j * 16 - 1, i2 = q32_floor(px + r6) - j * 16 + 1;
     int j2 = q32_floor(py - r7) - 1, k2 = q32_floor(py + r7) + 1;
@@ -2287,65 +2672,45 @@ static int cave_carve(Q32 px, Q32 py, Q32 pz, Q32 r6, Q32 r7, int canyon, int ro
     int outside = l1 >= cv->rx1 || i2 <= cv->rx0 || l2 >= cv->rz1 || i3 <= cv->rz0 || j2 >= cv->ry1 || k2 + 1 < cv->ry0;
     if (outside && !room) return 1;
     /* water check (shell of the box plus top and bottom layers): water aborts this step */
+    int out_mode = cv->mode == CAVE_OUT;
     for (int x = l1; x < i2; x++)
-        for (int z = l2; z < i3; z++)
-            for (int y = k2 + 1; y >= j2 - 1; --y) {
-                if (y >= 0 && y < 256) {
-                    if (cv_water(x, y, z)) return 0;
-                    if (y != j2 - 1 && x != l1 && x != i2 - 1 && z != l2 && z != i3 - 1) y = j2;
-                }
-            }
+        for (int z = l2; z < i3; z++) {
+            int edge = x == l1 || x == i2 - 1 || z == l2 || z == i3 - 1;
+            if (edge ? water_col(x, z, j2 - 1, k2 + 1) : water_col(x, z, k2 + 1, k2 + 1) || water_col(x, z, j2 - 1, j2 - 1))
+                return 0;
+        }
     if (outside) return 1;
     float d6 = q32_to_float(r6), d7 = q32_to_float(r7);
-    for (int x = l1; x < i2; x++) {
+    /* Only the rows of the region (and the one above and below, which a carve can change from
+     * there) are carved; another visit only matters at the summary's grass top (it sets flag3:
+     * blocks out of the region are read from the summary) or, in the chunk being generated, at
+     * the column's tracked top / surface (c_top, c_sl). Columns out of a query box are skipped. */
+    int wlo = out_mode ? cv->y0 - 1 : cv->ry0 - 1, whi = out_mode ? cv->y0 + cv->h : cv->ry1;
+    int x0 = l1, x1 = i2, z0 = l2, z1 = i3;
+    if (!out_mode) {
+        if (x0 < cv->rx0) x0 = cv->rx0;
+        if (x1 > cv->rx1) x1 = cv->rx1;
+        if (z0 < cv->rz0) z0 = cv->rz0;
+        if (z1 > cv->rz1) z1 = cv->rz1;
+    }
+    for (int x = x0; x < x1; x++) {
         float d12 = q32_to_float(SHL(j * 16 + x, 32) + (Q32_ONE >> 1) - px) / d6;
-        for (int z = l2; z < i3; z++) {
+        for (int z = z0; z < z1; z++) {
             float d13 = q32_to_float(SHL(k * 16 + z, 32) + (Q32_ONE >> 1) - pz) / d6;
             float h2 = d12 * d12 + d13 * d13;
             if (h2 >= 1.0f) continue;
-            int flag3 = 0;
+            int flag3 = 0, i = z * 16 + x, gtop = -1, t1 = -1, t2 = -1;
+            uint8_t tb = cs_blk(&cv->sum[i]);
+            if (tb == B_GRASS || (!canyon && tb == B_MYCELIUM)) gtop = cs_top(&cv->sum[i]);
             for (int y = k2; y > j2; --y) {
-                float d14 = q32_to_float(SHL(y - 1, 32) + (Q32_ONE >> 1) - py) / d7;
-                if (canyon) {
-                    if (!(h2 * canyon_w[y - 1] + d14 * d14 / 6.0f < 1.0f)) continue;
-                    uint8_t b = cv_get(x, y, z);
-                    if (b == B_GRASS) flag3 = 1;
-                    if (b == B_STONE || IS_DIRTISH(b) || b == B_GRASS) {
-                        if (y - 1 < 10) {
-                            cv_set(x, y, z, B_LAVA);
-                        } else {
-                            cv_set(x, y, z, B_AIR);
-                            if (flag3 && IS_DIRTISH(cv_get(x, y - 1, z)))
-                                cv_set(x, y - 1, z, bio(cv->mode == CAVE_OUT ? c_b16[x + z * 16] : BI_PLAINS)->top);
-                        }
-                    }
-                } else {
-                    if (!(d14 > -0.7f && h2 + d14 * d14 < 1.0f)) continue;
-                    uint8_t b = cv_get(x, y, z), up = cv_get(x, y + 1, z);
-                    if (b == B_GRASS || b == B_MYCELIUM) flag3 = 1;
-                    int carvable = b == B_STONE || IS_DIRTISH(b) || b == B_GRASS || IS_CLAY(b) || b == B_SANDSTONE ||
-                                   b == B_RED_SANDSTONE || b == B_MYCELIUM || b == B_SNOW_LAYER ||
-                                   ((b == B_SAND || b == B_RED_SAND || b == B_GRAVEL) && !IS_WATER(up));
-                    if (!carvable) continue;
-                    if (y - 1 < 10) {
-                        cv_set(x, y, z, B_LAVA);
-                    } else {
-                        cv_set(x, y, z, B_AIR);
-                        if (up == B_SAND) cv_set(x, y + 1, z, B_SANDSTONE);
-                        else if (up == B_RED_SAND) cv_set(x, y + 1, z, B_RED_SANDSTONE);
-                        if (flag3 && IS_DIRTISH(cv_get(x, y - 1, z))) {
-                            uint8_t t = bio(cv->mode == CAVE_OUT ? c_b16[x + z * 16] : BI_PLAINS)->top;
-                            if (t == B_PODZOL || t == B_COARSE_DIRT) t = B_DIRT; /* ak.getBlock().getBlockData() */
-                            cv_set(x, y - 1, z, t);
-                        }
-                    }
-                }
+                if (out_mode) t1 = c_top[i], t2 = c_sl[i];
+                if ((y < wlo || y > whi) && y != t1 && y != t2 && y != gtop) continue;
+                flag3 = carve_block(x, y, z, h2, py, d7, canyon, flag3);
             }
         }
     }
     return 1;
 }
-
 
 /* MapGenCaves' "cannot reach the chunk any more" test, d8^2 + d9^2 - d10^2 > d11^2, in float,
  * settled in double when the float result is too close to call (the positions are exact) */
@@ -2355,7 +2720,7 @@ static int cave_too_far(Q32 dx, Q32 dz, int d10i, float d11) {
     float diff = lhs - rhs;
     if (diff > 0.05f) return 1;
     if (diff < -0.05f) return 0;
-    double e8 = (double)dx * (1.0 / 4294967296.0), e9 = (double)dz * (1.0 / 4294967296.0), e10 = d10i, e11 = d11;
+    double e8 = (double)dx * (double)0x1p-32f, e9 = (double)dz * (double)0x1p-32f, e10 = d10i, e11 = (double)d11;
     return e8 * e8 + e9 * e9 - e10 * e10 > e11 * e11;
 }
 
@@ -2363,7 +2728,7 @@ static int cave_too_far(Q32 dx, Q32 dz, int d10i, float d11) {
  * Each step moves at most one block horizontally; radius <= 1.5 + 12 for caves, 1.5 + 6 for canyons. */
 static Q32 reg_x0, reg_x1, reg_z0, reg_z1;
 
-static inline int cave_can_reach(Q32 x, Q32 z, int left) {
+INLINE int cave_can_reach(Q32 x, Q32 z, int left) {
     Q32 dx = x < reg_x0 ? reg_x0 - x : (x > reg_x1 ? x - reg_x1 : 0);
     Q32 dz = z < reg_z0 ? reg_z0 - z : (z > reg_z1 ? z - reg_z1 : 0);
     Q32 d = dx > dz ? dx : dz; /* Chebyshev distance is <= the Euclidean one */
@@ -2377,18 +2742,32 @@ static inline int cave_can_reach(Q32 x, Q32 z, int left) {
  * on the target, only where it stops does; so each tunnel is walked once for several targets,
  * with a bit mask of the targets it still runs for (branches inherit it: a branch only exists for
  * the targets its parent was still running for when it split).
- * Targets are indexed by their place around the chunk being generated: (dz + 1) * 3 + (dx + 1). */
+ * Targets are indexed by their place around the chunk being generated: (dz + 1) * 3 + (dx + 1).
+ * Bit T_REC of the mask is not a target: a recording walk (see the tunnel records below). */
 #define NTGT 9
+#define T_REC (1u << NTGT)
 static CaveCtx *tg[NTGT];
 static Q32 tg_cx[NTGT], tg_cz[NTGT]; /* target chunk centres, world coords */
-static unsigned tg_touch;            /* targets the current top-level tunnel came within carving range of */
+/* recording: box (world blocks, inclusive) that the current top-level tunnel may change */
+static int rb_x0, rb_x1, rb_y0, rb_y1, rb_z0, rb_z1;
 
 /* One step of a tunnel for the targets in act: Java's "too far: stop" test and range test,
  * then the carve. Returns the targets still running. Both tests are first settled with integer
- * bounds from the whole-block distances (exactly where those decide them); recording targets
- * take the undecided cases conservatively (still running, in range). */
-static unsigned cave_step(unsigned act, Q32 d0, Q32 d1, Q32 d2, Q32 r6, Q32 r7, int left, float f, int room,
+ * bounds from the whole-block distances (exactly where those decide them). */
+HOT static unsigned cave_step(unsigned act, Q32 d0, Q32 d1, Q32 d2, Q32 r6, Q32 r7, int left, float f, int room,
                           int canyon) {
+    if (act & T_REC) {
+        /* blocks a carve step can change, or read for a room's water test (cave_carve) */
+        int x0 = q32_floor(d0 - r6) - 1, x1 = q32_floor(d0 + r6) + 1;
+        int z0 = q32_floor(d2 - r6) - 1, z1 = q32_floor(d2 + r6) + 1;
+        int y0 = q32_floor(d1 - r7) - 2, y1 = q32_floor(d1 + r7) + 2;
+        if (x0 < rb_x0) rb_x0 = x0;
+        if (x1 > rb_x1) rb_x1 = x1;
+        if (y0 < rb_y0) rb_y0 = y0;
+        if (y1 > rb_y1) rb_y1 = y1;
+        if (z0 < rb_z0) rb_z0 = z0;
+        if (z1 > rb_z1) rb_z1 = z1;
+    }
     int d11 = (int)(f + 18.0f);                /* d11 in [d11, d11 + 1] */
     int far_hi = (d11 + 1) * (d11 + 1) + left * left, far_lo = d11 * d11 + left * left;
     int lim = 16 + 2 * (int)(r6 >> 32);        /* range limit in [lim, lim + 2) */
@@ -2400,21 +2779,19 @@ static unsigned cave_step(unsigned act, Q32 d0, Q32 d1, Q32 d2, Q32 r6, Q32 r7, 
             act &= ~(1u << ti);
             continue;
         }
-        int rec = tg[ti]->mode == CAVE_REC;
         int near = (ax + 1) * (ax + 1) + (az + 1) * (az + 1) <= far_lo;
-        if (!near && !rec && cave_too_far(dx, dz, left, f + 2.0f + 16.0f)) {
+        if (!near && cave_too_far(dx, dz, left, f + 2.0f + 16.0f)) {
             act &= ~(1u << ti);
             continue;
         }
         if (ax > lim + 2 || az > lim + 2) continue; /* surely out of range */
-        if (!rec && !(ax + 1 <= lim && az + 1 <= lim)) {
+        if (!(ax + 1 <= lim && az + 1 <= lim)) {
             float flim = 16.0f + q32_to_float(r6) * 2.0f;
             float d8 = q32_to_float(dx), d9 = q32_to_float(dz);
             if (!(d8 >= -flim && d9 >= -flim && d8 <= flim && d9 <= flim)) continue;
         }
-        tg_touch |= 1u << ti;
         cv = tg[ti];
-        if (!rec && cave_carve(d0, d1, d2, r6, r7, canyon, room) && room) act &= ~(1u << ti);
+        if (cave_carve(d0, d1, d2, r6, r7, canyon, room) && room) act &= ~(1u << ti);
     }
     return act;
 }
@@ -2428,11 +2805,11 @@ typedef struct {
     uint8_t room;
     uint16_t act;
 } Tunnel;
-#define TSTACK 8 /* branches (width < 1) never branch again: depth <= 2 */
+#define TSTACK 4 /* branches (width < 1) never branch again: depth <= 2 */
 static Tunnel tstack[TSTACK];
 
 /* Walks one cave tunnel (WorldGenCaves.a, 13-argument version) and its branches. */
-static void cave_tunnel(i64 seed0, Q32 x0, Q32 y0, Q32 z0, float f0, float f10, float f20, int l0, int i10, int room0,
+NOINLINE HOT static void cave_tunnel(i64 seed0, Q32 x0, Q32 y0, Q32 z0, float f0, float f10, float f20, int l0, int i10, int room0,
                         unsigned act0) {
     int sp = 0;
     tstack[sp++] = (Tunnel){seed0, x0, y0, z0, f0, f10, f20, (int16_t)l0, (int16_t)i10, (uint8_t)room0, (uint16_t)act0};
@@ -2445,45 +2822,45 @@ static void cave_tunnel(i64 seed0, Q32 x0, Q32 y0, Q32 z0, float f0, float f10, 
         int i1 = t.i1, l = t.l;
         if (i1 <= 0) {
             int j1 = 8 * 16 - 16;
-            i1 = j1 - jr_int(&r, j1 / 4);
+            i1 = j1 - jr_int_i(&r, j1 / 4);
         }
         int flag = 0;
         if (t.room) {
             l = i1 / 2;
             flag = 1;
         }
-        int k1 = jr_int(&r, i1 / 2) + i1 / 4;
-        int flag1 = jr_int(&r, 6) == 0;
+        int k1 = jr_int_i(&r, i1 / 2) + i1 / 4;
+        int flag1 = jr_int_i(&r, 6) == 0;
         float f = t.f, f1 = t.f1, f2 = t.f2;
         Q32 d0 = t.x, d1 = t.y, d2 = t.z;
         for (; l < i1; ++l) {
             if (!cave_can_reach(d0, d2, i1 - l)) break; /* nothing left to carve here (no side effects) */
-            float sv = mh_sin((float)l * 3.1415927f / (float)i1) * f * 1.0f;
+            float sv = mh_sin_i((float)l * 3.1415927f / (float)i1) * f * 1.0f;
             Q32 r6 = (Q32)(3LL << 31) + q32_of_float(sv); /* 1.5 + ... */
             Q32 r7 = t.room ? r6 / 2 : r6;
-            float f5 = mh_cos(f2), f6 = mh_sin(f2);
-            d0 += q32_of_float(mh_cos(f1) * f5);
+            float f5 = mh_cos_i(f2), f6 = mh_sin_i(f2);
+            d0 += q32_of_float(mh_cos_i(f1) * f5);
             d1 += q32_of_float(f6);
-            d2 += q32_of_float(mh_sin(f1) * f5);
+            d2 += q32_of_float(mh_sin_i(f1) * f5);
             f2 *= flag1 ? 0.92f : 0.7f;
             f2 += f4 * 0.1f;
             f1 += f3 * 0.1f;
             f4 *= 0.9f;
             f3 *= 0.75f;
             {
-                float a = jr_float(&r), b = jr_float(&r), c = jr_float(&r);
+                float a = jr_float_i(&r), b = jr_float_i(&r), c = jr_float_i(&r);
                 f4 += (a - b) * c * 2.0f;
             }
             {
-                float a = jr_float(&r), b = jr_float(&r), c = jr_float(&r);
+                float a = jr_float_i(&r), b = jr_float_i(&r), c = jr_float_i(&r);
                 f3 += (a - b) * c * 4.0f;
             }
             if (!flag && l == k1 && f > 1.0f && i1 > 0) {
                 if (sp + 2 <= TSTACK) {
                     i64 s1 = jr_long(&r);
-                    float w1 = jr_float(&r) * 0.5f + 0.5f;
+                    float w1 = jr_float_i(&r) * 0.5f + 0.5f;
                     i64 s2 = jr_long(&r);
-                    float w2 = jr_float(&r) * 0.5f + 0.5f;
+                    float w2 = jr_float_i(&r) * 0.5f + 0.5f;
                     /* second branch below the first: the first runs (with its sub-branches) first */
                     tstack[sp++] = (Tunnel){s2, d0, d1, d2, w2, f1 + 1.5707964f, f2 / 3.0f, (int16_t)l, (int16_t)i1, 0,
                                             (uint16_t)act};
@@ -2492,7 +2869,7 @@ static void cave_tunnel(i64 seed0, Q32 x0, Q32 y0, Q32 z0, float f0, float f10, 
                 }
                 break;
             }
-            if (flag || jr_int(&r, 4) != 0) {
+            if (flag || jr_int_i(&r, 4) != 0) {
                 act = cave_step(act, d0, d1, d2, r6, r7, i1 - l, f, flag, 0);
                 if (!act) break;
             }
@@ -2500,156 +2877,194 @@ static void cave_tunnel(i64 seed0, Q32 x0, Q32 y0, Q32 z0, float f0, float f10, 
     }
 }
 
-static void canyon_tunnel(i64 seed, Q32 d0, Q32 d1, Q32 d2, float f, float f1, float f2, unsigned act) {
+NOINLINE HOT static void canyon_tunnel(i64 seed, Q32 d0, Q32 d1, Q32 d2, float f, float f1, float f2, unsigned act) {
     JRand r;
     jr_seed(&r, seed);
     float f3 = 0, f4 = 0;
     int j1 = 8 * 16 - 16;
-    int i1 = j1 - jr_int(&r, j1 / 4);
+    int i1 = j1 - jr_int_i(&r, j1 / 4);
     int l = 0;
     /* (the canyon has its own random: stopping before its width table changes nothing else) */
     if (!cave_can_reach(d0, d2, i1)) return;
     float f5 = 1.0f;
     for (int k1 = 0; k1 < 256; ++k1) {
-        if (k1 == 0 || jr_int(&r, 3) == 0) {
-            float a = jr_float(&r), b = jr_float(&r);
+        if (k1 == 0 || jr_int_i(&r, 3) == 0) {
+            float a = jr_float_i(&r), b = jr_float_i(&r);
             f5 = 1.0f + a * b * 1.0f;
         }
         canyon_w[k1] = f5 * f5;
     }
     for (; l < i1; ++l) {
         if (!cave_can_reach(d0, d2, i1 - l)) return;
-        float sv = mh_sin((float)l * 3.1415927f / (float)i1) * f * 1.0f;
+        float sv = mh_sin_i((float)l * 3.1415927f / (float)i1) * f * 1.0f;
         Q32 r6 = (Q32)(3LL << 31) + q32_of_float(sv);
         Q32 r7 = r6 * 3; /* d3 = 3.0 */
         /* d6 *= nextFloat * 0.25 + 0.75: nextFloat = n / 2^24, factor = (n + 3 * 2^24) / 2^26 */
-        i64 n6 = jr_next(&r, 24), n7 = jr_next(&r, 24);
+        i64 n6 = jr_next_i(&r, 24), n7 = jr_next_i(&r, 24);
         r6 = (Q32)(((r6 >> 6) * (n6 + 3 * 16777216LL)) >> 20);
         r7 = (Q32)(((r7 >> 6) * (n7 + 3 * 16777216LL)) >> 20);
-        float f6 = mh_cos(f2), f7 = mh_sin(f2);
-        d0 += q32_of_float(mh_cos(f1) * f6);
+        float f6 = mh_cos_i(f2), f7 = mh_sin_i(f2);
+        d0 += q32_of_float(mh_cos_i(f1) * f6);
         d1 += q32_of_float(f7);
-        d2 += q32_of_float(mh_sin(f1) * f6);
+        d2 += q32_of_float(mh_sin_i(f1) * f6);
         f2 *= 0.7f;
         f2 += f4 * 0.05f;
         f1 += f3 * 0.05f;
         f4 *= 0.8f;
         f3 *= 0.5f;
         {
-            float a = jr_float(&r), b = jr_float(&r), c = jr_float(&r);
+            float a = jr_float_i(&r), b = jr_float_i(&r), c = jr_float_i(&r);
             f4 += (a - b) * c * 2.0f;
         }
         {
-            float a = jr_float(&r), b = jr_float(&r), c = jr_float(&r);
+            float a = jr_float_i(&r), b = jr_float_i(&r), c = jr_float_i(&r);
             f3 += (a - b) * c * 4.0f;
         }
-        if (jr_int(&r, 4) != 0) {
+        if (jr_int_i(&r, 4) != 0) {
             act = cave_step(act, d0, d1, d2, r6, r7, i1 - l, f, 0, 1);
             if (!act) return;
         }
     }
 }
 
-/* ---- tunnels that matter around the chunk being generated ----
- * gen_slab walks every tunnel once for the 3x3 chunks around C (carving C for real) and records
- * which top-level tunnels come within carving range of which of the 9 chunks; the cave queries
- * of the populations then replay only those. A record names a tunnel by its source chunk
- * (relative to C), the pass (caves, canyons) and its rank among the source's tunnels. */
+/* ---- tunnel records ----
+ * A recording walk goes once through every tunnel that can reach an area of 9 x 9 chunks and
+ * keeps, for each top-level tunnel that comes near it, its name (source chunk, pass, rank among
+ * the source's tunnels) and the box of blocks it may change there (with its branches). Carving
+ * the chunk being generated and the populations' cave queries then replay only the tunnels whose
+ * box meets theirs, with the exact rules. The area is recomputed when the 3 x 3 chunks around
+ * the chunk being generated leave it, so neighbouring calls share it. */
 typedef struct {
-    int8_t sx, sz;
+    int8_t sx, sz;           /* source chunk - area origin chunk */
     uint8_t pass, ord;
-    uint16_t mask;
+    uint8_t x0, x1, z0, z1;  /* box, blocks from the area origin (clipped to the area) */
+    uint8_t y0, y1;
 } CaveRec;
-#define NCREC 80
+#define NCREC 192
+#define CA_SIZE 9            /* area: chunks [crec_ax, crec_ax + 9) x [crec_az, crec_az + 9) */
 static CaveRec crec[NCREC];
-static int ncrec, crec_ok, crec_cx, crec_cz;
-static int crec_on; /* recording */
+static int ncrec, crec_ok, crec_ax = 1 << 30, crec_az;
+static int64_t crec_seed;
 
 static void crec_add(int j1, int k1, int pass, int ord) {
-    if (!tg_touch || !crec_on) return;
+    int ox = crec_ax * 16, oz = crec_az * 16, n = CA_SIZE * 16 - 1;
+    int x0 = rb_x0 - ox, x1 = rb_x1 - ox, z0 = rb_z0 - oz, z1 = rb_z1 - oz;
+    if (x1 < 0 || x0 > n || z1 < 0 || z0 > n || rb_y1 < 0 || rb_y0 > 255) return; /* never came near */
     if (ncrec == NCREC) {
-        crec_ok = 0; /* too many: queries walk everything */
+        crec_ok = 0; /* too many: everything is walked again */
         return;
     }
-    crec[ncrec++] = (CaveRec){(int8_t)(j1 - crec_cx), (int8_t)(k1 - crec_cz), (uint8_t)pass, (uint8_t)ord,
-                              (uint16_t)tg_touch};
+    crec[ncrec++] = (CaveRec){(int8_t)(j1 - crec_ax),
+                              (int8_t)(k1 - crec_az),
+                              (uint8_t)pass,
+                              (uint8_t)ord,
+                              (uint8_t)(x0 < 0 ? 0 : x0),
+                              (uint8_t)(x1 > n ? n : x1),
+                              (uint8_t)(z0 < 0 ? 0 : z0),
+                              (uint8_t)(z1 > n ? n : z1),
+                              (uint8_t)(rb_y0 < 0 ? 0 : rb_y0),
+                              (uint8_t)(rb_y1 > 255 ? 255 : rb_y1)};
+}
+
+static inline void rb_reset(void) {
+    rb_x0 = rb_y0 = rb_z0 = INT32_MAX;
+    rb_x1 = rb_y1 = rb_z1 = INT32_MIN;
 }
 
 /* The tunnels of source chunk (j1, k1) for one pass (MapGenCaves.a / MapGenCanyon.a), walked for
  * targets `act`. With recs (records of this source and pass, by rank), only those tunnels are
- * walked, each for act & its mask. */
-static void cave_source(int j1, int k1, int pass, unsigned act, const CaveRec *recs, int nrec) {
+ * walked; a record whose ord is 255 is skipped. */
+HOT static void cave_source(int j1, int k1, int pass, unsigned act, const CaveRec *recs, int nrec) {
     JRand r;
     jr_seed(&r, (i64)((u64)(i64)j1 * (u64)cave_mul_x) ^ (i64)((u64)(i64)k1 * (u64)cave_mul_z) ^ g_seed);
     int ord = 0, ri = 0;
-    /* the targets tunnel `ord` is walked for (0: skip it) */
-#define WANT() (recs ? (ri < nrec && recs[ri].ord == ord ? act & recs[ri++].mask : 0u) : act)
+    int rec = (act & T_REC) != 0;
+    /* walk tunnel `ord`? */
+#define WANT() (recs ? (ri < nrec && recs[ri].ord == ord ? (ri++, !crep_dyn || recs[ri - 1].y1 >= crep_lo) : 0) : 1)
     if (pass == 0) {
-        int n = jr_int(&r, jr_int(&r, jr_int(&r, 15) + 1) + 1);
-        if (jr_int(&r, 7) != 0) n = 0;
+        int n = jr_int_i(&r, jr_int_i(&r, jr_int_i(&r, 15) + 1) + 1);
+        if (jr_int_i(&r, 7) != 0) n = 0;
         for (int c = 0; c < n; ++c) {
             if (recs && ri == nrec) return;
-            int xx = j1 * 16 + jr_int(&r, 16);
-            int yy = jr_int(&r, jr_int(&r, 120) + 8);
-            int zz = k1 * 16 + jr_int(&r, 16);
+            int xx = j1 * 16 + jr_int_i(&r, 16);
+            int yy = jr_int_i(&r, jr_int_i(&r, 120) + 8);
+            int zz = k1 * 16 + jr_int_i(&r, 16);
             Q32 d0 = SHL(xx, 32), d1 = SHL(yy, 32), d2 = SHL(zz, 32);
             int k = 1;
-            if (jr_int(&r, 4) == 0) {
+            if (jr_int_i(&r, 4) == 0) {
                 i64 s = jr_long(&r);
-                float w = 1.0f + jr_float(&r) * 6.0f;
-                unsigned a = WANT();
-                if (a) {
-                    tg_touch = 0;
-                    cave_tunnel(s, d0, d1, d2, w, 0.0f, 0.0f, -1, -1, 1, a);
-                    crec_add(j1, k1, pass, ord);
+                float w = 1.0f + jr_float_i(&r) * 6.0f;
+                if (WANT()) {
+                    rb_reset();
+                    cave_tunnel(s, d0, d1, d2, w, 0.0f, 0.0f, -1, -1, 1, act);
+                    if (rec) crec_add(j1, k1, pass, ord);
                 }
                 ord++;
-                k += jr_int(&r, 4);
+                k += jr_int_i(&r, 4);
             }
             for (int l1 = 0; l1 < k; ++l1) {
-                float f = jr_float(&r) * 3.1415927f * 2.0f;
-                float f1 = (jr_float(&r) - 0.5f) * 2.0f / 8.0f;
-                float f2 = jr_float(&r) * 2.0f + jr_float(&r);
-                if (jr_int(&r, 10) == 0) {
-                    float a = jr_float(&r), b = jr_float(&r);
+                float f = jr_float_i(&r) * 3.1415927f * 2.0f;
+                float f1 = (jr_float_i(&r) - 0.5f) * 2.0f / 8.0f;
+                float f2 = jr_float_i(&r) * 2.0f;
+                f2 += jr_float_i(&r); /* (draws in Java's left-to-right order) */
+                if (jr_int_i(&r, 10) == 0) {
+                    float a = jr_float_i(&r), b = jr_float_i(&r);
                     f2 *= a * b * 3.0f + 1.0f;
                 }
                 i64 s = jr_long(&r);
-                unsigned a = WANT();
-                if (a) {
-                    tg_touch = 0;
-                    cave_tunnel(s, d0, d1, d2, f2, f, f1, 0, 0, 0, a);
-                    crec_add(j1, k1, pass, ord);
+                if (WANT()) {
+                    rb_reset();
+                    cave_tunnel(s, d0, d1, d2, f2, f, f1, 0, 0, 0, act);
+                    if (rec) crec_add(j1, k1, pass, ord);
                 }
                 ord++;
             }
         }
-    } else if (jr_int(&r, 50) == 0) {
-        int xx = j1 * 16 + jr_int(&r, 16);
-        int yy = jr_int(&r, jr_int(&r, 40) + 8) + 20;
-        int zz = k1 * 16 + jr_int(&r, 16);
-        float f = jr_float(&r) * 3.1415927f * 2.0f;
-        float f1 = (jr_float(&r) - 0.5f) * 2.0f / 8.0f;
-        float f2 = (jr_float(&r) * 2.0f + jr_float(&r)) * 2.0f;
+    } else if (jr_int_i(&r, 50) == 0) {
+        int xx = j1 * 16 + jr_int_i(&r, 16);
+        int yy = jr_int_i(&r, jr_int_i(&r, 40) + 8) + 20;
+        int zz = k1 * 16 + jr_int_i(&r, 16);
+        float f = jr_float_i(&r) * 3.1415927f * 2.0f;
+        float f1 = (jr_float_i(&r) - 0.5f) * 2.0f / 8.0f;
+        float f2 = jr_float_i(&r) * 2.0f;
+        f2 = (f2 + jr_float_i(&r)) * 2.0f;
         i64 s = jr_long(&r);
-        unsigned a = WANT();
-        if (a) {
-            tg_touch = 0;
-            canyon_tunnel(s, SHL(xx, 32), SHL(yy, 32), SHL(zz, 32), f2, f, f1, a);
-            crec_add(j1, k1, pass, ord);
+        if (WANT()) {
+            rb_reset();
+            canyon_tunnel(s, SHL(xx, 32), SHL(yy, 32), SHL(zz, 32), f2, f, f1, act);
+            if (rec) crec_add(j1, k1, pass, ord);
         }
     }
 #undef WANT
 }
 
-/* targets of tgt (bits): set the reach region (union of their regions) */
-static void caves_region(unsigned tmask) {
+/* targets (bits of tmask) whose range (8 chunks) holds source chunk (j1, k1) */
+static unsigned src_targets(unsigned tmask, int j1, int k1) {
+    unsigned act = 0;
+    for (int ti = 0; ti < NTGT; ti++)
+        if ((tmask >> ti & 1) && j1 >= tg[ti]->tcx - 8 && j1 <= tg[ti]->tcx + 8 && k1 >= tg[ti]->tcz - 8 &&
+            k1 <= tg[ti]->tcz + 8)
+            act |= 1u << ti;
+    return act;
+}
+
+/* reach region: union of the targets' regions (and of the record area when recording) */
+static void caves_setup(unsigned tmask) {
     int first = 1;
-    for (int ti = 0; ti < NTGT; ti++) {
-        if (!(tmask >> ti & 1)) continue;
-        const CaveCtx *c = tg[ti];
-        Q32 x0 = SHL(c->tcx * 16 + c->rx0, 32), x1 = SHL(c->tcx * 16 + c->rx1, 32);
-        Q32 z0 = SHL(c->tcz * 16 + c->rz0, 32), z1 = SHL(c->tcz * 16 + c->rz1, 32);
+    for (int ti = 0; ti <= NTGT; ti++) {
+        Q32 x0, x1, z0, z1;
+        if (ti < NTGT) {
+            if (!(tmask >> ti & 1)) continue;
+            const CaveCtx *c = tg[ti];
+            tg_cx[ti] = SHL(c->tcx * 16 + 8, 32);
+            tg_cz[ti] = SHL(c->tcz * 16 + 8, 32);
+            x0 = SHL(c->tcx * 16 + c->rx0, 32), x1 = SHL(c->tcx * 16 + c->rx1, 32);
+            z0 = SHL(c->tcz * 16 + c->rz0, 32), z1 = SHL(c->tcz * 16 + c->rz1, 32);
+        } else {
+            if (!(tmask & T_REC)) continue;
+            x0 = SHL(crec_ax * 16, 32), x1 = SHL((crec_ax + CA_SIZE) * 16, 32);
+            z0 = SHL(crec_az * 16, 32), z1 = SHL((crec_az + CA_SIZE) * 16, 32);
+        }
         if (first || x0 < reg_x0) reg_x0 = x0;
         if (first || x1 > reg_x1) reg_x1 = x1;
         if (first || z0 < reg_z0) reg_z0 = z0;
@@ -2658,59 +3073,80 @@ static void caves_region(unsigned tmask) {
     }
 }
 
-/* MapGenBase.a (caves, then canyons) for the targets tmask: every source chunk within 8 chunks
- * of a target, in Java's order (x outer, z inner), each walked for the targets in its range */
+/* MapGenBase.a (caves, then canyons) for the targets tmask (and the record area if T_REC is
+ * set): every source chunk within 8 chunks of a target, in Java's order (x outer, z inner),
+ * each walked for the targets in its range */
 static void caves_run(unsigned tmask) {
     int x0 = 1 << 30, x1 = -(1 << 30), z0 = 1 << 30, z1 = -(1 << 30);
     for (int ti = 0; ti < NTGT; ti++) {
         if (!(tmask >> ti & 1)) continue;
-        tg_cx[ti] = SHL(tg[ti]->tcx * 16 + 8, 32);
-        tg_cz[ti] = SHL(tg[ti]->tcz * 16 + 8, 32);
         if (tg[ti]->tcx < x0) x0 = tg[ti]->tcx;
         if (tg[ti]->tcx > x1) x1 = tg[ti]->tcx;
         if (tg[ti]->tcz < z0) z0 = tg[ti]->tcz;
         if (tg[ti]->tcz > z1) z1 = tg[ti]->tcz;
     }
-    caves_region(tmask);
+    if (tmask & T_REC) {
+        if (crec_ax < x0) x0 = crec_ax;
+        if (crec_ax + CA_SIZE - 1 > x1) x1 = crec_ax + CA_SIZE - 1;
+        if (crec_az < z0) z0 = crec_az;
+        if (crec_az + CA_SIZE - 1 > z1) z1 = crec_az + CA_SIZE - 1;
+    }
+    caves_setup(tmask);
     for (int pass = 0; pass < 2; pass++)
         for (int j1 = x0 - 8; j1 <= x1 + 8; ++j1)
             for (int k1 = z0 - 8; k1 <= z1 + 8; ++k1) {
-                unsigned act = 0;
-                for (int ti = 0; ti < NTGT; ti++)
-                    if ((tmask >> ti & 1) && j1 >= tg[ti]->tcx - 8 && j1 <= tg[ti]->tcx + 8 &&
-                        k1 >= tg[ti]->tcz - 8 && k1 <= tg[ti]->tcz + 8)
-                        act |= 1u << ti;
+                unsigned act = src_targets(tmask, j1, k1) | (tmask & T_REC);
                 if (act) cave_source(j1, k1, pass, act, 0, 0);
             }
 }
 
-/* the same from the records (targets must be among the 9 around crec_cx, crec_cz) */
-static void caves_replay(unsigned tmask) {
-    for (int ti = 0; ti < NTGT; ti++) {
-        if (!(tmask >> ti & 1)) continue;
-        tg_cx[ti] = SHL(tg[ti]->tcx * 16 + 8, 32);
-        tg_cz[ti] = SHL(tg[ti]->tcz * 16 + 8, 32);
-    }
-    caves_region(tmask);
+/* the same for the box [x0, x1] x [y0, y1] x [z0, z1] (world, inclusive), from the records */
+static void caves_replay(unsigned tmask, int x0, int y0, int z0, int x1, int y1, int z1) {
+    caves_setup(tmask);
+    x0 -= crec_ax * 16, x1 -= crec_ax * 16, z0 -= crec_az * 16, z1 -= crec_az * 16;
+    CaveRec sel[16];
     for (int i = 0; i < ncrec;) {
-        int j = i;
-        unsigned any = 0;
-        while (j < ncrec && crec[j].sx == crec[i].sx && crec[j].sz == crec[i].sz && crec[j].pass == crec[i].pass)
-            any |= crec[j++].mask;
-        if (any & tmask) cave_source(crec_cx + crec[i].sx, crec_cz + crec[i].sz, crec[i].pass, tmask, crec + i, j - i);
+        int j = i, n = 0;
+        int j1 = crec_ax + crec[i].sx, k1 = crec_az + crec[i].sz;
+        unsigned act = src_targets(tmask, j1, k1);
+        for (; j < ncrec && crec[j].sx == crec[i].sx && crec[j].sz == crec[i].sz && crec[j].pass == crec[i].pass; j++) {
+            const CaveRec *c = &crec[j];
+            if (act && c->x1 >= x0 && c->x0 <= x1 && c->z1 >= z0 && c->z0 <= z1 && c->y1 >= y0 && c->y0 <= y1) {
+                if (n == 16) { /* full: the ranks are increasing, so walking these first keeps the order */
+                    cave_source(j1, k1, crec[i].pass, act, sel, n);
+                    n = 0;
+                }
+                sel[n++] = *c;
+            }
+        }
+        if (n) cave_source(j1, k1, crec[i].pass, act, sel, n);
         i = j;
     }
+}
+
+/* make the records cover the 3 x 3 chunks around (cx, cz) */
+static void crec_cover(int cx, int cz) {
+    if (crec_seed == g_seed && crec_ok && cx - 1 >= crec_ax && cx + 1 < crec_ax + CA_SIZE && cz - 1 >= crec_az &&
+        cz + 1 < crec_az + CA_SIZE)
+        return;
+    crec_seed = g_seed;
+    crec_ax = cx - CA_SIZE / 2;
+    crec_az = cz - CA_SIZE / 2;
+    ncrec = 0;
+    crec_ok = 1;
+    caves_run(T_REC);
 }
 
 /* ======================================================================== */
 /* Summary cache                                                             */
 /* ======================================================================== */
 
-#define NSUM 12
+#define NSUM 20
 typedef struct {
     int cx, cz;
     uint32_t age;
     uint8_t valid;
+    uint8_t b00;  /* biome of block (0, 0): the biome of the population of chunk (cx-1, cz-1) */
     ColSum s[256];
 } SumEntry;
 static SumEntry sumc[NSUM];
@@ -2750,6 +3186,7 @@ static SumEntry *sum_get(int cx, int cz) {
     if (e) return e;
     e = sum_slot(cx, cz);
     chunk_terrain(cx, cz, 0, 0, 0, e->s);
+    e->b00 = cb16[0];
     return e;
 }
 
@@ -2772,7 +3209,7 @@ static const ColSum *col_sum(int X, int Z) {
  * (whole height), c_sl: highest solid-or-liquid y (precipitation height - 1) */
 static uint8_t *c_out;
 static int c_y0, c_h, c_cx, c_cz;
-static uint8_t c_top[256], c_sl[256];
+/* (c_top, c_sl: declared with the caves, which keep them right) */
 
 #define PV (U.p.v)
 
@@ -2782,7 +3219,7 @@ static inline int lake_bit(const LakeRec *L, int x, int y, int z) {
 }
 
 /* view block at world (X, Y, Z) */
-static uint8_t vget(int X, int Y, int Z) {
+HOT static uint8_t vget(int X, int Y, int Z) {
     if (Y < 0) return B_BEDROCK;
     if (Y > 255) return B_AIR;
     View *v = &PV;
@@ -2804,7 +3241,7 @@ static uint8_t vget(int X, int Y, int Z) {
     }
     const ColSum *s = col_sum(X, Z);
     if (!s) return Y < SEA ? B_STONE : B_AIR;
-    if (Y > s->top) return B_AIR;
+    if (Y > cs_top(s)) return B_AIR;
     if (v->qon && X >= v->qx0 && X < v->qx1 && Y >= v->qy0 && Y < v->qy1 && Z >= v->qz0 && Z < v->qz1) {
         uint8_t m = U.p.qmask[((Y - v->qy0) * (v->qz1 - v->qz0) + (Z - v->qz0)) * (v->qx1 - v->qx0) + (X - v->qx0)];
         if (m) return (uint8_t)(m - 1);
@@ -3023,7 +3460,7 @@ static void cave_query(int x0, int y0, int z0, int x1, int y1, int z1) {
             tmask |= 1u << (dz * 3 + dx);
         }
     if (tmask) {
-        if (crec_ok && crec_cx == nb_cx && crec_cz == nb_cz) caves_replay(tmask);
+        if (crec_ok) caves_replay(tmask, x0, y0, z0, x1 - 1, y1 - 1, z1 - 1);
         else caves_run(tmask);
     }
     v->qon = 1;
@@ -3033,6 +3470,35 @@ static void cave_query(int x0, int y0, int z0, int x1, int y1, int z1) {
     v->qy1 = y1;
     v->qz0 = z0;
     v->qz1 = z1;
+}
+
+/* ---- outcomes of a population's cave-dependent tests ----
+ * Lakes and dungeons read the caves (cave queries). A population is replayed by the up to four
+ * gen_slab calls whose chunk it writes into, and each time these tests give the same result;
+ * a failed one draws the same random numbers whatever made it fail. So the outcomes are kept
+ * per population and a known failure only makes its draws. */
+typedef struct {
+    int px, pz;
+    uint8_t valid, lakes, dungeons; /* bit set: lake (0 water, 1 lava) placed, dungeon attempt passed */
+} PopMemo;
+#define NPMEMO 16
+static PopMemo pmemo[NPMEMO];
+static int pmemo_next;
+static PopMemo *pm;   /* the current population's */
+static int pm_known;  /* its outcomes are known */
+static int dung_idx;  /* attempt being made */
+
+static void pmemo_begin(int px, int pz) {
+    for (int i = 0; i < NPMEMO; i++)
+        if (pmemo[i].valid && pmemo[i].px == px && pmemo[i].pz == pz) {
+            pm = &pmemo[i];
+            pm_known = 1;
+            return;
+        }
+    pm = &pmemo[pmemo_next];
+    pmemo_next = (pmemo_next + 1) % NPMEMO;
+    *pm = (PopMemo){px, pz, 0, 0, 0};
+    pm_known = 0;
 }
 
 /* ---- lakes (WorldGenLakes) ---- */
@@ -3062,6 +3528,12 @@ static void lake(uint8_t liquid, int X, int Y, int Z) {
     while (Y > 5 && v_empty(X, Y, Z)) Y--;
     if (Y <= 4) return;
     Y -= 4;
+    int bit = liquid == B_LAVA ? 2 : 1;
+    if (pm_known && !(pm->lakes & bit)) { /* failed before: only its draws */
+        int n = RI(4) + 4;
+        jr_skip(&PR, 12u * (unsigned)n); /* 6 nextDouble per blob */
+        return;
+    }
     LakeRec tmp, *L = v->nlake < 2 ? &v->lake[v->nlake] : &tmp;
     L->x = X;
     L->y = Y;
@@ -3093,6 +3565,7 @@ static void lake(uint8_t liquid, int X, int Y, int Z) {
         v->qon = 0;
         return;
     }
+    pm->lakes |= (uint8_t)bit;
     /* place: record the lake for the view, write into C */
     const uint8_t *sh = L->shape;
     if (L == &v->lake[v->nlake]) v->nlake++;
@@ -3171,6 +3644,7 @@ static void dungeon_loot(void) {
 static void dungeon(int X, int Y, int Z) {
     int i = RI(2) + 2, j = -i - 1, k = i + 1;
     int l = RI(2) + 2, i1 = -l - 1, j1 = l + 1;
+    if (pm_known && !(pm->dungeons >> dung_idx & 1)) return; /* failed before */
     /* floor and ceiling must be buildable: caves only remove blocks, so test the view first */
     for (int a = j; a <= k; a++)
         for (int c = i1; c <= j1; c++)
@@ -3191,6 +3665,7 @@ static void dungeon(int X, int Y, int Z) {
         PV.qon = 0;
         return;
     }
+    pm->dungeons |= (uint8_t)(1 << dung_idx);
     for (int a = j; a <= k; a++)
         for (int b = 3; b >= -1; b--)
             for (int c = i1; c <= j1; c++) {
@@ -3233,9 +3708,9 @@ static void dungeon(int X, int Y, int Z) {
 }
 
 /* ---- ores (WorldGenMinable) ---- */
-static void minable(int X, int Y, int Z, int n, uint8_t blk) {
+HOT static void minable(int X, int Y, int Z, int n, uint8_t blk) {
     float f = RF() * 3.1415927f;
-    float s = mh_sin(f) * (float)n / 8.0f, c = mh_cos(f) * (float)n / 8.0f;
+    float s = mh_sin_i(f) * (float)n / 8.0f, c = mh_cos_i(f) * (float)n / 8.0f;
     /* Java: (float)(x + 8) + sin * n / 8, in float with absolute coordinates */
     float d0 = (float)(X + 8) + s, d1 = (float)(X + 8) - s, d2 = (float)(Z + 8) + c, d3 = (float)(Z + 8) - c;
     int d4 = Y + RI(3) - 2, d5 = Y + RI(3) - 2;
@@ -3247,32 +3722,55 @@ static void minable(int X, int Y, int Z, int n, uint8_t blk) {
     int touch = maxx >= (float)(c_cx * 16) && minx < (float)(c_cx * 16 + 16) && maxz >= (float)(c_cz * 16) &&
                 minz < (float)(c_cz * 16 + 16) && maxy >= c_y0 && miny < c_y0 + c_h;
     if (!touch) {
-        for (int i = 0; i < n; i++) jr_double_bits(&PR);
+        jr_skip(&PR, 2u * (unsigned)n); /* the n nextDouble (two steps each) */
         return;
     }
     /* positions relative to an integer base so float keeps its precision */
     int bx = floor_f(d0), bz = floor_f(d2);
     float r0 = d0 - (float)bx, r1 = d1 - (float)bx, r2 = d2 - (float)bz, r3 = d3 - (float)bz;
+    /* C's blocks, relative to the base */
+    int cx0 = c_cx * 16 - bx, cx1 = cx0 + 15, cz0 = c_cz * 16 - bz, cz1 = cz0 + 15;
+    float hmax = (float)n / 16.0f + 1.0f; /* > the sphere radius, (sin + 1) * d9 / 2 + 1/2 */
     for (int i = 0; i < n; i++) {
         float f1 = (float)i / (float)n;
         float d6 = r0 + (r1 - r0) * f1, d7 = (float)d4 + (float)(d5 - d4) * f1, d8 = r2 + (r3 - r2) * f1;
-        float d9 = jr_doublef(&PR) * (float)n / 16.0f;
-        float d10 = (mh_sin(3.1415927f * f1) + 1.0f) * d9 + 1.0f, h = d10 / 2.0f;
-        int j = floor_f(d6 - h), k = floor_f(d7 - h), l = floor_f(d8 - h);
-        int i1 = floor_f(d6 + h), j1 = floor_f(d7 + h), k1 = floor_f(d8 + h);
+        if (d6 + hmax < (float)cx0 || d6 - hmax > (float)(cx1 + 1) || d8 + hmax < (float)cz0 ||
+            d8 - hmax > (float)(cz1 + 1) || d7 + hmax < (float)c_y0 || d7 - hmax > (float)(c_y0 + c_h)) {
+            jr_skip(&PR, 2); /* its nextDouble */
+            continue;
+        }
+        float d9 = jr_doublef_i(&PR) * (float)n / 16.0f;
+        float d10 = (mh_sin_i(3.1415927f * f1) + 1.0f) * d9 + 1.0f, h = d10 / 2.0f;
+        int j = floor_f_i(d6 - h), k = floor_f_i(d7 - h), l = floor_f_i(d8 - h);
+        int i1 = floor_f_i(d6 + h), j1 = floor_f_i(d7 + h), k1 = floor_f_i(d8 + h);
+        /* only C's columns and rows can be written */
+        if (j < cx0) j = cx0;
+        if (i1 > cx1) i1 = cx1;
+        if (k < c_y0) k = c_y0;
+        if (j1 > c_y0 + c_h - 1) j1 = c_y0 + c_h - 1;
+        if (l < cz0) l = cz0;
+        if (k1 > cz1) k1 = cz1;
+        if (j > i1 || k > j1 || l > k1) continue;
+        /* squares of the per-axis distances (the same operations as Java's, hoisted); the
+         * writes replace stone only, which leaves C's column tracking as it is */
+        float q14[16];
+        for (int j2 = l; j2 <= k1; j2++) {
+            float d14 = ((float)j2 + 0.5f - d8) / h;
+            q14[j2 - l] = d14 * d14;
+        }
         for (int l1 = j; l1 <= i1; l1++) {
-            float d12 = ((float)l1 + 0.5f - d6) / h;
-            if (d12 * d12 >= 1.0f) continue;
-            int wx = bx + l1;
-            if (wx < c_cx * 16 || wx >= c_cx * 16 + 16) continue;
+            float d12 = ((float)l1 + 0.5f - d6) / h, q12 = d12 * d12;
+            if (q12 >= 1.0f) continue;
+            uint8_t *colp = c_out + ((bx + l1) & 15);
             for (int i2 = k; i2 <= j1; i2++) {
-                float d13 = ((float)i2 + 0.5f - d7) / h;
-                if (d12 * d12 + d13 * d13 >= 1.0f) continue;
-                if (i2 < c_y0 || i2 >= c_y0 + c_h) continue;
-                for (int j2 = l; j2 <= k1; j2++) {
-                    float d14 = ((float)j2 + 0.5f - d8) / h;
-                    if (d12 * d12 + d13 * d13 + d14 * d14 < 1.0f) put_c(wx, i2, bz + j2, blk, R_STONE);
-                }
+                float d13 = ((float)i2 + 0.5f - d7) / h, q = q12 + d13 * d13;
+                if (q >= 1.0f) continue;
+                uint8_t *row = colp + (i2 - c_y0) * 256;
+                for (int j2 = l; j2 <= k1; j2++)
+                    if (q + q14[j2 - l] < 1.0f) {
+                        uint8_t *o = row + ((bz + j2) & 15) * 16;
+                        if (*o == B_STONE) *o = blk;
+                    }
             }
         }
     }
@@ -3374,16 +3872,41 @@ static void vine_hang(int x, int y, int z) {
 }
 
 /* WorldGenTrees (oak, small jungle): base height c, vines */
+/* A tree's space test: every block of the columns at Chebyshev distance d <= rmax around
+ * (x, z), from y = lo[d < 2 ? d : 2] up to yhi, must pass (kind 0: air or leaves, 1: tree_ok).
+ * The block loops it replaces have no side effects, so the order does not matter; in the
+ * view, a column above its top is air but for a plant right above it. */
+static int col_pass(uint8_t b, int kind) { return kind ? tree_ok(b) : AIR_OR_LEAVES(b); }
+
+static int space_ok(int x, int z, int rmax, const int lo[3], int yhi, int kind) {
+    if (yhi >= 256) return 0;
+    View *v = &PV;
+    for (int dx = -rmax; dx <= rmax; dx++)
+        for (int dz = -rmax; dz <= rmax; dz++) {
+            int d = (dx < 0 ? -dx : dx) > (dz < 0 ? -dz : dz) ? (dx < 0 ? -dx : dx) : (dz < 0 ? -dz : dz);
+            int ya = lo[d < 2 ? d : 2], yb = yhi;
+            if (ya > yb) continue;
+            int X = x + dx, Z = z + dz, lx = X - v->ox, lz = Z - v->oz;
+            lx = lx < 0 ? 0 : lx > 31 ? 31 : lx;
+            lz = lz < 0 ? 0 : lz > 31 ? 31 : lz;
+            int i = lz * 32 + lx, top = v->top[i];
+            if (yb > top) {
+                if (v->pl[i] && ya <= top + 1 && !col_pass(v->pl[i], kind)) return 0;
+                if (ya > top) continue;
+                yb = top;
+            }
+            for (int y = ya; y <= yb; y++)
+                if (!col_pass(vget(X, y, Z), kind)) return 0;
+        }
+    return 1;
+}
+
 static int gen_trees(int x, int y, int z, int c, uint8_t log, uint8_t leaf, int vines) {
     int i = RI(3) + c;
     if (y < 1 || y + i + 1 > 256) return 0;
-    for (int l = y; l <= y + 1 + i; l++) {
-        int b0 = 1;
-        if (l == y) b0 = 0;
-        if (l >= y + 1 + i - 2) b0 = 2;
-        for (int j = x - b0; j <= x + b0; j++)
-            for (int k = z - b0; k <= z + b0; k++)
-                if (l < 0 || l >= 256 || !tree_ok(vget(j, l, k))) return 0;
+    {
+        int lo[3] = {y, y + 1, y + i - 1}; /* radius 0 at y, 1 above, 2 from y + i - 1 */
+        if (!space_ok(x, z, 2, lo, y + 1 + i, 1)) return 0;
     }
     uint8_t below = vget(x, y - 1, z);
     if (!((below == B_GRASS || IS_DIRTISH(below) || below == B_FARMLAND) && y < 256 - i - 1)) return 0;
@@ -3440,13 +3963,9 @@ static int gen_birch(int x, int y, int z, int tall) {
     int i = RI(3) + 5;
     if (tall) i += RI(7);
     if (y < 1 || y + i + 1 > 256) return 0;
-    for (int l = y; l <= y + 1 + i; l++) {
-        int b0 = 1;
-        if (l == y) b0 = 0;
-        if (l >= y + 1 + i - 2) b0 = 2;
-        for (int j = x - b0; j <= x + b0; j++)
-            for (int k = z - b0; k <= z + b0; k++)
-                if (l < 0 || l >= 256 || !tree_ok(vget(j, l, k))) return 0;
+    {
+        int lo[3] = {y, y + 1, y + i - 1}; /* radius 0 at y, 1 above, 2 from y + i - 1 */
+        if (!space_ok(x, z, 2, lo, y + 1 + i, 1)) return 0;
     }
     uint8_t below = vget(x, y - 1, z);
     if (!((below == B_GRASS || IS_DIRTISH(below) || below == B_FARMLAND) && y < 256 - i - 1)) return 0;
@@ -3470,11 +3989,9 @@ static int gen_birch(int x, int y, int z, int tall) {
 static int gen_taiga1(int x, int y, int z) {
     int i = RI(5) + 7, j = i - RI(2) - 3, k = i - j, l = 1 + RI(k + 1);
     if (y < 1 || y + i + 1 > 256) return 0;
-    for (int l1 = y; l1 <= y + 1 + i; l1++) {
-        int k1 = (l1 - y < j) ? 0 : l;
-        for (int i1 = x - k1; i1 <= x + k1; i1++)
-            for (int j1 = z - k1; j1 <= z + k1; j1++)
-                if (l1 < 0 || l1 >= 256 || !tree_ok(vget(i1, l1, j1))) return 0;
+    {
+        int lo[3] = {y, y + (j > 0 ? j : 0), y + (j > 0 ? j : 0)}; /* radius 0 below y + j, l above */
+        if (!space_ok(x, z, l, lo, y + 1 + i, 1)) return 0;
     }
     uint8_t below = vget(x, y - 1, z);
     if (!((below == B_GRASS || IS_DIRTISH(below)) && y < 256 - i - 1)) return 0;
@@ -3500,13 +4017,9 @@ static int gen_taiga1(int x, int y, int z) {
 static int gen_taiga2(int x, int y, int z) {
     int i = RI(4) + 6, j = 1 + RI(2), k = i - j, l = 2 + RI(2);
     if (y < 1 || y + i + 1 > 256) return 0;
-    for (int k1 = y; k1 <= y + 1 + i; k1++) {
-        int j1 = (k1 - y < j) ? 0 : l;
-        for (int l1 = x - j1; l1 <= x + j1; l1++)
-            for (int i1 = z - j1; i1 <= z + j1; i1++) {
-                if (k1 < 0 || k1 >= 256) return 0;
-                if (!AIR_OR_LEAVES(vget(l1, k1, i1))) return 0;
-            }
+    {
+        int lo[3] = {y, y + j, y + j}; /* radius 0 below y + j, l above */
+        if (!space_ok(x, z, l, lo, y + 1 + i, 0)) return 0;
     }
     uint8_t below = vget(x, y - 1, z);
     if (!((below == B_GRASS || IS_DIRTISH(below) || below == B_FARMLAND) && y < 256 - i - 1)) return 0;
@@ -3667,7 +4180,8 @@ static void dark_leaf(int x, int y, int z) {
 }
 
 static int gen_dark_oak(int x, int y, int z) {
-    int i = RI(3) + RI(2) + 6;
+    int i = RI(3);
+    i += RI(2) + 6;
     if (y < 1 || y + i + 1 >= 256) return 0;
     uint8_t below = vget(x, y - 1, z);
     if (below != B_GRASS && !IS_DIRTISH(below)) return 0;
@@ -3910,10 +4424,6 @@ static int gen_bush(int x, int y, int z) {
 }
 
 /* ---- WorldGenBigTree (own java.util.Random; float instead of double) ---- */
-typedef struct {
-    int x, y, z, q;
-} BigPos;
-static BigPos big_list[48];
 
 /* line from a to b: -1 if every block is replaceable for a tree, else the index of the first that is not */
 static int big_line_check(int ax, int ay, int az, int bx, int by, int bz) {
@@ -3958,10 +4468,10 @@ static int gen_big_tree(int x, int y, int z) {
         a = c;
     }
     /* prepare */
-    int b = (int)((double)a * 0.618);
+    int b = (int)((double)a * ((double)618 / 1000)); /* 0.618 */
     if (b >= a) b = a - 1;
-    double pw = (double)a / 13.0;
-    int ni = (int)(1.382 + pw * pw);
+    double pw = (double)a / 13;
+    int ni = (int)((double)1382 / 1000 + pw * pw); /* 1.382 */
     if (ni < 1) ni = 1;
     int j = y + b, kk = a - li, n = 0;
     big_list[n++] = (BigPos){x, y + kk, z, j};
@@ -4007,7 +4517,7 @@ static int gen_big_tree(int x, int y, int z) {
     /* branches */
     for (int p = 0; p < n; p++) {
         int q = big_list[p].q;
-        if ((q != big_list[p].y || x != big_list[p].x || z != big_list[p].z) && (double)(q - y) >= (double)a * 0.2)
+        if ((q != big_list[p].y || x != big_list[p].x || z != big_list[p].z) && (double)(q - y) >= (double)a * ((double)2 / 10))
             big_line_place(x, q, z, big_list[p].x, big_list[p].y, big_list[p].z);
     }
     return 1;
@@ -4167,14 +4677,37 @@ static void put_plant(int x, int y, int z, uint8_t b, int soil) {
 static inline int v_shaded(int x, int y, int z) { return y < hm(x, z) - 1; }
 
 /* the 6-draw offset of most plant features */
-#define OFS8(dx, dy, dz) do { dx = RI(8) - RI(8); dy = RI(4) - RI(4); dz = RI(8) - RI(8); } while (0)
+/* the 6-draw offset of most plant features: nextInt(8) - nextInt(8), nextInt(4) - nextInt(4),
+ * nextInt(8) - nextInt(8), drawn left to right (nextInt(2^k) is next(31) >> (31 - k)) */
+HOT static void ofs8(int *dx, int *dy, int *dz) {
+    int a = jr_next_i(&PR, 31) >> 28;
+    *dx = a - (jr_next_i(&PR, 31) >> 28);
+    a = jr_next_i(&PR, 31) >> 29;
+    *dy = a - (jr_next_i(&PR, 31) >> 29);
+    a = jr_next_i(&PR, 31) >> 28;
+    *dz = a - (jr_next_i(&PR, 31) >> 28);
+}
+#define OFS8(dx, dy, dz) ofs8(&(dx), &(dy), &(dz))
+
+/* v_empty(x, y, z) && soil_ok(soil, vget(x, y - 1, z), 0), soil not SOIL_ANY: in the view a
+ * spot more than one block above its column's top is air over air, which no soil allows */
+HOT static int plant_ok(int x, int y, int z, int soil) {
+    View *v = &PV;
+    int lx = x - v->ox, lz = z - v->oz;
+    lx = lx < 0 ? 0 : lx > 31 ? 31 : lx;
+    lz = lz < 0 ? 0 : lz > 31 ? 31 : lz;
+    int i = lz * 32 + lx, top = v->top[i];
+    if (y > top + 1) return 0;
+    if (y == top + 1) return !v->pl[i] && soil_ok(soil, v->tb[i], 0);
+    return v_empty(x, y, z) && soil_ok(soil, vget(x, y - 1, z), 0);
+}
 
 static void feat_flowers(int X, int Y, int Z, uint8_t b) {
     for (int i = 0; i < 64; i++) {
         int dx, dy, dz;
         OFS8(dx, dy, dz);
         int x = X + dx, y = Y + dy, z = Z + dz;
-        if (v_empty(x, y, z) && soil_ok(SOIL_PLANT, vget(x, y - 1, z), 0)) put_plant(x, y, z, b, SOIL_PLANT);
+        if (plant_ok(x, y, z, SOIL_PLANT)) put_plant(x, y, z, b, SOIL_PLANT);
     }
 }
 
@@ -4189,7 +4722,7 @@ static void feat_grass(int X, int Y, int Z, uint8_t b) {
         int dx, dy, dz;
         OFS8(dx, dy, dz);
         int x = X + dx, y = Y + dy, z = Z + dz;
-        if (v_empty(x, y, z) && soil_ok(SOIL_PLANT, vget(x, y - 1, z), 0)) put_plant(x, y, z, b, SOIL_PLANT);
+        if (plant_ok(x, y, z, SOIL_PLANT)) put_plant(x, y, z, b, SOIL_PLANT);
     }
 }
 
@@ -4199,7 +4732,7 @@ static void feat_deadbush(int X, int Y, int Z) {
         int dx, dy, dz;
         OFS8(dx, dy, dz);
         int x = X + dx, y = Y + dy, z = Z + dz;
-        if (v_empty(x, y, z) && soil_ok(SOIL_DEADBUSH, vget(x, y - 1, z), 0)) put_plant(x, y, z, B_DEAD_BUSH, SOIL_DEADBUSH);
+        if (plant_ok(x, y, z, SOIL_DEADBUSH)) put_plant(x, y, z, B_DEAD_BUSH, SOIL_DEADBUSH);
     }
 }
 
@@ -4208,7 +4741,7 @@ static void feat_lily(int X, int Y, int Z) {
         int dx, dy, dz;
         OFS8(dx, dy, dz);
         int x = X + dx, y = Y + dy, z = Z + dz;
-        if (v_empty(x, y, z) && soil_ok(SOIL_LILY, vget(x, y - 1, z), 0)) put_plant(x, y, z, B_LILY_PAD, SOIL_LILY);
+        if (plant_ok(x, y, z, SOIL_LILY)) put_plant(x, y, z, B_LILY_PAD, SOIL_LILY);
     }
 }
 
@@ -4236,7 +4769,9 @@ static int reed_can(int x, int y, int z) {
 
 static void feat_reeds(int X, int Y, int Z) {
     for (int i = 0; i < 20; i++) {
-        int dx = RI(4) - RI(4), dz = RI(4) - RI(4);
+        int dx = RI(4), dz;
+        dx -= RI(4);
+        dz = RI(4), dz -= RI(4);
         int x = X + dx, y = Y, z = Z + dz;
         if (!v_empty(x, y, z)) continue;
         if (!water_around(x, y - 1, z)) continue;
@@ -4296,7 +4831,7 @@ static int feat_tallplant(int X, int Y, int Z, uint8_t lower) {
         int dx, dy, dz;
         OFS8(dx, dy, dz);
         int x = X + dx, y = Y + dy, z = Z + dz;
-        if (v_empty(x, y, z) && soil_ok(SOIL_PLANT, vget(x, y - 1, z), 0) && v_empty(x, y + 1, z)) {
+        if (plant_ok(x, y, z, SOIL_PLANT) && v_empty(x, y + 1, z)) {
             int cok = 1;
             if (in_c_cols(x, z)) {
                 if (y >= c_y0 && y < c_y0 + c_h && cget(x, y, z) != B_AIR) cok = 0;
@@ -4441,12 +4976,12 @@ static uint8_t flower_select(const Biome *b, int x, int z) {
     switch (b->flower) {
     case F_SWAMP: return B_BLUE_ORCHID;
     case F_FLOWER_FOREST: {
-        double d0 = (1.0 + (double)grass_noise_div(x, z, 48)) / 2.0;
-        if (d0 < 0.0) d0 = 0.0;
-        if (d0 > 0.9999) d0 = 0.9999;
+        double d0 = (1 + (double)grass_noise_div(x, z, 48)) / 2;
+        if (d0 < 0) d0 = 0;
+        if (d0 > (double)9999 / 10000) d0 = (double)9999 / 10000; /* 0.9999 */
         static const uint8_t V[10] = {B_DANDELION, B_POPPY, B_POPPY /* blue orchid -> poppy */, B_ALLIUM, B_AZURE_BLUET,
                                       B_RED_TULIP, B_ORANGE_TULIP, B_WHITE_TULIP, B_PINK_TULIP, B_OXEYE_DAISY};
-        return V[(int)(d0 * 10.0)];
+        return V[(int)(d0 * 10)];
     }
     case F_PLAINS: {
         float d0 = grass_noise_div(x, z, 200);
@@ -4713,7 +5248,6 @@ static void decorate(const Biome *b) {
 }
 
 /* ---- one population ---- */
-static int biome_at(int x, int z);
 
 static void populate(int px, int pz, int biome) {
     View *v = &PV;
@@ -4727,14 +5261,16 @@ static void populate(int px, int pz, int biome) {
         for (int lx = 0; lx < 32; lx++) {
             const ColSum *s = col_sum(v->ox + lx, v->oz + lz);
             int i = lz * 32 + lx;
-            v->top[i] = s->top;
-            v->tb[i] = s->blk == B_LILY_PAD ? B_WATER : s->blk;
-            v->pl[i] = s->blk == B_LILY_PAD ? B_LILY_PAD : 0;
+            uint8_t blk = cs_blk(s);
+            v->top[i] = (uint8_t)cs_top(s);
+            v->tb[i] = blk == B_LILY_PAD ? B_WATER : blk;
+            v->pl[i] = blk == B_LILY_PAD ? B_LILY_PAD : 0;
         }
     PK = px * 16;
     PL = pz * 16;
     const Biome *b = bio(biome);
     jr_seed(&PR, (i64)((u64)(i64)px * (u64)pop_mul_x + (u64)(i64)pz * (u64)pop_mul_z) ^ g_seed);
+    pmemo_begin(px, pz);
     /* TODO: structures (mineshafts, villages, strongholds, temples, monuments) would draw here */
     if (b->id != BI_DESERT && b->id != BI_DESERT_HILLS && RI(4) == 0) {
         int x = PK + RI(16) + 8, y = RI(256), z = PL + RI(16) + 8;
@@ -4746,8 +5282,10 @@ static void populate(int px, int pz, int biome) {
     }
     for (int i = 0; i < 8; i++) {
         int x = PK + RI(16) + 8, y = RI(256), z = PL + RI(16) + 8;
+        dung_idx = i;
         dungeon(x, y, z);
     }
+    pm->valid = 1; /* outcomes complete */
     decorate(b);
     /* SpawnerCreature draws next: nothing below depends on them */
     /* freeze: ice on still water, snow on top, for the columns of this population inside C */
@@ -4788,23 +5326,7 @@ static void dungeon_book(void) {
 /* Public API                                                                */
 /* ======================================================================== */
 
-/* biome id at block (x, z): one voronoi cell */
-static int biome_at(int x, int z) {
-    i32 rm[4];
-    int rx, rz, rw, rh;
-    voronoi_rm_win(x, z, 1, 1, &rx, &rz, &rw, &rh);
-    lay_mem = U.lay;
-    lay_cap = LAY_INTS;
-    lay_top = 0;
-    layers_rivermix(rx, rz, rw, rh, rm);
-    uint8_t b;
-    voronoi(rm, rx, rz, rw, x, z, 1, 1, &b, 1);
-    return b;
-}
-
 static int last_cx = 0x7fffffff, last_cz; /* chunk of the last gen_slab: c_top, c_b16 valid */
-static int bc_cx = 0x7fffffff, bc_cz;     /* chunk of b_cache */
-static uint8_t b_cache[256];
 static uint8_t col_tmp[256];
 
 /* carve hook: keep c_top / c_sl of C right when caves open the surface */
@@ -4812,6 +5334,8 @@ static void cave_track(int x, int y, int z, uint8_t b) {
     int i = z * 16 + x;
     if (b == B_AIR && y == c_top[i]) c_lower_top(i, y);
     if (y == c_sl[i] && b == B_AIR) c_sl[i] = c_top[i];
+    if (c_sl[i] < crep_lo) crep_lo = c_sl[i];
+    if (c_top[i] < crep_lo) crep_lo = c_top[i];
 }
 
 void gen_init(int64_t seed) {
@@ -4881,41 +5405,46 @@ void gen_init(int64_t seed) {
     cave_mul_z = jr_long(&r);
     /* caches */
     memset(sumc, 0, sizeof sumc);
+    memset(pmemo, 0, sizeof pmemo);
     memset(sum_pin, 0, sizeof sum_pin);
     last_cx = bc_cx = 0x7fffffff;
 }
 
-/* Caves and ravines of chunk (cx, cz) into out, recording the tunnels near the 3x3 chunks
- * around it for the populations' cave queries (one walk for all) */
+/* Caves and ravines of chunk (cx, cz) into out (whole height: the c_top tracking needs it) */
 #if defined(__GNUC__)
 __attribute__((noinline))
 #endif
 static void slab_caves(int cx, int cz, const ColSum *sum, uint8_t *out, int y0, int h) {
-    CaveCtx ctx[NTGT];
-    memset(ctx, 0, sizeof ctx);
-    for (int ti = 0; ti < NTGT; ti++) {
-        CaveCtx *c = &ctx[ti];
-        c->mode = ti == 4 ? CAVE_OUT : CAVE_REC;
-        c->tcx = cx + ti % 3 - 1;
-        c->tcz = cz + ti / 3 - 1;
-        c->rx1 = 16;
-        c->rz1 = 16;
-        c->ry1 = 256;
-        tg[ti] = c;
-    }
-    ctx[4].sum = sum;
-    ctx[4].out = out;
-    ctx[4].y0 = y0;
-    ctx[4].h = h;
-    ncrec = 0;
-    crec_ok = 1;
-    crec_cx = cx;
-    crec_cz = cz;
-    crec_on = 1;
+    crec_cover(cx, cz);
+    CaveCtx c;
+    memset(&c, 0, sizeof c);
+    c.mode = CAVE_OUT;
+    c.tcx = cx;
+    c.tcz = cz;
+    c.sum = sum;
+    c.out = out;
+    c.y0 = y0;
+    c.h = h;
+    c.rx1 = 16;
+    c.rz1 = 16;
+    c.ry1 = 256;
+    tg[4] = &c;
     cave_track_on = 1;
-    caves_run(0x1ff);
+    int hi = y0 + h;
+    crep_lo = y0 - 1;
+    for (int i = 0; i < 256; i++) {
+        if (c_top[i] > hi) hi = c_top[i];
+        if (c_sl[i] < crep_lo) crep_lo = c_sl[i];
+        if (c_top[i] < crep_lo) crep_lo = c_top[i];
+    }
+    if (crec_ok) {
+        crep_dyn = 1;
+        caves_replay(1u << 4, cx * 16, 0, cz * 16, cx * 16 + 15, hi + 1, cz * 16 + 15);
+        crep_dyn = 0;
+    } else {
+        caves_run(1u << 4);
+    }
     cave_track_on = 0;
-    crec_on = 0;
 }
 
 void gen_slab(int cx, int cz, int y0, int h, uint8_t *out) {
@@ -4938,10 +5467,11 @@ void gen_slab(int cx, int cz, int y0, int h, uint8_t *out) {
     int ie = (int)(e - sumc);
     sum_pin[ie] = 1;
     chunk_terrain(cx, cz, out, y0, h, e->s);
+    e->b00 = cb16[0];
     memcpy(c_b16, cb16, 256);
     for (int i = 0; i < 256; i++) {
-        c_top[i] = (uint8_t)(e->s[i].top + (e->s[i].blk == B_LILY_PAD));
-        c_sl[i] = e->s[i].top;
+        c_top[i] = (uint8_t)(cs_top(&e->s[i]) + (cs_blk(&e->s[i]) == B_LILY_PAD));
+        c_sl[i] = (uint8_t)cs_top(&e->s[i]);
     }
     nb[1][1] = e;
     /* caves and ravines */
@@ -4955,8 +5485,8 @@ void gen_slab(int cx, int cz, int y0, int h, uint8_t *out) {
             nb[dz + 1][dx + 1] = n;
         }
     /* the four populations writing into C (their biome is the one at +16, +16) */
-    int pb[4];
-    for (int k = 0; k < 4; k++) pb[k] = biome_at((cx - 1 + (k & 1)) * 16 + 16, (cz - 1 + (k >> 1)) * 16 + 16);
+    int pb[4]; /* World.getBiome(population origin + (16, 16)): block (0, 0) of the next chunk */
+    for (int k = 0; k < 4; k++) pb[k] = nb[1 + (k >> 1)][1 + (k & 1)]->b00;
     populate(cx - 1, cz - 1, pb[0]);
     populate(cx, cz - 1, pb[1]);
     populate(cx - 1, cz, pb[2]);
@@ -4969,13 +5499,8 @@ void gen_slab(int cx, int cz, int y0, int h, uint8_t *out) {
 int gen_biome(int x, int z) {
     int cx = x >> 4, cz = z >> 4, i = (x & 15) + (z & 15) * 16;
     if (cx == last_cx && cz == last_cz) return c_b16[i];
-    if (cx != bc_cx || cz != bc_cz) {
-        chunk_biomes(cx, cz);
-        memcpy(b_cache, cb16, 256);
-        bc_cx = cx;
-        bc_cz = cz;
-    }
-    return b_cache[i];
+    if (cx != bc_cx || cz != bc_cz) chunk_biomes(cx, cz);
+    return cb16[i];
 }
 
 int gen_top(int x, int z) {
@@ -4985,12 +5510,14 @@ int gen_top(int x, int z) {
     return t > 127 ? 127 : t;
 }
 
+float gen_temp_noise(int x, int z) { return temp_noise(x, z); }
+
 /* World.c(x, z) == GRASS on the undecorated terrain */
 static int can_spawn(int x, int z) {
     SumEntry *e = sum_get(x >> 4, z >> 4);
     const ColSum *s = &e->s[(x & 15) + (z & 15) * 16];
-    if (s->top < SEA) return 0;
-    return s->blk == B_GRASS;
+    if (cs_top(s) < SEA) return 0;
+    return cs_blk(s) == B_GRASS;
 }
 
 void gen_spawn(int *px, int *py, int *pz) {
@@ -5001,11 +5528,11 @@ void gen_spawn(int *px, int *py, int *pz) {
     uint8_t *rows = (uint8_t *)U.lay + sizeof(i32) * LAY_INTS; /* 8 rows x 129, after the layer scratch */
     for (int tz = 0; tz < 129; tz += 8) {
         int th = 129 - tz < 8 ? 129 - tz : 8;
-        for (int tx = 0; tx < 129; tx += 8) {
-            int tw = 129 - tx < 8 ? 129 - tx : 8;
-            i32 rm[64];
-            lay_mem = U.lay;
-            lay_cap = LAY_INTS;
+        for (int tx = 0; tx < 129; tx += 43) { /* 43 x 8 tiles: the layers' cost is mostly per run */
+            int tw = 43;
+            i32 *rm = U.lay;
+            lay_mem = U.lay + 43 * 8;
+            lay_cap = LAY_INTS - 43 * 8;
             lay_top = 0;
             layers_rivermix(-64 + tx, -64 + tz, tw, th, rm);
             for (int j = 0; j < th; j++)
@@ -5026,8 +5553,8 @@ void gen_spawn(int *px, int *py, int *pz) {
     }
     int x = found ? fx : 0, z = found ? fz : 0;
     for (int l = 0; !can_spawn(x, z);) {
-        x += jr_int(&r, 64) - jr_int(&r, 64);
-        z += jr_int(&r, 64) - jr_int(&r, 64);
+        x += jr_int(&r, 64), x -= jr_int(&r, 64);
+        z += jr_int(&r, 64), z -= jr_int(&r, 64);
         if (++l == 1000) break;
     }
     *px = x;
@@ -5035,4 +5562,26 @@ void gen_spawn(int *px, int *py, int *pz) {
     *py = gen_top(x, z) + 1;
 }
 
-unsigned gen_ram_bytes(void) { return 0; /* filled in by the size report (nm) */ }
+/* every static object of this file (the list follows the object file's symbols) */
+unsigned gen_ram_bytes(void) {
+    return (unsigned)(sizeof PK + sizeof PL + sizeof bc_cx + sizeof bc_cz + sizeof bg_ok + sizeof bg_x +
+                      sizeof bg_z + sizeof c_cx + sizeof c_cz + sizeof c_h + sizeof c_out + sizeof c_y0 +
+                      sizeof cave_track_on + sizeof col_top + sizeof crec_ax + sizeof crec_az +
+                      sizeof crec_ok + sizeof crep_dyn + sizeof crep_lo + sizeof cv + sizeof dung_idx +
+                      sizeof last_cx + sizeof last_cz + sizeof lay_cap + sizeof lay_mem + sizeof lay_peak +
+                      sizeof lay_top + sizeof nb_cx + sizeof nb_cz + sizeof ncrec + sizeof pm +
+                      sizeof pm_known + sizeof pmemo_next + sizeof put_skip_c + sizeof rb_x0 + sizeof rb_x1 +
+                      sizeof rb_y0 + sizeof rb_y1 + sizeof rb_z0 + sizeof rb_z1 + sizeof sum_clock +
+                      sizeof sum_odd + sizeof tov_on + sizeof tov_x + sizeof tov_y + sizeof tov_z +
+                      sizeof PR + sizeof SC_DEPTH + sizeof SC_LIMIT + sizeof SC_MAINXZ + sizeof SC_MAINY +
+                      sizeof bg_seed + sizeof cave_mul_x + sizeof cave_mul_z + sizeof crec_seed +
+                      sizeof g_seed + sizeof pop_mul_x + sizeof pop_mul_z + sizeof reg_x0 + sizeof reg_x1 +
+                      sizeof reg_z0 + sizeof reg_z1 + sizeof vor_c + sizeof sum_pin + sizeof oc_surf +
+                      sizeof nb + sizeof tg + sizeof oc_mesa + sizeof mesa_bands + sizeof oc_main +
+                      sizeof tg_cx + sizeof tg_cz + sizeof jump_add + sizeof jump_mul + sizeof bweights +
+                      sizeof cb4 + sizeof oc_depth + sizeof oc_max + sizeof oc_min + sizeof chain_buf +
+                      sizeof pmemo + sizeof tstack + sizeof biome_index + sizeof c_b16 + sizeof c_sl +
+                      sizeof c_top + sizeof cb16 + sizeof col_tmp + sizeof perm_grass + sizeof perm_temp +
+                      sizeof bgrid + sizeof lay_wseed + sizeof bflags + sizeof tov + sizeof crec + sizeof U +
+                      sizeof sumc);
+}

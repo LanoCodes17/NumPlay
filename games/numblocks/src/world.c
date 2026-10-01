@@ -3,6 +3,7 @@
  *
  * The cache moves in steps of 8 blocks (4 vertically) once the player comes
  * near an edge: what it still covers is moved, the rest is generated. */
+#include <stdlib.h>
 #include "nb.h"
 #include "edits.h"
 
@@ -207,6 +208,45 @@ static void fill_pending(int k) {
     for (int x = x0 < 0 ? 0 : x0; x < x0 + 16 && x < VCX; x++) vpend[z * VCX + x] = 0;
 }
 
+/* The chunks waiting to be made, meanwhile: the blocks about them carried on, not holes the sky shows
+ * through (a whole stretch of ground blinked out and back as they were made, one a frame). A column the
+ * cache kept gains rows: up to the generator's top its top row goes on up (above it, air), and its
+ * bottom row goes on down (stone where that is open). A new column: the nearest column there is, on
+ * the way to the player. */
+static void stand_in(bool any, int oy, int px, int pz) {
+  int lo = any ? oy - vc_y0 : VCY, hi = any ? lo + VCY : VCY;   /* (the rows the old cache had) */
+  for (int col = 0; col < VCX * VCZ; col++) {
+    if (!vpend[col] || !any || !BIT(kept, col)) continue;
+    int lx = col % VCX, lz = col / VCX;
+    if (lo > 0 && lo < VCY) {
+      int b = vc[VC_I(lx, lo, lz)];
+      if (!(blk_flags[b] & BF_SOLID)) b = B_STONE;
+      for (int y = 0; y < lo; y++) vc[VC_I(lx, y, lz)] = (uint8_t)b;
+    }
+    if (hi > 0 && hi < VCY) {
+      int b = vc[VC_I(lx, hi - 1, lz)];
+      if (!(blk_flags[b] & BF_OPAQUE)) b = B_AIR;
+      for (int y = hi; y < VCY; y++) vc[VC_I(lx, y, lz)] = (uint8_t)(y + vc_y0 <= vgtop[col] ? b : B_AIR);
+    }
+  }
+  int mx = px - vc_x0, mz = pz - vc_z0;   /* (the player's column: always made at once) */
+  for (int col = 0; col < VCX * VCZ; col++) {
+    if (!vpend[col] || (any && BIT(kept, col))) continue;
+    /* towards the player until a column that is there */
+    int lx = col % VCX, lz = col / VCX, sx = lx, sz = lz;
+    for (int k = 0; k < VCX + VCZ; k++) {
+      int s = sz * VCX + sx;
+      if (!vpend[s] || (any && BIT(kept, s))) break;
+      if (sx != mx && abs(sx - mx) >= abs(sz - mz)) sx += sx < mx ? 1 : -1;
+      else if (sz != mz) sz += sz < mz ? 1 : -1;
+      else break;
+    }
+    int s = sz * VCX + sx;
+    for (int y = 0; y < VCY; y++) vc[VC_I(lx, y, lz)] = vc[VC_I(sx, y, sz)];
+    vtop[col] = vtop[s], vbiome[col] = vbiome[s], vgtop[col] = vgtop[s];
+  }
+}
+
 static void recenter(int nx0, int ny0, int nz0, int px, int pz) {
   edits_forget();
   bool was_valid = vc_valid;
@@ -283,29 +323,14 @@ static void recenter(int nx0, int ny0, int nz0, int px, int pz) {
         for (int x = 0; x < 16; x++) {
           int lx = cx * 16 + x - vc_x0, lz = cz * 16 + z - vc_z0;
           if (lx < 0 || lx >= VCX || lz < 0 || lz >= VCZ) continue;
-          int col = lz * VCX + lx;
-          vpend[col] = 1;
-          bool old_col = any && BIT(kept, col);
-          for (int y = ylo; y < yhi; y++)
-            if (!(old_col && y + vc_y0 - oy >= 0 && y + vc_y0 - oy < VCY)) vc[VC_I(lx, y, lz)] = B_AIR;
-          if (!old_col) vtop[col] = 0, vbiome[col] = 1;
+          vpend[lz * VCX + lx] = 1;
         }
     }
+  stand_in(any, oy, px, pz);
   vc_valid = true;
   dirty[0] = dirty[3] = 0;   /* (all of it, now) */
   light_box(0, 0, 0, VCX, VCY, VCZ);
   mac_box(0, 0, 0, VCX, VCY, VCZ);
-  /* the chunks waiting to be made: their regions drawn as fog until they are (not the sky through the
-   * ground), as high as the ground already made goes */
-  int known = 0;
-  for (int k = 0; k < VCX * VCZ; k++)
-    if (!vpend[k] && vgtop[k] > known) known = vgtop[k];
-  for (int k = 0; k < npend; k++)
-    for (int lz = pend[k].cz * 16 - vc_z0; lz < pend[k].cz * 16 + 16 - vc_z0; lz += 4)
-      for (int lx = pend[k].cx * 16 - vc_x0; lx < pend[k].cx * 16 + 16 - vc_x0; lx += 4)
-        if (lx >= 0 && lx < VCX && lz >= 0 && lz < VCZ)
-          for (int my = pend[k].ylo >> 2; my < (pend[k].yhi + 3) >> 2 && my < MCY && my * 4 + vc_y0 <= known; my++)
-            vmac[(my * MCZ + (lz >> 2)) * MCX + (lx >> 2)] = 3;
 }
 
 void world_new(int64_t seed, const char *name) {

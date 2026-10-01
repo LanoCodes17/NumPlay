@@ -568,7 +568,6 @@ static uint16_t trace(float dx, float dy, float dz) {
         goto out;
     }
   }
-  if (vmac[mi] == 3 && dy < 0) goto unmade;
   if (!vmac[mi] || (vmac[mi] == 2 && in_liq == 1)) goto jump;
   for (;;) {
     ST(st_steps++);
@@ -610,7 +609,6 @@ static uint16_t trace(float dx, float dy, float dz) {
       if ((z & 3) != ez0) goto next;
       mi += mz;
     }
-    if (vmac[mi] == 3 && dy < 0) goto unmade;
     if (!vmac[mi] || (vmac[mi] == 2 && in_liq == 1)) {
     jump:;
       /* an empty 4 x 4 x 4 region (or all water, seen from in the water): on from region to
@@ -632,7 +630,6 @@ static uint16_t trace(float dx, float dy, float dz) {
         }
         if (te > tmax) goto out;
         reg = vmac[mi];
-        if (reg == 3 && dy < 0) goto unmade;
         if (reg && !(reg == 2 && wet)) break;
       }
       t = tj = te;
@@ -652,9 +649,6 @@ static uint16_t trace(float dx, float dy, float dz) {
   next:
     if (t > tmax) break;
   }
-  /* a chunk not made yet, seen from above: the fog, not the sky through the ground */
-unmade:
-  if (vmac[mi] == 3 && dy < 0) return fog565;
 out:;
   uint16_t c = sky(dx, dy, dz, len);
   int wa = R.wa;

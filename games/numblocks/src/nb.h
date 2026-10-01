@@ -165,6 +165,7 @@ extern Entity ents[N_ENT];
 Entity *ent_new(int type, float x, float y, float z);
 void ent_drop(int id, int count, int dmg, float x, float y, float z, bool thrown);
 void ents_tick(void);
+void particles_break(int x, int y, int z, int b);   /* a block's bits flying out */
 void mob_tick(Entity *e);
 void mobs_spawn(void);
 void explode(float x, float y, float z, float power);

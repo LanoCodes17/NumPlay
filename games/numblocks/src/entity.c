@@ -8,6 +8,45 @@
 
 Entity ents[N_ENT];
 
+/* ---------------------------------------------------------------- particles (EntityDiggingFX) */
+typedef struct { float x, y, z, vx, vy, vz; uint16_t c; uint8_t age, life; } Particle;
+#define N_PART 32
+Particle parts[N_PART];
+
+/* breaking a block: its bits, coloured like its texture, fly out and fall (EffectRenderer.addBlockDestroyEffects) */
+void particles_break(int x, int y, int z, int b) {
+  int tex = blk_tex[b][2];
+  for (int k = 0; k < 12; k++) {
+    Particle *p = &parts[rnd(N_PART)];
+    int u = rnd(16), v = rnd(16);
+    uint8_t q = tex_px[tex][(v * 16 + u) >> 1];
+    int i = (u & 1) ? q >> 4 : q & 15;
+    if (!i && (tex_flags[tex] & 0x20)) continue;
+    p->c = tex_pal[tex][i];
+    if (i >= (tex_flags[tex] & 0x1F)) p->c = 0x5CA9;   /* (tinted: a grass green) */
+    p->x = x + 0.2f + rndf() * 0.6f, p->y = y + 0.2f + rndf() * 0.6f, p->z = z + 0.2f + rndf() * 0.6f;
+    p->vx = (p->x - x - 0.5f) * 0.3f + (rndf() - 0.5f) * 0.1f;
+    p->vy = (p->y - y - 0.5f) * 0.3f + 0.1f + rndf() * 0.1f;
+    p->vz = (p->z - z - 0.5f) * 0.3f + (rndf() - 0.5f) * 0.1f;
+    p->age = 0;
+    p->life = (uint8_t)(4 / (rndf() * 0.9f + 0.1f));
+  }
+}
+
+static void particles_tick(void) {
+  for (int i = 0; i < N_PART; i++) {
+    Particle *p = &parts[i];
+    if (p->age >= p->life) continue;
+    p->age++;
+    p->vy -= 0.04f;
+    float np[3] = {p->x, p->y, p->z}, v[3] = {p->vx, p->vy, p->vz};
+    bool ground = phys_move(np, v, 0.1f, 0.1f);
+    p->x = np[0], p->y = np[1], p->z = np[2];
+    p->vx = v[0] * 0.98f, p->vy = v[1] * 0.98f, p->vz = v[2] * 0.98f;
+    if (ground) p->vx *= 0.7f, p->vz *= 0.7f;
+  }
+}
+
 Entity *ent_new(int type, float x, float y, float z) {
   Entity *e = NULL;
   for (int i = 0; i < N_ENT; i++)
@@ -102,6 +141,7 @@ static void item_tick(Entity *e) {
 }
 
 void ents_tick(void) {
+  particles_tick();
   for (int i = 0; i < N_ENT; i++) {
     Entity *e = &ents[i];
     if (e->type == E_NONE) continue;

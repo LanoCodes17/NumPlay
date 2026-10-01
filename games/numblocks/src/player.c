@@ -276,6 +276,7 @@ static void break_block(int x, int y, int z, bool drops) {
   if (b == B_AIR || depth > 8) return;
   depth++;
   if (b == B_CHEST || b == B_FURNACE || b == B_FURNACE_LIT) tiles_removed(x, y, z);
+  if (depth == 1 && blk_model[b] != M_LIQUID) particles_break(x, y, z, b);
   world_set(x, y, z, B_AIR);
   if (drops && pl.mode == 0) {
     Stack out[2];

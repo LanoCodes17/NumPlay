@@ -342,7 +342,7 @@ static uint16_t trace(float dx, float dy, float dz) {
           shp[0][0] = shp[0][1] = shp[0][2] = 0, shp[0][3] = shp[0][5] = 16, shp[0][4] = LIQH[lv];
           nbx = 1;
         } else nbx = block_boxes(b, x + vc_x0, y + vc_y0, z + vc_z0, shp);
-        Hit h, hk;
+        Hit h = {0}, hk;
         h.t = 1e9f;
         for (int k = 0; k < nbx; k++)
           if (hit_box(shp[k], lx, ly, lz, dx, dy, dz, &hk) && hk.t < h.t) h = hk;
@@ -920,8 +920,35 @@ static bool item_hit(const Draw *dr, const float *d, float *best_t, uint16_t *co
   return true;
 }
 
+/* the particles: little squares, a tenth of a block, lit where they are */
+typedef struct { float x, y, z, vx, vy, vz; uint16_t c; uint8_t age, life; } Particle;
+extern Particle parts[32];
+static void particles_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
+  for (int i = 0; i < 32; i++) {
+    const Particle *p = &parts[i];
+    if (p->age >= p->life) continue;
+    float x = p->x - vc_x0, y = p->y - vc_y0, z = p->z - vc_z0, sx, sy;
+    if (!project(x, y, z, &sx, &sy)) continue;
+    float rx = x - ox, ry = y - oy, rz = z - oz;
+    float t = rx * fwx + ry * fwy + rz * fwz;   /* (the ray's length along the view, as zbuf keeps it) */
+    int half = (int)(0.05f / t / TAN_V * RH / 2 + 0.5f);
+    if (half < 1) half = 1;
+    int cx = (int)floorf(x), cy = (int)floorf(y), cz = (int)floorf(z);
+    int lb = (unsigned)cx < VCX && (unsigned)cy < VCY && (unsigned)cz < VCZ ? vl[VC_I(cx, cy, cz)] : 15;
+    uint16_t c = shade565(p->c, light_shade(0, lb));
+    for (int yy = (int)sy - half + 1; yy <= (int)sy + half - 1 + (half == 1); yy++) {
+      if (yy < py0 || yy >= py0 + rows || yy < 0) continue;
+      for (int xx = (int)sx - half + 1; xx <= (int)sx + half - 1 + (half == 1); xx++) {
+        if ((unsigned)xx >= RW || zb[yy - py0][xx] <= t) continue;
+        cb[yy - py0][xx] = c;
+      }
+    }
+  }
+}
+
 static void ents_strip(int py0, int rows, uint16_t (*cb)[RW], float (*zb)[RW]) {
   Box bx[MAX_PARTS];
+  particles_strip(py0, rows, cb, zb);
   for (int k = 0; k < ndraws; k++) {
     const Draw *dr = &draws[k];
     if (dr->y1 <= py0 || dr->y0 >= py0 + rows) continue;

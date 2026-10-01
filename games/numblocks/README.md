@@ -10,8 +10,10 @@ Mine, craft and survive on your NumWorks calculator, in a world like Minecraft 1
 - **Crafting:** 129 items and all their 1.8 recipes, a furnace, chests, tools that wear out, armor.
 - **Fishing:** cast, wait for the bite, reel in fish, junk or treasure.
 - **Building:** 250 kinds of blocks, doors, beds to sleep through the night, stairs, torches that light up caves, flowing water and lava, farms that grow.
-- **Creative mode:** fly, every block and item, break things at once.
-- **Saves as you play:** your world is kept on the calculator, and it saves when you quit.
+- **Fire:** light it with flint and steel. It spreads and burns wood, leaves and wool, like in 1.8.
+- **Creative mode:** fly, every block and item, break things at once, and search for any block.
+- **Commands:** /gamemode, /give, /time, /weather, /tp and more, with cheats on (Allow Cheats, or Open to LAN).
+- **Your worlds:** keep several, give them names, and they save as you play and when you quit.
 
 ## Controls
 
@@ -27,10 +29,13 @@ Mine, craft and survive on your NumWorks calculator, in a world like Minecraft 1
 | var | Inventory |
 | 1 to 9 | Pick a hotbar slot |
 | x,n,t | Drop the item |
-| Toolbox | Pause |
+| log | Pick the block you look at |
+| × | Chat |
+| ÷ | Type a command (toolbox finishes words) |
+| ans | Pause |
 | Home | Save and quit |
 
-In the inventory, the arrows move between slots, OK picks up or puts down, EXE takes or leaves one, and shift with OK moves a whole stack. To spread a stack, hold OK and move over the slots: it splits evenly when you let go (hold EXE to drop one in each). The game shows these keys the first time you open it, and again from Options, then Controls.
+You can change these keys in Options, then Controls. In the inventory, the arrows move between slots, OK picks up or puts down, EXE takes or leaves one, and shift with OK moves a whole stack. To spread a stack, hold OK and move over the slots: it splits evenly when you let go (hold EXE to drop one in each). In Creative, the Search Items tab finds blocks as you type, and shift with up or down jumps to the top or bottom of a tab. The game shows these keys the first time you open it, and again from Options, then Controls.
 
 ## Get it
 

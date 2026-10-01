@@ -153,7 +153,7 @@ static __attribute__((noinline)) uint16_t sky(float dx, float dy, float dz, floa
     float t = (128.33f - (oy + vc_y0)) / dy;
     float cx = (ox + vc_x0) + dx * t + cloud_off, cz = (oz + vc_z0) + dz * t;
     float dist = t * len;
-    if (dist < 200) {
+    if (t > 0 && dist < 200) {
       int ix = (int)floorf(cx / 12) & 255, iz = (int)floorf(cz / 12) & 255;
       extern const uint8_t clouds[256 * 256 / 8];
       if (clouds[(iz * 256 + ix) >> 3] & (1 << (ix & 7))) {
@@ -184,16 +184,20 @@ static void sky_row(SkyRow *k, const float *row) {
   k->cz0 = (oz + vc_z0) + row[2] * k->ct, k->czs = rgz * k->ct;
 }
 static __attribute__((unused)) uint16_t sky_px(const SkyRow *k, float su, float dz) {
-  float len = sqrtf(k->len2 + su * su), e = k->dy / len;
-  uint32_t gc = sky_grad[e <= 0 ? 0 : e >= 0.4f ? 128 : (int)(e * 320)];
+  /* (what depends on the ray's length compared squared: its root only where it is needed) */
+  float l2 = k->len2 + su * su, len = 0, dy = k->dy;
+  int gi = 128;
+  if (dy <= 0) gi = 0;
+  else if (dy * dy < 0.16f * l2) len = sqrtf(l2), gi = (int)(dy / len * 320);
+  uint32_t gc = sky_grad[gi];
   int r = (int)(gc >> 20), g = (int)(gc >> 10) & 1023, b = (int)gc & 1023;
   if (under_water) return pack(r / 4, g / 3, b / 2 + 40);
   if (sun_a > 0) {
-    float sd = k->sd0 + k->sds * su, tx = k->tx0 + k->txs * su;
+    float sd = k->sd0 + k->sds * su, tx = k->tx0 + k->txs * su, s2 = sd * sd;
     int sp = -1;
     float u = 0, v = 0;
-    if (sd > 0.9f * len) sp = SP_SUN, u = (dz / sd / 0.3f + 1) * 16, v = (tx / sd / 0.3f + 1) * 16;
-    else if (sd < -0.95f * len)
+    if (sd > 0 && s2 > 0.81f * l2) sp = SP_SUN, u = (dz / sd / 0.3f + 1) * 16, v = (tx / sd / 0.3f + 1) * 16;
+    else if (sd < 0 && s2 > 0.9025f * l2)
       sp = SP_MOON_0 + moon_phase, u = 32 - (dz / -sd / 0.2f + 1) * 16, v = (tx / -sd / 0.2f + 1) * 16;
     if (sp >= 0) {
       int c0 = sp == SP_SUN ? 2 : 8, w = spr_w[sp];
@@ -205,17 +209,15 @@ static __attribute__((unused)) uint16_t sky_px(const SkyRow *k, float su, float 
       }
     }
   }
-  if (k->dy > 0.01f && opt.clouds) {
-    float dist = k->ct * len;
-    if (dist < 200) {
-      int ix = (int)floorf((k->cx0 + k->cxs * su) / 12) & 255, iz = (int)floorf((k->cz0 + k->czs * su) / 12) & 255;
-      extern const uint8_t clouds[256 * 256 / 8];
-      if (clouds[(iz * 256 + ix) >> 3] & (1 << (ix & 7))) {
-        float a = 0.8f * (1 - dist / 200);
-        r += (int)((cloud_r - r) * a);
-        g += (int)((cloud_g - g) * a);
-        b += (int)((cloud_b - b) * a);
-      }
+  if (dy > 0.01f && k->ct > 0 && opt.clouds && k->ct * k->ct * l2 < 200 * 200) {
+    int ix = (int)floorf((k->cx0 + k->cxs * su) / 12) & 255, iz = (int)floorf((k->cz0 + k->czs * su) / 12) & 255;
+    extern const uint8_t clouds[256 * 256 / 8];
+    if (clouds[(iz * 256 + ix) >> 3] & (1 << (ix & 7))) {
+      if (!len) len = sqrtf(l2);
+      float a = 0.8f * (1 - k->ct * len / 200);
+      r += (int)((cloud_r - r) * a);
+      g += (int)((cloud_g - g) * a);
+      b += (int)((cloud_b - b) * a);
     }
   }
   return pack(r, g, b);
@@ -769,10 +771,11 @@ static __attribute__((unused)) void face_fill(uint16_t (*cb)[RW], float (*zb)[RW
   bool see = fl & 0x20, black = s->flags & 4;
   for (int r = 0; r < SR; r++) {
     const float *b = rb[r];
-    float tr = K / b[1];   /* (a top or bottom face: the same all along the row) */
+    float tr = a == 0 ? K / b[1] : 0;   /* (a top or bottom face: the same all along the row) */
     for (int x = x0; x < x0 + 4; x++) {
       float su = col_su[x], d[3] = {b[0] + rgx * su, b[1], b[2] + rgz * su};
-      float t = a == 0 ? tr : K / d[ka];
+      float t = tr;
+      if (a) t = K / d[ka];
       int iu = (int)((U0 + d[ku] * t) * 16), iv = (int)((V0 + d[kv] * t) * 16);
       uint16_t c;
       if ((unsigned)iu > 15 || (unsigned)iv > 15) goto miss;

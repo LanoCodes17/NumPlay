@@ -6,7 +6,9 @@ Mine, craft and survive on your NumWorks calculator, in a world like Minecraft 1
 
 - **A real 1.8 world:** the same biomes, hills, caves, lakes and trees as Minecraft 1.8.8, for any seed.
 - **Survival:** health, hunger, day and night, zombies, skeletons, creepers and spiders, and pigs, cows, sheep and chickens.
-- **Crafting:** 124 items and all their 1.8 recipes, a furnace, chests, tools that wear out, armor.
+- **Weather:** rain, snow and thunderstorms with lightning, as often as in 1.8.
+- **Crafting:** 129 items and all their 1.8 recipes, a furnace, chests, tools that wear out, armor.
+- **Fishing:** cast, wait for the bite, reel in fish, junk or treasure.
 - **Building:** 250 kinds of blocks, doors, beds to sleep through the night, stairs, torches that light up caves, flowing water and lava, farms that grow.
 - **Creative mode:** fly, every block and item, break things at once.
 - **Saves as you play:** your world is kept on the calculator, and it saves when you quit.

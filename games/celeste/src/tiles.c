@@ -273,7 +273,9 @@ void tiles_render_layer(int layer, int depth) {
   for (int k = 0; k < 30; k++)
     if (terrains >> k & 1) tex_get(terrain_tex(k + layer_base(layer)), &t);
   if (terrains >> TERR_SCENERY & 1) tex_get(T_tilesets_scenery, &t);
+  gfx_keep(true);
   gfx_custom(layer_strip, (void *)(intptr_t)layer, 0, VIEW_H);
+  gfx_keep(false);
   /* animated overlays (grass) */
   const uint8_t *at = section(SEC_ANIMTILES);
   int n = rd16(at);

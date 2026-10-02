@@ -45,7 +45,8 @@ static Cmd cmds[MAX_CMDS];
 static int ncmds;
 static Affine affs[MAX_AFFINE];
 static int naffs;
-static Custom customs[20];
+#define MAX_CUSTOMS 40
+static Custom customs[MAX_CUSTOMS];
 static int ncustoms;
 
 void gfx_camera(float x, float y) {
@@ -86,9 +87,15 @@ void gfx_begin(void) {
 /* the interface keeps the last HUD_CMDS commands and HUD_AFFS affine ones: a busy room's world can't take them */
 #define HUD_CMDS 48
 #define HUD_AFFS 8
+/* and the layers that must be drawn (the level's tiles, the stylegrounds in front: 1A's sunset, the snow) the last
+ * KEEP_CMDS of the world's commands; they and the interface, the last KEEP_CUSTOMS custom layers */
+#define KEEP_CMDS 12
+#define KEEP_CUSTOMS 8
+static bool keep;
+void gfx_keep(bool on) { keep = on; }
 static Cmd *add(uint8_t op, int y0, int y1) {
   if (y1 <= 0 || y0 >= VIEW_H) return NULL;
-  if (ncmds >= (ui ? MAX_CMDS : MAX_CMDS - HUD_CMDS)) {
+  if (ncmds >= (ui ? MAX_CMDS : MAX_CMDS - HUD_CMDS - (keep ? 0 : KEEP_CMDS))) {
 #ifdef HOST
     dropped_cmds++;
 #endif
@@ -188,7 +195,11 @@ static void prep(uint16_t pal, uint16_t tint, uint8_t alpha, uint8_t flags) {
     int aa = a[i] + (a[i] >> 7);
     if (ga != 256) aa = (aa * ga) >> 8;
     epal[i + 1] = (uint16_t)(lr[col >> 11] << 11 | lg[col >> 5 & 63] << 5 | lb[col & 31]);
-    if (flags & GF_ADDALPHA) epal[i + 1] = scale565(epal[i + 1], aa);
+    if (flags & GF_ADDALPHA) {   /* the tinted color times ga * aa, rounded once (truncated twice, half of it was lost) */
+      uint32_t k = (uint32_t)ga * (uint32_t)aa;
+      epal[i + 1] = (uint16_t)(((((col >> 11) * (tr + 1)) >> 5) * k + 32768) >> 16 << 11 |
+                               ((((col >> 5 & 63) * (tg + 1)) >> 6) * k + 32768) >> 16 << 5 | ((((col & 31) * (tb + 1)) >> 5) * k + 32768) >> 16);
+    }
     ealpha[i + 1] = (uint16_t)aa;
     if (aa != 256) ep_opaque = false;
   }
@@ -711,6 +722,14 @@ static void line(uint16_t *strip, int sy0, int sy1, int x0, int y0, int x1, int 
   }
 }
 
+/* a line between world points (as gfx_line places them) drawn into the strip: for layers of many lines, one command */
+void blit_line(uint16_t *strip, int sy0, int sy1, float x0, float y0, float x1, float y1, uint16_t col, uint8_t alpha) {
+  int X0 = (int)floorf(x0 + 0.5f) - g_camx, Y0 = (int)floorf(y0 + 0.5f) - g_camy;
+  int X1 = (int)floorf(x1 + 0.5f) - g_camx, Y1 = (int)floorf(y1 + 0.5f) - g_camy;
+  if ((Y0 < Y1 ? Y1 : Y0) < sy0 || (Y0 < Y1 ? Y0 : Y1) >= sy1) return;
+  line(strip, sy0, sy1, X0, Y0, X1, Y1, col, alpha);
+}
+
 /* ---------------------------------------------------------------- recording */
 void gfx_tex(uint16_t tex, float x, float y, uint8_t flags, uint16_t tint, uint8_t alpha) {
   Tex t;
@@ -866,7 +885,12 @@ static void blit_mask(uint16_t *strip, int sy0, int sy1, const uint8_t *bits, in
 }
 
 void gfx_custom(StripFn fn, void *ctx, int y0, int y1) {
-  if (ncustoms >= 20) return;
+  if (ncustoms >= (ui || keep ? MAX_CUSTOMS : MAX_CUSTOMS - KEEP_CUSTOMS)) {
+#ifdef HOST
+    dropped_cmds++;
+#endif
+    return;
+  }
   Cmd *c = add(OP_CUSTOM, y0, y1);
   if (!c) return;
   customs[ncustoms] = (Custom){fn, ctx};

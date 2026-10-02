@@ -806,20 +806,32 @@ static void zip_render(Ent *e) {
 
 /* the path between the two places (ZipMoverPathRenderer, depth 5000) */
 typedef struct { Ent *zip; } ZipPath;
-static void zip_cogs(Zip *z, Ent *zip, V2 off, bool black) {
+/* the two ropes and their teeth (Draw.Line each): drawn into the strips by one command (a command a line filled the
+ * frame's in 1A's rooms of zip movers, and what came after them was not drawn) */
+static void zip_ropes(uint16_t *strip, int y0, int y1, Ent *zip, bool black) {
+  Zip *z = ST(zip, Zip);
+  V2 off = v2(0, black ? 1 : 0);
   V2 from = v2(z->start.x + zip->cw / 2, z->start.y + zip->ch / 2), to = v2(z->target.x + zip->cw / 2, z->target.y + zip->ch / 2);
   V2 d = v2norm(v2sub(to, from)), perp = v2(d.y, -d.x);
   V2 v1 = v2mul(perp, 3), v2_ = v2mul(perp, -4);
   uint16_t rope = black ? 0 : rgb(0x663931), light = black ? 0 : rgb(0x9B6157);
-  gfx_line(from.x + v1.x + off.x, from.y + v1.y + off.y, to.x + v1.x + off.x, to.y + v1.y + off.y, rope, 255);
-  gfx_line(from.x + v2_.x + off.x, from.y + v2_.y + off.y, to.x + v2_.x + off.x, to.y + v2_.y + off.y, rope, 255);
+  blit_line(strip, y0, y1, from.x + v1.x + off.x, from.y + v1.y + off.y, to.x + v1.x + off.x, to.y + v1.y + off.y, rope, 255);
+  blit_line(strip, y0, y1, from.x + v2_.x + off.x, from.y + v2_.y + off.y, to.x + v2_.x + off.x, to.y + v2_.y + off.y, rope, 255);
   float len = v2len(v2sub(to, from));
   for (float n = 4 - fmodf(z->percent * PI_F * 8, 4); n < len; n += 4) {
     V2 a = v2add(v2add(v2add(from, v1), perp), v2mul(d, n));
     V2 b = v2sub(v2add(to, v2_), v2mul(d, n));
-    gfx_line(a.x + off.x, a.y + off.y, a.x + d.x * 2 + off.x, a.y + d.y * 2 + off.y, light, 255);
-    gfx_line(b.x + off.x, b.y + off.y, b.x - d.x * 2 + off.x, b.y - d.y * 2 + off.y, light, 255);
+    blit_line(strip, y0, y1, a.x + off.x, a.y + off.y, a.x + d.x * 2 + off.x, a.y + d.y * 2 + off.y, light, 255);
+    blit_line(strip, y0, y1, b.x + off.x, b.y + off.y, b.x - d.x * 2 + off.x, b.y - d.y * 2 + off.y, light, 255);
   }
+}
+static void zip_ropes_black(uint16_t *strip, int y0, int y1, void *ctx) { zip_ropes(strip, y0, y1, ctx, true); }
+static void zip_ropes_color(uint16_t *strip, int y0, int y1, void *ctx) { zip_ropes(strip, y0, y1, ctx, false); }
+static void zip_cogs(Zip *z, Ent *zip, V2 off, bool black) {
+  V2 from = v2(z->start.x + zip->cw / 2, z->start.y + zip->ch / 2), to = v2(z->target.x + zip->cw / 2, z->target.y + zip->ch / 2);
+  float top = fminf(from.y, to.y) + off.y - 8, bot = fmaxf(from.y, to.y) + off.y + 8;   /* the ropes' rows, teeth and all */
+  if (fmaxf(from.x, to.x) + 8 >= g_camx && fminf(from.x, to.x) - 8 < g_camx + VIEW_W)
+    gfx_custom(black ? zip_ropes_black : zip_ropes_color, zip, (int)floorf(top) - g_camy, (int)ceilf(bot) - g_camy + 1);
   float rot = z->percent * PI_F * 2;
   uint8_t f = black ? GF_SILHOUETTE : 0;
   gfx_tex_ex(z->cog, from.x + off.x, from.y + off.y, 6, 6, 1, 1, rot, black ? 0 : 0xFFFF, 255, f);

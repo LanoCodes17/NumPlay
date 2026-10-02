@@ -130,6 +130,7 @@ static void parallax(int i) {
 
 void style_render(bool fg) {
   gfx_screen(true);
+  gfx_keep(fg);
   int from = fg ? nbg : 0, to = fg ? nbg + nfg : nbg;
   for (int i = from; i < to && i < MAX_SG; i++) {
     const uint8_t *r = rec(i);
@@ -141,5 +142,6 @@ void style_render(bool fg) {
       default: break;
     }
   }
+  gfx_keep(false);
   gfx_screen(false);
 }

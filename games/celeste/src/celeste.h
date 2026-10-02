@@ -207,6 +207,8 @@ void gfx_circle(float x, float y, float r, uint16_t c, uint8_t alpha, int resolu
 /* layers drawn by callbacks, once per strip: y0 and y1 are view rows */
 typedef void (*StripFn)(uint16_t *strip, int y0, int y1, void *ctx);
 void gfx_custom(StripFn fn, void *ctx, int y0, int y1);
+void gfx_keep(bool on);    /* the layers that must be drawn (tiles, stylegrounds in front): commands kept for them */
+void blit_line(uint16_t *strip, int sy0, int sy1, float x0, float y0, float x1, float y1, uint16_t col, uint8_t alpha);
 void gfx_camera(float x, float y);              /* world position of the view's top left */
 extern int g_camx, g_camy;                      /* floored */
 void gfx_hud(bool on);                          /* following draws ignore the camera */

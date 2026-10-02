@@ -18,18 +18,28 @@ static const EntClass LAMP = {.size = sizeof(Lamp), .name = "lamp", .render = la
 
 /* ---------------------------------------------------------------- Wire */
 typedef struct { V2 from, to; float sine_x, sine_y; } WireS;
-static void wire_render(Ent *e) {
-  WireS *w = ST(e, WireS);
+static V2 wire_control(const WireS *w) {   /* Curve.Control, swaying in the wind */
   float k = 8 * level_visual_wind();
   V2 sway = v2(sinf(w->sine_x + g_level.wind_sine_timer * 2) * k, sinf(w->sine_y + g_level.wind_sine_timer * 2.8f) * k);
-  V2 c = v2add(v2add(v2mul(v2add(w->from, w->to), 0.5f), v2(0, 24)), sway);
-  V2 prev = w->from;
+  return v2add(v2add(v2mul(v2add(w->from, w->to), 0.5f), v2(0, 24)), sway);
+}
+/* its 16 lines drawn into the strips by one command */
+static void wire_strip(uint16_t *strip, int y0, int y1, void *ctx) {
+  const WireS *w = ST((Ent *)ctx, WireS);
+  V2 c = wire_control(w), prev = w->from;
   for (int i = 1; i <= 16; i++) {
     float t = i / 16.f, u = 1 - t;
     V2 p = v2(u * u * w->from.x + 2 * u * t * c.x + t * t * w->to.x, u * u * w->from.y + 2 * u * t * c.y + t * t * w->to.y);
-    gfx_line(prev.x, prev.y, p.x, p.y, 0x5ACC /* 595866 */, 255);
+    blit_line(strip, y0, y1, prev.x, prev.y, p.x, p.y, 0x5ACC /* 595866 */, 255);
     prev = p;
   }
+}
+static void wire_render(Ent *e) {
+  WireS *w = ST(e, WireS);
+  V2 c = wire_control(w);   /* the curve stays within its three points */
+  float top = fminf(fminf(w->from.y, w->to.y), c.y), bot = fmaxf(fmaxf(w->from.y, w->to.y), c.y);
+  if (fmaxf(fmaxf(w->from.x, w->to.x), c.x) + 1 < g_camx || fminf(fminf(w->from.x, w->to.x), c.x) - 1 >= g_camx + VIEW_W) return;
+  gfx_custom(wire_strip, e, (int)floorf(top) - g_camy - 1, (int)ceilf(bot) - g_camy + 2);
 }
 static const EntClass WIRE = {.size = sizeof(WireS), .name = "wire", .render = wire_render};
 V2 *wire_curve_begin(Ent *e) { return e && e->cls == &WIRE ? &ST(e, WireS)->from : NULL; }   /* Wire.Curve.Begin */

@@ -46,9 +46,12 @@ static void backdrop(void) {
   if (pass) return;
   static const uint32_t sky[6] = {0x0b0d24, 0x121633, 0x1a1e45, 0x262759, 0x35306a, 0x45376f};
   for (int i = 0; i < 6; i++) gfx_rect(0, i * 30, VIEW_W, 30, rgb(sky[i]), 255);
+  hires_snow(M.t + 100, 1);
+}
+/* HiresSnow's flakes at `time`, faded by alpha (screen coordinates) */
+void hires_snow(float time, float alpha) {
   Tex t;
   if (!tex_get(T__snow, &t)) return;
-  float time = M.t + 100;
   for (int i = 0; i < 24; i++) {
     uint32_t h = (uint32_t)i * 2654435761u;
     float n = (h >> 8 & 255) / 255.f;
@@ -56,7 +59,7 @@ static void backdrop(void) {
     float sc = 0.05f + n * 0.75f, speed = sc * (2500 + (h >> 16 & 255) * 10);
     float x = 2176 - fmodf(time * speed + (h & 0xFFFF), 2176) - 128, y = (h >> 4 & 1023) + sinf(time + i) * 100;
     gfx_tex_ex(T__snow, x / 6, fmodf(y, 1080) / 6, t.fw * t.scale / 2.f, t.fh * t.scale / 2.f, sc, sc, 0, WHITE,
-               (uint8_t)(255 * (1 - n * 0.8f) * 0.6f), GF_ADD);
+               a8((1 - n * 0.8f) * 0.6f * alpha), GF_ADD);
   }
 }
 

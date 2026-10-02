@@ -290,6 +290,8 @@ TileQ *blocks_new_tiles(int n);     /* n tiles for an entity of the room being m
 void blocks_free_tiles(int slot);   /* the room in that slot is gone: its blocks' tiles (entities.c) */
 
 /* stylegrounds (style.c) */
+extern float g_snow_alpha;   /* the Snow stylegrounds' Alpha */
+void hires_snow(float time, float alpha);   /* HiresSnow (menu.c), in screen coordinates */
 void style_init(void);
 void style_update(void);
 void style_render(bool fg);

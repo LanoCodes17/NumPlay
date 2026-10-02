@@ -139,7 +139,7 @@ static const uint16_t *EC;      /* the colors (by index: 1 the palette's first) 
 static const uint8_t *EA;       /* plain: the palette's own alphas (0..255), else NULL (ealpha) */
 
 static void prep(uint16_t pal, uint16_t tint, uint8_t alpha, uint8_t flags) {
-  flags &= GF_ADD | GF_SILHOUETTE;
+  flags &= GF_ADD | GF_SILHOUETTE | GF_ADDALPHA;
   if (pal == ep_pal && tint == ep_tint && alpha == ep_alpha && flags == ep_flags) return;
   ep_pal = pal, ep_tint = tint, ep_alpha = alpha, ep_flags = flags;
   int n;
@@ -180,6 +180,7 @@ static void prep(uint16_t pal, uint16_t tint, uint8_t alpha, uint8_t flags) {
     int aa = a[i] + (a[i] >> 7);
     if (ga != 256) aa = (aa * ga) >> 8;
     epal[i + 1] = (uint16_t)(lr[col >> 11] << 11 | lg[col >> 5 & 63] << 5 | lb[col & 31]);
+    if (flags & GF_ADDALPHA) epal[i + 1] = scale565(epal[i + 1], aa);
     ealpha[i + 1] = (uint16_t)aa;
     if (aa != 256) ep_opaque = false;
   }

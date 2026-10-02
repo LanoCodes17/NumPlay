@@ -178,7 +178,8 @@ extern bool g_res_drawing;
 uint16_t res_tex_by_name(const char *path);   /* 0xFFFF: none */    /* free RAM while nothing else needs it */
 
 /* ---------------------------------------------------------------- drawing (gfx.c) */
-enum { GF_FLIPX = 1, GF_FLIPY = 2, GF_ADD = 4, GF_SCALE = 8, GF_HUD = 16, GF_SILHOUETTE = 32 };
+/* GF_ADD | GF_ADDALPHA: XNA's BlendState.Additive, the color also weighed by its alpha */
+enum { GF_FLIPX = 1, GF_FLIPY = 2, GF_ADD = 4, GF_SCALE = 8, GF_HUD = 16, GF_SILHOUETTE = 32, GF_ADDALPHA = 64 };
 void gfx_begin(void);
 void gfx_end(void);                             /* draw the strips and push them */
 void gfx_clear(uint16_t c);

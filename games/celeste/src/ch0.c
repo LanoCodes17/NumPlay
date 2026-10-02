@@ -519,10 +519,12 @@ static bool ending_wait(Ending *s, float time) {   /* WaitFor: raw time */
   s->t = 0;
   return false;
 }
-/* PrologueEndingText: "You can do this.", a character every 1/20 s after 4 s, sliding in as it fades */
-typedef struct { Co co; float fade[24]; int n, i; } EndText;
+/* PrologueEndingText: "You can do this.", a character every 1/20 s after 4 s, sliding in as it fades; and the
+ * HiresSnow added with it */
+typedef struct { Co co; float fade[24], snow, snow_t; int n, i; } EndText;
 static void endtext_update(Ent *e) {
   EndText *t = ST(e, EndText);
+  t->snow_t += DT;
   CO_BEGIN(&t->co);
   if (!e->eid) CO_WAIT(&t->co, 4);
   for (t->i = 0; t->i < t->n; t->i++)
@@ -545,6 +547,7 @@ static void endtext_render(Ent *e) {
     if (f > 0) font_draw_glyph(FONT_S, c, x, y - 8 * (1 - f) / 6, 0xD69A, (uint8_t)(f * 255));
     x += font_glyph_advance(FONT_S, c, next);
   }
+  hires_snow(t->snow_t, t->snow);
   gfx_hud(false);
 }
 static const EntClass ENDTEXT = {.size = sizeof(EndText), .name = "PrologueEndingText", .update = endtext_update,
@@ -557,8 +560,10 @@ static Ent *endtext_new(bool instant) {
   e->eid = instant;
   char text[32];
   ST(e, EndText)->n = dialog_clean("CH0_END", text, sizeof text);
-  if (instant)
+  if (instant) {
     for (int i = 0; i < 24; i++) ST(e, EndText)->fade[i] = 1;
+    ST(e, EndText)->snow = 1;
+  }
   return e;
 }
 
@@ -577,7 +582,9 @@ static void ending_end(Ent *e, bool skipped) {
     else {
       EndText *t = ST(s->text, EndText);
       for (int i = 0; i < 24; i++) t->fade[i] = 1;
+      t->snow = 1;
     }
+    g_snow_alpha = 0;
     g_level.ending_text_y = 540;
   }
   g_time_rate = 1;
@@ -647,6 +654,8 @@ static void ending_update(Ent *e) {
   g_level.ending_text_y = -540;
   while (s->percent < 1) {
     s->percent += DT * 0.25f;
+    g_snow_alpha -= DT * 0.5f;   /* the Snow stylegrounds out, HiresSnow in */
+    if (s->text) ST(s->text, EndText)->snow = approach(ST(s->text, EndText)->snow, 1, DT * 0.5f);
     g_level.ending_text_y = 540 - 1080 * (1 - ease_cube_inout(s->percent));
     g_level.cam.y = (float)g_level.room->y - 3900 * ease_cube_inout(s->percent);
     CO_YIELD(c);

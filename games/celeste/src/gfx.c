@@ -22,7 +22,7 @@ static bool letterbox_dirty = true;
 static char top_label[24];   /* a line in the top bar (the room's code), redrawn when it changes */
 static bool top_dirty;
 
-enum { OP_TEX, OP_PART, OP_AFFINE, OP_RECT, OP_LINE, OP_PIXEL, OP_CUSTOM, OP_SCALED, OP_MASK, OP_TILES, OP_GRID };
+enum { OP_TEX, OP_PART, OP_AFFINE, OP_RECT, OP_LINE, OP_PIXEL, OP_CUSTOM, OP_SCALED, OP_MASK, OP_TILES, OP_BANNER, OP_GRID };
 
 typedef struct {
   uint8_t op, flags, alpha, extra;
@@ -403,6 +403,29 @@ void blit_part_ex(uint16_t *strip, int sy0, int sy1, const Tex *t, int x, int y,
       int dx = x + i;
       if ((unsigned)dx >= VIEW_W || c < 0 || c >= t->w || !rowbuf[c]) continue;
       plot(row + dx, rowbuf[c]);
+    }
+  }
+}
+
+/* Decal.Banner: the frame cut in slices of 1 or 2 rows (GetSubtexture), slice i of n moved sideways by
+ * sin(sineTimer * WaveSpeed + i * 0.05) * w * amplitude + w * offset, its weight w = (easeDown ? i / n : 1 - i / n) * wind;
+ * ph: sineTimer * WaveSpeed (a turn in 65536), prm: the kind (0 grass, 1 rags, 2 flowers) | offset < 0 << 2 | wind * 64 << 8 */
+static void blit_banner(uint16_t *strip, int sy0, int sy1, const Tex *t, int x, int y, uint8_t flags, uint16_t tint,
+                        uint8_t alpha, uint16_t ph, uint16_t prm) {
+  static const struct { uint8_t slice, ease_down; float amp, off; } K[3] = {{1, 0, 2, -2}, {2, 1, 3.5f, 0}, {1, 0, 2, 2}};
+  int k = prm & 3, slice = K[k].slice, n = (t->fh + slice - 1) / slice, h = t->h, w = t->w;
+  float wind = (prm >> 8) / 64.f, off = (prm & 4) ? -K[k].off : K[k].off, phase = ph * (2 * PI_F / 65536);
+  bool fx = flags & GF_FLIPX, fy = flags & GF_FLIPY;
+  prep(t->pal, tint, alpha, flags);
+  for (int r = sy0 - y > 0 ? sy0 - y : 0; r < h && y + r < sy1; r++) {
+    int src = fy ? h - 1 - r : r, i = (src + t->oy) / slice;
+    float wt = (K[k].ease_down ? (float)i / n : 1 - (float)i / n) * wind;
+    int dx = x + (int)floorf(sinf(phase + i * 0.05f) * wt * K[k].amp + wt * off + 0.5f);
+    uint16_t *row = strip + (y + r - sy0) * VIEW_W;
+    turned_src = NULL, tex_row(t, src, rowbuf);
+    for (int c = 0; c < w; c++) {
+      int X = dx + (fx ? w - 1 - c : c);
+      if ((unsigned)X < VIEW_W && rowbuf[c]) plot(row + X, rowbuf[c]);
     }
   }
 }
@@ -813,6 +836,22 @@ void gfx_tex_ex(uint16_t tex, float x, float y, float ox, float oy, float sx, fl
 }
 
 /* a subtexture (frame rect sx, sy, w, h) drawn like MTexture.Draw with an origin (in the part), scale and rotation */
+/* a swaying decal (blit_banner): its frame's top-left at (x, y) */
+void gfx_banner(uint16_t tex, float x, float y, uint8_t flags, uint16_t ph, uint16_t prm) {
+  Tex t;
+  if (!tex_get(tex, &t)) return;
+  if (t.scale > 1) {
+    gfx_tex(tex, x, y, flags, 0xFFFF, 255);
+    return;
+  }
+  int X = sx_(x) + (flags & GF_FLIPX ? t.fw - t.ox - t.w : t.ox);
+  int Y = sy_(y) + (flags & GF_FLIPY ? t.fh - t.oy - t.h : t.oy);
+  if (X - 16 >= VIEW_W || X + t.w + 16 <= 0) return;   /* (it sways 12 pixels at most) */
+  Cmd *c = add(OP_BANNER, Y, Y + t.h);
+  if (!c) return;
+  c->tex = tex, c->x = (int16_t)X, c->y = (int16_t)Y, c->flags = flags, c->a = ph, c->b = prm;
+}
+
 void gfx_tex_part_ex(uint16_t tex, float x, float y, int sx, int sy, int w, int h, float ox, float oy, float scx, float scy,
                      float rot, uint16_t tint, uint8_t alpha, uint8_t flags) {
   Tex t;
@@ -1024,6 +1063,9 @@ static void replay(int y0, int y1, int pass) {
       case OP_TILES:
         if (tex_get(c->tex, &t))
           blit_tiles(g_strip, y0, y1, &t, c->x, c->y, g_tile_pool + c->a, c->flags, c->extra >> 1, c->tint, c->alpha);
+        break;
+      case OP_BANNER:
+        if (tex_get(c->tex, &t)) blit_banner(g_strip, y0, y1, &t, c->x, c->y, c->flags, c->tint, c->alpha, c->a, c->b);
         break;
     }
   }

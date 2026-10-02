@@ -160,6 +160,21 @@ static void jumpthru_update(Ent *e) { plat_update(e); }
 static const EntClass JUMPTHRU = {.size = sizeof(JumpThru), .name = "jumpThru", .update = jumpthru_update, .render = jumpthru_render,
                                   .awake = jumpthru_awake, .kind = KIND_JUMPTHRU};
 
+/* ---------------------------------------------------------------- Decal.MakeSolid */
+/* the Resort's roofs and bridge columns, its broken elevator, the cliffside bridges: plain solids (safe) the converter
+ * makes from those decals; a bg decal's lets waterfalls through (Solid.BlockWaterfalls: Depth != 9000) */
+static const EntClass DSOLID = {.name = "decalSolid", .update = plat_update, .kind = KIND_SOLID};
+static const EntClass DSOLID_OPEN = {.name = "decalSolid", .update = plat_update, .kind = KIND_SOLID};
+bool solid_blocks_waterfalls(const Ent *e) { return e->cls != &DSOLID_OPEN; }
+static void new_dsolid(const EData *d) {
+  Ent *e = ent_new(EAB(d, decalSolid, blockWaterfalls) ? &DSOLID : &DSOLID_OPEN, d->x, d->y);
+  if (!e) return;
+  ent_box(e, EA(d, decalSolid, width), EA(d, decalSolid, height), 0, 0);
+  e->safe = 1;
+  e->depth = -9000;   /* (Platform's) */
+  e->visible = 0;
+}
+
 static void new_jumpthru(const EData *d) {
   int w = (int)EA(d, jumpThru, width);
   Ent *e = ent_new(&JUMPTHRU, d->x, d->y);
@@ -1298,6 +1313,7 @@ bool ent_create(const EData *d) {
       if (nspawns[slot] < MAX_SPAWNS) spawns[slot][nspawns[slot]++] = v2(d->x, d->y);
       return true;
     case ET_jumpThru: new_jumpthru(d); return true;
+    case ET_decalSolid: new_dsolid(d); return true;
     case ET_spikesUp: new_spikes(d, DIR_UP); return true;
     case ET_spikesDown: new_spikes(d, DIR_DOWN); return true;
     case ET_spikesLeft: new_spikes(d, DIR_LEFT); return true;

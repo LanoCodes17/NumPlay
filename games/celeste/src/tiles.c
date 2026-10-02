@@ -2,6 +2,7 @@
  * converted by tools/pack.py) run on the room's tile types, the visible tiles
  * cached between frames, and the tile layers and decals as entities. */
 #include "level.h"
+#include "fx.h"
 
 /* ---------------------------------------------------------------- terrain tables */
 static const uint8_t *terrain(int t) {
@@ -341,7 +342,9 @@ void tiles_draw(const TileQ *q, char type, int w, int h, float x, float y, uint1
 }
 
 /* ---------------------------------------------------------------- decals */
-static int decal_frames(uint16_t tex) {
+/* a decal texture's frames (animated: 12 a second) and its look in Decal.Added (pack.py DECAL_KINDS) */
+enum { DK_NONE, DK_GRASS, DK_RAGS, DK_FLOWER, DK_CHIMNEY, DK_VENT, DK_PARALLAX, DK_CORE };
+static int decal_info(uint16_t tex) {
   const uint8_t *s = section(SEC_DECALANIM);
   int n = rd16(s), lo = 0, hi = n - 1;
   while (lo <= hi) {
@@ -353,8 +356,24 @@ static int decal_frames(uint16_t tex) {
   }
   return 1;
 }
+/* CoreSwapImage: the hot or the cold one, as the level's core mode */
+static uint16_t core_swap(uint16_t tex) {
+#if defined(T_decals_9_core_ball_a) && defined(T_decals_9_core_ball_a_ice) && defined(T_decals_9_core_rock_e) && \
+    defined(T_decals_9_core_rock_e_ice)
+  bool cold = g_level.core_mode == 2;
+  if (tex == T_decals_9_core_ball_a || tex == T_decals_9_core_ball_a_ice) return cold ? T_decals_9_core_ball_a_ice : T_decals_9_core_ball_a;
+  if (tex == T_decals_9_core_rock_e || tex == T_decals_9_core_rock_e_ice) return cold ? T_decals_9_core_rock_e_ice : T_decals_9_core_rock_e;
+#endif
+  return tex;
+}
+/* a decal's own random sineTimer start (Calc.Random.NextFloat) */
+static float decal_phase(const Room *rm, int i) {
+  uint32_t h = ((uint32_t)i + 1) * 2654435761u ^ (uint32_t)rm->index * 40503u;
+  return (h >> 8 & 0xFFFF) / 65536.f;
+}
 
-void decals_render(bool fg) {
+/* layer: 0 the bg decals, 1 the fg ones, 2 the Summit's clouds (Depth -13001, in front of all), both layers' */
+static void decals_layer(int layer, bool fg) {
   for (int s = 0; s < 2; s++) {
     Room *rm = &g_level.rooms[s];
     if (rm->index < 0) continue;
@@ -365,16 +384,66 @@ void decals_render(bool fg) {
       uint8_t v = vs[i];
       uint16_t tex = rd16(ids + 2 * (v & 63));
       float x = rm->x + (float)rds16(xs + 2 * i), y = rm->y + (float)rds16(ys + 2 * i);
-      int frames = decal_frames(tex);
+      int info = decal_info(tex), frames = info & 0xFF, kind = info >> 8;
+      if ((kind == DK_PARALLAX) != (layer == 2)) continue;
       if (frames > 1) tex = (uint16_t)(tex + (int)(anim_time * 12) % frames);
-      /* cull by the frame's size (TEXDIM), before loading it */
-      float r = (float)tex_half_extent(tex);
+      if (kind == DK_CORE) tex = core_swap(tex);
+      if (kind == DK_PARALLAX) {   /* MakeParallax(0.1): away from the view's middle */
+        x += (x - (g_level.cam.x + 160)) * 0.1f;
+        y += (y - (g_level.cam.y + 90)) * 0.1f;
+      }
+      /* cull by the frame's size (TEXDIM), before loading it (a banner sways 12 pixels at most) */
+      float r = (float)tex_half_extent(tex) + (kind >= DK_GRASS && kind <= DK_FLOWER ? 12 : 0);
       if (x + r < g_camx || x - r > g_camx + 320 || y + r < g_camy || y - r > g_camy + 180) continue;
       Tex t;
       if (!tex_get(tex, &t)) continue;
       float hw = t.fw * t.scale / 2.f, hh = t.fh * t.scale / 2.f;
-      gfx_tex_ex(tex, x, y, hw, hh, (v & 0x40) ? -1.f : 1.f, (v & 0x80) ? -1.f : 1.f, 0, 0xFFFF, 255, 0);
+      if (kind >= DK_GRASS && kind <= DK_FLOWER) {
+        bool flower = kind == DK_FLOWER;
+        float wind = flower ? rm->flower_wind : 1, timer = decal_phase(rm, i) + (flower ? rm->flower_t : rm->decal_t);
+        uint16_t ph = (uint16_t)(int)(fmodf(timer * 2, 2 * PI_F) * (65536 / (2 * PI_F)));   /* WaveSpeed 2 */
+        uint16_t prm = (uint16_t)((kind - DK_GRASS) | (flower && rm->flower_sign < 0 ? 4 : 0) | (int)(wind * 64 + 0.5f) << 8);
+        gfx_banner(tex, x - hw, y - hh, (v & 0x40 ? GF_FLIPX : 0) | (v & 0x80 ? GF_FLIPY : 0), ph, prm);
+      } else
+        gfx_tex_ex(tex, x, y, hw, hh, (v & 0x40) ? -1.f : 1.f, (v & 0x80) ? -1.f : 1.f, 0, 0xFFFF, 255, 0);
     }
+  }
+}
+void decals_render(int layer) {
+  if (layer < 2) decals_layer(layer, layer == 1);
+  else if (g_session.area == 7) decals_layer(2, true), decals_layer(2, false);   /* (Level.LoadLevel adds the fg decals first) */
+}
+
+/* CreateSmoke: a ParticleEmitter of Chimney smoke (1 every 0.2 s, range (4, 1), up) at the chimney (house: (36, -28), in the
+ * bg particles) or the vent (in the fg); only near the view (the particles are few); not pre-warmed (SimulateCycle) */
+static void decals_smoke(const Room *rm) {
+  for (int l = 0; l < 2; l++) {
+    int n = l ? rm->nbg : rm->nfg;
+    const uint8_t *tab = l ? rm->decals_bg : rm->decals_fg;
+    const uint8_t *ids = tab + 2, *xs = ids + 2 * tab[0], *ys = xs + 2 * n, *vs = ys + 2 * n;
+    for (int i = 0; i < n; i++) {
+      int kind = decal_info(rd16(ids + 2 * (vs[i] & 63))) >> 8;
+      if (kind != DK_CHIMNEY && kind != DK_VENT) continue;
+      float x = rm->x + (float)rds16(xs + 2 * i) + (kind == DK_CHIMNEY ? 36 : 0);
+      float y = rm->y + (float)rds16(ys + 2 * i) + (kind == DK_CHIMNEY ? -28 : 0);
+      float cx = g_level.cam.x, cy = g_level.cam.y;   /* (it rises up to 48 pixels and drifts left) */
+      if (x < cx - 32 || x > cx + 360 || y < cy - 16 || y > cy + 228) continue;
+      particles_emit(kind == DK_CHIMNEY ? PL_BG : PL_FG, &P_Chimney, 1, v2(x, y), v2(4, 1), -PI_F / 2);
+    }
+  }
+}
+/* the decals' Update (Decal, Banner, ParticleEmitter): not between rooms */
+static void decals_update(void) {
+  if (g_level.transitioning) return;
+  for (int s = 0; s < 2; s++) {
+    Room *rm = &g_level.rooms[s];
+    if (rm->index < 0) continue;
+    rm->decal_t += DT;
+    float wx = g_level.wind.x;   /* OnlyIfWindy: WindMultiplier toward min(3, |Wind.X| * 0.004), Offset's sign Wind.X's */
+    rm->flower_wind = approach(rm->flower_wind, fminf(3, fabsf(wx) * 0.004f), DT * 4);
+    if (wx != 0) rm->flower_sign = wx > 0 ? 1 : -1;
+    rm->flower_t += DT * rm->flower_wind;
+    if ((rm->smoke_timer -= DT) <= 0) rm->smoke_timer = 0.2f, decals_smoke(rm);
   }
 }
 
@@ -384,14 +453,20 @@ static void fg_render(Ent *e) {
   (void)e;
   tiles_render_layer(0, D_FGTERRAIN);
 }
-static void fgdecal_render(Ent *e) { (void)e; decals_render(true); }
-static void bgdecal_render(Ent *e) { (void)e; decals_render(false); }
-static void timer_update(Ent *e) { (void)e; anim_time += DT; }
+static void fgdecal_render(Ent *e) { (void)e; decals_render(1); }
+static void bgdecal_render(Ent *e) { (void)e; decals_render(0); }
+static void frontdecal_render(Ent *e) { (void)e; decals_render(2); }
+static void timer_update(Ent *e) {
+  (void)e;
+  anim_time += DT;
+  decals_update();
+}
 
 static const EntClass BGTILES = {.size = 0, .name = "bgtiles", .render = bg_render, .update = timer_update};
 static const EntClass SOLIDTILES = {.size = 0, .name = "solidtiles", .render = fg_render, .kind = KIND_SOLID};
 static const EntClass FGDECALS = {.size = 0, .name = "fgdecals", .render = fgdecal_render};
 static const EntClass BGDECALS = {.size = 0, .name = "bgdecals", .render = bgdecal_render};
+static const EntClass FRONTDECALS = {.size = 0, .name = "frontdecals", .render = frontdecal_render};
 
 void level_tiles_entities(void) {
   Ent *e = ent_new(&BGTILES, 0, 0);
@@ -405,4 +480,6 @@ void level_tiles_entities(void) {
   g_solidtiles = e;
   e = ent_new(&FGDECALS, 0, 0);
   e->depth = D_FGDECALS, e->tags = TAG_GLOBAL, e->dead = 0, e->collidable = 0;
+  e = ent_new(&FRONTDECALS, 0, 0);
+  e->depth = -13001, e->tags = TAG_GLOBAL, e->dead = 0, e->collidable = 0;
 }

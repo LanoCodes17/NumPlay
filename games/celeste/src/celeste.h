@@ -190,6 +190,7 @@ void gfx_clear(uint16_t c);
 void gfx_tex(uint16_t tex, float x, float y, uint8_t flags, uint16_t tint, uint8_t alpha);
 /* drawn like Monocle's MTexture.Draw(position, origin, color, scale, rotation, flip) */
 void gfx_tex_ex(uint16_t tex, float x, float y, float ox, float oy, float sx, float sy, float rot, uint16_t tint, uint8_t alpha, uint8_t flags);
+void gfx_banner(uint16_t tex, float x, float y, uint8_t flags, uint16_t ph, uint16_t prm);   /* Decal.Banner (gfx.c) */
 void gfx_zoom(float zoom, float focus_x, float focus_y);   /* Level.Zoom around a screen point */
 void gfx_screen(bool on);   /* screen coordinates for gameplay layers (zoomed with the world) */
 /* part of a texture (tile sheets): sub-rect (sx, sy, w, h) of the frame */

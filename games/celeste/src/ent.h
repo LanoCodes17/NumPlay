@@ -138,6 +138,7 @@ Ent *collide_first_jumpthru_outside(const Ent *e, float x, float y);   /* Collid
 bool collide_jumpthru(const Ent *e, float x, float y);                 /* CollideCheck<JumpThru> */
 Ent *collide_first_kind(const Ent *e, float x, float y, uint16_t kind);
 bool rect_solid(float l, float t, float r, float b);                     /* Scene.CollideCheck<Solid>(rect) */
+bool solid_blocks_waterfalls(const Ent *e);                              /* Solid.BlockWaterfalls */
 bool point_solid(float x, float y);
 
 /* Actor */

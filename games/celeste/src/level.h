@@ -61,6 +61,10 @@ typedef struct {
   const uint8_t *need;    /* the textures loaded with it: u16 n, ids */
   uint8_t *mem;           /* in the room pool */
   uint32_t used;
+  /* its decals' (Decal.Banner, the smoke's ParticleEmitter), since it came: the banners' sineTimer (the flowers' runs
+   * with their WindMultiplier), the smoke's timer, the flowers' Offset sign */
+  float decal_t, flower_t, flower_wind, smoke_timer;
+  int8_t flower_sign;
 } Room;
 
 typedef struct {
@@ -316,7 +320,7 @@ bool spinners_hit_rect(float l, float t, float r, float b);   /* the hitboxes of
 void spinners_destroy_near(float x, float y, float r);        /* Reflection's falls and the boss */
 
 /* decals */
-void decals_render(bool fg);
+void decals_render(int layer);   /* 0 bg, 1 fg, 2 the Summit's clouds (in front of all) */
 
 /* entities (entities.c) */
 void entities_load(Room *r, const uint8_t *blob, int room_slot);

@@ -184,6 +184,7 @@ static bool room_load(int slot, int index, int intro) {
   rm->need = mem + rd16(mem + 2 * RB_NEED);
   memset(rm->spin_gone, 0, (nspin + 7) / 8);
   rm->index = index;
+  rm->decal_t = rm->flower_t = rm->smoke_timer = 0, rm->flower_wind = 1, rm->flower_sign = 1;
   /* entities and triggers */
   int was = g_level.room_slot;
   Room *was_room = g_level.room;

@@ -1686,7 +1686,13 @@ static void fall_awake(Ent *e) {
       f->water = ent_ref(w);
       break;
     }
-    if (rect_solid((int)e->x, (int)y, (int)e->x + 8, (int)y + 8)) {   /* Solid.BlockWaterfalls */
+    bool blocked = false;   /* a solid there that blocks waterfalls (Solid.BlockWaterfalls) */
+    for (int i = 0; i < g_nents && !blocked; i++) {
+      Ent *o = &g_ents[i];
+      blocked = (o->kind & KIND_SOLID) && o->cls && o->collidable && o->dead != 1 && solid_blocks_waterfalls(o) &&
+                collide_rect(o, (int)e->x, (int)y, (int)e->x + 8, (int)y + 8);
+    }
+    if (blocked) {
       f->solid = 1;
       break;
     }

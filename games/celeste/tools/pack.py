@@ -20,7 +20,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
-from cel import CELESTE, Atlas, read_map  # noqa: E402
+from cel import CELESTE, Atlas, Element, read_map  # noqa: E402
 import tiles as T  # noqa: E402
 import entities as E  # noqa: E402
 
@@ -681,11 +681,119 @@ def ent_type(name, table):
     return table[name]
 
 
+def decal_name(texture):
+    """Decal.Name without "decals/", lower case (the switch in Decal.Added): no extension, no trailing digits."""
+    t = texture.replace("\\", "/")
+    if "." in t.rsplit("/", 1)[-1]:
+        t = t[:t.rfind(".")]
+    return re.sub(r"\d+$", "", t).lower()
+
+
+# Decal.Added's looks (src/tiles.c, by the decal's first texture, in DECALANIM): 1-3 Banners (MakeBanner: grass; rags and
+# curtains; cliffside flowers, only if windy), 4-5 smoke (CreateSmoke: a chimney in the bg particles; a vent in the fg),
+# 6 MakeParallax(0.1) (the Summit's clouds), 7 CoreSwapImage
+DECAL_KINDS = {n: 1 for n in ("generic/grass_a", "generic/grass_b", "generic/grass_c", "generic/grass_d")}
+DECAL_KINDS.update({n: 2 for n in ("1-forsakencity/rags", "1-forsakencity/ragsb", "3-resort/curtain_side_a",
+                                   "3-resort/curtain_side_d")})
+DECAL_KINDS.update({"4-cliffside/flower_" + c: 3 for c in "abcd"})
+DECAL_KINDS.update({"0-prologue/house": 4, "3-resort/vent": 5})
+DECAL_KINDS.update({"7-summit/cloud_" + c: 6 for c in ("a", "b", "bb", "bc", "bd", "c", "cb", "cc", "cd", "ce", "d", "db", "dc",
+                                                         "dd", "e", "f", "g", "h", "j", "i")})
+DECAL_KINDS.update({n: 7 for n in ("9-core/ball_a", "9-core/ball_a_ice", "9-core/rock_e", "9-core/rock_e_ice")})
+DECAL_CORE_SWAP = {"9-core/ball_a": "9-core/ball_a_ice", "9-core/ball_a_ice": "9-core/ball_a",
+                   "9-core/rock_e": "9-core/rock_e_ice", "9-core/rock_e_ice": "9-core/rock_e"}
+DECAL_NOFLIP = {"9-core/heart_bevel_a", "9-core/heart_bevel_b", "9-core/heart_bevel_c", "9-core/heart_bevel_d"}   # scale = 1
+# MakeMirror's: Depth 9500, behind the other bg decals (their reflections of Madeline are not drawn); the first 20 also
+# get scale.Y = 1
+DECAL_MIRROR_NOFLIPY = {"5-temple/bg_mirror_" + n for n in ["a", "b"] + ["shard_" + c for c in "abcdefghijk"] +
+                        ["shard_group_" + g for g in ("a", "a_b", "a_c", "b", "c", "d", "e")]}
+DECAL_MIRROR = DECAL_MIRROR_NOFLIPY | {"5-temple/bg_mirror_c", "5-temple/statue_d", "6-reflection/crystal_reflection"}
+
+
+def decal_scaled(ids, k):
+    """The frames of a decal drawn k times bigger about its middle (the Summit's clouds: scale *= 1.15), as textures of
+    their own, the nearest pixels (point sampling)."""
+    out = []
+    for tid in ids:
+        name = TEX.list[tid].path + "@%g" % k
+        if name not in TEX.by_path:
+            img = TEX.list[tid].sub.image()
+            fh, fw = img.shape[:2]
+            W, H = int(round(fw * k)), int(round(fh * k))
+            xs = np.clip(np.floor((np.arange(W) + 0.5 - W / 2) / k + fw / 2).astype(int), 0, fw - 1)
+            ys = np.clip(np.floor((np.arange(H) + 0.5 - H / 2) / k + fh / 2).astype(int), 0, fh - 1)
+            big = img[ys][:, xs]
+            yy, xx = np.nonzero(big[..., 3])
+            y0, y1, x0, x1 = yy.min(), yy.max() + 1, xx.min(), xx.max() + 1
+            t = Tex(len(TEX.list), name, HudSub(name, big[y0:y1, x0:x1], -int(x0), -int(y0), W, H))
+            TEX.list.append(t)
+            TEX.by_path[name] = t.id
+        out.append(TEX.by_path[name])
+    return out
+
+
+# Decal.Added: the decals that are solid (MakeSolid: Position + (x, y), w x h, safe), by name: rects, and whether a
+# fg one blocks waterfalls (a bg one never does: Depth 9000)
+def _roofedge(sx):
+    return [(-8 if sx >= 0 else 0, -4, 8, 8)]
+
+
+DECAL_SOLIDS = dict([(n, lambda sx: [(-8, -4, 16, 8)]) for n in ("roofcenter", "roofcenter_b", "roofcenter_c", "roofcenter_d")] +
+                    [(n, _roofedge) for n in ("roofedge", "roofedge_b", "roofedge_c", "roofedge_d")] +
+                    [("bridgecolumntop", lambda sx: [(-8, -8, 16, 8), (-5, 0, 10, 8)]),
+                     ("bridgecolumn", lambda sx: [(-5, -8, 10, 16)]),
+                     ("brokenelevator", lambda sx: [(-16, -20, 32, 48)])])
+DECAL_SOLIDS = {"3-resort/" + k: v for k, v in DECAL_SOLIDS.items()}
+DECAL_SOLIDS["4-cliffside/bridge_a"] = lambda sx: [(-24, 0, 48, 8)]
+
+
+def decal_solids(level):
+    """The room's solid decals as "decalSolid" entities (x, y: top left; width, height; blockWaterfalls). Pieces side by
+    side, or one on top of the other, of the same kind make one solid: the same to collide with, fewer entities."""
+    rects = []
+    for layer in ("fgdecals", "bgdecals"):
+        el = level.child(layer)
+        for d in (el.children if el else []):
+            f = DECAL_SOLIDS.get(decal_name(d["texture"]))
+            if f:
+                blocks = layer == "fgdecals" or decal_name(d["texture"]) != "4-cliffside/bridge_a"   # (Depth != 9000)
+                for x, y, w, h in f(d.get("scaleX", 1)):
+                    rects.append([d["x"] + x, d["y"] + y, w, h, blocks])
+    for horizontal in (True, False):
+        merged = True
+        while merged:
+            merged = False
+            for a in rects:
+                for b in rects:
+                    if a is b or a[4] != b[4]:
+                        continue
+                    if horizontal and a[1] == b[1] and a[3] == b[3] and a[0] + a[2] == b[0]:
+                        a[2] += b[2]
+                    elif not horizontal and a[0] == b[0] and a[2] == b[2] and a[1] + a[3] == b[1]:
+                        a[3] += b[3]
+                    else:
+                        continue
+                    rects.remove(b)
+                    merged = True
+                    break
+                if merged:
+                    break
+    out = []
+    for x, y, w, h, fg in rects:
+        assert x == int(x) and y == int(y), (x, y)
+        e = Element("decalSolid")
+        e.attr.update({"x": int(x), "y": int(y), "width": int(w), "height": int(h), "blockWaterfalls": fg})
+        out.append(e)
+    return out
+
+
 def decal_tex(path):
     p = "decals/" + path.replace("\\", "/")
     if p.endswith(".png"):
         p = p[:-4]
-    ids = TEX.family(p)
+    # Decal(): its Name has no trailing digits, and GetAtlasSubtextures(Name) its frames ("clock00" plays all of them);
+    # not Reflection's hidden game screens (secret_*: 6 to 50 frames each), for room
+    ids = (not p.startswith("decals/6-reflection/secret_") and TEX.family(re.sub(r"\d+$", "", p))) or TEX.family(p)
     if not ids:
         print("missing decal", p)
     return ids
@@ -896,12 +1004,23 @@ def room_blob(ch, r):
             ids = decal_tex(d["texture"])
             if not ids:
                 continue
-            if len(ids) > 1:
-                DECAL_ANIMS[ids[0]] = len(ids)
+            name = decal_name(d["texture"])
+            kind = DECAL_KINDS.get(name, 0)
+            if kind == 6:
+                ids = decal_scaled(ids, 1.15)
+            if len(ids) > 1 or kind:
+                DECAL_ANIMS[ids[0]] = len(ids) | kind << 8
             if ids[0] not in texs:
                 texs.append(ids[0])
             fl = (1 << 6 if d.get("scaleX", 1) < 0 else 0) | (1 << 7 if d.get("scaleY", 1) < 0 else 0)
-            recs.append((texs.index(ids[0]) | fl, int(round(d["x"])), int(round(d["y"]))))
+            if name in DECAL_NOFLIP:
+                fl = 0
+            if name in DECAL_MIRROR_NOFLIPY:
+                fl &= ~(1 << 7)
+            assert not (name in DECAL_MIRROR and layer == "fgdecals"), (r.name, name)
+            recs.append((texs.index(ids[0]) | fl, int(round(d["x"])), int(round(d["y"])), name in DECAL_MIRROR))
+        recs.sort(key=lambda rec: not rec[3])   # (stable: the mirrors' Depth 9500 first, then the 9000s in order)
+        recs = [rec[:3] for rec in recs]
         assert len(texs) <= 64, (ch.name, r.name, layer, len(texs))
         w.u16(len(recs))
         w.u8(len(texs))
@@ -930,6 +1049,7 @@ def room_blob(ch, r):
     resident = len(w) + ((nspin + 7) // 8 + 3 & ~3)   # and a bit per spinner, once destroyed
     ents = r.e.child("entities").children if r.e.child("entities") else []
     ents = [e for e in ents if E.keep(e.name) and not (e.name == "spinner" and not e.get("attachToSolid", False))]
+    ents += decal_solids(r.e)   # (the decals come after the entities, as Level.LoadLevel adds them)
     w.u16(len(ents))
     for e in ents:
         write_entity(w, e, ent_type(e.name, ENT_IDS))
@@ -1525,6 +1645,9 @@ def main():
     for m in ALL_MAPS:
         _, root = read_map(os.path.join(CELESTE, "Maps", m + ".bin"))
         for l in root.child("levels").children:
+            for e in decal_solids(l):
+                SCHEMA.see(e)
+                ent_type(e.name, ENT_IDS)
             for k, table, keep in (("entities", ENT_IDS, E.keep), ("triggers", TRIG_IDS, E.keep_trigger)):
                 if l.child(k):
                     for e in l.child(k).children:
@@ -1625,7 +1748,11 @@ def main():
                             need.append(TEX(fgsets[c].path))
             for layer in ("fgdecals", "bgdecals"):
                 for d in (r.e.child(layer).children if r.e.child(layer) else []):
-                    need += decal_tex(d["texture"])
+                    ids = decal_tex(d["texture"])
+                    need += decal_scaled(ids, 1.15) if DECAL_KINDS.get(decal_name(d["texture"])) == 6 else ids
+                    other = DECAL_CORE_SWAP.get(decal_name(d["texture"]))
+                    if other:
+                        need += decal_tex(other)
             r.style_mask = 0
             for i, (name, a) in enumerate(ch.bgs + ch.fgs):
                 vis = True

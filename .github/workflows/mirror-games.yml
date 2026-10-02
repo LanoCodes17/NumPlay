@@ -1,0 +1,147 @@
+name: Mirror games
+
+# Champion Island and NumBlocks live in games/. Each has a repository of its own, a mirror: every push to
+# main builds that repository's tree (tools/sync_mirror.py), checks that it builds and passes its tests on
+# its own, and commits it there if anything changed. Pull requests only do the checks.
+#
+# NumBlocks' repository also has NumPlay's releases, with NumBlocks.nwa. Once the Build workflow has
+# released a version, the second job puts that version's tag on the mirror's commit for it, and the
+# mirror's own release workflow (tools/mirror/release.yml) copies NumBlocks.nwa from the NumPlay release
+# into a release there. Run this by hand with a tag (v1.5.0) to do that for a release it missed.
+#
+# Each push uses a deploy key with write access to its mirror alone; its private half is this
+# repository's CHAMPION_ISLAND_DEPLOY_KEY or NUMBLOCKS_DEPLOY_KEY secret. (The mirror and the key of
+# each game are listed in both jobs, and the mirror's repository in tools/sync_mirror.py.)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "A NumPlay release (v1.5.0) to tag in the mirrors that carry releases; empty: sync them"
+        required: false
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    if: github.event_name != 'workflow_run' && inputs.tag == ''
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - game: championisland
+            repo: Mason363/NumWorks-Champion-Island
+            key: CHAMPION_ISLAND_DEPLOY_KEY
+          - game: numblocks
+            repo: Mason363/NumBlocks
+            key: NUMBLOCKS_DEPLOY_KEY
+    # one push at a time to a mirror, so it ends on the newest commit
+    concurrency:
+      group: mirror-${{ matrix.game }}-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    env:
+      PUSH: ${{ github.ref == 'refs/heads/main' }}
+    steps:
+      # the whole history: the mirror's commit takes its author and title from the last commit that touched the game
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The mirror
+        if: env.PUSH == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ssh-key: ${{ secrets[matrix.key] }}
+          path: mirror
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Tools
+        run: pip install numpy pillow
+
+      - name: Build the mirror's tree
+        env:
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: python3 tools/sync_mirror.py ${{ matrix.game }} mirror ${{ env.PUSH == 'true' && '--commit' || '' }}
+
+      - name: Build and test it on its own
+        run: make -C mirror host test
+
+      - name: Push it
+        if: env.PUSH == 'true'
+        run: git -C mirror push origin HEAD:main
+
+  release:
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+        && github.event.workflow_run.event != 'pull_request'
+        && (github.event.workflow_run.head_branch == 'main' || startsWith(github.event.workflow_run.head_branch, 'v')))
+      || (github.event_name == 'workflow_dispatch' && inputs.tag != '' && github.ref == 'refs/heads/main')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - game: numblocks
+            repo: Mason363/NumBlocks
+            key: NUMBLOCKS_DEPLOY_KEY
+    # after the push to the mirror, whose commit it tags
+    concurrency:
+      group: mirror-${{ matrix.game }}-main
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      INPUT_TAG: ${{ inputs.tag }}
+      HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+    steps:
+      # the commit the Build workflow ran on (or the tag asked for), whole: the mirror's commits are found by their tree
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      # a tag pushed to NumPlay, or on main v + VERSION: only if the Build workflow released it
+      - name: Which release
+        id: which
+        run: |
+          if [ -n "$INPUT_TAG" ]; then tag="$INPUT_TAG"
+          elif [[ "$HEAD_BRANCH" == v* ]]; then tag="$HEAD_BRANCH"
+          else tag="v$(tr -d '[:space:]' < VERSION)"; fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          else
+            echo "$tag is not released: nothing to mirror"
+          fi
+
+      - name: The mirror
+        if: steps.which.outputs.tag != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          ssh-key: ${{ secrets[matrix.key] }}
+          path: mirror
+          fetch-depth: 0
+
+      - name: Tag the mirror
+        if: steps.which.outputs.tag != ''
+        env:
+          TAG: ${{ steps.which.outputs.tag }}
+        run: |
+          if git -C mirror rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
+            echo "$TAG is already in the mirror"
+            exit 0
+          fi
+          python3 tools/sync_mirror.py ${{ matrix.game }} mirror --rev HEAD --tag "$TAG"
+          git -C mirror push origin "refs/tags/$TAG"

@@ -952,6 +952,11 @@ void blit_tex_ex(uint16_t *strip, int sy0, int sy1, uint16_t tex, float x, float
   blit_affine(strip, sy0, sy1, &t, &a, tint, alpha, flags);
 }
 
+/* gfx_rect (world coordinates) drawn straight into a strip, for StripFn layers */
+void blit_rect(uint16_t *strip, int sy0, int sy1, float x, float y, float w, float h, uint16_t col, uint8_t alpha) {
+  fill(strip, sy0, sy1, (int)floorf(x + 0.5f) - g_camx, (int)floorf(y + 0.5f) - g_camy, (int)floorf(w + 0.5f),
+       (int)floorf(h + 0.5f), col, alpha);
+}
 void gfx_rect(float x, float y, float w, float h, uint16_t col, uint8_t alpha) {
   if (!alpha) return;
   int X = sx_(x), Y = sy_(y), W_ = (int)floorf(w + 0.5f), H_ = (int)floorf(h + 0.5f);

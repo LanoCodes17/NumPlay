@@ -469,6 +469,9 @@ static void fx_entity_update(Ent *e) {
   fx_update();
 }
 static const EntClass FX = {.name = "fx", .update = fx_entity_update};
+/* the level's ParticlesBG, Particles and ParticlesFG (drawn at their depths) */
+static void parts_render(Ent *e) { particles_render(e->depth == D_BGPARTICLES ? PL_BG : e->depth == D_PARTICLES ? PL_MID : PL_FG); }
+static const EntClass PARTS = {.name = "particles", .render = parts_render};
 
 /* FormationBackdrop: darkens the level behind hearts, cassettes, seeds being put together */
 static void formation_update(Ent *e) {
@@ -1439,6 +1442,9 @@ void entities_load(Room *rm, const uint8_t *blob, int slot) {
   if (!have) {
     Ent *e = ent_new(&FX, 0, 0);
     if (e) e->tags = TAG_GLOBAL | TAG_TRANSITION_UPDATE, e->collidable = 0, e->visible = 0, e->dead = 0;
+    static const int32_t depths[3] = {D_BGPARTICLES, D_PARTICLES, D_FGPARTICLES};
+    for (int k = 0; k < 3; k++)
+      if ((e = ent_new(&PARTS, 0, 0)) != NULL) e->tags = TAG_GLOBAL, e->depth = depths[k], e->collidable = 0, e->dead = 0;
     e = ent_new(&FORMATION, 0, 0);
     if (e) e->tags = TAG_GLOBAL | TAG_FROZEN_UPDATE, e->depth = -1999900, e->collidable = 0, e->dead = 0;
   }

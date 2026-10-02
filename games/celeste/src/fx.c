@@ -87,22 +87,36 @@ void particles_update(void) {
   }
 }
 
-void particles_render(int layer) {
+/* ParticleSystem.Render: a layer's particles drawn into the strips by one command (as pictures they were up to 128
+ * commands, most of them scaled or turned: the frame has 48 of those) */
+static void particles_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
+  int layer = (int)(intptr_t)ctx;
   for (int i = 0; i < MAX_PARTICLES; i++) {
     Particle *p = &parts[i];
     uint8_t a = (uint8_t)(p->color >> 24);
     if (!p->active || p->layer != layer || !a) continue;
-    float x = (float)(int)p->pos.x, y = (float)(int)p->pos.y;
+    float x = (float)(int)p->pos.x, y = (float)(int)p->pos.y;   /* (Particle.Render: the position truncated) */
     if (p->src == 0xFFFF) {
       int s = (int)(p->size + 0.5f);
-      if (s < 1) continue;
-      gfx_rect(x - s / 2, y - s / 2, (float)s, (float)s, rgb(p->color & 0xFFFFFF), a);
+      if (s >= 1) blit_rect(strip, sy0, sy1, x - s / 2, y - s / 2, (float)s, (float)s, rgb(p->color & 0xFFFFFF), a);
     } else {
       Tex t;
-      if (!tex_get(p->src, &t)) continue;
-      gfx_tex_ex(p->src, x, y, t.fw / 2.f, t.fh / 2.f, p->size, p->size, p->rot, rgb(p->color & 0xFFFFFF), a, 0);
+      if (tex_get(p->src, &t))
+        blit_tex_ex(strip, sy0, sy1, p->src, x, y, t.fw * t.scale / 2.f, t.fh * t.scale / 2.f, p->size, p->size, p->rot,
+                    rgb(p->color & 0xFFFFFF), a, 0);
     }
   }
+}
+void particles_render(int layer) {
+  float y0 = 1e9f, y1 = -1e9f;
+  for (int i = 0; i < MAX_PARTICLES; i++) {
+    Particle *p = &parts[i];
+    if (!p->active || p->layer != layer || !(p->color >> 24)) continue;
+    Tex t;
+    if (p->src != 0xFFFF) tex_get(p->src, &t);   /* (loaded now: nothing loads while the strips are drawn) */
+    y0 = fminf(y0, p->pos.y), y1 = fmaxf(y1, p->pos.y);
+  }
+  if (y0 <= y1) gfx_custom(particles_strip, (void *)(intptr_t)layer, (int)floorf(y0) - 24 - g_camy, (int)ceilf(y1) + 25 - g_camy);
 }
 
 /* Celeste's Dust.Burst and BurstFG */

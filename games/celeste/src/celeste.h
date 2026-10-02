@@ -214,6 +214,7 @@ typedef void (*StripFn)(uint16_t *strip, int y0, int y1, void *ctx);
 void gfx_custom(StripFn fn, void *ctx, int y0, int y1);
 void gfx_keep(bool on);    /* the layers that must be drawn (tiles, stylegrounds in front): commands kept for them */
 void blit_line(uint16_t *strip, int sy0, int sy1, float x0, float y0, float x1, float y1, uint16_t col, uint8_t alpha);
+void blit_rect(uint16_t *strip, int sy0, int sy1, float x, float y, float w, float h, uint16_t col, uint8_t alpha);
 /* gfx_tex_ex drawn into the strip by a StripFn layer (world coordinates; the texture got when the layer was recorded) */
 void blit_tex_ex(uint16_t *strip, int sy0, int sy1, uint16_t tex, float x, float y, float ox, float oy, float sx, float sy,
                  float rot, uint16_t tint, uint8_t alpha, uint8_t flags);

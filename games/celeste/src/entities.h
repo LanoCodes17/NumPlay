@@ -54,6 +54,7 @@ bool trig_create(const EData *d);
 Ent *level_holdable_check(void);          /* a holdable the player can grab now, picked up (Holdable.Pickup) */
 void holdable_carry(Ent *h, V2 at);       /* Holdable.Carry */
 void holdable_release(Ent *h, V2 force);  /* Holdable.Release */
+bool theo_left_behind(const Player *p);
 V2 level_closest_spawn(V2 at);
 void level_dash_listeners(V2 dir);
 void level_booster_boosted(Ent *booster, V2 dir);

@@ -568,6 +568,7 @@ static void streaks_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
   cols[0] = m && m->dark ? rgb(0x041B44) : 0xFFFF;
   cols[1] = m && m->dark ? rgb(0x011230) : rgb(0xE69ECB);
   if (al <= 0) return;
+  cols[0] = scale565(cols[0], al), cols[1] = scale565(cols[1], al);
   for (int i = 0; i < STREAKS; i++) {
     Streak *k = &streaks[i];
     float t = clamped_map(k->speed, 600, 2000, 0, 1), big = 1 + 3 * t;

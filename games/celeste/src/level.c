@@ -534,9 +534,10 @@ static void transition_to(int index, V2 dir) {
   V2 to = v2(pe->x, pe->y);
   if (dir.x != 0)
     while (to.y >= rm->y + rm->h) to.y -= 1;
-  for (int guard = 0; guard < 400; guard++) {
-    bool in = to.x >= rm->x + pad.x * 0 && level_in_bounds(v2add(to, pad), 0);
-    if (in) break;
+  for (int guard = 0; guard < 400; guard++) {   /* IsInBounds(playerTo, dirPad): the pad on the side entered */
+    if (to.x >= rm->x + fmaxf(pad.x, 0) && to.y >= rm->y + fmaxf(pad.y, 0) && to.x < rm->x + rm->w - fmaxf(-pad.x, 0) &&
+        to.y < rm->y + rm->h - fmaxf(-pad.y, 0))
+      break;
     to = v2add(to, dir);
   }
   g_level.tr_player_to = to;
@@ -593,6 +594,8 @@ void level_enforce_bounds(Player *p) {
   if (lock == 2 && e_right(e) > cr && cr < br - 4) {
     e->x += cr - e_right(e);
     player_on_bounds_h(p);
+  } else if (e_right(e) > br - 1 && theo_left_behind(p)) {
+    e->x += (br - 1) - e_right(e);
   } else if (e_right(e) > br) {
     V2 at = v2(e_cxm(e) + 8, e_cym(e));
     int next = room_at(at);
@@ -635,7 +638,7 @@ void level_enforce_bounds(Player *p) {
       return;
     }
   }
-  if (e_top(e) > bb + 4) player_die(p, v2(0, 0), false);
+  if (e_top(e) > bb) player_die(p, v2(0, 0), false);
 }
 
 /* ---------------------------------------------------------------- update / render */

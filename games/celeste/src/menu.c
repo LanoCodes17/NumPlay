@@ -14,6 +14,7 @@ static struct {
   uint8_t screen, back;      /* back: where Back goes from the options (S_PAUSE or S_MAIN) */
   int8_t sel, area, mode, cp, binding, confirm;
   uint8_t hold, last_dir;    /* the arrows' repeat */
+  uint8_t advance;           /* after a first completion: 1 the panel waits, 2 and 3 the chapter select moves on */
   float t, wig, repeat;
 } M;
 uint8_t g_menu;              /* the screen on (S_NONE while playing) */
@@ -156,11 +157,14 @@ static void play_chapter(int start) {   /* the panel's choice: Continue, Start o
   int k = start - (session_here() ? 1 : 0);
   game_play(chapter_index(M.area, M.mode), k == 0 ? -1 : nth_checkpoint(k - 1));
 }
-void menu_open_overworld(bool completed) {   /* the chapter select: after a chapter, its end first */
+/* the overworld after a chapter (StartMode.AreaComplete, AreaQuit): its end (AreaComplete) unless an interlude,
+ * then its panel; after a first completion, on to the next chapter (Session.ShouldAdvance) */
+void menu_open_overworld(bool completed, bool advance) {
   M.area = (int8_t)(g_save.last_area <= 9 ? g_save.last_area : 1);
   M.mode = (int8_t)g_save.last_mode;
   if (M.area > max_area()) M.area = (int8_t)max_area();
-  go(completed ? S_COMPLETE : S_CHAPTERS, 0);
+  M.advance = advance;
+  go(completed && !interlude(M.area) ? S_COMPLETE : S_PANEL, 0);
 }
 void menu_open_title(void) { go(g_save.key_sheet_seen ? S_TITLE : S_SHEET, 0); }
 void menu_open_main(void) { go(S_MAIN, 0); }
@@ -182,28 +186,28 @@ static const char *action_on(int k) {
   return NULL;
 }
 static void key_cap(float x, float y, float w, int k, const char *what) {   /* a key: bright with what it does */
-  box(x, y, w, 174, what ? rgb(0xA0A0A0) : rgb(0x505050), 255);
-  box(x + 6, y + 6, w - 12, 162, what ? rgb(0x282828) : rgb(0x181818), 255);
-  say(key_name(k), x + w / 2, y + (what ? 52 : 87), 0.5f, 0.5f, 0.8f, what ? WHITE : rgb(0x707070), 255);
-  if (what) say(what, x + w / 2, y + 124, 0.5f, 0.5f, 0.8f, rgb(0xFFFFA0), 255);
+  box(x, y, w, 162, what ? rgb(0xA0A0A0) : rgb(0x505050), 255);
+  box(x + 6, y + 6, w - 12, 150, what ? rgb(0x282828) : rgb(0x181818), 255);
+  say(key_name(k), x + w / 2, y + (what ? 46 : 81), 0.5f, 0.5f, 0.8f, what ? WHITE : rgb(0x707070), 255);
+  if (what) say(what, x + w / 2, y + 116, 0.5f, 0.5f, 0.8f, rgb(0xFFFFA0), 255);
 }
 static void sheet_draw(void) {
   say("Controls", 960, 40, 0.5f, 0.5f, 1, WHITE, 255);
   /* the arrows' pad */
   if (!pass) {
-    gfx_circle(40, 52, 26, rgb(0xA0A0A0), 255, 24);
-    gfx_circle(40, 52, 24, rgb(0x282828), 255, 24);
+    gfx_circle(40, 45, 25, rgb(0xA0A0A0), 255, 24);
+    gfx_circle(40, 45, 23, rgb(0x282828), 255, 24);
   }
-  say("Move", 240, 312, 0.5f, 0.5f, 0.8f, rgb(0xFFFFA0), 255);
-  key_cap(780, 160, 360, 6, "Save, quit");
-  key_cap(1416, 80, 480, 4, action_on(4));
-  key_cap(1416, 272, 480, 5, ui_str("KEY_CONFIG_PAUSE"));
+  say("Move", 240, 270, 0.5f, 0.5f, 0.8f, rgb(0xFFFFA0), 255);
+  key_cap(780, 150, 360, 6, "Save, quit");
+  key_cap(1416, 70, 480, 4, action_on(4));
+  key_cap(1416, 250, 480, 5, ui_str("KEY_CONFIG_PAUSE"));
   for (int r = 0; r < 3; r++)
     for (int c = 0; c < 6; c++) {
       int k = 12 + r * 6 + c;
-      key_cap(c < 2 ? 30 + c * 222 : 474 + (c - 2) * 360, 480 + r * 192, c < 2 ? 204 : 342, k, action_on(k));
+      key_cap(c < 2 ? 30 + c * 222 : 474 + (c - 2) * 360, 440 + r * 180, c < 2 ? 204 : 342, k, action_on(k));
     }
-  say("Menus: OK or EXE confirm, Back cancels.", 960, 1050, 0.5f, 0.5f, 0.8f, WHITE, 255);
+  say("Menus: OK or EXE confirm, Back cancels.", 960, 1028, 0.5f, 0.5f, 0.8f, WHITE, 255);
 }
 static void sheet_update(void) {
   if (confirm() || cancel()) {
@@ -241,6 +245,7 @@ static void main_update(void) {
   if (cancel()) go(S_TITLE, 0);
   else if (confirm()) switch (M.sel) {
       case 0:
+        M.advance = 0;
         M.area = (int8_t)(g_save.last_area <= max_area() ? g_save.last_area : max_area());
         M.mode = (int8_t)g_save.last_mode;
         go(S_CHAPTERS, 0);
@@ -274,8 +279,8 @@ static void banner(float x, float y, int a, float alpha) {   /* the title: areas
       chapter[n++] = *c;
     }
     chapter[n] = 0;
-    say(chapter, x + 816, y + 84, 1, 1, 0.6f, rgb(TITLE_ACCENT[a]), (uint8_t)(al * 0.8f));
-    say(ui_str(name), x + 816, y + 66, 1, 0, 1, text, (uint8_t)(al * 0.8f));
+    say(chapter, x + 816, y + 72, 1, 1, 0.6f, rgb(TITLE_ACCENT[a]), (uint8_t)(al * 0.8f));
+    say(ui_str(name), x + 816, y + 54, 1, 0, 1, text, (uint8_t)(al * 0.8f));   /* (its baseline where the game's is) */
   }
 }
 static void chapters_draw(void) {
@@ -303,6 +308,16 @@ static void chapters_draw(void) {
   }
 }
 static void chapters_update(void) {
+  if (M.advance) {   /* AutoAdvanceRoutine: a second, the next chapter, a quarter more, then the input */
+    if (M.advance == 2 && M.t >= 1) {
+      int a = M.area + 1;
+      while (a <= max_area() && chapter_index(a, M_A) < 0) a++;
+      if (a <= max_area()) M.area = (int8_t)a, M.wig = 0;
+      M.advance = 3;
+    } else if (M.advance == 3 && M.t >= 1.25f)
+      M.advance = 0;
+    return;
+  }
   int d = dir_pressed(0);
   if (d) {
     int a = M.area + d;
@@ -330,8 +345,8 @@ static void panel_draw(void) {
     if (!has_mode(M.area, m)) continue;
     const char *w = interlude(M.area) ? ui_str("FILE_BEGIN") : ui_str(modes[m]);
     say(w, mx, y + 280, 0, 0.5f, 0.8f, m == M.mode ? rgb(0x101010) : rgb(0x808080), 255);
-    if (m == M.mode) box(mx, y + 314, text_measure(w) * 0.8f, 8, rgb(TITLE_BASE[M.area]), 255);
-    mx += text_measure(w) * 0.8f + 60;
+    if (m == M.mode) box(mx, y + 314, text_width(w, 0.8f), 8, rgb(TITLE_BASE[M.area]), 255);
+    mx += text_width(w, 0.8f) + 60;
   }
   /* where to start */
   int ncp, n = start_count(&ncp);
@@ -368,6 +383,14 @@ static void panel_draw(void) {
   }
 }
 static void panel_update(void) {
+  if (M.advance) {   /* IncrementStats, then AdvanceToNext: the chapter select moves on */
+    if (M.t >= 1.2f) {
+      M.mode = M_A;
+      go(S_CHAPTERS, 0);
+      M.advance = 2;
+    }
+    return;
+  }
   int ncp, n = start_count(&ncp);
   int d = dir_pressed(1);
   if (d && n) M.sel = (int8_t)((M.sel + d + n) % n);
@@ -385,6 +408,7 @@ static void panel_update(void) {
 #define OPT_SHAKE 1
 #define OPT_FLASH 2
 static const char *on_off(bool on) { return ui_str(on ? "OPTIONS_ON" : "OPTIONS_OFF"); }
+#define ITEM_H 84   /* TextMenu's rows: the text's LineHeight and ItemSpacing (4), at its size here */
 static void menu_item(const char *w, const char *value, int i, float y, bool disabled) {
   uint16_t col = disabled ? SLATE : i == M.sel ? highlight() : WHITE;
   if (value) {
@@ -399,10 +423,10 @@ static void options_draw(void) {
   say(ui_str("OPTIONS_TITLE"), 960, 200, 0.5f, 0.5f, 2, GRAY, 255);
   static const char *const clocks[3] = {"OPTIONS_OFF", "OPTIONS_SPEEDRUN_CHAPTER", "OPTIONS_SPEEDRUN_FILE"};
   menu_item(ui_str("OPTIONS_KEYCONFIG"), NULL, 0, 380, false);
-  menu_item("Key Sheet", NULL, 1, 448, false);
-  menu_item(ui_str("OPTIONS_DISABLE_SHAKE"), on_off(!(g_save.options & OPT_SHAKE)), 2, 560, false);
-  menu_item(ui_str("OPTIONS_DISABLE_FLASH"), on_off(g_save.options & OPT_FLASH), 3, 628, false);
-  menu_item(ui_str("OPTIONS_SPEEDRUN"), ui_str(clocks[g_save.options >> 2 & 3]), 4, 696, false);
+  menu_item("Key Sheet", NULL, 1, 380 + ITEM_H, false);
+  menu_item(ui_str("OPTIONS_DISABLE_SHAKE"), on_off(!(g_save.options & OPT_SHAKE)), 2, 420 + ITEM_H * 2, false);
+  menu_item(ui_str("OPTIONS_DISABLE_FLASH"), on_off(g_save.options & OPT_FLASH), 3, 420 + ITEM_H * 3, false);
+  menu_item(ui_str("OPTIONS_SPEEDRUN"), ui_str(clocks[g_save.options >> 2 & 3]), 4, 420 + ITEM_H * 4, false);
 }
 static void options_update(void) {
   int d = dir_pressed(1);
@@ -433,14 +457,14 @@ static void keys_draw(void) {
   else box(0, 0, 1920, 1080, 0, 178);
   say(ui_str("KEY_CONFIG_TITLE"), 960, 200, 0.5f, 0.5f, 2, GRAY, 255);
   say(ui_str("KEY_CONFIG_GAMEPLAY"), 960, 330, 0.5f, 0.5f, 0.6f, GRAY, 255);
-  for (int a = 0; a < 4; a++) menu_item(ui_str(ACTION_KEYS[a]), M.binding == a ? "..." : key_name(g_bind[a]), a, 400 + a * 68, false);
-  menu_item(ui_str("KEY_CONFIG_RESET"), NULL, 4, 700, false);
+  for (int a = 0; a < 4; a++) menu_item(ui_str(ACTION_KEYS[a]), M.binding == a ? "..." : key_name(g_bind[a]), a, 410 + a * ITEM_H, false);
+  menu_item(ui_str("KEY_CONFIG_RESET"), NULL, 4, 450 + ITEM_H * 4, false);
   if (M.binding >= 0) {
     char w[48];
     strcpy(w, ui_str("KEY_CONFIG_CHANGING"));
     strcat(w, " ");
     strcat(w, ui_str(ACTION_KEYS[M.binding]));
-    say(w, 960, 860, 0.5f, 0.5f, 0.8f, WHITE, 255);
+    say(w, 960, 900, 0.5f, 0.5f, 0.8f, WHITE, 255);
   }
 }
 static void keys_update(void) {
@@ -500,11 +524,7 @@ static void complete_draw(void) {
   if (M.t > 1 && fmodf(M.t, 1) < 0.75f) pic(T__textboxbutton, 1824, 984, 0.5f, 0.5f, 1, WHITE, 255);
 }
 static void complete_update(void) {
-  if (M.t > 1 && (confirm() || cancel())) {
-    M.area = (int8_t)(g_save.unlocked_areas <= max_area() ? g_save.unlocked_areas : max_area());
-    M.mode = M_A;
-    go(S_CHAPTERS, 0);
-  }
+  if (M.t > 1 && (confirm() || cancel())) go(S_PANEL, 0);
 }
 
 /* ---------------------------------------------------------------- the pause menu (Level.Pause) */
@@ -532,13 +552,13 @@ static void pause_draw(void) {
   box(0, 0, 1920, 1080, 0, 178);   /* HudRenderer.BackgroundFade */
   int8_t items[P_COUNT];
   int n = pause_items(items);
-  float h = 128 + n * 68 + 40, y = 540 - h / 2 + 64;
+  float h = 128 + n * ITEM_H + 40, y = 540 - h / 2 + 64;
   say(ui_str("MENU_PAUSE_TITLE"), 960, y, 0.5f, 0.5f, 2, GRAY, 255);
-  y += 64 + 34;
+  y += 64 + ITEM_H / 2;
   for (int i = 0; i < n; i++) {
     if (items[i] == P_RESTART) y += 40;   /* SubHeader("") */
-    menu_item(ui_str(words[items[i]]), NULL, i, y + 34, pause_disabled(items[i]));
-    y += 68;
+    menu_item(ui_str(words[items[i]]), NULL, i, y + ITEM_H / 2, pause_disabled(items[i]));
+    y += ITEM_H;
   }
 }
 static void confirm_draw(void) {
@@ -546,7 +566,7 @@ static void confirm_draw(void) {
   bool restart = M.confirm == 0;
   say(ui_str(restart ? "MENU_RESTART_TITLE" : "MENU_RETURN_TITLE"), 960, 360, 0.5f, 0.5f, 2, GRAY, 255);
   menu_item(ui_str(restart ? "MENU_RESTART_CONTINUE" : "MENU_RETURN_CONTINUE"), NULL, 0, 520, false);
-  menu_item(ui_str(restart ? "MENU_RESTART_CANCEL" : "MENU_RETURN_CANCEL"), NULL, 1, 588, false);
+  menu_item(ui_str(restart ? "MENU_RESTART_CANCEL" : "MENU_RETURN_CANCEL"), NULL, 1, 520 + ITEM_H, false);
 }
 void menu_pause(void) {   /* Level.Pause */
   g_level.paused = true;

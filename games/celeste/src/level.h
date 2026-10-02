@@ -226,7 +226,8 @@ void menu_update(void);
 void menu_render(void);
 void menu_pause(void);
 void menu_open_title(void);
-void menu_open_overworld(bool completed);
+void menu_open_overworld(bool completed, bool advance);
+extern bool g_should_advance;   /* Session.ShouldAdvance, as the chapter was completed */
 void menu_open_main(void);
 void hud_update(void);   /* TotalStrawberriesDisplay */
 void hud_reset(void);

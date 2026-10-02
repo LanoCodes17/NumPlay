@@ -230,10 +230,11 @@ void tutorial_update(Tutorial *t) {
   t->scale = approach(t->scale, t->open ? 1.f : 0.f, RAW_DT * 8);
 }
 
-/* a key cap: a light frame, dark inside, its name */
+/* a key cap: a light frame, dark inside, its name (as tall as the text, and a margin) */
+static float key_h(void) { return font_line_height(FONT_S) * 6 + 16; }
 static void draw_key(float x, float y, const char *name, float sx) {
   float w = (font_measure(name, (int)strlen(name), FONT_S) * 6 + 48) * sx;
-  float h = 64;
+  float h = key_h();
   gfx_rect((x) / 6, (y - h / 2) / 6, w / 6, h / 6, 0xFFFF, 255);
   gfx_rect((x + 6) / 6, (y - h / 2 + 6) / 6, (w - 12) / 6, (h - 12) / 6, 0x2104, 255);
   if (sx > 0.5f) font_draw(name, (int)strlen(name), (x + w / 2) / 6 - font_measure(name, (int)strlen(name), FONT_S) / 2,
@@ -256,9 +257,9 @@ void tutorial_render(Tutorial *t) {
   if (!t->added || t->scale <= 0 || g_level.frozen || g_level.paused) return;
   Ent *b = &g_ents[t->bird];
   float px = (b->x + t->offset.x - floorf(g_level.cam.x)) * 6, py = (b->y + t->offset.y - floorf(g_level.cam.y)) * 6;
-  float lh = 64;
+  float lh = font_line_height(FONT_S) * 6, kh = key_h();
   float w = (fmaxf(t->controls_w, t->info_w) + 64) * t->scale;
-  float h = lh + lh + 32;   /* infoHeight is the line height for text */
+  float h = lh + kh + 48;   /* the info's line, the controls' row (the game's: two lines and 32) */
   float x = px - w / 2, y = py - h - 32;
   gfx_hud(true);
   gfx_rect((x - 6) / 6, (y - 6) / 6, (w + 12) / 6, (h + 12) / 6, 0xFFFF, 255);
@@ -271,7 +272,7 @@ void tutorial_render(Tutorial *t) {
   if (w > 3) {
     float cx = px, cy = y + 16;
     if (t->scale > 0.5f) font_draw(t->info, (int)strlen(t->info), cx / 6 - t->info_w / 12 * t->scale, cy / 6, FONT_S, 0x63DC, 255);
-    cy += lh + lh * 0.5f;
+    cy += lh + 16 + kh / 2;
     float ox = -t->controls_w / 2;
     for (int i = 0; i < t->n; i++) {
       GuiControl *c = &t->controls[i];
@@ -286,8 +287,9 @@ void tutorial_render(Tutorial *t) {
       } else if (c->kind == GC_TEXT) {
         float tw = control_width(c);
         if (t->scale > 0.5f) {
-          font_draw(c->text, (int)strlen(c->text), (cx + ox * t->scale) / 6, cy / 6 - 6 + 0.33f, FONT_S, 0x63DC, 255);
-          font_draw(c->text, (int)strlen(c->text), (cx + ox * t->scale) / 6, cy / 6 - 6 - 0.33f, FONT_S, 0xFFFF, 255);
+          float ty = cy / 6 - font_line_height(FONT_S) / 2;
+          font_draw(c->text, (int)strlen(c->text), (cx + ox * t->scale) / 6, ty + 0.33f, FONT_S, 0x63DC, 255);
+          font_draw(c->text, (int)strlen(c->text), (cx + ox * t->scale) / 6, ty - 0.33f, FONT_S, 0xFFFF, 255);
         }
         ox += tw + 1;
       }

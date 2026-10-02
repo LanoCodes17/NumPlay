@@ -54,7 +54,7 @@ void game_level_exit(int mode) {
   g_in_level = false;
   wipe_start(WIPE_FADE, true, NULL);
   if (mode == LEXIT_SAVEQUIT) menu_open_main();
-  else menu_open_overworld(mode == LEXIT_COMPLETED && area != 0 && area != 8);
+  else menu_open_overworld(mode == LEXIT_COMPLETED, mode == LEXIT_COMPLETED && g_should_advance);
 }
 
 /* Home: the run is kept (Save & Quit) */

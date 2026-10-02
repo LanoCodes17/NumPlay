@@ -9,8 +9,12 @@ from PIL import Image
 
 from cel import CELESTE, Atlas
 
-# (face file, scale): body text (64 / 6 = 10.7 px), and the 192 face at 2x and 3x the body
-FONT_SIZES = [("renogare64", 1 / 6), ("renogare192", 1 / 9)]
+# (face file, scale): body text a quarter bigger than the interface's 1/6 (64 / 4.8 = 13.3 px, the
+# calculator's own small size: smaller is hard to read on its screen), and the 192 face for titles (21.3 px)
+FONT_SIZES = [("renogare64", 1 / 4.8), ("renogare192", 1 / 9)]
+# extra space after each glyph (screen pixels) for the body text: the face's own is a pixel or two at 64 px,
+# nothing at this size, and dots and colons run into what follows
+TRACKING = {"renogare64": 0.4}
 
 
 def read_fnt(name):
@@ -69,7 +73,7 @@ def font_section(W, codes):
                 r = list(row) + ([0] if len(row) % 2 else [])
                 bitmaps += bytes(r[i] | r[i + 1] << 4 for i in range(0, len(r), 2))
             glyphs.append((code, gx, gy, q.shape[1] if q.size else 0, q.shape[0] if q.size else 0,
-                           int(round(xa * scale * 16)), off))
+                           int(round((xa * scale + TRACKING.get(face, 0)) * 16)), off))
         kerns = [(a, b, int(round(v * scale * 16))) for (a, b), v in kern.items() if a in codes and b in codes]
         w = W()
         w.u16(len(glyphs))

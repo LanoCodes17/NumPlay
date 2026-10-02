@@ -169,7 +169,7 @@ static void poem_render(Ent *e) {
   s.alpha = (uint8_t)(s.alpha * HR.alpha);
   spr_draw(&s, 160, 90);
   if (HR.text[0] && HR.text_alpha > 0) {
-    float w = text_measure(HR.text) * 1.5f;
+    float w = text_width(HR.text, 1.5f);
     uint8_t a = (uint8_t)(HR.text_alpha * HR.alpha * 255);
     if (tex_get(T__poemside, &t))
       for (int side = -1; side <= 1; side += 2)
@@ -494,7 +494,7 @@ transform:   /* TransformRoutine */
     float mx = fmaxf(20, (1 - b->t) * 200);
     if (v2len(b->speed) > mx) b->speed = safe_norm(b->speed, mx);
     e->x += b->speed.x * DT, e->y += b->speed.y * DT;
-    b->color = blend565(b->color_from, 0xFFFF, (int)(b->t * 256));
+    b->color = blend565(b->color_from, scale565(0xFFFF, (int)(b->t * 256)), (int)(b->t * 256));
     b->heart_scale = fmaxf(0, (b->t - 0.75f) * 4);
     if (d.x != 0) b->sx = fabsf(b->sx) * signf(d.x);
     b->sx = signf(b->sx) * (1 - b->heart_scale);

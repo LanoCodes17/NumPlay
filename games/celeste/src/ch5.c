@@ -1615,6 +1615,8 @@ Ent *level_holdable_check(void) {
   }
   return NULL;
 }
+/* Level.EnforceBounds: a TheoCrystal about and nothing held keeps the player from leaving right */
+bool theo_left_behind(const Player *p) { return g_session.area == 5 && !p->holding && first_of(&THEO); }
 void holdable_carry(Ent *h, V2 at) {
   if (h->cls != &THEO) return;
   h->x = at.x, h->y = at.y;
@@ -2753,7 +2755,7 @@ static void portal_buffer_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
           break;
         }
       int c = (int)(128 * num);   /* Color.Lerp(Black, Purple, num) */
-      row[x] = blend565(row[x], rgb((uint32_t)(c << 16 | c)), a);
+      row[x] = blend565(row[x], scale565(rgb((uint32_t)(c << 16 | c)), a), a);
     }
   }
 }

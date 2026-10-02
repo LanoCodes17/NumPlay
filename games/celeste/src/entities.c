@@ -874,10 +874,15 @@ static Ent *new_block(const EntClass *cls, const EData *d, float w, float h, cha
   if (b->q) tiles_box(type, b->w, b->h, b->q);
   return e;
 }
-static char tile_char(float v, const char *s) {
-  if (s && *s) return s[0];
-  return (char)('0' + (int)v);
+/* data.Char("tiletype", '3'): a number in some maps, a letter in others (data.bin keeps those as text) */
+static char tile_attr(const EData *d, int off, char kind) {
+  if (kind == 's') {
+    const char *s = ea_str(d, off);
+    return *s ? s[0] : '3';
+  }
+  return (char)('0' + (int)ea_num(d, off, kind));
 }
+#define TILE_ATTR(d, ent, attr) tile_attr(d, EA_##ent##_##attr, EK_##ent##_##attr)
 
 /* DashBlock */
 static int dash_block_hit(Ent *e, Player *p, V2 dir);
@@ -1168,7 +1173,7 @@ bool ent_create(const EData *d) {
     case ET_zipMover: new_zip(d); return true;
     case ET_fallingBlock: {
       Ent *e = new_block(&FALLING, d, EA(d, fallingBlock, width), EA(d, fallingBlock, height),
-                         tile_char(EA(d, fallingBlock, tiletype), NULL));
+                         TILE_ATTR(d, fallingBlock, tiletype));
       if (!e) return true;
       if (EAB(d, fallingBlock, behind)) e->depth = 5000;
       ST(e, Block)->flags = EAB(d, fallingBlock, climbFall) ? 1 : 0;
@@ -1177,7 +1182,7 @@ bool ent_create(const EData *d) {
     case ET_dashBlock: {
       uint32_t h = level_entity_hash(d);
       if (level_do_not_load(h)) return true;
-      char t = tile_char(EA(d, dashBlock, tiletype), NULL);
+      char t = TILE_ATTR(d, dashBlock, tiletype);
       Ent *e = new_block(&DASHBLOCK, d, EA(d, dashBlock, width), EA(d, dashBlock, height), t);
       if (!e) return true;
       e->depth = -12999;
@@ -1193,7 +1198,7 @@ bool ent_create(const EData *d) {
     case ET_fakeWall: {
       uint32_t h = level_entity_hash(d);
       if (level_do_not_load(h)) return true;
-      char t = tile_char(EA(d, fakeWall, tiletype), NULL);
+      char t = TILE_ATTR(d, fakeWall, tiletype);
       Ent *e = new_block(&FAKEWALL, d, EA(d, fakeWall, width), EA(d, fakeWall, height), t);
       if (!e) return true;
       e->depth = -13000;
@@ -1202,7 +1207,7 @@ bool ent_create(const EData *d) {
       return true;
     }
     case ET_coverupWall: {
-      char t = tile_char(EA(d, coverupWall, tiletype), NULL);
+      char t = TILE_ATTR(d, coverupWall, tiletype);
       Ent *e = new_block(&COVERUP, d, EA(d, coverupWall, width), EA(d, coverupWall, height), t);
       if (!e) return true;
       e->depth = -13000;
@@ -1211,7 +1216,7 @@ bool ent_create(const EData *d) {
       return true;
     }
     case ET_exitBlock: {
-      char t = tile_char(EA(d, exitBlock, tileType), NULL);
+      char t = TILE_ATTR(d, exitBlock, tileType);
       Ent *e = new_block(&EXITBLOCK, d, EA(d, exitBlock, width), EA(d, exitBlock, height), t);
       if (!e) return true;
       e->depth = -13000;

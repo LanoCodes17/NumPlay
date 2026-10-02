@@ -56,10 +56,16 @@ void gfx_screen(bool on) { hud = on, ui = false; }
 void gfx_clear(uint16_t c) { clear_color = c; }
 void gfx_present_all(void) { letterbox_dirty = true; }
 
+#ifdef HOST
+#include <stdio.h>
+static int dropped_cmds;
+#endif
 void gfx_begin(void) {
 #ifdef HOST
   extern void res_debug_working_set(void);
   res_debug_working_set();
+  if (getenv("CMDDBG")) printf("cmds %d dropped %d\n", ncmds, dropped_cmds);
+  dropped_cmds = 0;
 #endif
   g_res_frame++;
   g_res_drawing = true;
@@ -73,7 +79,13 @@ void gfx_begin(void) {
 #define HUD_CMDS 48
 #define HUD_AFFS 8
 static Cmd *add(uint8_t op, int y0, int y1) {
-  if (y1 <= 0 || y0 >= VIEW_H || ncmds >= (ui ? MAX_CMDS : MAX_CMDS - HUD_CMDS)) return NULL;
+  if (y1 <= 0 || y0 >= VIEW_H) return NULL;
+  if (ncmds >= (ui ? MAX_CMDS : MAX_CMDS - HUD_CMDS)) {
+#ifdef HOST
+    dropped_cmds++;
+#endif
+    return NULL;
+  }
   Cmd *c = &cmds[ncmds++];
   c->op = op;
   c->extra = ui ? 1 : 0;   /* the interface's: not zoomed */

@@ -27,6 +27,7 @@ typedef struct {
 } TextDraw;
 void text_draw(const TextDraw *d);
 float text_measure(const char *s);                             /* ActiveFont.Measure(s).X */
+float text_width(const char *s, float scale);                  /* ... * scale, as drawn */
 /* ActiveFont.Draw into a strip, from a gfx_custom callback (nothing kept: menus redraw their words per strip) */
 void text_into(uint16_t *strip, int sy0, int sy1, const char *s, float x, float y, float jx, float jy, float scale,
                uint16_t col, uint8_t alpha);

@@ -143,6 +143,11 @@ int main(int argc, char **argv) {
       game_save();
       break;
     }
+    if (getenv("CAMDBG") && fr == 0 && g_level.room)
+      printf("bounds %d %d %d %d\n", g_level.room->x, g_level.room->y, g_level.room->w, g_level.room->h);
+    if (getenv("CAMDBG") && g_player.ent)
+      printf("f%d room %s cam %.2f,%.2f player %.1f,%.1f tr %d at %.3f st %d\n", fr, level_room_name(), g_level.cam.x, g_level.cam.y,
+             g_player.ent->x, g_player.ent->y, g_level.transitioning, g_level.tr_at, g_player.state);
     if (getenv("TRACE") && g_player.ent)
       printf("f%d pos %.0f,%.0f sp %.1f,%.1f st %d gr %d dash %d stam %.0f anim %d keys %x\n", fr, g_player.ent->x, g_player.ent->y,
              g_player.speed.x, g_player.speed.y, g_player.state, g_player.on_ground, g_player.dashes, g_player.stamina,

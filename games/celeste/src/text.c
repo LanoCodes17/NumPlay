@@ -112,9 +112,9 @@ static Port ports[MAX_PORTS];
 static int nports;
 
 /* the textbox's sizes (interface pixels) */
-#define LINE_H 63           /* Renogare 64's LineHeight - 1 */
-#define LINES 3             /* (int)(240 / LINE_H) */
-#define PAD 41.5f           /* (272 - LINE_H * LINES) / 2 */
+#define LINE_H 79           /* Renogare 64's LineHeight - 1, at the bigger size the text has here (data.bin's FONTS) */
+#define LINES 2             /* three lines a page (FancyText's linesPerPage + 1): what the box holds at that size */
+#define PAD 41.5f           /* the game's margin: (272 - 63 * 3) / 2 */
 #define MAXW_NOPORT 1605    /* 1688 - PAD * 2 */
 #define MAXW 1333           /* MAXW_NOPORT - 240 - 32 */
 
@@ -734,7 +734,7 @@ static FancyDraw TD;
 
 static void blend_px(uint16_t *row, int x, uint16_t col, int a) {
   if ((unsigned)x >= VIEW_W || a <= 0) return;
-  row[x] = a >= 255 ? col : blend565(row[x], col, a + 1);
+  row[x] = a >= 255 ? col : blend565(row[x], scale565(col, a + 1), a + 1);
 }
 /* a glyph of `size` at screen (x, y) (its top-left), scaled by k (nearest pixels) */
 static void glyph_strip(uint16_t *strip, int sy0, int sy1, int size, const uint8_t *g, float x, float y, float k,
@@ -745,21 +745,41 @@ static void glyph_strip(uint16_t *strip, int sy0, int sy1, int size, const uint8
   int stride = (w + 1) / 2;
   int W = (int)ceilf(w * k), H = (int)ceilf(h * k);
   int X0 = (int)floorf(x + 0.5f), Y0 = (int)floorf(y + 0.5f);
+  float ik = 1 / k;
   for (int r = 0; r < H; r++) {
     int Y = Y0 + r;
     if (Y < sy0 || Y >= sy1) continue;
-    int gy = (int)(r / k);
+    int gy = (int)(r * ik);
     if (gy >= h) continue;
     uint16_t *row = strip + (Y - sy0) * VIEW_W;
     for (int c = 0; c < W; c++) {
-      int gx = (int)(c / k);
+      int gx = (int)(c * ik), v;
       if (gx >= w) continue;
-      int v = (bits[gy * stride + (gx >> 1)] >> ((gx & 1) * 4)) & 15;
-      if (v) blend_px(row, X0 + c, col, v * 17 * alpha / 255);
+      if (k >= 1) v = ((bits[gy * stride + (gx >> 1)] >> ((gx & 1) * 4)) & 15) * 17;
+      else {   /* smaller than its size: the glyph's pixels under this one, averaged (nearest ones drop strokes) */
+        float x0 = c * ik, x1 = x0 + ik, y0 = r * ik, y1 = y0 + ik, sum = 0;
+        for (int sy = (int)y0; sy < y1 && sy < h; sy++)
+          for (int sx = (int)x0; sx < x1 && sx < w; sx++)
+            sum += (fminf(x1, sx + 1) - fmaxf(x0, sx)) * (fminf(y1, sy + 1) - fmaxf(y0, sy)) *
+                   ((bits[sy * stride + (sx >> 1)] >> ((sx & 1) * 4)) & 15);
+        v = (int)(sum * k * k * 17 + 0.5f);
+      }
+      if (v) blend_px(row, X0 + c, col, v * alpha / 255);
     }
   }
 }
 
+/* the face for text at an interface scale, and its zoom: the 64 face up to 1.5, the 192 face above. The 64 face is
+ * shown a quarter bigger than the game's 1/6 already, and smaller is hard to read on this screen: so from 3/4 up
+ * the text keeps its size, and smaller captions (0.6) have the game's own 1/6 */
+static int face_of(float scale, float *k) {
+  if (scale >= 1.5f) {
+    *k = scale > 2 ? scale / 2 : 1;
+    return FONT_M;
+  }
+  *k = scale < 0.75f ? 0.8f : scale < 1 ? 1 : scale;
+  return FONT_S;
+}
 /* ActiveFont.Draw(text, position, justify, scale, color), in interface units: each line justified
  * by its own width, the block by its height */
 static float line_width(const char *s, const char *end, int size) {
@@ -774,8 +794,8 @@ static float line_width(const char *s, const char *end, int size) {
 }
 void text_into(uint16_t *strip, int sy0, int sy1, const char *s, float px, float py, float jx, float jy, float scale,
                uint16_t col, uint8_t alpha) {
-  int size = scale > 1.01f ? FONT_M : FONT_S;   /* the 64 face, or the 192 one at 1/9 (scale 2) */
-  float k = size == FONT_M ? scale / 2 : scale;
+  float k;
+  int size = face_of(scale, &k);
   const char *end = s + strlen(s);
   float lh = font_line_height(size), lines = 1;
   for (const char *q = s; q < end; q++) lines += *q == '\n';
@@ -805,8 +825,9 @@ void text_draw(const TextDraw *d) {
   if (!d->s || !d->alpha) return;
   int lines = 1;
   for (const char *q = d->s; *q; q++) lines += *q == '\n';
-  int size = d->scale > 1.01f ? FONT_M : FONT_S;
-  float k = size == FONT_M ? d->scale / 2 : d->scale, h = lines * font_line_height(size) * k;
+  float k;
+  int size = face_of(d->scale, &k);
+  float h = lines * font_line_height(size) * k;
   float y = d->y / 6 - h * d->jy;
   gfx_custom(draw_strip, (void *)d, (int)floorf(y) - 1, (int)ceilf(y + h) + 1);
 }
@@ -826,18 +847,20 @@ const char *ui_str(const char *key) {
   return "";
 }
 
-/* ActiveFont.Measure(text).X, in interface units at scale 1 */
-float text_measure(const char *s) {
-  float w = 0;
+/* ActiveFont.Measure(text).X * scale, in interface units: as drawn (face_of) */
+float text_width(const char *s, float scale) {
+  float k, w = 0;
+  int size = face_of(scale, &k);
   const char *end = s + strlen(s);
   while (s < end) {
-    float lw = line_width(s, end, FONT_M) * 3;   /* the 192 face at 1/9 is the 64 one at 1/3 */
+    float lw = line_width(s, end, size) * k * 6;
     if (lw > w) w = lw;
     while (s < end && *s != '\n') s++;
     if (s < end) s++;
   }
   return w;
 }
+float text_measure(const char *s) { return text_width(s, 1); }
 /* PixelFontSize.AutoNewline(text, width), in place (the text grows by nothing: spaces become newlines,
  * words wider than the width get one inserted, up to cap) */
 void text_auto_newline(char *s, int cap, float width) {
@@ -887,7 +910,7 @@ static void text_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
   }
   lines += cur;
   /* in interface units, then to the screen */
-  float px = TD.x - 0.5f * widest * TD.sx, py = TD.y - 0.5f * lines * 64 * TD.sy;
+  float px = TD.x - 0.5f * widest * TD.sx, py = TD.y - 0.5f * lines * (LINE_H + 1) * TD.sy;
   cur = 0;
   uint32_t seed = TD.seed;
   for (int i = TD.start; i < end; i++) {
@@ -895,7 +918,7 @@ static void text_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
     if (!t || t->type == N_NEWPAGE) break;
     if (t->type == N_NEWLINE) {
       if (cur == 0) cur = 1;
-      py += 64 * cur * TD.sy;
+      py += (LINE_H + 1) * cur * TD.sy;
       cur = 0;
     }
     if (t->type != N_CHAR) continue;
@@ -913,9 +936,9 @@ static void text_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
     if (t->flags & CF_WAVE) zy += sinf(t->index * 0.25f + g_level.raw_time_active * 8) * 4;
     zy += -8 * (1 - fade) + t->yoff * fade;
     float x = px + t->pos / 4.f * TD.sx;
-    /* the 64 face up to its size, the 192 face (shown at 1/6, 32 px) above */
-    int size = v > 1.01f ? FONT_M : FONT_S;
-    float k = size == FONT_M ? v / 2 : v;
+    /* the 64 face up to 1.5 (smaller while the box eases), the 192 face from there ({big}, {!}) */
+    int size = v >= 1.5f ? FONT_M : FONT_S;
+    float k = size == FONT_M ? fmaxf(1, v / 2) : v;
     const uint8_t *g = font_glyph_rec(size, t->v);
     if (!g) continue;
     float gx = (x + zx * vx) / 6 + rds16(g + 2) / 16.f * k, gy = (py + zy * vy) / 6 + (int16_t)rd16(g + 4) * k;
@@ -970,10 +993,10 @@ static void box_render(Ent *e) {
     if (!n || n->type == N_NEWPAGE) break;
     if (n->type == N_NEWLINE) lines++;
   }
-  float ox = PAD + (b->has_cur && b->cur.side < 0 ? 256 : 0), oy = PAD;
-  float hx = (!b->has_cur ? MAXW_NOPORT : MAXW) / 2.f, hy = LINES * LINE_H * num / 2;
+  float ox = PAD + (b->has_cur && b->cur.side < 0 ? 256 : 0);
+  float hx = (!b->has_cur ? MAXW_NOPORT : MAXW) / 2.f;
   float k = lines >= 4 ? 0.75f : 1;
-  TD = (FancyDraw){vx + ox + hx, vy + oy + hy, k, num * k, num, b->start, b->shake_seed};
+  TD = (FancyDraw){vx + ox + hx, vy + 272 * num / 2, k, num * k, num, b->start, b->shake_seed};   /* (in the box's middle) */
   gfx_custom(text_strip, NULL, (int)((vy) / 6) - 4, (int)((vy + 272) / 6) + 8);
   gfx_hud(false);
 }
@@ -1102,10 +1125,10 @@ static void mini_render(Ent *e) {
     p += n;
   }
   if (l < 3) m->line[l][k] = 0;
-  float lh = LINE_H * 0.75f * m->ease;
+  float lh = (LINE_H + 1) * m->ease;   /* (the game's 0.75 scale: here the text's own size, two lines) */
   for (int i = 0; i < m->nlines && i < 3; i++) {
     if (!m->line[i][0]) continue;
-    m->td[i] = (TextDraw){m->line[i], 276, cy - m->nlines * lh / 2 + i * lh, 0, 0, 0.75f, 0xD69A, 255};
+    m->td[i] = (TextDraw){m->line[i], 276, cy - m->nlines * lh / 2 + i * lh, 0, 0, 1, 0xD69A, 255};
     text_draw(&m->td[i]);
   }
   gfx_hud(false);
@@ -1129,7 +1152,7 @@ Ent *mini_textbox(const char *key) {
   strncpy(P.key, key, sizeof P.key - 1);
   P.color = 0xD69A, P.scale = 1, P.delay = 0.01f;
   nnodes = base = nports = 0;
-  parse_maxw = 1544;
+  parse_maxw = 1496;   /* (what the box holds from 276 at the text's size here) */
   parse_more();
   parse_maxw = MAXW;
   int at = 0;
@@ -1147,7 +1170,7 @@ Ent *mini_textbox(const char *key) {
     } else if ((n->type == N_CHAR || n->type == N_NEWLINE) && at < MINI_LEN - 4 && m->len < MINI_LEN) {
       uint32_t c = n->type == N_NEWLINE ? '\n' : n->v;
       if (c == '\n') {
-        if (!at || m->nlines >= 3) continue;
+        if (!at || m->nlines >= 2) continue;
         m->nlines++;
       }
       if (c < 0x80) m->text[at++] = (char)c;

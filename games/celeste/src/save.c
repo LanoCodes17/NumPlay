@@ -165,6 +165,7 @@ static bool full_clear(void) {
   return true;
 }
 
+bool g_should_advance;
 /* SaveData.RegisterCompletion */
 void save_register_completion(void) {
   ModeStats *m = save_mode();
@@ -184,6 +185,7 @@ void save_register_completion(void) {
     }
   }
   if (s->area + 1 > g_save.unlocked_areas && s->area < AREAS - 1) g_save.unlocked_areas = (uint8_t)(s->area + 1);
+  g_should_advance = s->mode == M_A && !(m->flags & MS_COMPLETED) && chapter_index(s->area + 1, M_A) >= 0;
   m->flags |= MS_COMPLETED;
   s->in_area = 0;
 }

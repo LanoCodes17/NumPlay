@@ -118,6 +118,45 @@ static void draw_spinner(uint16_t *strip, int sy0, int sy1, const Sp *s, const L
     }
 }
 
+/* CrystalStaticSpinner with attachToSolid: an entity of its own, a StaticMover riding the solid it overlaps (its
+ * sprites shake with it); drawn by the layer below with the others. Its fillers go halfway to the attached spinners on
+ * its right less than 24 px away (CreateSprites, from Awake). */
+typedef struct {
+  float shx, shy;     /* OnShake: where its crystal's images are */
+  uint8_t fi, nfill;
+  int8_t fdx[6], fdy[6];   /* the fillers: the neighbour's offset (halved when drawn) */
+  uint8_t fb[6];           /* their texture, and quarter turns << 4 */
+} ASpin;
+static const EntClass ASPIN;
+__attribute__((noinline, optimize("Os")))   /* (a few: smaller over faster) */
+static void draw_attached(uint16_t *strip, int sy0, int sy1, const Ent *e, const ASpin *a, const Look *lk, int pass) {
+  int fi = a->fi % lk->nf;
+  int cx = (int)floorf(e->x + a->shx + 0.5f) - g_camx, cy = (int)floorf(e->y + a->shy + 0.5f) - g_camy;
+  if (pass != 1) {   /* the crystal, or (pass 0) its Border: black a pixel around */
+    if (pass == 0 && lk->borders) blit_centered(strip, sy0, sy1, &lk->fgb[fi], cx, cy, 0, 0, 0xFFFF);
+    else
+      for (int s = 0; s < (pass ? 1 : 4); s++)
+        blit_centered(strip, sy0, sy1, &lk->fg[fi], cx + (pass ? 0 : SHIFT_X[s]), cy + (pass ? 0 : SHIFT_Y[s]), 0, pass ? 0 : GF_SILHOUETTE,
+                      pass ? 0xFFFF : 0);
+  }
+  if (pass == 2 || !lk->nb) return;
+  for (int i = 0; i < a->nfill; i++) {   /* the fillers (and their Border) */
+    int bi = (a->fb[i] & 15) % lk->nb, q = a->fb[i] >> 4;
+    int mx = (int)floorf(e->x + a->fdx[i] / 2.f + 0.5f) - g_camx, my = (int)floorf(e->y + a->fdy[i] / 2.f + 0.5f) - g_camy;
+    if (my + 14 < sy0 || my - 14 >= sy1) continue;
+    if (pass == 0 && lk->borders) blit_centered(strip, sy0, sy1, &lk->bgb[bi], mx, my, q, 0, 0xFFFF);
+    else
+      for (int s = 0; s < (pass ? 1 : 4); s++)
+        blit_centered(strip, sy0, sy1, &lk->bg[bi], mx + (pass ? 0 : SHIFT_X[s]), my + (pass ? 0 : SHIFT_Y[s]), q, pass ? 0 : GF_SILHOUETTE,
+                      pass ? 0xFFFF : 0);
+  }
+}
+static bool any_attached(void) {
+  for (int i = 0; i < g_nents; i++)
+    if (g_ents[i].cls == &ASPIN && g_ents[i].dead != 1) return true;
+  return false;
+}
+
 /* the dust bunnies (dust.c draws them): those whose x is in [x0, x1], y in [y0, y1] */
 void spinners_each(const Room *rm, float x0, float y0, float x1, float y1, void (*fn)(float x, float y, uint16_t nodes, void *ctx),
                    void *ctx) {
@@ -148,13 +187,20 @@ static void layer_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
       draw_spinner(strip, sy0, sy1, &sp, lk, pass);
     }
   }
+  for (int i = 0; i < g_nents; i++) {   /* the attached ones */
+    Ent *e = &g_ents[i];
+    if (e->cls != &ASPIN || e->dead == 1 || !e->visible) continue;
+    if (e->y <= cy - 16 || e->y >= cy + 196 || e->x <= cx - 16 || e->x >= cx + 336) continue;   /* InView */
+    if (e->y + 14 < wy0 - 26 || e->y - 14 >= wy1) continue;
+    draw_attached(strip, sy0, sy1, e, ST(e, ASpin), lk, pass);
+  }
 }
 static void layer_render(Ent *e) {
   int pass = (int)e->eid;   /* 0: border (depth -8498), 1: fillers (-8499), 2: crystals (-8500) */
   int col = area_color();
   bool any = false;
   for (int s = 0; s < 2; s++) any |= g_level.rooms[s].index >= 0 && g_level.rooms[s].nspin && !g_level.rooms[s].spin_dust;
-  if (!any) return;
+  if (!any && !any_attached()) return;
   Tex t;   /* loaded now (nothing loads while the strips are drawn), and kept for this frame */
   for (int i = 0; i < nfg[col]; i++) tex_get(pass ? fg_tex[col][i] : fgb_tex[col][i], &t), tex_get(fg_tex[col][i], &t);
   for (int i = 0; i < nbg[col]; i++) tex_get(pass ? bg_tex[col][i] : bgb_tex[col][i], &t), tex_get(bg_tex[col][i], &t);
@@ -174,6 +220,11 @@ bool spinners_hit_rect(float l, float t, float r, float b) {
     if (rm->index < 0 || !rm->nspin) continue;
     Sp sp;
     FOR_SPINNERS(rm, l - 8, t - 8, r + 8, b + 8, sp) if (hits(&sp, l, t, r, b)) return true;
+  }
+  for (int i = 0; i < g_nents; i++) {
+    Ent *e = &g_ents[i];
+    Sp sp = {.x = e->x, .y = e->y};
+    if (e->cls == &ASPIN && e->dead != 1 && e->collidable && hits(&sp, l, t, r, b)) return true;
   }
   return false;
 }
@@ -211,6 +262,42 @@ void spinners_destroy_near(float x, float y, float rad) {
     FOR_SPINNERS(rm, x - rad, y - rad, x + rad, y + rad, sp)
       if (fabsf(sp.x - x) < rad && fabsf(sp.y - y) < rad) rm->spin_gone[sp.i >> 3] |= (uint8_t)(1 << (sp.i & 7));
   }
+  for (int i = 0; i < g_nents; i++)
+    if (g_ents[i].cls == &ASPIN && fabsf(g_ents[i].x - x) < rad && fabsf(g_ents[i].y - y) < rad) ent_remove(&g_ents[i]);
+}
+
+/* the attached spinner's own: the player's death, riding, shaking, the fillers */
+__attribute__((noinline)) static bool aspin_collide(const Ent *e, float l, float t, float r, float b) {
+  Sp sp = {.x = e->x, .y = e->y};
+  return hits(&sp, l, t, r, b);
+}
+static void aspin_on_player(Ent *e, Player *p) { player_die(p, v2norm(v2(p->ent->x - e->x, p->ent->y - e->y)), false); }
+static bool aspin_riding(Ent *e, Ent *p) { return aspin_collide(e, e_left(p), e_top(p), e_right(p), e_bottom(p)); }   /* CollideCheck */
+static void aspin_shake(Ent *e, V2 v) { ST(e, ASpin)->shx = v.x, ST(e, ASpin)->shy = v.y; }
+static void aspin_enable(Ent *e, bool on) { e->visible = e->collidable = on; }
+static void aspin_awake(Ent *e) {
+  ASpin *a = ST(e, ASpin);
+  uint32_t h = hash2((int)e->x, (int)e->y);
+  a->fi = (uint8_t)(h >> 4);
+  for (int i = 0; i < g_nents && a->nfill < 6; i++) {
+    Ent *o = &g_ents[i];
+    float dx = o->x - e->x, dy = o->y - e->y;
+    if (o == e || o->cls != &ASPIN || o->dead == 1 || o->x < e->x || dx * dx + dy * dy >= 24 * 24) continue;
+    uint32_t k = hash2((int)(e->x + o->x), (int)(e->y + o->y) * 7 + 3);
+    a->fdx[a->nfill] = (int8_t)dx, a->fdy[a->nfill] = (int8_t)dy;
+    a->fb[a->nfill++] = (uint8_t)((k & 15) | ((k >> 8) & 3) << 4);
+  }
+}
+static const EntClass ASPIN = {.name = "spinner", .size = sizeof(ASpin), .awake = aspin_awake, .on_player = aspin_on_player,
+                               .kind = KIND_PCOLLIDE | KIND_STATICMOVER,
+                               .more = &(const EntMore){.collide_rect = aspin_collide, .sm_riding = aspin_riding,
+                                                        .sm_shake = aspin_shake, .sm_enable = aspin_enable}};
+bool spinner_create(const EData *d) {
+  if (d->type != ET_spinner || !EAB(d, spinner, attachToSolid)) return false;
+  if (dust_spinner_new(d)) return true;   /* (the Celestial Resort's and the Summit's d- rooms': dust.c) */
+  Ent *e = ent_new(&ASPIN, d->x, d->y);
+  if (e) e->depth = -8500, e->ctype = COL_LIST, e->cx = -8, e->cy = -6, e->cw = 16, e->ch = 12;
+  return true;
 }
 
 static const EntClass LAYER = {.name = "spinners", .size = 0, .update = layer_update, .render = layer_render};

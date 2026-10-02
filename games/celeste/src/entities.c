@@ -1165,7 +1165,7 @@ WEAK bool trigs_ch7(const EData *d) { (void)d; return false; }
 WEAK bool trigs_ch9(const EData *d) { (void)d; return false; }
 
 bool ent_create(const EData *d) {
-  if (berry_create(d) || props_create(d) || heart_create(d) || cassette_create(d) || dust_create(d)) return true;
+  if (berry_create(d) || props_create(d) || heart_create(d) || cassette_create(d) || dust_create(d) || spinner_create(d)) return true;
   if (ents_ch0(d) || ents_ch1(d) || ents_ch2(d) || ents_ch3(d) || ents_ch4(d) || ents_ch5(d) || ents_ch6(d) ||
       ents_ch7(d) || ents_ch8(d) || ents_ch9(d))
     return true;

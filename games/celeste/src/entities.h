@@ -81,7 +81,9 @@ void leader_reset(void);
 bool berry_create(const EData *d);
 bool heart_create(const EData *d);                                /* heart.c: HeartGem */
 bool cassette_create(const EData *d);                             /* cassette.c: Cassette, CassetteBlock */
-bool dust_create(const EData *d);                                 /* dust.c: Rotate/TrackSpinner */
+bool dust_create(const EData *d);
+bool dust_spinner_new(const EData *d);                             /* dust.c: an attached DustStaticSpinner, in its rooms */
+bool spinner_create(const EData *d);                               /* spinner.c: an attached CrystalStaticSpinner */                                 /* dust.c: Rotate/TrackSpinner */
 void dust_entities(void);                                         /* the dust layer (DustEdges) */
 void dust_hit(float x, float y);                                  /* the dust bunny there killed Madeline */
 void spinners_each(const Room *rm, float x0, float y0, float x1, float y1,

@@ -191,7 +191,8 @@ typedef struct {
   V2 center, start, end, eye, eye_target, outwards;
   float percent, length, pause, angle;
   Sprite spr;
-  uint8_t rotate, clockwise, moving, dust, fall, up, speed, trail, started, nodes, color;
+  uint8_t rotate, clockwise, moving, dust, fall, up, speed, trail, started, color, attached;
+  uint16_t nodes;
 } Mover;
 static const EntClass MOVER;
 
@@ -221,7 +222,8 @@ static void layer_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
       Ent *e = &g_ents[i];
       if (e->cls != &MOVER || e->dead == 1 || !ST(e, Mover)->dust || !e->visible) continue;
       Mover *m = ST(e, Mover);
-      Dust d = {e->x, e->y, (uint32_t)(e->eid * 7919u + 13u), m->nodes, false, m->eye, true};
+      Dust d = {e->x, e->y, (uint32_t)(e->eid * 7919u + 13u), m->nodes, m->attached != 0, m->attached ? v2(0, 0) : m->eye,
+                !m->attached};   /* (an attached DustStaticSpinner: as the room's static ones) */
       dust_draw(strip, sy0, sy1, &d, c.pass, &lt);
     }
     if (!c.pass && mask) blit_edges(strip, sy0, sy1, mask, edge_color, NULL);
@@ -363,6 +365,7 @@ static bool mover_collide(const Ent *e, float l, float t, float r, float b) {   
 /* StaticMover: a RotateSpinner rides what its center is in */
 static bool mover_riding(Ent *e, Ent *p) {
   Mover *m = ST(e, Mover);
+  if (m->attached) return mover_collide(e, e_left(p), e_top(p), e_right(p), e_bottom(p));   /* DustStaticSpinner: CollideCheck */
   return m->rotate && p->collidable && collide_rect(p, m->center.x, m->center.y, m->center.x + 1, m->center.y + 1);
 }
 static void mover_sm_move(Ent *e, V2 v) {
@@ -370,10 +373,27 @@ static void mover_sm_move(Ent *e, V2 v) {
   m->center = v2add(m->center, v);
   e->x += v.x, e->y += v.y;
 }
-static void mover_sm_destroy(Ent *e) { ST(e, Mover)->fall = 1; }
+static void mover_sm_destroy(Ent *e) {
+  if (ST(e, Mover)->attached) ent_remove(e);   /* (StaticMover's default) */
+  else ST(e, Mover)->fall = 1;
+}
 
 static void mover_awake(Ent *e) {
   Mover *m = ST(e, Mover);
+  if (m->attached) {   /* AddDustNodesIfInCamera (autoExpandDust): the nodes clear of solids, those near one stretched */
+    static const int8_t nx[4] = {-1, 1, -1, 1}, ny[4] = {-1, -1, 1, 1};
+    int x = (int)e->x, y = (int)e->y;
+    m->nodes = 0;
+    for (int i = 0; i < 4; i++) {
+      float l = (float)(nx[i] < 0 ? x - 8 : x), t = (float)(ny[i] < 0 ? y - 8 : y);
+      if (!rect_solid(l, t, l + 8, t + 8)) m->nodes |= (uint16_t)(1 << i);
+      l = (float)(x - 4 + nx[i] * 16), t = (float)(y - 4 + ny[i] * 4);
+      if (rect_solid(l, t, l + 8, t + 8)) m->nodes |= (uint16_t)(1 << (4 + i));
+      l = (float)(x - 4 + nx[i] * 4), t = (float)(y - 4 + ny[i] * 16);
+      if (rect_solid(l, t, l + 8, t + 8)) m->nodes |= (uint16_t)(1 << (8 + i));
+    }
+    return;
+  }
   if (m->rotate) return;
   track_start(e);
   if (!m->dust) return;
@@ -454,6 +474,21 @@ static bool mover_new(const EData *d, bool rotate) {
     float l = v2len(dir);
     m->eye = m->eye_target = l > 0 ? v2mul(dir, 1 / l) : v2(1, 0);
   }
+  return true;
+}
+
+/* DustStaticSpinner with attachToSolid (the static ones are the room's, spinner.c): rides the solid it overlaps */
+bool dust_spinner_new(const EData *d) {
+  if (!dust_room_of(d)) return false;
+  Ent *e = ent_new(&MOVER, d->x, d->y);
+  if (!e) return true;
+  Mover *m = ST(e, Mover);
+  e->depth = -50;
+  e->ctype = COL_LIST;
+  e->cx = -8, e->cy = -6, e->cw = 16, e->ch = 12;
+  m->dust = m->attached = 1;
+  m->nodes = 15;
+  m->start = m->end = m->center = v2(d->x, d->y);
   return true;
 }
 

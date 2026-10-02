@@ -469,64 +469,103 @@ static const EntClass FORMATION = {.name = "formationBackdrop", .update = format
 
 /* ---------------------------------------------------------------- CrumblePlatform */
 #define CRUMBLE_MAX 40
+/* Image k's coroutine falls[k] (TileOut, later TileIn) moves image order[k] (fallOrder) after (k % 4) * 0.05 s:
+ * four groups, each run like a Monocle Coroutine. Group phases: 0 just Replace'd, 1 waiting its delay (gt: the
+ * waitTimer), 2 in its loop before the first body, 3 in its loop (gt: the loop's time, already advanced), 4 ended. */
 typedef struct {
-  uint8_t n, state, on_top, fell;   /* fell: 0 standing, 1 falling out, 2 coming back */
-  float timer, outline_a, fade_from, fade_to, fade_t, wait, tiles_t;
+  uint8_t n, state, on_top, fell;   /* fell: 0 standing, 1 falling out (TileOut), 2 came back (TileIn) */
+  uint8_t perm, shake_on, shook;    /* perm: TileIn put image order[k] at slot k (until the shaker moves them home);
+                                       shook: the ShakerList moved the images this frame */
+  uint8_t gph[4];
+  float gt[4];
+  float left;                       /* the images' scale TileOut left (TileIn shows it on its first frame) */
+  float timer, outline_a, fade_from, fade_to, fade_t, wait;
   int step;
-  uint16_t tex, outline;
-  uint8_t order[CRUMBLE_MAX];       /* fall order: tile k falls (order[k] % 4) * 0.05 s late */
+  uint16_t tex, outline, seed, seedq[4];   /* seed: the shaker's offsets (0: none); seedq: when each group's TileOut began */
+  uint8_t order[CRUMBLE_MAX];
 } Crumble;
 
-static float crumble_delay(Crumble *c, int img) {
-  for (int k = 0; k < c->n; k++)
-    if (c->order[k] == img) return (k % 4) * 0.05f;
-  return 0;
+/* the ShakerList's offset of image k (axis 0: x, 1: y): Calc.Random.ShakeVector, kept between its 0.05 s intervals */
+static int crumble_shake(uint16_t seed, int k, int axis) {
+  static const int8_t off[5] = {-1, -1, 0, 1, 1};
+  if (!seed) return 0;
+  uint32_t h = (uint32_t)seed * 0x9E3779B1u ^ (uint32_t)(k * 2 + axis + 1) * 0x85EBCA77u;
+  h ^= h >> 15, h *= 0x2C1B3C6Du, h ^= h >> 12;
+  return off[h % 5];
 }
 static void crumble_emit(Ent *e, Crumble *c) {
   for (int i = 0; i < c->n; i++) particles_emit(PL_MID, &P_CrumblePlatform_P_Crumble, 2, v2(e->x + 4 + i * 8, e->y + 6), v2(3, 3), 0);
 }
+/* falls[k].Replace(TileOut or TileIn) for every k */
+static void crumble_replace(Crumble *c, int fell) {
+  c->fell = (uint8_t)fell;
+  for (int q = 0; q < 4; q++) c->gph[q] = 0;
+}
+/* the falls coroutines (components before Sequence and the shaker) */
+static void crumble_falls(Crumble *c) {
+  if (!c->fell) return;
+  for (int q = 0; q < 4 && q < c->n; q++) {
+    float *t = &c->gt[q];
+    switch (c->gph[q]) {
+      case 0:   /* (TileOut: img.Color = Color.Gray) yield return delay */
+        *t = 0.05f * (float)q, c->gph[q] = 1;
+        break;
+      case 1:   /* TileOut: from = img.Position; TileIn: Visible, at (index * 8 + 4, 4) */
+        if (*t > 0) {
+          *t -= DT;
+          break;
+        }
+        c->seedq[q] = c->seed;
+        *t = 0, c->gph[q] = 2;
+        break;
+      case 2:
+      case 3: {   /* yield return null; the body; time += DT / duration */
+        float body = *t;
+        *t += DT / (c->fell == 1 ? 0.4f : 0.25f);
+        c->gph[q] = 3;
+        if (*t >= 1) {
+          c->gph[q] = 4;
+          if (c->fell == 1) c->left = 1 - body * 0.5f;   /* its last img.Scale */
+        }
+        break;
+      }
+    }
+  }
+}
+/* the ShakerList (after Sequence): new offsets every 0.05 s, back home when its time is up */
+static void crumble_shaker(Crumble *c) {
+  c->shook = 0;
+  if (!c->shake_on) return;
+  if (c->timer > 0) {
+    c->timer -= DT;
+    if (c->timer <= 0) {
+      c->shake_on = 0, c->seed = 0, c->shook = 1, c->perm = 0;
+      return;
+    }
+  }
+  if (level_on_interval(0.05f)) c->seed = (uint16_t)(1 + rndi(0xFFFF)), c->shook = 1, c->perm = 0;
+}
+static void crumble_fall(Ent *e, Crumble *c) {
+  c->fade_from = 0, c->fade_to = 1, c->fade_t = 0;   /* OutlineFade(1) */
+  e->collidable = 0;
+  crumble_replace(c, 1);
+  c->step = 3;
+  c->wait = 2;
+}
 static void crumble_update(Ent *e) {
   Crumble *c = ST(e, Crumble);
   plat_update(e);
-  if (c->fade_t < 1) {
+  if (c->fade_t < 1) {   /* outlineFader: for (t = 0; t < 1; t += DT * 2) { color; yield return null; } */
+    c->outline_a = c->fade_from + (c->fade_to - c->fade_from) * ease_cube_inout(c->fade_t);
     c->fade_t += DT * 2;
-    c->outline_a = c->fade_from + (c->fade_to - c->fade_from) * ease_cube_inout(fminf(c->fade_t, 1));
   }
-  c->tiles_t += DT;
-  switch (c->step) {
-    case 0: {   /* waiting for the player */
-      bool top = solid_has_player_on_top(e);
-      if (!top && !solid_has_player_climbing(e)) return;
-      c->on_top = top;
-      c->timer = top ? 0.6f : 1.f;   /* ShakeFor */
-      crumble_emit(e, c);
-      c->state = top ? 1 : 3;
-      c->wait = 0.2f;
-      c->step = 1;
-      break;
-    }
-    case 1:   /* bursts every 0.2 s */
-      c->timer -= DT;
-      if ((c->wait -= DT) <= 0) {
-        crumble_emit(e, c);
-        if (--c->state == 0) c->step = 2, c->wait = 0.4f;
-        else c->wait = 0.2f;
+  crumble_falls(c);
+  switch (c->step) {   /* Sequence */
+    case 3:   /* yield return 2f; then while something is in the way, yield return null */
+      if (c->wait > 0) {
+        c->wait -= DT;
+        break;
       }
-      break;
-    case 2:   /* 0.4 s more (while the player stays on top) */
-      c->timer -= DT;
-      c->wait -= DT;
-      if (c->wait <= 0 || (c->on_top && !solid_has_player_on_top(e))) {
-        c->fade_from = 0, c->fade_to = 1, c->fade_t = 0;
-        e->collidable = 0;
-        c->fell = 1;
-        c->tiles_t = 0;
-        c->step = 3;
-        c->wait = 2;
-      }
-      break;
-    case 3:
-      if ((c->wait -= DT) > 0) break;
       {
         bool blocked = false;
         e->collidable = 1;
@@ -538,13 +577,90 @@ static void crumble_update(Ent *e) {
         e->collidable = 0;
         if (blocked) break;
       }
-      c->fade_from = 1, c->fade_to = 0, c->fade_t = 0;
+      c->fade_from = 1, c->fade_to = 0, c->fade_t = 0;   /* OutlineFade(0) */
       e->collidable = 1;
-      c->fell = 2;
-      c->tiles_t = 0;
+      crumble_replace(c, 2);
+      c->perm = 1;
       c->step = 0;
+      /* fall through - while (true) looks for the player at once */
+    case 0: {   /* waiting for the player */
+      bool top = solid_has_player_on_top(e);
+      if (!top && !solid_has_player_climbing(e)) break;
+      c->on_top = top;
+      c->shake_on = 1, c->timer = top ? 0.6f : 1.f;   /* shaker.ShakeFor */
+      crumble_emit(e, c);
+      c->state = top ? 1 : 3;
+      c->wait = 0.2f;
+      c->step = 1;
+      break;
+    }
+    case 1:   /* (1 or 3 times) yield return 0.2f; particles */
+      if (c->wait > 0) {
+        c->wait -= DT;
+        break;
+      }
+      crumble_emit(e, c);
+      if (--c->state) {
+        c->wait = 0.2f;
+        break;
+      }
+      c->wait = 0.4f, c->step = 2;
+      if (c->on_top && !solid_has_player_on_top(e)) crumble_fall(e, c);   /* the while's first test comes before a yield */
+      break;
+    case 2:   /* while (timer > 0 (and the player on top)) { yield return null; timer -= DT; } */
+      c->wait -= DT;
+      if (c->wait <= 0 || (c->on_top && !solid_has_player_on_top(e))) crumble_fall(e, c);
       break;
   }
+  crumble_shaker(c);
+}
+/* how image i is drawn: centered on (x, y) (world), scaled by sc, tinted, its texture column col; false: not drawn */
+typedef struct {
+  float x, y, sc;
+  uint16_t tint;
+  uint8_t a, col;
+} CrumbleImg;
+static bool crumble_img(const Ent *e, const Crumble *c, int i, CrumbleImg *m) {
+  int k = 0;   /* falls[k] moves it */
+  while (k < c->n - 1 && c->order[k] != i) k++;
+  int q = k & 3, ph = c->gph[q];
+  m->col = (uint8_t)((int)((fabsf(e->x) + i * 8) / 8) % 4);
+  m->x = 4 + (c->perm ? k : i) * 8, m->y = 4;
+  if (!c->perm) m->x += (float)crumble_shake(c->seed, i, 0), m->y += (float)crumble_shake(c->seed, i, 1);
+  m->tint = 0xFFFF, m->a = 255, m->sc = 1;
+  if (c->fell == 1) {   /* TileOut: grey, then falls (CubeIn) 12, 24 or 36 px, fading and shrinking to half, over 0.4 s */
+    if (ph == 4) return false;
+    if (ph) m->tint = 0x8410;   /* Color.Gray */
+    if (ph == 3) {
+      float t = c->gt[q] - DT / 0.4f;   /* the body's time */
+      if (!c->shook) {   /* (on its intervals the shaker puts the image back home) */
+        float fx = 4 + i * 8 + (float)crumble_shake(c->seedq[q], i, 0);
+        m->x = fx;
+        m->y = 4 + (float)crumble_shake(c->seedq[q], i, 1) + ease_cube_in(t) * (float)(((int)fx * 7 % 3 + 1) * 12);
+      }
+      m->a = (uint8_t)(255 * (1 - t));
+      m->sc = 1 - t * 0.5f;
+    }
+  } else if (c->fell == 2) {   /* TileIn: TileOut's last scale for a frame, then 1.2 bouncing back to 1 over 0.25 s */
+    if (ph < 2) return false;
+    if (ph == 2) m->sc = c->left;
+    else if (ph == 3) m->sc = 1 + ease_bounce_out(1 - (c->gt[q] - DT / 0.25f)) * 0.2f;
+  }
+  m->x += e->x, m->y += e->y;
+  return m->a > 0;
+}
+/* the images while some are scaled: drawn here, in their order, so they take none of gfx.c's few affine slots */
+static void crumble_strip(uint16_t *strip, int y0, int y1, void *ctx) {
+  Ent *e = ctx;
+  Crumble *c = ST(e, Crumble);
+  Tex t;
+  CrumbleImg m;
+  if (!tex_get(c->tex, &t)) return;
+  for (int i = 0; i < c->n; i++)
+    if (crumble_img(e, c, i, &m)) {
+      float x = m.x - g_camx, y = m.y - g_camy;   /* the 8x8 subtexture (column col), scaled around its center */
+      blit_cells(strip, y0, y1, &t, x - 4, y - 4, 1, 1, &m.col, x, y, m.sc, m.sc, m.tint, m.a);
+    }
 }
 static void crumble_render(Ent *e) {
   Crumble *c = ST(e, Crumble);
@@ -555,31 +671,22 @@ static void crumble_render(Ent *e) {
       gfx_tex_part(c->outline, e->x + i * 8, e->y, col * 8, 0, 8, 8, 0, 0xFFFF, a);
     }
   }
-  bool shaking = c->timer > 0 && (c->step == 1 || c->step == 2);
-  for (int i = 0; i < c->n; i++) {
-    int col = (int)((fabsf(e->x) + i * 8) / 8) % 4;
-    float x = e->x + i * 8, y = e->y;
-    uint16_t tint = 0xFFFF;
-    uint8_t a = 255;
-    float t = c->tiles_t - crumble_delay(c, i);
-    if (c->fell == 1) {   /* TileOut: grey, then falls away */
-      tint = 0x8410;
-      if (t > 0) {
-        float k = t / 0.25f;
-        if (k >= 1) continue;
-        a = (uint8_t)(255 * (1 - k));
-        y += k * k * 12;
-      }
-    } else if (c->fell == 2) {   /* TileIn */
-      if (t < 0) continue;
+  CrumbleImg m;
+  float top = 1e9f, bot = -1e9f;
+  bool scaled = false;
+  for (int i = 0; i < c->n; i++)
+    if (crumble_img(e, c, i, &m)) {
+      float h = 4 * fmaxf(m.sc, 1);
+      top = fminf(top, m.y - h), bot = fmaxf(bot, m.y + h);
+      if (m.sc != 1) scaled = true;
     }
-    if (shaking) x += (float)(rndi(3) - 1), y += (float)(rndi(3) - 1);
-    if (c->fell == 2 && t < 0.25f) {
-      float sc = 1 + ease_bounce_out(1 - t / 0.25f) * 0.2f;
-      gfx_tex_ex(c->tex, x + 4, y + 4, (float)(col * 8 + 4), 4, sc, sc, 0, tint, a, 0);
-    } else
-      gfx_tex_part(c->tex, x, y, col * 8, 0, 8, 8, 0, tint, a);
+  if (scaled) {
+    Tex t;   /* (loaded before the strips are drawn) */
+    if (tex_get(c->tex, &t)) gfx_custom(crumble_strip, e, (int)floorf(top) - g_camy - 1, (int)ceilf(bot) - g_camy + 1);
+    return;
   }
+  for (int i = 0; i < c->n; i++)
+    if (crumble_img(e, c, i, &m)) gfx_tex_part(c->tex, m.x - 4, m.y - 4, m.col * 8, 0, 8, 8, 0, m.tint, m.a);
 }
 static const EntClass CRUMBLE = {.size = sizeof(Crumble), .name = "crumbleBlock", .update = crumble_update, .render = crumble_render, .kind = KIND_SOLID};
 static void new_crumble(const EData *d) {
@@ -594,6 +701,7 @@ static void new_crumble(const EData *d) {
   c->tex = tex_by_name(p);
   c->outline = tex_by_name("objects/crumbleBlock/outline");
   c->fade_t = 1;
+  c->left = 1;
   for (int i = 0; i < c->n; i++) c->order[i] = (uint8_t)i;
   for (int i = c->n - 1; i > 0; i--) {
     int j = rndi(i + 1);

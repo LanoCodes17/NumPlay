@@ -425,10 +425,11 @@ void blit_turned(uint16_t *strip, int sy0, int sy1, const Tex *t, int x, int y, 
 }
 
 /* a grid of 8x8 tiles of t (per nibble: tx | ty << 2, 12 for none) with its top-left at screen (x, y),
- * scaled by (scx, scy) around screen (gx, gy) (CassetteBlock's images) */
+ * scaled by (scx, scy) around screen (gx, gy) (CassetteBlock's images, CrumblePlatform's) */
 void blit_cells(uint16_t *strip, int sy0, int sy1, const Tex *t, float x, float y, int ncx, int ncy, const uint8_t *cells,
-                float gx, float gy, float scx, float scy, uint16_t tint) {
-  prep(t->pal, tint, 255, 0);
+                float gx, float gy, float scx, float scy, uint16_t tint, uint8_t alpha) {
+  if (!alpha) return;
+  prep(t->pal, tint, alpha, 0);
   float l = gx + (x - gx) * scx, r = gx + (x + ncx * 8 - gx) * scx;
   float top = gy + (y - gy) * scy, bot = gy + (y + ncy * 8 - gy) * scy;
   int r0 = (int)floorf(top), r1 = (int)ceilf(bot), c0 = (int)floorf(l), c1 = (int)ceilf(r);

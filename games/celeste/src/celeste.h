@@ -225,7 +225,7 @@ void blit_part_ex(uint16_t *strip, int sy0, int sy1, const Tex *t, int x, int y,
                   uint16_t tint, uint8_t alpha);   /* sub-rect (sx, sy, w, h) of the frame at strip-relative (x, y) */
 void blit_turned(uint16_t *strip, int sy0, int sy1, const Tex *t, int x, int y, int q, uint8_t flags, uint16_t tint);
 void blit_cells(uint16_t *strip, int sy0, int sy1, const Tex *t, float x, float y, int ncx, int ncy, const uint8_t *cells,
-                float gx, float gy, float scx, float scy, uint16_t tint);
+                float gx, float gy, float scx, float scy, uint16_t tint, uint8_t alpha);
 /* a 4-bit texture (TF_RAW4) centered on screen (cx, cy) (its frame's (ox, oy)), rotated (cos, sin), scaled 1 / inv */
 typedef struct { const Tex *t; float cx, cy, ox, oy, cs, sn, inv; const uint16_t *lc, *la; } Layer;   /* lc, la: pal_lut's */
 void blit_layers(uint16_t *strip, int sy0, int sy1, const Layer *l, int n, int x0, int y0, int x1, int y1,

@@ -232,7 +232,7 @@ static void block_strip(uint16_t *strip, int y0, int y1, void *ctx) {
   if (!tex_get(block_tex(e), &t)) return;
   V2 s = block_scale(e);
   float x = floorf(e->x + 0.5f) - g_camx, y = floorf(e->y + 0.5f) - g_camy;
-  blit_cells(strip, y0, y1, &t, x, y, b->ncx, b->ncy, b->cells, x + b->lox, y + b->loy, s.x, s.y, block_color(b));
+  blit_cells(strip, y0, y1, &t, x, y, b->ncx, b->ncy, b->cells, x + b->lox, y + b->loy, s.x, s.y, block_color(b), 255);
 }
 static void block_render(Ent *e) {
   Block *b = ST(e, Block);

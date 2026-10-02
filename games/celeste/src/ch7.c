@@ -423,8 +423,9 @@ static void height_update(Ent *e) {
 static void height_render(Ent *e) {   /* "{X} M": the number, then the rest */
   Height *h = ST(e, Height);
   if (g_level.paused || h->index < 0 || h->ease <= 0 || !h->has_text) return;
-  char right[24], num[8];
-  int nr = dialog_clean(h->index == 0 ? "CH7_HEIGHT_0" : "CH7_HEIGHT_0", right, sizeof right);
+  char right[24], num[8], key[16] = "CH7_HEIGHT_0";
+  key[11] = (char)('0' + h->index);
+  int nr = dialog_clean(key, right, sizeof right);   /* ("{X} M": the number's place dropped) */
   num[0] = 0;
   {
     char tmp[8], *o = num;

@@ -77,6 +77,7 @@ void font_draw_glyph(int size, uint32_t code, float x, float y, uint16_t col, ui
 float font_draw(const char *s, int n, float x, float y, int size, uint16_t col, uint8_t alpha) {
   const char *end = s + n;
   float x0 = x;
+  x = floorf(x + 0.5f);   /* (from a whole pixel: the glyphs' rounding, and so their gaps, the same wherever it starts) */
   y = floorf(y + 0.5f);
   while (s < end) {
     uint32_t c = utf8_next(&s, end);

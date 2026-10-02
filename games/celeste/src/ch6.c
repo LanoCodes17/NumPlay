@@ -3705,6 +3705,7 @@ typedef struct {
   uint8_t opts[CAMP_MAX], nopts, sel, node, selfie, selfie_wait, q;
   char key[24];
   char text[CAMP_MAX][56];    /* the asks, cleaned once */
+  TextDraw td[CAMP_MAX];      /* (the long ones) */
 } Camp;
 #define CAMP(e) ST(e, Camp)
 static bool camp_can_ask(const Camp *k, const CampOpt *o) {   /* Option.CanAsk */
@@ -3715,6 +3716,19 @@ static bool camp_can_ask(const Camp *k, const CampOpt *o) {   /* Option.CanAsk *
 static void camp_key(Camp *k, bool answer, int q) {   /* ch6_theo_ask_ / ch6_theo_say_ and the question */
   path2(k->key, answer ? "ch6_theo_say_" : "ch6_theo_ask_", CAMP_Q[q], -1);
 }
+/* an ask's room in its box (Option: 1400 wide, the portrait's 100 and the padding before the text) */
+static float camp_pad(void) { return (140 - font_line_height(FONT_S) * 6 * 0.7f) / 2; }
+static float camp_room(void) { return (1400 - 20 - camp_pad() - 100 - 20) / 6; }
+/* the game's text is 0.7 of the font: a long ask (larger here) is drawn at 0.8 of it, on two lines if it still runs out
+ * of its box */
+static void camp_fit(char *s) {
+  int n = (int)strlen(s);
+  if (font_measure(s, n, FONT_S) * 0.8f <= camp_room()) return;
+  int best = -1;
+  for (int i = 0; i < n; i++)
+    if (s[i] == ' ' && (best < 0 || (i > n / 2 ? i - n / 2 : n / 2 - i) < (best > n / 2 ? best - n / 2 : n / 2 - best))) best = i;
+  if (best > 0) s[best] = '\n';
+}
 static void camp_options(Camp *k) {
   int from = k->node == GO_SLEEP ? 14 : 0, to = k->node == GO_SLEEP ? 16 : 14;
   k->nopts = 0, k->sel = 0;
@@ -3722,6 +3736,7 @@ static void camp_options(Camp *k) {
     if (camp_can_ask(k, &CAMP_OPTS[i])) {
       camp_key(k, false, CAMP_OPTS[i].q);
       dialog_clean(k->key, k->text[k->nopts], 56);
+      camp_fit(k->text[k->nopts]);
       k->hl[k->nopts] = 0;
       k->opts[k->nopts++] = (uint8_t)i;
     }
@@ -3762,9 +3777,14 @@ static void camp_draw(Ent *e) {
       gfx_tex_ex(pt, (x + (right ? 1380 - 50 : 20 + 50)) / 6, (y + 70) / 6, ox, oy, 100 / 240.f, 100 / 240.f, 0,
                  rgb((uint32_t)(l << 16 | l << 8 | l)), a8(num), right ? GF_FLIPX : 0);
     }
-    float pad = (140 - font_line_height(FONT_S) * 6 * 0.7f) / 2;
-    font_draw_justified(k->text[i], (right ? x + 1400 - 20 - pad - 100 : x + 20 + pad + 100) / 6, (y + 70) / 6, right ? 1 : 0, 0.5f,
-                        FONT_S, 0xFFFF, a8((0.6f + 0.4f * hh) * num));
+    float pad = camp_pad(), at = right ? x + 1400 - 20 - pad - 100 : x + 20 + pad + 100;
+    uint8_t ta = a8((0.6f + 0.4f * hh) * num);
+    const char *t = k->text[i];
+    if (strchr(t, '\n') || font_measure(t, (int)strlen(t), FONT_S) > camp_room()) {
+      k->td[i] = (TextDraw){t, at, y + 70, right ? 1 : 0, 0.5f, 0.7f, 0xFFFF, ta};
+      text_draw(&k->td[i]);
+    } else
+      font_draw_justified(t, at / 6, (y + 70) / 6, right ? 1 : 0, 0.5f, FONT_S, 0xFFFF, ta);
   }
   gfx_hud(false);
 }

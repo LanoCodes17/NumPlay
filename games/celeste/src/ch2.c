@@ -2649,12 +2649,15 @@ static void page_render(Ent *e) {
   if (g_level.frozen || g_level.paused || g_level.skipping_cutscene || g->c.alpha <= 0 || !g->loaded) return;
   uint8_t a = (uint8_t)(clampf(g->c.alpha, 0, 1) * 255);
   float w = g->memo ? 936 / 6.f : 855 / 6.f, h = g->memo ? 1380 / 6.f : 580 / 6.f;
-  float x = g->c.pos.x / 6 - w / 2, y = g->c.pos.y / 6 - (g->memo ? 0 : h / 2);   /* origin: (w / 2, 0) or the middle */
-  float maxw = g->memo ? (936 - 120) / 6.f : (855 - 120) / 6.f, lh = font_line_height(FONT_S);
+  /* the poem's lines break where the game's do (its width at 0.7, in the body font's pixels: 1/4.8) */
+  float maxw = g->memo ? (936 - 120) / 6.f : (855 - 120) / 0.7f / 4.8f, lh = font_line_height(FONT_S);
   int lines = 0;
   float widest = 0;
   for (int i = 0, end; i < g->n; i = end + 1, lines++) widest = fmaxf(widest, page_line(g, i, &end, maxw));
-  if (g->memo) h = fmaxf(h, 210 / 6.f + lines * lh + 20);   /* (the text at its full size takes more room) */
+  /* (the text at its full size takes more room: the page grows around it) */
+  if (g->memo) h = fmaxf(h, 210 / 6.f + lines * lh + 20);
+  else w = fmaxf(w, widest + 120 / 6.f), h = fmaxf(h, lines * lh + 120 / 6.f);
+  float x = g->c.pos.x / 6 - w / 2, y = g->c.pos.y / 6 - (g->memo ? 0 : h / 2);   /* origin: (w / 2, 0) or the middle */
   g->c.h = h;
   gfx_hud(true);
   gfx_rect(x, y, w, h, g->memo ? rgb(0xE4DAC5) : rgb(0xDED1C9), a);

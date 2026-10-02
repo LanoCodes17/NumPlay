@@ -191,6 +191,19 @@ static int file_time(char *b, uint32_t frames) {
   *o++ = (char)('0' + f % 10), *o = 0;
   return (int)(o - b);
 }
+/* StrawberriesCounter, DeathsCounter (centeredX): the icon, an x, the amount, and what it is out of (light gray), centered
+ * at (cx, cy) interface pixels */
+static void counter8(float cx, float cy, uint16_t icon, const char *amount, const char *outof) {
+  Tex t;
+  float xw = tex_get(T__x, &t) ? t.fw * 6.f : 24, lh = font_line_height(FONT_S);
+  int na = (int)strlen(amount), no = outof ? (int)strlen(outof) : 0;
+  float wa = font_measure(amount, na, FONT_S) * 6, wo = no ? font_measure(outof, no, FONT_S) * 6 : 0;
+  float total = 62 + xw + 2 + wa + wo, x = cx - total / 2;
+  if (tex_get(icon, &t)) gfx_tex_ex(icon, (x + 30) / 6, cy / 6, t.fw * t.scale / 2.f, t.fh * t.scale / 2.f, 1, 1, 0, 0xFFFF, 255, 0);
+  if (tex_get(T__x, &t)) gfx_tex_ex(T__x, (x + 62 + xw / 2) / 6, (cy + 2) / 6, t.fw * t.scale / 2.f, t.fh * t.scale / 2.f, 1, 1, 0, 0xFFFF, 255, 0);
+  font_draw_outline(amount, na, (x + total - wo - wa) / 6, cy / 6 - lh / 2, FONT_S, 0xFFFF, 0, 255);
+  if (no) font_draw_outline(outof, no, (x + total - wo) / 6, cy / 6 - lh / 2, FONT_S, rgb(0xD3D3D3), 0, 255);
+}
 static void ending_render(Ent *e) {
   Ending8 *s = ST(e, Ending8);
   if (g_level.paused) return;
@@ -207,13 +220,12 @@ static void ending_render(Ent *e) {
   }
   if (s->steps) {   /* StrawberriesCounter (of 175), DeathsCounter, TimeDisplay */
     char b[24];
-    int n = uitoa(save_total_berries(), b);
-    memcpy(b + n, "/175", 5);
     float y = s->counters.y / 6;
-    font_draw_outline(b, (int)strlen(b), (s->counters.x - 170) / 6 - font_measure(b, (int)strlen(b), FONT_S) / 2, y - 4, FONT_S, 0xFFFF, 0, 255);
+    uitoa(save_total_berries(), b);
+    counter8(s->counters.x - 170, s->counters.y, T__collectables_strawberry, b, "/175");
     uitoa((int)g_save.total_deaths, b);
-    font_draw_outline(b, (int)strlen(b), (s->counters.x + 170) / 6 - font_measure(b, (int)strlen(b), FONT_S) / 2, y - 4, FONT_S, 0xFFFF, 0, 255);
-    n = file_time(b, g_save.time);
+    counter8(s->counters.x + 170, s->counters.y, T__collectables_skullBlue, b, NULL);
+    int n = file_time(b, g_save.time);
     font_draw_outline(b, n, s->counters.x / 6 - font_measure(b, n, FONT_S) / 2, y + 100 / 6.f - 4, FONT_S, 0xFFFF, 0, 255);
   }
   gfx_hud(false);

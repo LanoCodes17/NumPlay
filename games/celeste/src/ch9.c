@@ -1465,14 +1465,16 @@ static const EntClass NOREFILL = {.name = "noRefillTrigger", .size = sizeof(NoRe
 
 /* ---------------------------------------------------------------- CoreMessage */
 typedef struct { float alpha; uint8_t line; } CoreMsg;
-/* Dialog.Clean("app_ending").Split('\n')[line]: the cleaned text runs its lines together, a line ending where a
- * sentence's end meets a capital */
+/* Dialog.Clean("app_ending").Split('\n')[line] (empty lines left out) */
 static int core_line(int line, char *out, int cap) {
   char all[200];
   int n = dialog_clean("app_ending", all, sizeof all), k = 0, at = 0;
   for (int i = 0; i < n; i++) {
+    if (all[i] == '\n') {
+      if (i > 0 && all[i - 1] != '\n') k++;
+      continue;
+    }
     if (k == line && at < cap - 1) out[at++] = all[i];
-    if ((all[i] == '.' || all[i] == '?' || all[i] == '!') && i + 1 < n && all[i + 1] >= 'A' && all[i + 1] <= 'Z') k++;
   }
   out[at] = 0;
   return at;

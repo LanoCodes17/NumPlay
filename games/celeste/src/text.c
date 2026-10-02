@@ -801,12 +801,12 @@ void text_into(uint16_t *strip, int sy0, int sy1, const char *s, float px, float
   for (const char *q = s; q < end; q++) lines += *q == '\n';
   float x0 = px / 6, y = py / 6 - lines * lh * k * jy;
   if (y > sy1 || y + lines * lh * k < sy0) return;
-  float x = x0 - line_width(s, end, size) * k * jx;
+  float x = floorf(x0 - line_width(s, end, size) * k * jx + 0.5f);   /* (lines from a whole pixel: see font_draw) */
   while (s < end) {
     uint32_t c = utf8_next(&s, end);
     if (c == '\n') {
       y += lh * k;
-      x = x0 - line_width(s, end, size) * k * jx;
+      x = floorf(x0 - line_width(s, end, size) * k * jx + 0.5f);
       continue;
     }
     const uint8_t *g = font_glyph_rec(size, c);

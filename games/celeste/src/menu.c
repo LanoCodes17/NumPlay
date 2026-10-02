@@ -654,8 +654,8 @@ static void pause_update(void) {
       g_menu = M.screen = S_NONE;
       level_save_and_quit();
       break;
-    case P_RESTART: M.confirm = 0, go(S_CONFIRM, 1); break;
-    case P_RETURN: M.confirm = 1, go(S_CONFIRM, 1); break;
+    case P_RESTART: M.confirm = 0, go(S_CONFIRM, 0); break;   /* (TextMenu: its first button) */
+    case P_RETURN: M.confirm = 1, go(S_CONFIRM, 0); break;
   }
 }
 static void confirm_update(void) {

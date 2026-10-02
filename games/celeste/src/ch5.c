@@ -851,6 +851,11 @@ static void swap_update(Ent *e) {
 /* DrawBlockStyle: a nine-slice of 8x8 cells and the middle light */
 static void swap_style(V2 pos, float w, float h, uint16_t nine, uint16_t mid, uint8_t alpha) {
   int nw = (int)(w / 8), nh = (int)(h / 8);
+  if (nw >= 2 && nh >= 2 && nw * 8 == w && nh * 8 == h) {   /* the same cells (none over another), in one command */
+    gfx_nine(nine, pos.x, pos.y, (int)w, (int)h, false, 0xFFFF, alpha);
+    if (mid != 0xFFFF) draw_centered(mid, pos.x + w / 2, pos.y + h / 2, 0xFFFF, alpha, 1, 1, 0);
+    return;
+  }
   gfx_tex_part(nine, pos.x, pos.y, 0, 0, 8, 8, 0, 0xFFFF, alpha);
   gfx_tex_part(nine, pos.x + w - 8, pos.y, 16, 0, 8, 8, 0, 0xFFFF, alpha);
   gfx_tex_part(nine, pos.x, pos.y + h - 8, 0, 16, 8, 8, 0, 0xFFFF, alpha);
@@ -891,11 +896,8 @@ static void swappath_render(Ent *e) {
   if (!b->cls || b->cls != &SWAP) return;
   Swap *s = ST(b, Swap);
   if (!s->moon) {
-    uint16_t t = swap_path[s->start.x == s->end.x ? 1 : 0];
-    for (int i = s->rx; i < s->rx + s->rw; i += 16)
-      for (int j = s->ry; j < s->ry + s->rh; j += 16)
-        gfx_tex_part(t, (float)i, (float)j, 0, 0, s->rx + s->rw - i < 16 ? s->rx + s->rw - i : 16,
-                     s->ry + s->rh - j < 16 ? s->ry + s->rh - j : 16, 0, 0xFFFF, 255);
+    uint16_t t = swap_path[s->start.x == s->end.x ? 1 : 0];   /* its 16x16 over the move rect, the last ones cut: one command */
+    gfx_tiled(t, (float)s->rx, (float)s->ry, s->rw, s->rh, 16, 16, 0xFFFF, 255);
   }
   float num = 0.5f * (0.5f + (sinf(p->timer) + 1) * 0.25f);
   swap_style(v2(s->rx, s->ry), s->rw, s->rh, swap_tex[s->moon][2], 0xFFFF, a8(num));

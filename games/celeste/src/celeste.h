@@ -199,6 +199,10 @@ void gfx_tex_part(uint16_t tex, float x, float y, int sx, int sy, int w, int h, 
 #define TILE_POOL 1600
 extern uint8_t g_tile_pool[TILE_POOL];   /* the blocks' tiles (entities.c), which gfx_tiles draws */
 void gfx_tiles(uint16_t tex, const uint8_t *q, int w, int h, float x, float y, uint16_t tint, uint8_t alpha);
+/* Celeste's nine-slice blocks (8x8 cells of a 24x24 texture over w x h, multiples of 8), one command; hollow: no middle */
+void gfx_nine(uint16_t tex, float x, float y, int w, int h, bool hollow, uint16_t tint, uint8_t alpha);
+/* the part (0, 0, tw, th) of a frame repeated over w x h, the last ones cut: one command */
+void gfx_tiled(uint16_t tex, float x, float y, int w, int h, int tw, int th, uint16_t tint, uint8_t alpha);
 void gfx_rect(float x, float y, float w, float h, uint16_t c, uint8_t alpha);
 void gfx_hollow_rect(float x, float y, float w, float h, uint16_t c, uint8_t alpha);
 void gfx_line(float x0, float y0, float x1, float y1, uint16_t c, uint8_t alpha);
@@ -209,6 +213,9 @@ typedef void (*StripFn)(uint16_t *strip, int y0, int y1, void *ctx);
 void gfx_custom(StripFn fn, void *ctx, int y0, int y1);
 void gfx_keep(bool on);    /* the layers that must be drawn (tiles, stylegrounds in front): commands kept for them */
 void blit_line(uint16_t *strip, int sy0, int sy1, float x0, float y0, float x1, float y1, uint16_t col, uint8_t alpha);
+/* gfx_tex_ex drawn into the strip by a StripFn layer (world coordinates; the texture got when the layer was recorded) */
+void blit_tex_ex(uint16_t *strip, int sy0, int sy1, uint16_t tex, float x, float y, float ox, float oy, float sx, float sy,
+                 float rot, uint16_t tint, uint8_t alpha, uint8_t flags);
 void gfx_camera(float x, float y);              /* world position of the view's top left */
 extern int g_camx, g_camy;                      /* floored */
 void gfx_hud(bool on);                          /* following draws ignore the camera */

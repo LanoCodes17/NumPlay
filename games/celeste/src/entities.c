@@ -796,11 +796,14 @@ static void zip_render(Ent *e) {
     if (num3 == num) num = -num;
   }
   int cw = (int)(w / 8), ch = (int)(h / 8);
-  for (int k = 0; k < cw; k++)
-    for (int l = 0; l < ch; l++) {
-      int a = k == 0 ? 0 : k != cw - 1 ? 1 : 2, b = l == 0 ? 0 : l != ch - 1 ? 1 : 2;
-      if (a != 1 || b != 1) gfx_tex_part(z->block, x + k * 8, y + l * 8, a * 8, b * 8, 8, 8, 0, 0xFFFF, 255);
-    }
+  if (((int)w | (int)h) & 7)
+    for (int k = 0; k < cw; k++)
+      for (int l = 0; l < ch; l++) {
+        int a = k == 0 ? 0 : k != cw - 1 ? 1 : 2, b = l == 0 ? 0 : l != ch - 1 ? 1 : 2;
+        if (a != 1 || b != 1) gfx_tex_part(z->block, x + k * 8, y + l * 8, a * 8, b * 8, 8, 8, 0, 0xFFFF, 255);
+      }
+  else
+    gfx_nine(z->block, x, y, (int)w, (int)h, true, 0xFFFF, 255);   /* the same edges, in one command */
   gfx_tex(z->light_tex[z->light], x + w / 2 - 4, y, 0, 0xFFFF, 255);
 }
 

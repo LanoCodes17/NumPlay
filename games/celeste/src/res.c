@@ -241,21 +241,30 @@ static void compact(void) {
   hash_rebuild();
 }
 
-/* frees `need` bytes at the top: what was drawn longest ago goes first (what the rooms want gets 8 frames more), never
- * what was drawn this frame; false if that is not enough */
-static bool make_room_ex(uint32_t need, bool force) {
+/* frees `need` bytes at the top: what was drawn longest ago goes first (what the rooms want gets 8 frames more; of those
+ * drawn as long ago, a tile sheet last, the biggest first), never what was drawn this frame; false if that is not enough,
+ * and then nothing goes unless `partial` (a texture that could not be loaded used to empty the cache for nothing: what
+ * had been drawn came back evicting the rest) */
+static bool make_room_ex(uint32_t need, bool force, bool partial) {
   if (cache_top + need <= cache_limit) return true;
-  uint32_t freed = 0, want = cache_top + need - cache_limit;
+  uint32_t freed = 0, want = cache_top + need - cache_limit, can = 0;
+  /* what this frame draws stays while it is drawn, unless a tile sheet needs the room */
+#define MAY_GO(e) ((e)->mark && !(g_res_drawing && (e)->used == g_res_frame && (!force || (e)->fmt == TF_RAW4)))
+  for (uint32_t at = 0; at < cache_top;) {
+    CEnt *e = (CEnt *)(void *)(cache + at);
+    at += (sizeof(CEnt) + e->bytes + 3) & ~3u;
+    if (MAY_GO(e)) can += (sizeof(CEnt) + e->bytes + 3) & ~3u;
+  }
+  if (can < want && !partial) return false;
   while (freed < want) {
     CEnt *old = NULL;
     uint32_t oldest = 0;
     for (uint32_t at = 0; at < cache_top;) {
       CEnt *e = (CEnt *)(void *)(cache + at);
       at += (sizeof(CEnt) + e->bytes + 3) & ~3u;
-      /* what this frame draws stays while it is drawn, unless a tile sheet needs the room */
-      if (!e->mark || (g_res_drawing && e->used == g_res_frame && (!force || e->fmt == TF_RAW4))) continue;
-      uint32_t age = (uint32_t)(uint16_t)(g_res_frame - e->used) * 2u + (e->mark == marks_gen ? 0 : 17u);
-      if (!old || age > oldest) old = e, oldest = age;
+      if (!MAY_GO(e)) continue;
+      uint32_t age = ((uint32_t)(uint16_t)(g_res_frame - e->used) * 2u + (e->mark == marks_gen ? 0 : 17u)) * 2u + (e->fmt != TF_RAW4);
+      if (!old || age > oldest || (age == oldest && e->bytes > old->bytes)) old = e, oldest = age;   /* (the biggest: fewer go) */
     }
     if (!old) break;
     old->mark = 0;
@@ -263,8 +272,9 @@ static bool make_room_ex(uint32_t need, bool force) {
   }
   compact();
   return cache_top + need <= cache_limit;
+#undef MAY_GO
 }
-static bool make_room(uint32_t need) { return make_room_ex(need, false); }
+static bool make_room(uint32_t need) { return make_room_ex(need, false, true); }   /* (scratch: what it can) */
 
 /* RLE of one row of 8-bit pixels (see tools/pack.py rle()); nib: literals two a byte (local colors, TF_NIB) */
 static uint32_t rle_row(const uint8_t *row, int w, uint8_t *out, bool nib) {
@@ -382,7 +392,7 @@ static void start_tex(Reader *r) {
   uint32_t ms = fmt & TF_NIB ? (1u + h[20] + 1) & ~1u : 0;   /* the colors, kept even (the row table) */
   uint32_t need = rd32(h + 16) + (fmt != TF_RAW4 ? 2 * (hh + 1u) + ms : 0);
   bool soft = r->soft && r->want[r->cur] != r->hard;   /* an animation's other frames: only into free room */
-  r->skip = soft ? cache_top + sizeof(CEnt) + need + 4 > cache_limit : !make_room_ex(sizeof(CEnt) + need + 4, fmt == TF_RAW4);
+  r->skip = soft ? cache_top + sizeof(CEnt) + need + 4 > cache_limit : !make_room_ex(sizeof(CEnt) + need + 4, fmt == TF_RAW4, false);
   r->e = NULL;
   if (r->skip) return;
   CEnt *e = (CEnt *)(void *)(cache + cache_top);
@@ -420,7 +430,8 @@ static void reader_sink(const uint8_t *p, uint32_t n, void *ctx) {
       int done = r->hdr_n < 20 ? 0 : !(r->hdr[14] & TF_NIB) ? 20 : r->hdr_n > 20 ? 21 + r->hdr[20] : 0;
       if (r->hdr_n == done) {
         start_tex(r);
-        if (rd16(r->hdr) * rd16(r->hdr + 2) == 0) finish_tex(r);
+        /* (a last one with no room: the rest of the pack is not decoded for nothing) */
+        if (rd16(r->hdr) * rd16(r->hdr + 2) == 0 || (r->skip && r->cur == r->n - 1)) finish_tex(r);
       }
       continue;
     }
@@ -507,7 +518,9 @@ static bool load_one(uint16_t id) {
   uint32_t e = tex_entry(id);
   if (e >> 30 == 1 || e == 0xFFFFFFFF) return false;
   uint16_t one = id;
-  load_list(&one, 1, 1);
+  /* drawn now: as wanted as the rooms' (marked 1, a tile sheet the room's loading had to let go of went first ever
+   * after, every frame, and came back taking the room of what the frame had drawn) */
+  load_list(&one, 1, marks_gen);
   return hash_find(id) >= 0;
 }
 /* several (an animation's frames), in one pass: `hard` surely (if it can be), the others if there is

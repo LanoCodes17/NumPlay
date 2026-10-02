@@ -22,7 +22,7 @@ static bool letterbox_dirty = true;
 static char top_label[24];   /* a line in the top bar (the room's code), redrawn when it changes */
 static bool top_dirty;
 
-enum { OP_TEX, OP_PART, OP_AFFINE, OP_RECT, OP_LINE, OP_PIXEL, OP_CUSTOM, OP_SCALED, OP_MASK, OP_TILES };
+enum { OP_TEX, OP_PART, OP_AFFINE, OP_RECT, OP_LINE, OP_PIXEL, OP_CUSTOM, OP_SCALED, OP_MASK, OP_TILES, OP_GRID };
 
 typedef struct {
   uint8_t op, flags, alpha, extra;
@@ -493,6 +493,30 @@ static void blit_tiles(uint16_t *strip, int sy0, int sy1, const Tex *t, int x, i
   }
 }
 
+/* gfx_nine's cells (tw 0; th 1: hollow) or gfx_tiled's repeated part (tw x th), w x h at strip-relative (x, y): pixel i of
+ * a span comes from column (row) i % tw of the frame, or from the first, middle or last cell's */
+static inline int grid_src(int i, int n, int tw) {
+  if (tw) return i % tw;
+  int cell = i >> 3;
+  return (cell == 0 ? 0 : cell == n - 1 ? 16 : 8) + (i & 7);
+}
+static void blit_grid(uint16_t *strip, int sy0, int sy1, const Tex *t, int x, int y, int w, int h, int tw, int th, uint16_t tint,
+                      uint8_t alpha) {
+  prep(t->pal, tint, alpha, 0);
+  int nw = w >> 3, nh = h >> 3, r0 = y > sy0 ? y : sy0, r1 = y + h < sy1 ? y + h : sy1, c0 = x > 0 ? x : 0, c1 = x + w < VIEW_W ? x + w : VIEW_W;
+  for (int vy = r0; vy < r1; vy++) {
+    int sr = grid_src(vy - y, nh, tw ? th : 0), mid_row = !tw && th && sr >= 8 && sr < 16;   /* (hollow: no middle cells) */
+    if ((sr -= t->oy) < 0 || sr >= t->h) continue;
+    turned_src = NULL, tex_row(t, sr, rowbuf);
+    uint16_t *row = strip + (vy - sy0) * VIEW_W;
+    for (int vx = c0; vx < c1; vx++) {
+      int c = grid_src(vx - x, nw, tw);
+      if (mid_row && c >= 8 && c < 16) continue;
+      if ((c -= t->ox) >= 0 && c < t->w && rowbuf[c]) plot(row + vx, rowbuf[c]);
+    }
+  }
+}
+
 /* a palette's first 16 colors as drawn (tint folded in) and their alphas (0..256) */
 void pal_lut(uint16_t pal, uint16_t tint, uint16_t *col, uint16_t *alpha) {
   int n;
@@ -841,6 +865,53 @@ void gfx_tiles(uint16_t tex, const uint8_t *q, int w, int h, float x, float y, u
   c->flags = (uint8_t)w, c->extra |= (uint8_t)(h << 1), c->a = (uint16_t)(q - g_tile_pool);
 }
 
+/* gfx_nine and gfx_tiled: one OP_GRID command */
+static void grid(uint16_t tex, float x, float y, int w, int h, int tw, int th, uint16_t tint, uint8_t alpha) {
+  Tex t;
+  if (!tex_get(tex, &t) || !alpha || w <= 0 || h <= 0) return;   /* (got first, in view or not, as gfx_tex_part does) */
+  int X = sx_(x), Y = sy_(y);
+  if (X >= VIEW_W || X + w <= 0) return;
+  Cmd *c = add(OP_GRID, Y, Y + h);
+  if (!c) return;
+  c->tex = tex, c->x = (int16_t)X, c->y = (int16_t)Y, c->tint = tint, c->alpha = alpha;
+  c->flags = (uint8_t)tw, c->extra |= (uint8_t)(th << 1), c->a = (uint16_t)w, c->b = (uint16_t)h;
+}
+/* Celeste's nine-slice blocks in one command (what would be a part for each 8x8 cell): a 24x24 texture's corners, edges
+ * and middle over w x h (multiples of 8) at (x, y), a single column (row) taking the first one's cells; hollow: no middle */
+void gfx_nine(uint16_t tex, float x, float y, int w, int h, bool hollow, uint16_t tint, uint8_t alpha) {
+  if (!((w | h) & 7)) grid(tex, x, y, w, h, 0, hollow, tint, alpha);
+}
+/* the part (0, 0, tw, th) of a texture's frame repeated over w x h at (x, y), the last ones cut: one command */
+void gfx_tiled(uint16_t tex, float x, float y, int w, int h, int tw, int th, uint16_t tint, uint8_t alpha) {
+  if (tw > 0 && th > 0 && tw < 256 && th < 128) grid(tex, x, y, w, h, tw, th, tint, alpha);
+}
+
+/* gfx_tex_ex (world coordinates) drawn straight into a strip, for StripFn layers: the same pixels as its command, without
+ * using up any, or an affine slot (the texture got when the layer is recorded: nothing loads while strips are drawn) */
+void blit_tex_ex(uint16_t *strip, int sy0, int sy1, uint16_t tex, float x, float y, float ox, float oy, float sx, float sy,
+                 float rot, uint16_t tint, uint8_t alpha, uint8_t flags) {
+  Tex t;
+  if (!alpha || !tex_get(tex, &t)) return;
+  int k = t.scale > 1 ? t.scale : 1;   /* (textures stored smaller: affine here, as close) */
+  if (k == 1 && rot == 0 && (sx == 1 || sx == -1) && (sy == 1 || sy == -1)) {   /* gfx_tex */
+    uint8_t f = flags;
+    float px = x - (sx > 0 ? ox : t.fw - ox), py = y - (sy > 0 ? oy : t.fh - oy);
+    if (sx < 0) f ^= GF_FLIPX;
+    if (sy < 0) f ^= GF_FLIPY;
+    int X = (int)floorf(px + 0.5f) - g_camx + (f & GF_FLIPX ? t.fw - t.ox - t.w : t.ox);
+    int Y = (int)floorf(py + 0.5f) - g_camy + (f & GF_FLIPY ? t.fh - t.oy - t.h : t.oy);
+    blit_tex(strip, sy0, sy1, &t, X, Y, f, tint, alpha);
+    return;
+  }
+  Affine a;
+  a.px = floorf(x + 0.5f) - g_camx, a.py = floorf(y + 0.5f) - g_camy;
+  a.ox = ox / k, a.oy = oy / k, a.sx = sx * k, a.sy = sy * k, a.rot = rot;
+  a.cx0 = a.cy0 = -32768, a.cx1 = a.cy1 = 32767;
+  if (flags & GF_FLIPX) a.sx = -a.sx;
+  if (flags & GF_FLIPY) a.sy = -a.sy;
+  blit_affine(strip, sy0, sy1, &t, &a, tint, alpha, flags);
+}
+
 void gfx_rect(float x, float y, float w, float h, uint16_t col, uint8_t alpha) {
   if (!alpha) return;
   int X = sx_(x), Y = sy_(y), W_ = (int)floorf(w + 0.5f), H_ = (int)floorf(h + 0.5f);
@@ -947,6 +1018,9 @@ static void replay(int y0, int y1, int pass) {
       case OP_RECT: fill(g_strip, y0, y1, c->x, c->y, c->a, c->b, c->tint, c->alpha); break;
       case OP_LINE: line(g_strip, y0, y1, c->x, c->y, (int16_t)c->a, (int16_t)c->b, c->tint, c->alpha); break;
       case OP_CUSTOM: customs[c->a].fn(g_strip, y0, y1, customs[c->a].ctx); break;
+      case OP_GRID:
+        if (tex_get(c->tex, &t)) blit_grid(g_strip, y0, y1, &t, c->x, c->y, c->a, c->b, c->flags, c->extra >> 1, c->tint, c->alpha);
+        break;
       case OP_TILES:
         if (tex_get(c->tex, &t))
           blit_tiles(g_strip, y0, y1, &t, c->x, c->y, g_tile_pool + c->a, c->flags, c->extra >> 1, c->tint, c->alpha);

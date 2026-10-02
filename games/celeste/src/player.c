@@ -632,22 +632,33 @@ static void body_update(void) {
   if (p->body_step == 5) p->death_effect += DT / 0.834f;
 }
 
-/* DeathEffect.Draw */
-static void death_effect_draw(V2 pos, uint16_t color, float ease) {
-  uint16_t c2 = ((int)floorf(ease * 10) % 2 == 0) ? color : 0xFFFF;
+/* DeathEffect.Draw: a gfx_custom layer (its 40 scaled discs, as affine commands, took 40 of the frame's 48: with anything
+ * else turning or scaled, the colors drawn over their black outlines were left out) */
+static struct { V2 pos; float ease; uint16_t color; } death_fx;
+static void death_effect_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
+  (void)ctx;
+  V2 pos = death_fx.pos;
+  float ease = death_fx.ease;
+  uint16_t c2 = ((int)floorf(ease * 10) % 2 == 0) ? death_fx.color : 0xFFFF;
   float s = ease < 0.5f ? 0.5f + ease : ease_cube_out(1 - (ease - 0.5f) * 2);
   for (int pass = 0; pass < 2; pass++)
     for (int i = 0; i < 8; i++) {
       V2 v = angle_vec((i / 8.f + ease * 0.25f) * 2 * PI_F, ease_cube_out(ease) * 24);
       V2 at = v2add(pos, v);
       if (!pass) {
-        gfx_tex_ex(T_characters_player_hair00, at.x - 1, at.y, 5, 5, s, s, 0, 0, 255, GF_SILHOUETTE);
-        gfx_tex_ex(T_characters_player_hair00, at.x + 1, at.y, 5, 5, s, s, 0, 0, 255, GF_SILHOUETTE);
-        gfx_tex_ex(T_characters_player_hair00, at.x, at.y - 1, 5, 5, s, s, 0, 0, 255, GF_SILHOUETTE);
-        gfx_tex_ex(T_characters_player_hair00, at.x, at.y + 1, 5, 5, s, s, 0, 0, 255, GF_SILHOUETTE);
+        blit_tex_ex(strip, sy0, sy1, T_characters_player_hair00, at.x - 1, at.y, 5, 5, s, s, 0, 0, 255, GF_SILHOUETTE);
+        blit_tex_ex(strip, sy0, sy1, T_characters_player_hair00, at.x + 1, at.y, 5, 5, s, s, 0, 0, 255, GF_SILHOUETTE);
+        blit_tex_ex(strip, sy0, sy1, T_characters_player_hair00, at.x, at.y - 1, 5, 5, s, s, 0, 0, 255, GF_SILHOUETTE);
+        blit_tex_ex(strip, sy0, sy1, T_characters_player_hair00, at.x, at.y + 1, 5, 5, s, s, 0, 0, 255, GF_SILHOUETTE);
       } else
-        gfx_tex_ex(T_characters_player_hair00, at.x, at.y, 5, 5, s, s, 0, c2, 255, GF_SILHOUETTE);
+        blit_tex_ex(strip, sy0, sy1, T_characters_player_hair00, at.x, at.y, 5, 5, s, s, 0, c2, 255, GF_SILHOUETTE);
     }
+}
+static void death_effect_draw(V2 pos, uint16_t color, float ease) {
+  Tex t;
+  tex_get(T_characters_player_hair00, &t);   /* (loaded now) */
+  death_fx.pos = pos, death_fx.ease = ease, death_fx.color = color;
+  gfx_custom(death_effect_strip, NULL, (int)floorf(pos.y) - 32 - g_camy, (int)ceilf(pos.y) + 33 - g_camy);
 }
 
 /* ---------------------------------------------------------------- collisions */
@@ -2700,33 +2711,45 @@ void player_before_down_transition(Player *p) {
 }
 
 /* ---------------------------------------------------------------- rendering */
-static void hair_render(void) {
+/* PlayerHair.Render: a gfx_custom layer (as affine commands, its scaled nodes and their outlines took up to 25 of the
+ * frame's 48: in a busy frame the colors were left out, over black outlines) */
+static void hair_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
+  (void)ctx;
   int hx, hy, fr, carry;
   bool has;
   hair_meta(spr_tex(&P->spr), &hx, &hy, &fr, &has, &carry);
-  if (!has) return;
   uint16_t col = rgb(hair_rgb);
-  P->hair[0] = v2(floorf(P->hair[0].x), floorf(P->hair[0].y));
-  uint16_t bangs = (uint16_t)(T_characters_player_bangs00 + 0);
   uint16_t bang_tex[3] = {T_characters_player_bangs00, T_characters_player_bangs01, T_characters_player_bangs02};
-  (void)bangs;
   int n = P->hair_count;
   for (int i = 0; i < n; i++) {
     uint16_t t = i == 0 ? bang_tex[fr < 3 ? fr : 0] : T_characters_player_hair00;
     float num = 0.25f + (1 - (float)i / n) * 0.75f;
     float sx = (i == 0 ? (float)P->facing : num) * fabsf(P->spr.sx), sy = num;
     V2 at = P->hair[i];
-    gfx_tex_ex(t, at.x - 1, at.y, 5, 5, sx, sy, 0, 0, 255, GF_SILHOUETTE);
-    gfx_tex_ex(t, at.x + 1, at.y, 5, 5, sx, sy, 0, 0, 255, GF_SILHOUETTE);
-    gfx_tex_ex(t, at.x, at.y - 1, 5, 5, sx, sy, 0, 0, 255, GF_SILHOUETTE);
-    gfx_tex_ex(t, at.x, at.y + 1, 5, 5, sx, sy, 0, 0, 255, GF_SILHOUETTE);
+    blit_tex_ex(strip, sy0, sy1, t, at.x - 1, at.y, 5, 5, sx, sy, 0, 0, 255, GF_SILHOUETTE);
+    blit_tex_ex(strip, sy0, sy1, t, at.x + 1, at.y, 5, 5, sx, sy, 0, 0, 255, GF_SILHOUETTE);
+    blit_tex_ex(strip, sy0, sy1, t, at.x, at.y - 1, 5, 5, sx, sy, 0, 0, 255, GF_SILHOUETTE);
+    blit_tex_ex(strip, sy0, sy1, t, at.x, at.y + 1, 5, 5, sx, sy, 0, 0, 255, GF_SILHOUETTE);
   }
   for (int i = n - 1; i >= 0; i--) {
     uint16_t t = i == 0 ? bang_tex[fr < 3 ? fr : 0] : T_characters_player_hair00;
     float num = 0.25f + (1 - (float)i / n) * 0.75f;
     float sx = (i == 0 ? (float)P->facing : num) * fabsf(P->spr.sx), sy = num;
-    gfx_tex_ex(t, P->hair[i].x, P->hair[i].y, 5, 5, sx, sy, 0, col, 255, GF_SILHOUETTE);
+    blit_tex_ex(strip, sy0, sy1, t, P->hair[i].x, P->hair[i].y, 5, 5, sx, sy, 0, col, 255, GF_SILHOUETTE);
   }
+}
+static void hair_render(void) {
+  int hx, hy, fr, carry;
+  bool has;
+  hair_meta(spr_tex(&P->spr), &hx, &hy, &fr, &has, &carry);
+  if (!has) return;
+  P->hair[0] = v2(floorf(P->hair[0].x), floorf(P->hair[0].y));
+  Tex t;
+  tex_get(fr == 1 ? T_characters_player_bangs01 : fr == 2 ? T_characters_player_bangs02 : T_characters_player_bangs00, &t);
+  tex_get(T_characters_player_hair00, &t);   /* (loaded now) */
+  float y0 = P->hair[0].y, y1 = y0;
+  for (int i = 1; i < P->hair_count; i++) y0 = fminf(y0, P->hair[i].y), y1 = fmaxf(y1, P->hair[i].y);
+  gfx_custom(hair_strip, NULL, (int)floorf(y0) - 8 - g_camy, (int)ceilf(y1) + 9 - g_camy);
 }
 
 static void player_render(Ent *e) {

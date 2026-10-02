@@ -1247,7 +1247,13 @@ static float fmodp(float x, float m) { return fmodf(fmodf(x, m) + m, m); }
 static void hd_interior(Ent *e, float bx, float by, int w, int h) {
   HDoor *d = ST(e, HDoor);
   gfx_rect(bx, by, (float)w, (float)h, rgb(0x18668F), 255);
-  for (int pass = 0; pass < 2; pass++) {
+  /* the mist takes 26 KB of the texture cache, about all Core leaves: only when there is room for it as it is (made room
+   * for, it took the edges', the hearts' and the tiles' every frame, and they and it went missing in turn); tried again
+   * a second later */
+  static uint16_t mist_tried = 0x8000;
+  uint16_t mist = T_objects_heartdoor_mist;
+  if (!res_cached(mist) && (uint16_t)(g_res_frame - mist_tried) >= 60) mist_tried = g_res_frame, res_load_frames(&mist, 1, 0xFFFF);
+  for (int pass = 0; pass < 2 && res_cached(mist); pass++) {
     V2 m = pass ? v2(d->mist.y * 1.5f, d->mist.x * 1.5f) : d->mist;
     for (int i = 0; i < w; i += 160)
       for (int j = 0; j < h; j += 160) {

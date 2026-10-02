@@ -23,7 +23,7 @@ V2 ed_node(const EData *d, int i) {
   if (i >= d->nnodes) return v2(d->x, d->y);
   return v2(d->rx + rds16(d->nodes + 4 * i), d->ry + rds16(d->nodes + 4 * i + 2));
 }
-uint32_t level_entity_hash(const EData *d) { return level_entity_id(d->room, d->id); }
+uint32_t level_entity_hash(const EData *d) { return level_entity_id(d->room, d->id) | (d->trig ? 1u << 31 : 0); }
 
 const char *area_jumpthru(void) {
   /* AreaData.Jumpthru */
@@ -1180,8 +1180,6 @@ bool ent_create(const EData *d) {
       return true;
     }
     case ET_dashBlock: {
-      uint32_t h = level_entity_hash(d);
-      if (level_do_not_load(h)) return true;
       char t = TILE_ATTR(d, dashBlock, tiletype);
       Ent *e = new_block(&DASHBLOCK, d, EA(d, dashBlock, width), EA(d, dashBlock, height), t);
       if (!e) return true;
@@ -1196,8 +1194,6 @@ bool ent_create(const EData *d) {
       return true;
     }
     case ET_fakeWall: {
-      uint32_t h = level_entity_hash(d);
-      if (level_do_not_load(h)) return true;
       char t = TILE_ATTR(d, fakeWall, tiletype);
       Ent *e = new_block(&FAKEWALL, d, EA(d, fakeWall, width), EA(d, fakeWall, height), t);
       if (!e) return true;
@@ -1231,7 +1227,9 @@ bool ent_create(const EData *d) {
       if (e) ent_box(e, EA(d, killbox, width), 32, 0, 0), e->visible = 0;
       return true;
     }
-    case ET_checkpoint: {
+    case ET_checkpoint: {   /* Level.LoadLevel: not falling into a room (but the first) */
+      if (g_level.last_intro == INTRO_FALL && strcmp(level_room_name(), "0")) return true;
+      g_level.start_position = ed_node(d, 0), g_level.has_start_position = true;   /* + SpawnOffset */
       Ent *e = ent_new(&CHECKPOINT, d->x, d->y);
       if (!e) return true;
       e->depth = 9990;
@@ -1284,9 +1282,12 @@ void entities_load(Room *rm, const uint8_t *blob, int slot) {
       int size = pass ? trig_attr_size(d.type) : ent_attr_size(d.type);
       d.nodes = d.attrs + size;
       g_new_eid = (uint16_t)d.id;
-      if (pass) trig_create(&d);
-      else if (!leader_has_id(level_entity_id(rm->index, d.id)))   /* what follows the player is there already */
-        ent_create(&d);
+      d.trig = pass;
+      uint32_t id = level_entity_hash(&d);
+      if (!level_do_not_load(id) && !leader_has_id(id)) {   /* what follows the player is there already */
+        if (pass) trig_create(&d);
+        else ent_create(&d);
+      }
       g_new_eid = 0xFFFF;
       p = d.nodes + 4 * d.nnodes;
       if ((uintptr_t)(p - blob) & 1) p++;

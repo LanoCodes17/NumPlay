@@ -627,11 +627,20 @@ static void berry_new(const EData *d, bool golden, bool memorial) {
     }
   }
 }
+/* Level.LoadLevel: a golden strawberry once the side is completed with the C-sides unlocked (or in cheat mode), in the
+ * room seen last or before any death; the memorial's winged one without a dash since the chapter's start */
 bool berry_create(const EData *d) {
+  Session *s = &g_session;
   switch (d->type) {
     case ET_strawberry: berry_new(d, false, false); return true;
-    case ET_goldenBerry: berry_new(d, true, false); return true;
-    case ET_memorialTextController: berry_new(d, false, true); return true;
+    case ET_goldenBerry:
+      if ((g_save.cheat_mode || (save_unlocked_modes() >= 3 && (save_mode()->flags & MS_COMPLETED))) &&
+          (s->furthest_seen == s->level + 1 || !s->deaths))
+        berry_new(d, true, false);
+      return true;
+    case ET_memorialTextController:
+      if (!s->dashes && s->started_from_beginning) berry_new(d, false, true);
+      return true;
   }
   return false;
 }

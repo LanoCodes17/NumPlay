@@ -95,6 +95,9 @@ typedef struct {
   float tr_duration;
   /* respawn */
   V2 respawn;
+  V2 start_position;      /* the room's checkpoint (LoadLevel's startPosition), if has_start_position */
+  bool has_start_position;
+  uint8_t last_intro;     /* LastIntroType: the INTRO_ the room was loaded with */
   bool dead_reload;
   bool in_cutscene;
   bool skipping_cutscene;
@@ -162,6 +165,11 @@ typedef struct {
   uint8_t visited[32];       /* LevelFlags: a bit per room */
   struct { uint32_t key; int32_t value; } counters[3];
   ModeStats old_stats;       /* OldStats: the side's stats before this go */
+  /* since 1.6.1 (a 1.6.0 save has zeros here) */
+  uint8_t furthest_seen;     /* FurthestSeenLevel: the room + 1, 0 if none */
+  uint8_t pad_[3];
+  uint32_t dnl_more[16];     /* DoNotLoad past dnl's 32 */
+  uint8_t torches_lit[56];   /* the Torches lit (the game's "torch_" flags): a bit each, from the room's RR_TORCHES * 2 */
 } Session;
 
 typedef struct {
@@ -175,6 +183,10 @@ typedef struct {
   uint32_t total_deaths, total_golden, total_jumps, total_wall_jumps, total_dashes, time;
   uint8_t bind[4];           /* jump, dash, grab, talk: EADK keys */
   Session session;           /* CurrentSession, and the one being played */
+  /* since 1.6.1 */
+  uint8_t cheat_mode;        /* CheatMode */
+  uint8_t binds_set;         /* 1: bind holds 1.6.1's keys or the player's own (1.6.0's defaults are replaced) */
+  uint8_t pad_[2];
   uint32_t checksum;
 } SaveData;
 extern SaveData g_save;
@@ -284,6 +296,7 @@ void style_update(void);
 void style_render(bool fg);
 
 void level_tiles_entities(void);
+#define RR_TORCHES 39   /* in a room record (Room.info): its torches' first bit in Session.torches, halved */
 
 /* lights (light.c): call while rendering */
 void light_add(float x, float y, uint32_t color, float alpha, float start_fade, float end_fade);

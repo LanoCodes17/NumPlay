@@ -27,6 +27,7 @@ import entities as E  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_BIN = os.path.join(HERE, "..", "src", "data.bin")
 OUT_H = os.path.join(HERE, "..", "src", "data.h")
+TORCH_BITS = 448   # Session.torches (src/level.h)
 
 MAP_AREA = {"0-Intro": 0, "1-ForsakenCity": 1, "1H-ForsakenCity": 1, "1X-ForsakenCity": 1, "2-OldSite": 2,
             "2H-OldSite": 2, "2X-OldSite": 2, "3-CelestialResort": 3, "3H-CelestialResort": 3,
@@ -2104,6 +2105,13 @@ def main():
             body.u16(STR(a.get("fadex", "")))
             body.u16(STR(a.get("fadey", "")))
             body.u16(STR(a.get("only", "")))
+        # Torch: the game keeps the ones lit as session flags; the port as bits, a room's from its first (in twos)
+        torch_base, tb = [], 0
+        for r in ch.rooms:
+            torch_base.append(tb)
+            ents = r.e.child("entities").children if r.e.child("entities") else []
+            tb += (sum(1 for e in ents if e.name == "torch" and not E.attr(e, "startLit")) + 1) // 2
+        assert tb <= TORCH_BITS // 2, ch.name
         for ri, r in enumerate(ch.rooms):
             body.align(4)
             struct.pack_into("<I", body.b, rooms_at + 4 * ri, len(body) - ch_start)
@@ -2128,7 +2136,7 @@ def main():
             body.u32(r.style_mask >> 32)
             body.u16(STR(r.e.get("music", "") or ""))
             body.u8(int(r.e.get("enforceDashNumber", 0) or 0))
-            body.u8(0)
+            body.u8(torch_base[ri])
         body.align(2)
         struct.pack_into("<H", body.b, extra_at, len(body) - ch_start)
         for golden, cp, order, ri, eid, fl in berries:

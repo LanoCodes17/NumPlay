@@ -11,6 +11,7 @@ typedef struct {
   const uint8_t *attrs, *nodes;
   int room;              /* the room's index in the chapter */
   float rx, ry;          /* the room's offset */
+  bool trig;             /* a trigger: its EntityID is apart from the entities' (ID + 10000000) */
 } EData;
 
 float ea_num(const EData *d, int off, char kind);
@@ -26,7 +27,7 @@ V2 ed_node(const EData *d, int i);
 /* the area's look (AreaData): jumpthru, spikes, crumble blocks */
 const char *area_jumpthru(void);
 const char *area_crumble(void);
-uint32_t level_entity_hash(const EData *d);
+uint32_t level_entity_hash(const EData *d);   /* its EntityID (DoNotLoad) */
 
 /* factories: entities.c and the per-chapter files */
 bool ent_create(const EData *d);

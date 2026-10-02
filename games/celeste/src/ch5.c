@@ -181,15 +181,16 @@ static void death_draw(V2 pos, uint16_t color, float ease) {
 #define MAX_TORCH 100
 typedef struct {
   int16_t x, y;
-  uint16_t eid, frames;                /* frames: updates since the sprite started playing */
-  uint8_t slot, room, lit, lit_bank;   /* lit_bank: startLit, the "litTorch" sprite */
+  uint16_t bit, frames;                /* bit: in Session.torches; frames: updates since the sprite started playing */
+  uint8_t slot, lit, lit_bank;         /* lit_bank: startLit, the "litTorch" sprite */
   uint8_t on_mode, tween;              /* on_mode: the sprite plays "on" (lit when added), else "turnOn" first;
                                         * tween: the light's tween, in updates (60: done) */
 } Torch;
 enum { OFF_torches = 0, END_torches = OFF_torches + (int)sizeof(Torch[MAX_TORCH]) };
 #define torches (*(Torch(*)[MAX_TORCH])(void *)(g_chram[5] + OFF_torches))
 static int ntorches;
-typedef struct { uint8_t slot; } TorchMgr;
+typedef struct { uint8_t slot, n; } TorchMgr;   /* n: the room's torches unlit at first, so far */
+#define TORCH_BITS (8 * (int)sizeof g_session.torches_lit)
 static uint16_t torch_tex[2][9];
 
 static void torch_update(Ent *e) {
@@ -208,8 +209,7 @@ static void torch_update(Ent *e) {
       t->lit = 1;
       t->frames = 0;
       t->tween = 0;
-      char flag[40];
-      level_set_flag(id_flag(flag, "torch_", t->room, t->eid), true);
+      if (t->bit < TORCH_BITS) g_session.torches_lit[t->bit >> 3] |= (uint8_t)(1 << (t->bit & 7));   /* Session.SetFlag */
       particles_emit(PL_FG, &P_Torch_P_OnLight, 12, v2(t->x, t->y), v2(3, 3), 0);
     }
   }
@@ -265,6 +265,8 @@ static void new_torch(const EData *d) {
     m->collidable = 0;
     ST(m, TorchMgr)->slot = (uint8_t)slot;
   }
+  bool start_lit = EAB(d, torch, startLit);
+  int bit = start_lit ? 0xFFFF : g_level.room->info[RR_TORCHES] * 2 + ST(m, TorchMgr)->n++;
   if (ntorches >= MAX_TORCH) return;
   if (torch_tex[0][0] == 0) {
     tex_family("objects/temple/torch", torch_tex[0], 9);
@@ -273,13 +275,11 @@ static void new_torch(const EData *d) {
   Torch *t = &torches[ntorches++];
   memset(t, 0, sizeof *t);
   t->x = (int16_t)d->x, t->y = (int16_t)d->y;
-  t->eid = (uint16_t)d->id;
+  t->bit = (uint16_t)bit;
   t->slot = (uint8_t)slot;
-  t->room = (uint8_t)d->room;
-  t->lit_bank = EAB(d, torch, startLit);
+  t->lit_bank = start_lit;
   t->tween = 60;
-  char flag[40];
-  if (t->lit_bank || level_get_flag(id_flag(flag, "torch_", d->room, d->id))) {
+  if (start_lit || (bit < TORCH_BITS && (g_session.torches_lit[bit >> 3] >> (bit & 7) & 1))) {   /* Session.GetFlag */
     t->lit = 1;   /* Added: lit, sprite.Play("on") */
     t->on_mode = 1;
   }
@@ -988,7 +988,6 @@ static const EntClass CRACKED = {.name = "templeCrackedBlock", .size = sizeof(Cr
                                  .render = cracked_render, .awake = cracked_awake, .kind = KIND_SOLID};
 static void new_cracked(const EData *d) {
   uint32_t h = level_entity_hash(d);
-  if (level_do_not_load(h)) return;
   float w = EA(d, templeCrackedBlock, width), ht = EA(d, templeCrackedBlock, height);
   Ent *e = ent_new(&CRACKED, d->x, d->y);
   if (!e) return;
@@ -4189,7 +4188,6 @@ static const EntClass MINITRIG = {.name = "minitextboxTrigger", .size = sizeof(M
                                   .awake = minitrig_awake, .on_enter = minitrig_enter, .kind = KIND_TRIGGER};
 static void new_minitrig(const EData *d) {
   uint32_t h = level_entity_hash(d);
-  if (level_do_not_load(h)) return;
   Ent *e = ent_new(&MINITRIG, d->x, d->y);
   if (!e) return;
   ent_box(e, EA(d, minitextboxTrigger, width), EA(d, minitextboxTrigger, height), 0, 0);

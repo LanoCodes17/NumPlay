@@ -200,7 +200,6 @@ static const EntClass GEM = {.name = "summitgem", .size = sizeof(Gem), .update =
                              .on_player = gem_on_player, .kind = KIND_PCOLLIDE};
 static void new_gem(const EData *d) {
   uint32_t gid = level_entity_hash(d);
-  if (level_do_not_load(gid)) return;
   Ent *e = ent_new(&GEM, d->x, d->y);
   if (!e) return;
   ent_box(e, 12, 12, -6, -6);

@@ -21,7 +21,7 @@ static const uint8_t *room_rec(int i) {
   return c + rd32(c + CH_ROOMS + 4 * i);
 }
 /* room record: u16 name, u16 pack, u32 off, u32 size, s32 x, s32 y, u16 w, u16 h, u8 flags, u8 wind,
- * s8 camx, s8 camy, u32 style mask lo, hi, u16 music, u8 enforce dashes, u8 pad, u16 nneed, u16 need[] */
+ * s8 camx, s8 camy, u32 style mask lo, hi, u16 music, u8 enforce dashes, u8 first torch bit / 2 (RR_TORCHES) */
 #define RR_NAME 0
 #define RR_PACK 2
 #define RR_OFF 4
@@ -110,7 +110,8 @@ static void tiles_unpack(uint8_t *dst, const uint8_t *src, int tw, int th) {
   }
 }
 
-static bool room_load(int slot, int index) {
+static void session_enter(int index, int intro);
+static bool room_load(int slot, int index, int intro) {
   Room *rm = &g_level.rooms[slot];
   rm->index = -1;
   uint32_t size;
@@ -185,13 +186,18 @@ static bool room_load(int slot, int index) {
   rm->index = index;
   /* entities and triggers */
   int was = g_level.room_slot;
-  g_level.room_slot = slot;
+  Room *was_room = g_level.room;
+  g_level.room_slot = slot, g_level.room = rm;   /* the room being loaded is the level's (Session.Level) */
   g_res_can_load = false;   /* the room's data is in the cache's free space */
   g_level.has_cassette_blocks = false, g_level.cassette_beats = 2;
   g_level.cam_lock = 0, g_level.cam_locker = NULL;   /* Level.LoadLevel: CameraLockMode = None */
+  g_level.last_intro = (uint8_t)intro;
+  g_level.has_start_position = false;
+  g_level.in_space = (r[RR_FLAGS] & 2) != 0;   /* InSpace (LevelData.Space) */
+  session_enter(index, intro);
   entities_load(rm, blob, slot);
   g_res_can_load = true;
-  g_level.room_slot = was;
+  g_level.room_slot = was, g_level.room = was_room;
   return true;
 }
 
@@ -289,13 +295,14 @@ bool level_get_flag(const char *flag) {
   return false;
 }
 uint32_t level_entity_id(int room, int eid) { return (uint32_t)room << 16 | (uint16_t)eid; }
+static uint32_t *dnl_at(int i) { return i < 32 ? &g_session.dnl[i] : &g_session.dnl_more[i - 32]; }
 bool level_do_not_load(uint32_t id) {
   for (int i = 0; i < g_session.ndnl; i++)
-    if (g_session.dnl[i] == id) return true;
+    if (*dnl_at(i) == id) return true;
   return false;
 }
 void level_set_do_not_load(uint32_t id) {
-  if (!level_do_not_load(id) && g_session.ndnl < 32) g_session.dnl[g_session.ndnl++] = id;
+  if (!level_do_not_load(id) && g_session.ndnl < 48) *dnl_at(g_session.ndnl++) = id;
 }
 
 /* ---------------------------------------------------------------- the player */
@@ -348,17 +355,20 @@ static int room_at(V2 p) {
 }
 
 /* ---------------------------------------------------------------- level start / reload */
-/* Level.LoadLevel's bookkeeping in the session for room `index` */
+/* Level.LoadLevel's bookkeeping in the session for room `index`, before its entities */
 static void session_enter(int index, int intro) {
   Session *ss = &g_session;
   ss->level = (uint8_t)index;
   if (intro != INTRO_FALL || !strcmp(str(rd16(room_rec(index) + RR_NAME)), "0")) {
-    ss->visited[index >> 3] |= (uint8_t)(1 << (index & 7));   /* LevelFlags */
-    ss->dashes_at_level_start = ss->dashes;                  /* UpdateLevelStartDashes */
+    uint8_t *v = &ss->visited[index >> 3], bit = (uint8_t)(1 << (index & 7));
+    if (!(*v & bit)) ss->furthest_seen = (uint8_t)(index + 1);   /* FurthestSeenLevel */
+    *v |= bit;                                                     /* LevelFlags */
+    ss->dashes_at_level_start = ss->dashes;                        /* UpdateLevelStartDashes */
   }
 }
 
 static float spawn_fx = 0, spawn_fy = 1;   /* LoadLevel's spawn: the one nearest this point of the room (fractions) */
+static bool just_started;                  /* Session.JustStarted: the session's first room is loading */
 static void load_into_current(int index, int intro) {
   ents_clear(false);
   g_level.rooms[0].index = g_level.rooms[1].index = -1;
@@ -367,17 +377,18 @@ static void load_into_current(int index, int intro) {
   level_tiles_entities();
   spinners_entities();
   dust_entities();
-  if (!room_load(0, index)) {   /* no room to read it: everything loaded goes first */
+  if (!room_load(0, index, intro)) {   /* no room to read it: everything loaded goes first */
     res_flush();
-    room_load(0, index);
+    room_load(0, index, intro);
   }
   need_textures();
   g_level.room = &g_level.rooms[0];
   Room *rm = g_level.room;
   g_level.core_mode = g_session.core_mode;
-  session_enter(index, intro);
-  if (!g_session.has_respawn) {   /* DefaultSpawnPoint, or the one LoadLevel was given */
-    V2 at = player_spawn_near(v2(rm->x + rm->w * spawn_fx, rm->y + rm->h * spawn_fy));
+  if (!g_session.has_respawn) {   /* DefaultSpawnPoint, or the one LoadLevel was given; the checkpoint's at a start there */
+    V2 from = v2(rm->x + rm->w * spawn_fx, rm->y + rm->h * spawn_fy);
+    if (just_started && !g_session.started_from_beginning && g_level.has_start_position) from = g_level.start_position;
+    V2 at = player_spawn_near(from);
     spawn_fx = 0, spawn_fy = 1;
     g_session.rx = (int32_t)at.x, g_session.ry = (int32_t)at.y;
     g_session.has_respawn = 1;
@@ -489,7 +500,9 @@ void level_start(int intro) {
   g_level.zoom_focus = v2(160, 90);
   int idx = g_session.level;
   if (idx >= g_level.nrooms) idx = g_session.level = (uint8_t)level_start_room();   /* MapData.StartLevel */
+  just_started = !g_session.has_respawn;
   load_into_current(idx, intro);
+  just_started = false;
   style_init();
 }
 
@@ -514,14 +527,18 @@ void level_reload(void) {
 static void transition_to(int index, V2 dir) {
   int slot = g_level.room_slot ^ 1;
   ents_remove_room(slot);
-  if (!room_load(slot, index)) return;
+  uint8_t first = g_session.first_level;
+  uint32_t deaths = g_session.deaths_in_current_level;
+  g_session.first_level = 0;
+  g_session.deaths_in_current_level = 0;
+  if (!room_load(slot, index, INTRO_TRANSITION)) {
+    g_session.first_level = first, g_session.deaths_in_current_level = deaths;
+    return;
+  }
   Room *old = g_level.room;
   g_level.room_slot = slot;
   g_level.room = &g_level.rooms[slot];
   need_textures();
-  g_session.first_level = 0;
-  g_session.deaths_in_current_level = 0;
-  session_enter(index, INTRO_TRANSITION);
   ents_awake_new();
   cassette_level_start(true);
   Room *rm = g_level.room;
@@ -723,6 +740,12 @@ void level_update(void) {
     transition_update();
     ents_update();   /* TransitionUpdate entities only */
   } else {
+    if (g_level.in_space && pp) {   /* SpaceController: out of view at the top or bottom, back in at the other end */
+      Ent *pe = pp->ent;
+      float top = g_level.cam.y, bottom = top + 180;
+      if (e_top(pe) > bottom + 12) pe->y += top - 4 - e_bottom(pe);
+      else if (e_bottom(pe) < top - 4) pe->y += bottom + 12 - e_top(pe);
+    }
     ents_update();
   }
   player_after_update(&g_player);

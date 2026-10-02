@@ -396,6 +396,7 @@ Ent *heart_spawn(V2 at) {
   return e;
 }
 static bool heart_new(const EData *d) {
+  if (g_session.heart && g_session.mode == M_A) return true;   /* Level.LoadLevel */
   Ent *e = heart_spawn(v2(d->x, d->y));
   if (e) ST(e, Heart)->remove_cam = EAB(d, blackGem, removeCameraTriggers);
   return true;

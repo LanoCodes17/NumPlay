@@ -2316,9 +2316,7 @@ static Ent *make_key(float x, float y, uint32_t id) {
   return e;
 }
 static void new_key(const EData *d) {
-  uint32_t id = level_entity_hash(d);
-  if (level_do_not_load(id)) return;
-  make_key(d->x, d->y, id);
+  make_key(d->x, d->y, level_entity_hash(d));
 }
 /* Level.LoadLevel: the session's keys follow the new player */
 static void restore_keys(void) {
@@ -2456,7 +2454,6 @@ static const EntClass LOCK = {.name = "lockBlock", .size = sizeof(Lock), .update
                               .kind = KIND_SOLID};
 static void new_lock(const EData *d) {
   uint32_t id = level_entity_hash(d);
-  if (level_do_not_load(id)) return;
   Ent *e = ent_new(&LOCK, d->x, d->y);
   if (!e) return;
   ent_box(e, 32, 32, 0, 0);

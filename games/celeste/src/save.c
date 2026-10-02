@@ -9,15 +9,32 @@
 
 #define SAVE_NAME "celeste.sav"
 #define SAVE_MAGIC 0x43454C53u   /* "CELS" */
-#define SAVE_VERSION 1
+#define SAVE_VERSION 2
+/* 1.6.0's saves (version 1): the same up to its checksum, at the end; what came after goes after it */
+#define V1_SIZE 1552
+#define V1_CHECKSUM 1544
 
 SaveData g_save;
 
-static uint32_t checksum(void) {
+static uint32_t checksum(uint32_t n) {   /* of the first n bytes */
   const uint8_t *p = (const uint8_t *)&g_save;
   uint32_t h = 2166136261u;
-  for (uint32_t i = 0; i < offsetof(SaveData, checksum); i++) h = (h ^ p[i]) * 16777619u;
+  for (uint32_t i = 0; i < n; i++) h = (h ^ p[i]) * 16777619u;
   return h;
+}
+/* g_save's first n bytes hold a save of this version or 1.6.0's: true if it is whole (then it is of this version, what
+ * 1.6.0 had not zero) */
+static bool whole(uint32_t n) {
+  uint8_t *b = (uint8_t *)&g_save;
+  uint32_t at = n == sizeof g_save ? offsetof(SaveData, checksum) : n == V1_SIZE ? V1_CHECKSUM : 0, ck;
+  if (!at || g_save.magic != SAVE_MAGIC || g_save.size != n || g_save.version != (n == V1_SIZE ? 1 : SAVE_VERSION))
+    return false;
+  memcpy(&ck, b + at, 4);
+  if (ck != checksum(at)) return false;
+  memset(b + at, 0, sizeof g_save - at);
+  g_save.version = SAVE_VERSION;
+  g_save.size = sizeof g_save;
+  return true;
 }
 
 static void save_new(void) {
@@ -76,33 +93,33 @@ static bool restore_copy(void) {
   if (!l) return false;
   uint32_t len = 0, o = 0;
   while (l + len < c + n && l[len] != '\n' && l[len]) len++;
-  if (!len || len % 4 || len / 4 * 3 < sizeof g_save) return false;
+  if (!len || len % 4) return false;
+  uint32_t size = len / 4 * 3 - (l[len - 1] == '=') - (l[len - 2] == '=');
+  if (size > sizeof g_save) return false;
   uint8_t *out = (uint8_t *)&g_save;
-  for (uint32_t i = 0; i < len && o < sizeof g_save; i += 4) {
+  memset(out, 0, sizeof g_save);
+  for (uint32_t i = 0; i < len; i += 4) {
     int v[4];
     for (int k = 0; k < 4; k++) v[k] = l[i + k] == '=' ? 0 : b64_value(l[i + k]);
     if (v[0] < 0 || v[1] < 0 || v[2] < 0 || v[3] < 0) return false;
     uint32_t w = (uint32_t)(v[0] << 18 | v[1] << 12 | v[2] << 6 | v[3]);
-    for (int k = 0; k < 3 && o < sizeof g_save; k++) out[o++] = (uint8_t)(w >> (16 - 8 * k));
+    for (int k = 0; k < 3 && o < size; k++) out[o++] = (uint8_t)(w >> (16 - 8 * k));
   }
-  return true;
+  return whole(size);
 }
 
 void save_load(void) {
   uint32_t len = 0;
   const uint8_t *p = plat_load(SAVE_NAME, &len);
-  save_new();
-  if (p && len == sizeof g_save) memcpy(&g_save, p, sizeof g_save);   /* the record is not aligned: copy it */
-  else if (!restore_copy()) save_new();
-  if (g_save.magic != SAVE_MAGIC || g_save.version != SAVE_VERSION || g_save.size != sizeof g_save ||
-      g_save.checksum != checksum())
-    save_new();
+  memset(&g_save, 0, sizeof g_save);
+  if (p && len <= sizeof g_save) memcpy(&g_save, p, len);   /* the record is not aligned: copy it */
+  if (!(p && whole(len)) && !restore_copy()) save_new();
   if (g_save.bind[0] && g_save.bind[1] && g_save.bind[2] && g_save.bind[3]) memcpy(g_bind, g_save.bind, 4);
   else plat_default_binds(), memcpy(g_save.bind, g_bind, 4);
 }
 
 bool save_write(void) {
-  g_save.checksum = checksum();
+  g_save.checksum = checksum(offsetof(SaveData, checksum));
   bool ok = plat_save(SAVE_NAME, &g_save, sizeof g_save);
   save_copy();
   return ok;
@@ -141,8 +158,9 @@ bool save_set_checkpoint(int index) {
 void save_register_heart(void) { save_mode()->flags |= MS_HEART; }
 bool save_flag(int bit) { return g_save.flags >> bit & 1; }
 void save_set_flag(int bit) { g_save.flags |= (uint8_t)(1 << bit); }
-/* SaveData.UnlockedModes: B-sides after a cassette, C-sides after 16 hearts */
+/* SaveData.UnlockedModes: B-sides after a cassette, C-sides after 16 hearts (or in cheat mode) */
 int save_unlocked_modes(void) {
+  if (g_save.cheat_mode) return 3;
   int hearts = 0;
   for (int a = 0; a < AREAS; a++)
     for (int m = 0; m < 3; m++) hearts += (g_save.modes[a][m].flags & MS_HEART) != 0;

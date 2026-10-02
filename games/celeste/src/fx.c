@@ -136,7 +136,8 @@ Trail *trail_add(float x, float y, uint16_t tex, float ox, float oy, float sx, f
   memset(t, 0, sizeof *t);
   t->x = (int16_t)floorf(x + 0.5f), t->y = (int16_t)floorf(y + 0.5f);
   t->ox = ox, t->oy = oy, t->sx = sx, t->sy = sy, t->dur = dur;
-  t->tex = tex, t->color = rgb(color), t->depth = (int16_t)depth;
+  t->tex = tex, t->color = rgb(color & 0xFFFFFF), t->depth = (int16_t)depth;
+  t->bangs = color >> 24 ? (uint8_t)(color >> 24) : 255;   /* (no hair: the color's own alpha, premultiplied) */
   t->born = (uint8_t)g_frame;
   return t;
 }
@@ -189,6 +190,8 @@ static void trail_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
     int a8 = (int)(0.75f * e * e * e * 255), a = a8 + (a8 >> 7);
     if (a <= 0) continue;
     uint16_t pc = scale565(t->color, a);
+    int ca = t->nhair ? 256 : t->bangs + (t->bangs >> 7);
+    a = a * ca >> 8;
     int cx = t->x - g_camx - 32, cy = t->y - g_camy - 32;   /* the cell */
     int y0 = cy > sy0 ? cy : sy0, y1 = cy + 64 < sy1 ? cy + 64 : sy1;
     for (int Y = y0; Y < y1; Y++) {

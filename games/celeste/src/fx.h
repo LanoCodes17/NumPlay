@@ -40,7 +40,7 @@ typedef struct {
   int16_t x, y, depth;              /* Position (rounded), Depth */
   uint16_t tex, color;              /* the frame; Color (RGB565) */
   int8_t sdy;                       /* the sprite's offset */
-  uint8_t born, nhair, bangs;       /* the frame added; PlayerHair's nodes, its bangs frame */
+  uint8_t born, nhair, bangs;       /* the frame added; PlayerHair's nodes, its bangs frame (no hair: the color's alpha) */
   int8_t hair[TRAIL_HAIR][2];       /* the nodes (as drawn: rounded) from Position */
 } Trail;
 Trail *trail_add(float x, float y, uint16_t tex, float ox, float oy, float sx, float sy, uint32_t color, float duration, int depth);

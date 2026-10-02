@@ -1243,7 +1243,7 @@ static void around_step(Around *a) {
     if (level_on_interval(0.1f)) {
       BDummy *b = BD(a->e);
       uint16_t t = spr_tex(&b->spr);
-      if (t != 0xFFFF) trail_add(a->e->x, a->e->y, t, b->spr.ox, b->spr.oy, b->spr.sx, b->spr.sy, 0xAC3232, 1);   /* Player.NormalHairColor */
+      if (t != 0xFFFF) trail_add(a->e->x, a->e->y, t, b->spr.ox, b->spr.oy, b->spr.sx, b->spr.sy, 0xAC3232, 1, a->e->depth + 1);   /* Player.NormalHairColor */
     }
     a->p += DT / 3;
     return;

@@ -116,34 +116,115 @@ void dust_burst_fg(V2 pos, float dir, int n, float range) {
 }
 
 /* ---------------------------------------------------------------- trails */
-typedef struct {
-  float x, y, ox, oy, sx, sy, t, dur;
-  uint16_t tex;
-  uint32_t color;
-  uint8_t on;
-} Trail;
-static Trail trails[12];
+#pragma GCC push_options
+#pragma GCC optimize("Os")   /* a few a frame: smaller over faster */
+/* TrailManager.Snapshot: what was drawn into its 64x64 cell (the sprite's frame, and PlayerHair's nodes with
+ * their outline) is kept as what to draw again, not as pixels; drawn as one silhouette in Color * 0.75 *
+ * (1 - CubeOut(Percent)), at Depth (the entity's + 1), oldest first */
+static Trail trails[MAX_TRAILS];
+static int ntrails;
 
-void trail_add(float x, float y, uint16_t tex, float ox, float oy, float sx, float sy, uint32_t color, float dur) {
-  for (int i = 0; i < 12; i++)
-    if (!trails[i].on) {
-      trails[i] = (Trail){x, y, ox, oy, sx, sy, 0, dur, tex, color, 1};
-      return;
-    }
+Trail *trail_add(float x, float y, uint16_t tex, float ox, float oy, float sx, float sy, uint32_t color, float dur, int depth) {
+  if (tex == 0xFFFF) return NULL;
+  if (ntrails >= MAX_TRAILS) {   /* (not the game's 64: the oldest goes, another's before Madeline's) */
+    int k = 0;
+    while (k < ntrails - 1 && trails[k].nhair) k++;
+    if (trails[k].nhair) k = 0;
+    memmove(trails + k, trails + k + 1, (size_t)(--ntrails - k) * sizeof *trails);
+  }
+  Trail *t = &trails[ntrails++];
+  memset(t, 0, sizeof *t);
+  t->x = (int16_t)floorf(x + 0.5f), t->y = (int16_t)floorf(y + 0.5f);
+  t->ox = ox, t->oy = oy, t->sx = sx, t->sy = sy, t->dur = dur;
+  t->tex = tex, t->color = rgb(color), t->depth = (int16_t)depth;
+  t->born = (uint8_t)g_frame;
+  return t;
 }
-void trail_update(void) {
-  for (int i = 0; i < 12; i++)
-    if (trails[i].on && (trails[i].t += DT) >= trails[i].dur) trails[i].on = 0;
-}
-void trail_render(void) {
-  for (int i = 0; i < 12; i++) {
+void trail_update(void) {   /* Snapshot.Update (Tags.Global: not while between rooms, frozen or paused) */
+  if (g_level.transitioning) return;
+  for (int i = 0; i < ntrails; i++) {
     Trail *t = &trails[i];
-    if (!t->on) continue;
-    float a = 1 - t->t / t->dur;
-    gfx_tex_ex(t->tex, t->x, t->y, t->ox, t->oy, t->sx, t->sy, 0, rgb(t->color), (uint8_t)(a * 255 * 0.75f), GF_SILHOUETTE);
+    if (t->born == (uint8_t)g_frame && t->pct == 0) continue;   /* added this frame: in the scene from the next */
+    if ((t->pct += DT / t->dur) >= 1) {
+      memmove(t, t + 1, (size_t)(ntrails - i - 1) * sizeof *t);
+      ntrails--, i--;
+    }
   }
 }
-void trail_clear(void) { memset(trails, 0, sizeof trails); }
+
+/* what of view row Y a texture drawn at (PX, PY) (origin o, scale s, as gfx_tex_ex) covers, as bits from
+ * column cx on */
+static uint64_t trail_tex_row(const Tex *t, int PX, int PY, float ox, float oy, float sx, float sy, int Y, int cx) {
+  int k = t->scale > 1 ? t->scale : 1;
+  ox /= k, oy /= k, sx *= k, sy *= k;
+  int v = (int)floorf((Y + 0.5f - PY) / sy + oy) - t->oy;
+  if ((unsigned)v >= (unsigned)t->h || t->w > 64) return 0;
+  uint8_t px[64];
+  tex_row(t, v, px);
+  float isx = 1 / sx, xa = PX + (t->ox - ox) * sx, xb = PX + (t->ox + t->w - ox) * sx;
+  int i0 = (int)floorf(fminf(xa, xb)) - cx, i1 = (int)ceilf(fmaxf(xa, xb)) - cx;
+  uint64_t m = 0;
+  for (int i = i0 < 0 ? 0 : i0; i < i1 && i < 64; i++) {
+    int u = (int)floorf((cx + i + 0.5f - PX) * isx + ox) - t->ox;
+    if ((unsigned)u < (unsigned)t->w && px[u]) m |= 1ull << i;
+  }
+  return m;
+}
+static const uint16_t TR_HAIR[4] = {T_characters_player_bangs00, T_characters_player_bangs01, T_characters_player_bangs02, T_characters_player_hair00};
+/* PlayerHair.Render's node i (the bangs, else hair00) on row Y */
+static uint64_t trail_node_row(const Trail *t, const Tex *hair, int i, int Y, int cx) {
+  int PY = t->y - g_camy + t->hair[i][1];
+  if (Y < PY - 6 || Y > PY + 6) return 0;   /* (10x10 around the node, scaled by 1 at most) */
+  float as = fabsf(t->sx), num = 0.25f + (1 - (float)i / t->nhair) * 0.75f;
+  return trail_tex_row(&hair[i > 0], t->x - g_camx + t->hair[i][0], PY, 5, 5, i ? num * as : t->sx < 0 ? -as : as, num, Y, cx);
+}
+static void trail_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
+  uint32_t set = (uint32_t)(uintptr_t)ctx;
+  for (int i = 0; i < ntrails; i++) {
+    if (!(set >> i & 1)) continue;
+    Trail *t = &trails[i];
+    Tex spr, hair[2];
+    if (!tex_get(t->tex, &spr) || (t->nhair && (!tex_get(TR_HAIR[t->bangs], &hair[0]) || !tex_get(TR_HAIR[3], &hair[1])))) continue;
+    float e = 1 - t->pct;
+    int a8 = (int)(0.75f * e * e * e * 255), a = a8 + (a8 >> 7);
+    if (a <= 0) continue;
+    uint16_t pc = scale565(t->color, a);
+    int cx = t->x - g_camx - 32, cy = t->y - g_camy - 32;   /* the cell */
+    int y0 = cy > sy0 ? cy : sy0, y1 = cy + 64 < sy1 ? cy + 64 : sy1;
+    for (int Y = y0; Y < y1; Y++) {
+      uint64_t m = trail_tex_row(&spr, t->x - g_camx, t->y + t->sdy - g_camy, t->ox, t->oy, t->sx, t->sy, Y, cx);
+      for (int n = 0; n < t->nhair; n++) {   /* the node, and its outline (drawn at the 4 neighbours) */
+        uint64_t b = trail_node_row(t, hair, n, Y, cx);
+        m |= b | b << 1 | b >> 1 | trail_node_row(t, hair, n, Y - 1, cx) | trail_node_row(t, hair, n, Y + 1, cx);
+      }
+      uint16_t *row = strip + (Y - sy0) * VIEW_W;
+      while (m) {
+        int X = cx + __builtin_ctzll(m);
+        m &= m - 1;
+        if ((unsigned)X < VIEW_W) row[X] = blend565(row[X], pc, a);
+      }
+    }
+  }
+}
+/* the snapshots of depth in (lo, hi] (drawn among the entities: ents_render_between), in one command */
+void trail_render_between(int hi, int lo) {
+  uint32_t set = 0;
+  int y0 = 1 << 30, y1 = -(1 << 30);
+  Tex t;
+  for (int i = 0; i < ntrails; i++) {
+    Trail *tr = &trails[i];
+    /* (from the frame after it was added, as Scene.Add: between rooms too, at Percent 0) */
+    if (tr->depth > hi || tr->depth <= lo || (tr->pct <= 0 && tr->born == (uint8_t)(g_frame - 1))) continue;
+    if (!tex_get(tr->tex, &t) || (tr->nhair && (!tex_get(TR_HAIR[tr->bangs], &t) || !tex_get(TR_HAIR[3], &t)))) continue;   /* (loaded now) */
+    set |= 1u << i;
+    int cy = tr->y - g_camy - 32;
+    if (cy < y0) y0 = cy;
+    if (cy + 64 > y1) y1 = cy + 64;
+  }
+  if (set) gfx_custom(trail_strip, (void *)(uintptr_t)set, y0, y1);
+}
+void trail_clear(void) { ntrails = 0; }
+#pragma GCC pop_options
 void fx_update(void) {
   particles_update();
   trail_update();

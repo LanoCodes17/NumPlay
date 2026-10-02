@@ -2001,7 +2001,7 @@ static void seeker_trail(Ent *e) {
   Seeker *s = ST(e, Seeker);
   float k = 1 - 0.3f * s->wig.value;
   uint16_t t = cs_tex(&s->spr);
-  if (t != 0xFFFF) trail_add(e->x, e->y, t, 48, 48, s->sx * k * s->sprite_facing, s->sy * k, 0x99E550, 0.5f);
+  if (t != 0xFFFF) trail_add(e->x, e->y, t, 48, 48, s->sx * k * s->sprite_facing, s->sy * k, 0x99E550, 0.5f, e->depth + 1);
 }
 static bool seeker_can_attack(Ent *e) {
   Seeker *s = ST(e, Seeker);
@@ -3162,7 +3162,7 @@ static V2 pseeker_cam(Ent *e) {
 static void pseeker_trail(Ent *e) {
   PSeeker *s = ST(e, PSeeker);
   uint16_t t = cs_tex(&s->spr);
-  if (t != 0xFFFF) trail_add(e->x, e->y, t, 48, 48, s->sx * s->facing, s->sy, 0x99E550, 1);
+  if (t != 0xFFFF) trail_add(e->x, e->y, t, 48, 48, s->sx * s->facing, s->sy, 0x99E550, 1, e->depth + 1);
 }
 static void pseeker_dash(Ent *e, V2 dir) {
   PSeeker *s = ST(e, PSeeker);
@@ -3592,7 +3592,7 @@ static void evil_update(Ent *e) {
       particles_emit(PL_FG, &P_BadelineOldsite_P_Vanish, 2, v2add(at, v2(0, -6)), v2(2, 2), P_BadelineOldsite_P_Vanish.direction);
     if (k >= 0.1f && k <= 0.9f && level_on_interval(0.05f)) {
       uint16_t t = spr_tex(&b->spr);
-      if (t != 0xFFFF) trail_add(at.x + b->spr_pos.x, at.y + b->spr_pos.y, t, b->spr.ox, b->spr.oy, b->spr.sx, b->spr.sy, 0xFF0000, 0.5f);
+      if (t != 0xFFFF) trail_add(at.x + b->spr_pos.x, at.y + b->spr_pos.y, t, b->spr.ox, b->spr.oy, b->spr.sx, b->spr.sy, 0xFF0000, 0.5f, v->shadow->depth + 1);
     }
     if (done) job_end(&v->job);
   }

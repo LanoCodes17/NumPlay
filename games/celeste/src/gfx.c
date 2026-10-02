@@ -45,7 +45,7 @@ static Cmd cmds[MAX_CMDS];
 static int ncmds;
 static Affine affs[MAX_AFFINE];
 static int naffs;
-static Custom customs[16];
+static Custom customs[20];
 static int ncustoms;
 
 void gfx_camera(float x, float y) {
@@ -865,7 +865,7 @@ static void blit_mask(uint16_t *strip, int sy0, int sy1, const uint8_t *bits, in
 }
 
 void gfx_custom(StripFn fn, void *ctx, int y0, int y1) {
-  if (ncustoms >= 16) return;
+  if (ncustoms >= 20) return;
   Cmd *c = add(OP_CUSTOM, y0, y1);
   if (!c) return;
   customs[ncustoms] = (Custom){fn, ctx};

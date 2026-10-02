@@ -33,9 +33,19 @@ void dust_burst(V2 pos, float dir, int n);
 void dust_burst_fg(V2 pos, float dir, int n, float range);
 
 /* TrailManager: afterimages */
-void trail_add(float x, float y, uint16_t tex, float ox, float oy, float sx, float sy, uint32_t color, float duration);
+#define MAX_TRAILS 12
+#define TRAIL_HAIR 7
+typedef struct {
+  float ox, oy, sx, sy, pct, dur;   /* sx: the facing's sign in it */
+  int16_t x, y, depth;              /* Position (rounded), Depth */
+  uint16_t tex, color;              /* the frame; Color (RGB565) */
+  int8_t sdy;                       /* the sprite's offset */
+  uint8_t born, nhair, bangs;       /* the frame added; PlayerHair's nodes, its bangs frame */
+  int8_t hair[TRAIL_HAIR][2];       /* the nodes (as drawn: rounded) from Position */
+} Trail;
+Trail *trail_add(float x, float y, uint16_t tex, float ox, float oy, float sx, float sy, uint32_t color, float duration, int depth);
 void trail_update(void);
-void trail_render(void);
+void trail_render_between(int hi, int lo);
 void trail_clear(void);
 
 /* SlashFx and the like: short sprite effects */

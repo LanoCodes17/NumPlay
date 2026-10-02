@@ -1901,7 +1901,7 @@ static void osh_update(Ent *e) {
         break;
       }
       if (level_on_interval(0.05f)) {
-        trail_add(e->x, e->y, ospr_tex(&o->spr), 48, 48, o->sx, o->sy, 0x990000, 0.5f);
+        trail_add(e->x, e->y, ospr_tex(&o->spr), 48, 48, o->sx, o->sy, 0x990000, 0.5f, e->depth + 1);
       }
       break;
     case OS_WAITING:

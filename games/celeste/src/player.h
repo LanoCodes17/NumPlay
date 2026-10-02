@@ -78,8 +78,11 @@ struct Player {
   float launched_timer;
   float dash_trail_timer;
   bool was_dash_b;
+  uint8_t trail_n;          /* CreateTrail calls this frame: snapshots taken once it is drawn (BeforeRender) */
+  uint16_t trail_color;
   V2 before_dash_speed;
   bool started_dashing;
+  int16_t trail_depth;
   float hair_flash_timer;
   V2 wind_dir;
   float wind_timeout, wind_hair_timer;

@@ -529,6 +529,7 @@ static void chapter_memory(const uint8_t *ch) {
 /* LevelLoader: the session's chapter, at its level */
 void level_start(int intro) {
   memset(&g_level, 0, sizeof g_level);
+  trail_clear();   /* (a new Level: a new TrailManager) */
   g_level.chapter = g_session.chapter;
   g_level.ch = chapter_rec(g_session.chapter);
   chapter_memory(g_level.ch);

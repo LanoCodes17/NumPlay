@@ -527,7 +527,7 @@ static void chaser_trail(Ent *e) {
   if (!level_on_interval(0.1f)) return;
   uint16_t t = spr_tex(&c->spr);
   if (t != 0xFFFF)
-    trail_add(e->x + c->spr_x, e->y + c->spr_y, t, c->spr.ox, c->spr.oy, c->scale * c->facing, c->scale, 0xAC3232, 1);
+    trail_add(e->x + c->spr_x, e->y + c->spr_y, t, c->spr.ox, c->spr.oy, c->scale * c->facing, c->scale, 0xAC3232, 1, e->depth + 1);
 }
 static void chaser_on_player(Ent *e, Player *p) {
   V2 d = v2sub(v2(p->ent->x, p->ent->y), v2(e->x, e->y));

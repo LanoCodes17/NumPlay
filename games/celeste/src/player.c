@@ -1178,11 +1178,34 @@ static int climb_update(void) {
 }
 
 /* ---------------------------------------------------------------- dash */
+/* Player.CreateTrail: TrailManager.Add(this, (|Scale.X| * Facing, Scale.Y), wasDashB ? NormalHairColor :
+ * UsedHairColor), 1 s, at Depth + 1; what it shows is taken at the end of the frame (trail_snapshots) */
 static void create_trail(void) {
-  uint16_t t = spr_tex(&P->spr);
-  if (t == 0xFFFF) return;
-  trail_add(floorf(E->x), floorf(E->y), t, P->spr.ox, P->spr.oy, P->spr.sx * P->facing, P->spr.sy,
-            P->was_dash_b ? NormalHairColor : UsedHairColor, 0.5f);
+  if (P->trail_n < 2) P->trail_n++;
+  P->trail_color = rgb(P->was_dash_b ? NormalHairColor : UsedHairColor);
+  P->trail_depth = (int16_t)(E->depth + 1);
+}
+/* TrailManager.BeforeRender: the sprite's frame and the hair's nodes as they are drawn this frame */
+static void trail_snapshots(void) {
+  for (int n = P->trail_n; n; n--) {
+    P->trail_n = 0;
+    float x = floorf(E->x), y = floorf(E->y);
+    Trail *t = trail_add(x, y, spr_tex(&P->spr), P->spr.ox, P->spr.oy, fabsf(P->spr.sx) * P->facing, P->spr.sy, 0, 1, P->trail_depth);
+    if (!t) return;
+    t->color = P->trail_color;
+    t->sdy = (int8_t)P->spr_dy;
+    int hx, hy, fr, carry;
+    bool has;
+    hair_meta(t->tex, &hx, &hy, &fr, &has, &carry);
+    if (!has) continue;
+    t->nhair = (uint8_t)(P->hair_count < TRAIL_HAIR ? P->hair_count : TRAIL_HAIR);
+    t->bangs = (uint8_t)(fr < 3 ? fr : 0);
+    for (int i = 0; i < t->nhair; i++) {
+      V2 h = P->hair[i];
+      if (!i) h = v2(floorf(h.x), floorf(h.y));
+      t->hair[i][0] = (int8_t)(floorf(h.x + 0.5f) - x), t->hair[i][1] = (int8_t)(floorf(h.y + 0.5f) - y);
+    }
+  }
 }
 
 static void dash_begin(void) {
@@ -2581,6 +2604,7 @@ void player_after_update(Player *p) {
   if (!p->ent || !p->ent->cls) return;
   E = p->ent;
   if (!p->body || p->body_step < 4) hair_after_update();
+  trail_snapshots();
 }
 
 /* ---------------------------------------------------------------- camera */

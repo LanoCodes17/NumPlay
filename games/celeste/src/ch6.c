@@ -1038,7 +1038,7 @@ static void bboost_update(Ent *e) {
       e->x = at.x, e->y = at.y;
       if (k < 0.9f && level_on_interval(0.03f)) {
         uint16_t t = fs_tex(&b->spr, BB_ANIMS, bb_tex);
-        if (t != 0xFFFF) trail_add(e->x + b->spr_pos.x, e->y + b->spr_pos.y, t, 12, 12, 1, 1, 0xFF6DEF, 0.5f);
+        if (t != 0xFFFF) trail_add(e->x + b->spr_pos.x, e->y + b->spr_pos.y, t, 12, 12, 1, 1, 0xFF6DEF, 0.5f, e->depth + 1);
         particles_emit(PL_FG, &P_BadelineBoost_P_Move, 1, v2(e->x, e->y), v2(4, 4), P_BadelineBoost_P_Move.direction);
       }
       if (done) {
@@ -2067,7 +2067,7 @@ static void boss_move_sequence(Ent *e) {
       float ox, oy;
       cs_origin(&b->spr, t, &ox, &oy);
       V2 sc = boss_spr_scale(e);
-      if (t != 0xFFFF) trail_add(e->x + b->spr_pos.x, e->y + b->spr_pos.y, t, ox, oy, sc.x, sc.y, 0xAC3232, 0.5f);
+      if (t != 0xFFFF) trail_add(e->x + b->spr_pos.x, e->y + b->spr_pos.y, t, ox, oy, sc.x, sc.y, 0xAC3232, 0.5f, e->depth + 1);
       particles_emit(PL_MID, &P_Player_P_DashB, 2, boss_center(e), v2(3, 3), vangle(v2sub(b->to, b->from)));
     }
     if (done) {   /* OnComplete */
@@ -4096,7 +4096,7 @@ static bool sjend_par(void *ctx, Co *c) {
       if (sg) BD(bd)->spr.sx = (float)sg;
       if ((int)((g_level.time_active - DT) / 0.1f) < (int)(g_level.time_active / 0.1f)) {   /* OnInterval: TrailManager.Add */
         Sprite *sp = &BD(bd)->spr;
-        trail_add(floorf(bd->x), floorf(bd->y), spr_tex(sp), sp->ox, sp->oy, sp->sx, sp->sy, 0xAC3232, 1);
+        trail_add(floorf(bd->x), floorf(bd->y), spr_tex(sp), sp->ox, sp->oy, sp->sx, sp->sy, 0xAC3232, 1, bd->depth + 1);
       }
     }
     NB_YIELD(c);

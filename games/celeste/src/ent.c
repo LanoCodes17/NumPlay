@@ -2,6 +2,7 @@
  * JumpThru movement (pixel by pixel, pushing and carrying riders). */
 #include "ent.h"
 #include "level.h"
+#include "fx.h"
 const EntMore g_no_more;
 
 Ent g_ents[MAX_ENTS];
@@ -155,12 +156,15 @@ void ents_mark_unsorted(void) { unsorted = true; }
 
 void ents_render_between(int hi, int lo) {
   if (unsorted) sort_ents();
+  int at = hi;   /* the trails' snapshots among them (each at its own depth, after those of the same) */
   for (int i = 0; i < nsorted; i++) {
     Ent *e = &g_ents[sorted[i]];
     if (!e->cls || e->dead == 1 || !e->visible || !e->cls->render || (e->tags & TAG_HUD)) continue;
     if (e->depth > hi || e->depth <= lo) continue;
+    if (e->depth < at) trail_render_between(at, e->depth), at = e->depth;
     e->cls->render(e);
   }
+  trail_render_between(at, lo);
 }
 /* HudRenderer: the interface's entities, over everything */
 void ents_render_hud(void) {

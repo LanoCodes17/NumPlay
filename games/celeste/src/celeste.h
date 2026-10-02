@@ -211,6 +211,7 @@ void gfx_camera(float x, float y);              /* world position of the view's 
 extern int g_camx, g_camy;                      /* floored */
 void gfx_hud(bool on);                          /* following draws ignore the camera */
 void gfx_present_all(void);                     /* letterbox and full redraw next frame */
+void gfx_top_label(const char *s);              /* a line of text in the top bar ("": none) */
 static inline uint16_t rgb(uint32_t c) { return (uint16_t)(((c >> 8) & 0xF800) | ((c >> 5) & 0x7E0) | ((c >> 3) & 0x1F)); }
 uint16_t blend565(uint16_t d, uint16_t s, int a);    /* a: 0..256 */
 static inline uint16_t scale565(uint16_t c, int a) {   /* c * a / 256 */

@@ -178,7 +178,8 @@ typedef struct {
   ModeStats modes[AREAS][3];
   uint16_t cassettes;        /* AreaStats.Cassette, a bit per area */
   uint8_t unlocked_areas, last_area, last_mode, revealed_ch9, summit_gems, key_sheet_seen;
-  uint8_t has_session, assists, options, flags;   /* options: 1 no screen shake, 2 no flashes, 12 speedrun clock;
+  uint8_t has_session, assists, options, flags;   /* options: 1 no screen shake, 2 no flashes, 12 speedrun clock,
+                                                     16 the room's code shown (OPT_ROOM);
                                                      flags (SaveData.Flags): 1 MetTheo, 2 TheoKnowsName */
   uint32_t total_deaths, total_golden, total_jumps, total_wall_jumps, total_dashes, time;
   uint8_t bind[4];           /* jump, dash, grab, talk: EADK keys */
@@ -189,6 +190,7 @@ typedef struct {
   uint8_t pad_[2];
   uint32_t checksum;
 } SaveData;
+#define OPT_ROOM 16
 extern SaveData g_save;
 #define g_session (g_save.session)
 

@@ -466,12 +466,14 @@ static void options_draw(void) {
   menu_item(ui_str("OPTIONS_DISABLE_SHAKE"), on_off(!(g_save.options & OPT_SHAKE)), 2, 420 + ITEM_H * 2, false);
   menu_item(ui_str("OPTIONS_DISABLE_FLASH"), on_off(g_save.options & OPT_FLASH), 3, 420 + ITEM_H * 3, false);
   menu_item(ui_str("OPTIONS_SPEEDRUN"), ui_str(clocks[g_save.options >> 2 & 3]), 4, 420 + ITEM_H * 4, false);
+  menu_item("Room Code", on_off(g_save.options & OPT_ROOM), 5, 420 + ITEM_H * 5, false);   /* (for bug reports) */
 }
 static void options_update(void) {
   int d = dir_pressed(1);
-  if (d) M.sel = (int8_t)((M.sel + d + 5) % 5);
+  if (d) M.sel = (int8_t)((M.sel + d + 6) % 6);
   int h = dir_pressed(0);
   bool ok = confirm();
+  if (M.sel == 5 && (h || ok)) g_save.options ^= OPT_ROOM;
   if (M.sel == 2 && (h || ok)) g_save.options ^= OPT_SHAKE;
   if (M.sel == 3 && (h || ok)) g_save.options ^= OPT_FLASH;
   if (M.sel == 4 && (h || ok)) {

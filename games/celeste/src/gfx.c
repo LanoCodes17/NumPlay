@@ -6,6 +6,7 @@
  * pushes the strip to the screen. */
 #include <stdlib.h>
 #include "celeste.h"
+#include "text.h"
 
 #define STRIP_H 15
 #define NSTRIPS (VIEW_H / STRIP_H)
@@ -18,6 +19,8 @@ static float camx, camy;
 static bool hud, ui;   /* hud: screen coordinates; ui: the interface (drawn after the zoom) */
 static uint16_t clear_color;
 static bool letterbox_dirty = true;
+static char top_label[24];   /* a line in the top bar (the room's code), redrawn when it changes */
+static bool top_dirty;
 
 enum { OP_TEX, OP_PART, OP_AFFINE, OP_RECT, OP_LINE, OP_PIXEL, OP_CUSTOM, OP_SCALED, OP_MASK, OP_TILES };
 
@@ -55,6 +58,11 @@ void gfx_hud(bool on) { hud = ui = on; }
 void gfx_screen(bool on) { hud = on, ui = false; }
 void gfx_clear(uint16_t c) { clear_color = c; }
 void gfx_present_all(void) { letterbox_dirty = true; }
+void gfx_top_label(const char *s) {
+  if (!strncmp(s, top_label, sizeof top_label - 1)) return;
+  strncpy(top_label, s, sizeof top_label - 1);
+  top_dirty = true;
+}
 
 #ifdef HOST
 #include <stdio.h>
@@ -934,6 +942,7 @@ void gfx_end(void) {
     plat_fill(0, 0, SCREEN_W, VIEW_Y, 0);
     plat_fill(0, VIEW_Y + VIEW_H, SCREEN_W, SCREEN_H - VIEW_Y - VIEW_H, 0);
     letterbox_dirty = false;
+    top_dirty = top_label[0] != 0;
   }
   ep_pal = 0xFFFF;
   g_res_can_load = false;   /* the strip is the LZMA ring: nothing loads while strips are drawn */
@@ -957,6 +966,12 @@ void gfx_end(void) {
       replay(y0, y1, 2);
       plat_push(0, VIEW_Y + y0, VIEW_W, STRIP_H, g_strip);
     }
+  if (top_dirty) {   /* (after the strips: the strip is free again) */
+    for (int i = 0; i < VIEW_W * STRIP_H; i++) g_strip[i] = 0;
+    text_into(g_strip, 0, STRIP_H, top_label, 4 * 6, STRIP_H * 3, 0, 0.5f, 0.7f, rgb(0xA0A0A0), 255);
+    plat_push(0, (VIEW_Y - STRIP_H) / 2, VIEW_W, STRIP_H, g_strip);
+    top_dirty = false;
+  }
   g_res_can_load = true;
   g_res_drawing = false;
 }

@@ -73,6 +73,7 @@ In menus, OK or EXE confirms and Back goes back. You can change the keys in Opti
 * **No music:** the calculator has no speaker.
 * **A few effects are simpler:** some glows, color filters and screen distortions are left out, and the Epilogue's last picture is shown at half size.
 * **Farewell isn't here:** the free chapter added after the game's release doesn't fit.
+* **Reporting a bug:** turn on Options, then Room Code, and the corner of the screen shows which room you are in.
 * **The game's cheat code works:** in the Prologue, walk left from the start into the hidden room, then press left, right, var, toolbox, up, up, down, left, toolbox and OK (toolbox is the grab key: use yours if you changed it). Every chapter opens with all its checkpoints, B-sides and C-sides, and the chapter panel gets a Room list to start anywhere.
 
 ## Credits

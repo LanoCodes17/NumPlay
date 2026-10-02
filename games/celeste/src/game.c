@@ -104,5 +104,13 @@ void game_draw(void) {
     gfx_zoom(1, 0, 0);
   menu_render();
   wipe_render();
+  {   /* the room's code in the top bar (Options: for bug reports): the map's area and side, then the room */
+    char code[24] = "";
+    if (g_in_level && (g_save.options & OPT_ROOM)) {
+      code[0] = (char)('0' + g_session.area), code[1] = (char)('A' + g_session.mode), code[2] = ' ';
+      strncpy(code + 3, level_room_name(), sizeof code - 4);
+    }
+    gfx_top_label(code);
+  }
   gfx_end();
 }

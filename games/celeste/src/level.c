@@ -195,6 +195,7 @@ static bool room_load(int slot, int index, int intro) {
   g_level.has_start_position = false;
   g_level.in_space = (r[RR_FLAGS] & 2) != 0;   /* InSpace (LevelData.Space) */
   session_enter(index, intro);
+  if (g_session.area == 0 && !g_save.cheat_mode && !strcmp(str(rd16(r + RR_NAME)), "-1")) unlock_everything_new();
   entities_load(rm, blob, slot);
   g_res_can_load = true;
   g_level.room_slot = was, g_level.room = was_room;
@@ -743,7 +744,7 @@ void level_update(void) {
     ents_flush_removed();
     return;
   }
-  /* CanPause: Back (Input.Pause) */
+  /* CanPause: backspace (Input.Pause) */
   Player *pp = level_player();
   if (btn_pressed(&g_in.pause) && pp && !pp->dead && !g_level.pause_lock && !g_level.skipping_cutscene &&
       !g_level.transitioning && !g_wipe.active) {

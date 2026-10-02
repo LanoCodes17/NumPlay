@@ -208,6 +208,7 @@ void save_set_flag(int bit);
 void save_register_cassette(void);
 void save_register_completion(void);
 void session_start(int chapter, int checkpoint);   /* new Session(area, checkpoint) */
+void session_start_room(int chapter, int room);    /* in any room (cheat mode) */
 void session_restart(int room);                    /* Session.Restart(into room), -1 for its start */
 int session_intro(bool just_started);              /* INTRO_ for LevelLoader */
 int level_start_room(void);
@@ -221,6 +222,7 @@ void level_load_room_near(int index, int intro, float fx, float fy);
 void level_complete_area(bool spotlight_wipe, bool skip_wipe);
 enum { LEXIT_COMPLETED, LEXIT_SAVEQUIT, LEXIT_RESTART, LEXIT_GIVEUP, LEXIT_GOLDEN_RESTART };
 void game_level_exit(int mode);   /* game.c: LevelExit */
+void unlock_everything_new(void);  /* ch0.c: the cheat code's listener */
 void level_extra_textures(const uint16_t *ids, int n);   /* kept loaded with the rooms' (n = 0: none) */
 int chapter_find_room(int chapter, const char *name);   /* -1 if none */
 const char *chapter_room_name(int chapter, int i);      /* NULL past its last room */

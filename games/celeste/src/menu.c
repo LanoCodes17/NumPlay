@@ -13,6 +13,7 @@ enum { S_NONE, S_SHEET, S_TITLE, S_MAIN, S_CHAPTERS, S_PANEL, S_OPTIONS, S_KEYS,
 static struct {
   uint8_t screen, back;      /* back: where Back goes from the options (S_PAUSE or S_MAIN) */
   int8_t sel, area, mode, cp, binding, confirm;
+  int16_t room;              /* the panel's room picker (cheat mode): the room chosen, -1 when closed */
   uint8_t hold, last_dir;    /* the arrows' repeat */
   uint8_t advance;           /* after a first completion: 1 the panel waits, 2 and 3 the chapter select moves on */
   float t, wig, repeat;
@@ -84,7 +85,7 @@ static void inputs_end(void) {
   if (!g_in.move_x && !g_in.move_y) M.last_dir = 0;
 }
 static void go(int screen, int sel) {
-  M.screen = (uint8_t)screen, M.sel = (int8_t)sel, M.t = 0, M.wig = 0;
+  M.screen = (uint8_t)screen, M.sel = (int8_t)sel, M.t = 0, M.wig = 0, M.room = -1;
   g_menu = (uint8_t)screen;
   btn_consume(&g_in.confirm);
   btn_consume(&g_in.back);
@@ -108,7 +109,7 @@ static int max_area(void) {   /* the last chapter there is, up to the ones unloc
 }
 static bool has_mode(int a, int mode) {
   if (chapter_index(a, mode) < 0 || interlude(a)) return mode == M_A && chapter_index(a, M_A) >= 0;
-  if (mode == M_B) return (g_save.cassettes >> a & 1) != 0;
+  if (mode == M_B) return (g_save.cassettes >> a & 1) || g_save.cheat_mode;
   if (mode == M_C) return save_unlocked_modes() >= 3;
   return true;
 }
@@ -120,7 +121,9 @@ static int popcount64(uint64_t v) {
 static bool session_here(void) {
   return g_save.has_session && g_session.in_area && g_session.area == M.area && g_session.mode == M.mode;
 }
-/* the panel's start points: Continue (a session here), Start, then the checkpoints reached */
+/* SaveData.GetCheckpoints: the checkpoints reached, all of them in cheat mode */
+static bool cp_open(int i) { return g_save.cheat_mode || (g_save.modes[M.area][M.mode].checkpoints >> i & 1); }
+/* the panel's start points: Continue (a session here), Start, the checkpoints, then in cheat mode the room picker */
 static int start_count(int *ncp) {
   int ch = chapter_index(M.area, M.mode);
   *ncp = 0;
@@ -128,14 +131,19 @@ static int start_count(int *ncp) {
   const uint8_t *c = chapter_at(ch);
   int n = c[CH_NCHECKPOINTS], k = 0;
   for (int i = 0; i < n; i++)
-    if (g_save.modes[M.area][M.mode].checkpoints >> i & 1) k++;
+    if (cp_open(i)) k++;
   *ncp = k;
-  return (session_here() ? 1 : 0) + 1 + k;
+  return (session_here() ? 1 : 0) + 1 + k + (g_save.cheat_mode ? 1 : 0);
 }
-static int nth_checkpoint(int k) {   /* the k-th checkpoint reached */
+static int nth_checkpoint(int k) {   /* the k-th checkpoint open */
   for (int i = 0; i < 8; i++)
-    if (g_save.modes[M.area][M.mode].checkpoints >> i & 1 && k-- == 0) return i;
+    if (cp_open(i) && k-- == 0) return i;
   return 0;
+}
+static int room_count(int ch) {
+  int n = 0;
+  while (chapter_room_name(ch, n)) n++;
+  return n;
 }
 static void checkpoint_name(int i, char *out) {   /* Dialog checkpoint_{area}{h}_{i} (Core's are 8's) */
   static const char *const ids[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "8"};
@@ -148,6 +156,11 @@ static void checkpoint_name(int i, char *out) {   /* Dialog checkpoint_{area}{h}
 }
 
 /* ---------------------------------------------------------------- game flow */
+static void play_room(int room) {   /* the room picker's choice */
+  g_menu = M.screen = S_NONE;
+  session_start_room(chapter_index(M.area, M.mode), room);
+  game_play(-1, -1);
+}
 static void play_chapter(int start) {   /* the panel's choice: Continue, Start or a checkpoint */
   int ncp;
   int n = start_count(&ncp);
@@ -357,15 +370,20 @@ static void panel_draw(void) {
     if (m == M.mode) box(mx, y + 314, text_width(w, 0.8f), 8, rgb(TITLE_BASE[M.area]), 255);
     mx += text_width(w, 0.8f) + 60;
   }
-  /* where to start */
-  int ncp, n = start_count(&ncp);
+  /* where to start (or the rooms, picking one): five rows at a time */
+  int ncp, n = start_count(&ncp), ch = chapter_index(M.area, M.mode);
   bool cont = session_here();
-  for (int i = 0; i < n; i++) {
+  int count = M.room >= 0 ? room_count(ch) : n, at = M.room >= 0 ? M.room : M.sel;
+  int first = at - 2 < count - 5 ? at - 2 : count - 5;
+  if (first < 0) first = 0;
+  for (int i = first; i < count && i < first + 5; i++) {
     char name[48];
-    if (cont && i == 0) strcpy(name, ui_str("FILE_CONTINUE"));
+    if (M.room >= 0) strcpy(name, chapter_room_name(ch, i));
+    else if (cont && i == 0) strcpy(name, ui_str("FILE_CONTINUE"));
     else if (i == (cont ? 1 : 0)) strcpy(name, ui_str("OVERWORLD_START"));
+    else if (g_save.cheat_mode && i == n - 1) strcpy(name, "Room...");
     else checkpoint_name(nth_checkpoint(i - (cont ? 2 : 1)), name);
-    say(name, x + 60, y + 400 + i * 72, 0, 0.5f, 0.9f, i == M.sel ? highlight() : rgb(0x303030), 255);
+    say(name, x + 60, y + 400 + (i - first) * 72, 0, 0.5f, 0.9f, i == at ? highlight() : rgb(0x303030), 255);
   }
   /* the stats: strawberries, deaths, the heart, the cassette */
   ModeStats *ms = &g_save.modes[M.area][M.mode];
@@ -400,6 +418,15 @@ static void panel_update(void) {
     }
     return;
   }
+  if (M.room >= 0) {   /* the room picker: up and down, left and right ten at a time */
+    int rooms = room_count(chapter_index(M.area, M.mode)), d = dir_pressed(1);
+    if (d) M.room = (int16_t)((M.room + d + rooms) % rooms);
+    d = dir_pressed(0) * 10;
+    if (d) M.room = (int16_t)(M.room + d < 0 ? 0 : M.room + d >= rooms ? rooms - 1 : M.room + d);
+    if (cancel()) M.room = -1;
+    else if (confirm()) play_room(M.room);
+    return;
+  }
   int ncp, n = start_count(&ncp);
   int d = dir_pressed(1);
   if (d && n) M.sel = (int8_t)((M.sel + d + n) % n);
@@ -410,7 +437,10 @@ static void panel_update(void) {
     if (m >= 0 && m < 3) M.mode = (int8_t)m, M.sel = 0;
   }
   if (cancel()) go(S_CHAPTERS, 0);
-  else if (confirm() && n) play_chapter(M.sel);
+  else if (confirm() && n) {
+    if (g_save.cheat_mode && M.sel == n - 1) M.room = 0;
+    else play_chapter(M.sel);
+  }
 }
 
 /* ---------------------------------------------------------------- options and keys (TextMenu) */
@@ -548,7 +578,7 @@ static int pause_items(int8_t *items) {
   items[n++] = P_OPTIONS;
   items[n++] = P_SAVEQUIT;
   items[n++] = P_RESTART;
-  if (g_save.modes[0][0].flags & MS_COMPLETED) items[n++] = P_RETURN;
+  if ((g_save.modes[0][0].flags & MS_COMPLETED) || g_save.cheat_mode) items[n++] = P_RETURN;
   return n;
 }
 static bool pause_disabled(int item) {

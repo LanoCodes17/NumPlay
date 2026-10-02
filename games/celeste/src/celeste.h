@@ -56,7 +56,7 @@ char *path2(char *buf, const char *a, const char *b, int n);
 enum {
   K_LEFT = 1 << 0, K_RIGHT = 1 << 1, K_UP = 1 << 2, K_DOWN = 1 << 3,
   K_JUMP = 1 << 4, K_DASH = 1 << 5, K_GRAB = 1 << 6, K_TALK = 1 << 7,
-  K_PAUSE = 1 << 8, K_HOME = 1 << 9, K_OK = 1 << 10, K_BACK = 1 << 11,
+  K_PAUSE = 1 << 8, K_HOME = 1 << 9, K_OK = 1 << 10, K_BACK = 1 << 11, K_JOURNAL = 1 << 12,
   K_ANY = 1 << 15
 };
 uint32_t plat_keys(void);

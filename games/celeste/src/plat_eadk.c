@@ -33,6 +33,7 @@ uint32_t plat_keys(void) {
   if (k & (KEY(eadk_key_ok) | KEY(eadk_key_exe))) r |= K_OK;
   if (k & KEY(eadk_key_back)) r |= K_BACK;   /* (menus: cancel) */
   if (k & KEY(eadk_key_backspace)) r |= K_PAUSE;
+  if (k & KEY(eadk_key_var)) r |= K_JOURNAL;   /* (Input.MenuJournal: only the cheat code reads it) */
   if (k & (KEY(eadk_key_home) | KEY(eadk_key_on_off))) r |= K_HOME;
   if (k) r |= K_ANY;
   return r;

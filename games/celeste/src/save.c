@@ -115,6 +115,7 @@ void save_load(void) {
   memset(&g_save, 0, sizeof g_save);
   if (p && len <= sizeof g_save) memcpy(&g_save, p, len);   /* the record is not aligned: copy it */
   if (!(p && whole(len)) && !restore_copy()) save_new();
+  if (g_save.cheat_mode) g_save.unlocked_areas = AREAS - 1;   /* SaveData.AfterInitialize: MaxArea */
   if (!g_save.binds_set) {   /* 1.6.0's keys: what was on backspace (pause now) goes to Back, as the defaults did */
     for (int a = 0; a < 4; a++)
       if (g_save.bind[a] == KEY_BACKSPACE) g_save.bind[a] = KEY_BACK;
@@ -279,6 +280,22 @@ void session_start(int chapter, int checkpoint) {
     level_set_flag("badeline_connection", true);
   g_save.last_area = s->area;
   g_save.last_mode = s->mode;
+}
+
+/* a session in any room (the room picker, in cheat mode), as the game's "load" command: from its checkpoint if it is
+ * one, else from the start with the inventory the chapter ends with (rooms come in any order) */
+void session_start_room(int chapter, int room) {
+  const uint8_t *ch = chapter_at(chapter);
+  int inv = ch[CH_INVENTORY], cp = -1;
+  for (int i = 0; i < ch[CH_NCHECKPOINTS]; i++) {
+    const uint8_t *c = ch + rd16(ch + CH_CHECKPOINTS) + 4 * i;
+    if (rd16(c) == room) cp = i;
+    if (c[2] != 255) inv = c[2];
+  }
+  session_start(chapter, cp);
+  if (cp < 0) set_inventory(inv);
+  g_session.level = (uint8_t)room;
+  g_session.first_level = 0, g_session.started_from_beginning = 0;
 }
 
 /* Session.Restart(intoLevel) */

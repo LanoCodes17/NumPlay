@@ -674,6 +674,50 @@ void prologue_ending_start(Player *p, Ent *bird) {
   cutscene_start(e, ending_end, false, true);
 }
 
+/* ---------------------------------------------------------------- UnlockEverythingThingy */
+/* a CheatListener in room -1 (Level.LoadLevel adds it until cheat mode is on): left, right, journal, grab, up, up,
+ * down, left, grab, confirm unlock every chapter and turn cheat mode on */
+typedef struct {
+  char in[10];   /* CurrentInput: the last 10 */
+} Cheat;
+static void unlock_everything(void) {
+  g_save.revealed_ch9 = 1;
+  g_save.unlocked_areas = AREAS - 1;   /* MaxArea */
+  g_save.cheat_mode = 1;
+  g_session.in_area = 0;
+  game_level_exit(LEXIT_GIVEUP);
+}
+static void cheat_update(Ent *e) {
+  Cheat *c = ST(e, Cheat);
+  uint32_t down = g_in.keys & ~g_in.prev;   /* (Pressed, not Repeating) */
+  bool journal = down & K_JOURNAL;
+  char got[7];
+  int n = 0;
+  if (down & K_UP) got[n++] = 'u';
+  if (down & K_DOWN) got[n++] = 'd';
+  if (down & K_RIGHT) got[n++] = 'r';
+  if (down & K_LEFT) got[n++] = 'l';
+  if (g_in.confirm.edge) got[n++] = 'A';
+  if (journal) got[n++] = 'L';
+  if (g_in.grab.edge && !journal) got[n++] = 'R';
+  if (!n) return;
+  memmove(c->in, c->in + n, sizeof c->in - (size_t)n);
+  memcpy(c->in + sizeof c->in - n, got, (size_t)n);
+  if (memcmp(c->in, "lrLRuudlRA", sizeof c->in)) return;
+  /* EnteredCheat */
+  g_level.pause_lock = true;
+  g_level.frozen = true;
+  level_flash(0xFFFF, false);
+  wipe_start(WIPE_FADE, false, unlock_everything);
+  g_wipe.duration = 2;
+  ent_remove(e);
+}
+static const EntClass CHEAT = {.size = sizeof(Cheat), .name = "UnlockEverythingThingy", .update = cheat_update};
+void unlock_everything_new(void) {
+  Ent *e = ent_new(&CHEAT, 0, 0);
+  if (e) e->visible = 0, e->collidable = 0;
+}
+
 /* ---------------------------------------------------------------- the factory */
 bool ents_ch0(const EData *d) {
   switch (d->type) {

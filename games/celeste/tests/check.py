@@ -88,6 +88,18 @@ for old, new in (([4, 17, 16, 17], "4 5 16 5"), ([17, 16, 4, 29], "5 16 4 29")):
     check("keys " + new in out, f"the keys {old} of a 1.6.0 save did not become {new}: {out[-60:]}")
     shutil.rmtree(d, ignore_errors=True)
 
+# the cheat code in the Prologue's room -1 (left, right, journal, grab, up, up, down, left, grab, confirm): cheat
+# mode and every chapter; then the panel's room picker (6A, its 13th room)
+d = tempfile.mkdtemp(prefix="celeste_check_")
+run(["--chapter", "0", "--room", "-1", "--nowipe"], 400,
+    "20-21:l,30-31:r,40-41:n,50-51:g,60-61:u,70-71:u,80-81:d,90-91:l,100-101:g,110-111:o", saves=d, what="the cheat code")
+sav = open(d + "/celeste.sav", "rb").read() if os.path.exists(d + "/celeste.sav") else b""
+check(len(sav) == 1680 and sav[1672] == 1 and sav[1066] == 10, "the cheat code did not turn cheat mode on")
+out = run([], 700, "40-41:o,100-101:o,160-161:o," + ",".join("%d-%d:r" % (f, f + 1) for f in range(200, 360, 30))
+          + ",380-381:o,420-421:u,440-441:o,470-471:d,490-491:d,510-511:r,540-541:o", saves=d, what="the room picker")
+check("room 07 " in out and "area 6 mode 0" in out, f"the room picker did not start 6A in room 07: {out[-200:]}")
+shutil.rmtree(d, ignore_errors=True)
+
 # the pause menu: Retry is a death
 out = run(["--chapter", "1", "--room", "1"], 300, "200-201:p,215-216:d,230-231:o", what="Retry from the pause menu")
 s = session(out)

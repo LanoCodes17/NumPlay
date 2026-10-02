@@ -1184,7 +1184,7 @@ static void hd_update(Ent *e) {
         counting:
           if (!h->opened && h->counter < h->requires) {
             if (p && fabsf(p->ent->x - e_cxm(e)) < 80 && p->ent->x < e->x) {
-              int hearts = hearts_total();
+              int hearts = g_save.cheat_mode ? h->requires : hearts_total();   /* HeartGems */
               if (hearts < h->requires) level_set_flag("granny_door", true);
               int was = (int)h->counter, target = hearts < h->requires ? hearts : h->requires;
               h->counter = approach(h->counter, (float)target, DT * h->requires * 0.8f);

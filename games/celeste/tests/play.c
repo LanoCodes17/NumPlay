@@ -4,7 +4,7 @@
  *        [--load F:ROOM:INTRO:FX:FY: at frame F, LoadLevel(INTRO) into ROOM at the spawn nearest (FX, FY) of it]
  *        [--record A-B:DIR: every frame from A to B as DIR/NNNNN.ppm (for the README's GIFs)]
  *        [--nowipe: no wipe into the room] [--cam X,Y: the view's top-left there (in the room) when drawn]
- * keys: l r u d j(ump) x(dash) g(rab) p(ause) o(k) b(ack) */
+ * keys: l r u d j(ump) x(dash) g(rab) p(ause) o(k) b(ack) n (journal) h(ome) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,7 +31,9 @@ static uint32_t parse_keys(const char *s) {
       case 'j': k |= K_JUMP; break;
       case 'x': k |= K_DASH | K_TALK; break;
       case 'g': k |= K_GRAB; break;
-      case 'p': k |= K_PAUSE | K_BACK; break;
+      case 'p': k |= K_PAUSE; break;
+      case 'b': k |= K_BACK; break;
+      case 'n': k |= K_JOURNAL; break;
       case 'o': k |= K_OK; break;
       case 'h': k |= K_HOME; break;
     }

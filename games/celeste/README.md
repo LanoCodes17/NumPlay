@@ -80,6 +80,7 @@ In menus, OK or EXE confirms and Back goes back. You can change the keys in Opti
 Inspired by Celeste, not affiliated with Maddy Makes Games.
 
 * The pictures, animations, maps, texts and fonts come from the game's own files.
+* Thanks to **reversal_lava63**, a beta tester who plays NumPlay's apps on a real calculator and reports what's wrong.
 
 Made by Mason Chen as part of NumPlay.
 

@@ -279,6 +279,7 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
 - The **Doodle Champion Island Games** (2021) inspired Champion Island, which uses the doodle's own pictures, maps and texts from the [Google-Doodle-Champion-Island](https://github.com/potherca-blog/Google-Doodle-Champion-Island) archive by potherca-blog, and the **PixelMplus** font by Itou Hiroki ([license](LICENSES/PixelMplus.txt)).
 - **[Portal Returns](https://www.cemetech.net/downloads/files/1313/x1313)** by MateoConLechuga for the TI-84 Plus CE, with sprites by CKH4 and Portal Prelude chambers ported by Unicorn from BuilderBoy's original.
 - The **Nunito** and **Rammetto One** fonts, under the SIL Open Font License ([LICENSES](LICENSES)).
+- **reversal_lava63**, a beta tester who plays NumPlay's apps on a real calculator and reports what's wrong.
 
 ## License
 

@@ -52,7 +52,7 @@
 
 Choose Climb, then a chapter, then Start. Each chapter is a series of rooms: get Madeline to the next one. She can dash once in the air (twice later on), and grab and climb walls until she gets tired. A death sends her back to the start of the room.
 
-Back pauses: from there you can skip a scene, retry the room, restart the chapter, change the options, save and quit, or go back to the chapter select.
+⌫ pauses: from there you can skip a scene, retry the room, restart the chapter, change the options, save and quit, or go back to the chapter select.
 
 ## Controls
 
@@ -60,9 +60,9 @@ Back pauses: from there you can skip a scene, retry the room, restart the chapte
 | --- | --- |
 | Arrows | Move, and aim the dash |
 | OK | Jump |
-| ⌫ | Dash, and talk |
+| Back | Dash, and talk |
 | Toolbox | Grab, climb |
-| Back | Pause |
+| ⌫ | Pause |
 | Home | Save and quit |
 
 In menus, OK or EXE confirms and Back goes back. You can change the keys in Options, then Keyboard Config. The game shows these keys the first time you open it, and again from Options, then Key Sheet.

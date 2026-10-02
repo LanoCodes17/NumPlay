@@ -8,6 +8,7 @@ AddressSanitizer and UBSan, through the menus, the saves and every room.
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -66,6 +67,26 @@ out = run([], 10, saves=d, what="the save from its copy")
 s2 = session(out)
 check(s2 and s2[4] >= t0, f"the save did not come back from celeste_saves.py: {s2}")
 shutil.rmtree(d, ignore_errors=True)
+
+# a 1.6.0 save: its keys on backspace (pause now) go to Back, as its defaults (dash and talk on backspace) did
+def fnv(b):
+    h = 2166136261
+    for x in b:
+        h = ((h ^ x) * 16777619) & 0xFFFFFFFF
+    return h
+
+
+for old, new in (([4, 17, 16, 17], "4 5 16 5"), ([17, 16, 4, 29], "5 16 4 29")):
+    d = tempfile.mkdtemp(prefix="celeste_check_")
+    v1 = bytearray(1552)
+    struct.pack_into("<IHH", v1, 0, 0x43454C53, 1, 1552)
+    v1[1071] = 1   # the key sheet seen
+    v1[1100:1104] = bytes(old)
+    struct.pack_into("<I", v1, 1544, fnv(v1[:1544]))
+    open(d + "/celeste.sav", "wb").write(v1)
+    out = run([], 10, saves=d, what="a 1.6.0 save's keys")
+    check("keys " + new in out, f"the keys {old} of a 1.6.0 save did not become {new}: {out[-60:]}")
+    shutil.rmtree(d, ignore_errors=True)
 
 # the pause menu: Retry is a death
 out = run(["--chapter", "1", "--room", "1"], 300, "200-201:p,215-216:d,230-231:o", what="Retry from the pause menu")

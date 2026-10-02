@@ -61,6 +61,9 @@ enum {
 };
 uint32_t plat_keys(void);
 extern uint8_t g_bind[4];          /* jump, dash, grab, talk: EADK keys */
+#define KEY_BACK 5                 /* (EADK keys) */
+#define KEY_BACKSPACE 17           /* pause */
+const char *key_label(int k);      /* an EADK key's name, as on the key sheet */
 void plat_default_binds(void);
 int plat_key_pressed(void);        /* the EADK key that went down this frame, -1 if none */
 int uitoa(int v, char *out);       /* v in digits, 0-terminated; the length */

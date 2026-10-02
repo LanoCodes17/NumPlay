@@ -173,7 +173,7 @@ void menu_open_title(void) { go(g_save.key_sheet_seen ? S_TITLE : S_SHEET, 0); }
 void menu_open_main(void) { go(S_MAIN, 0); }
 
 /* ---------------------------------------------------------------- the key sheet (as NumBlocks has it) */
-static const char *key_name(int k) {
+const char *key_label(int k) {
   static const char *const names[53] = {
       [4] = "OK", [5] = "Back", [6] = "Home", [12] = "shift", [13] = "alpha", [14] = "x,n,t", [15] = "var", [16] = "toolbox",
       [17] = "<x", [18] = "e^x", [19] = "ln", [20] = "log", [21] = "i", [22] = ",", [23] = "x^y", [24] = "sin",
@@ -183,15 +183,21 @@ static const char *key_name(int k) {
   return k < 53 && names[k] ? names[k] : "?";
 }
 static const char *const ACTION_KEYS[4] = {"KEY_CONFIG_JUMP", "KEY_CONFIG_DASH", "KEY_CONFIG_GRAB", "KEY_CONFIG_TALK"};
-static const char *action_on(int k) {
+static const char *action_on(int k) {   /* what a key does: its actions, or pause */
+  static char what[48];
+  if (k == KEY_BACKSPACE) return ui_str("KEY_CONFIG_PAUSE");
+  what[0] = 0;
   for (int a = 0; a < 4; a++)
-    if (g_bind[a] == k) return ui_str(ACTION_KEYS[a]);
-  return NULL;
+    if (g_bind[a] == k && strlen(what) + strlen(ui_str(ACTION_KEYS[a])) + 3 < sizeof what) {
+      if (what[0]) strcat(what, ", ");
+      strcat(what, ui_str(ACTION_KEYS[a]));
+    }
+  return what[0] ? what : NULL;
 }
 static void key_cap(float x, float y, float w, int k, const char *what) {   /* a key: bright with what it does */
   box(x, y, w, 162, what ? rgb(0xA0A0A0) : rgb(0x505050), 255);
   box(x + 6, y + 6, w - 12, 150, what ? rgb(0x282828) : rgb(0x181818), 255);
-  say(key_name(k), x + w / 2, y + (what ? 46 : 81), 0.5f, 0.5f, 0.8f, what ? WHITE : rgb(0x707070), 255);
+  say(key_label(k), x + w / 2, y + (what ? 46 : 81), 0.5f, 0.5f, 0.8f, what ? WHITE : rgb(0x707070), 255);
   if (what) say(what, x + w / 2, y + 116, 0.5f, 0.5f, 0.8f, rgb(0xFFFFA0), 255);
 }
 static void sheet_draw(void) {
@@ -204,7 +210,7 @@ static void sheet_draw(void) {
   say("Move", 240, 270, 0.5f, 0.5f, 0.8f, rgb(0xFFFFA0), 255);
   key_cap(780, 150, 360, 6, "Save, quit");
   key_cap(1416, 70, 480, 4, action_on(4));
-  key_cap(1416, 250, 480, 5, ui_str("KEY_CONFIG_PAUSE"));
+  key_cap(1416, 250, 480, KEY_BACK, action_on(KEY_BACK));
   for (int r = 0; r < 3; r++)
     for (int c = 0; c < 6; c++) {
       int k = 12 + r * 6 + c;
@@ -454,13 +460,15 @@ static void options_update(void) {
     else go(S_MAIN, 1);
   }
 }
-static bool bindable(int k) { return k == 4 || (k >= 12 && k <= 51 && k != 35 && k != 41 && k != 47); }
+static bool bindable(int k) {   /* OK, Back and the keys under the arrows but backspace (pause) */
+  return k == 4 || k == KEY_BACK || (k >= 12 && k <= 51 && k != KEY_BACKSPACE && k != 35 && k != 41 && k != 47);
+}
 static void keys_draw(void) {
   if (M.back == S_MAIN) backdrop();
   else box(0, 0, 1920, 1080, 0, 178);
   say(ui_str("KEY_CONFIG_TITLE"), 960, 200, 0.5f, 0.5f, 2, GRAY, 255);
   say(ui_str("KEY_CONFIG_GAMEPLAY"), 960, 330, 0.5f, 0.5f, 0.6f, GRAY, 255);
-  for (int a = 0; a < 4; a++) menu_item(ui_str(ACTION_KEYS[a]), M.binding == a ? "..." : key_name(g_bind[a]), a, 410 + a * ITEM_H, false);
+  for (int a = 0; a < 4; a++) menu_item(ui_str(ACTION_KEYS[a]), M.binding == a ? "..." : key_label(g_bind[a]), a, 410 + a * ITEM_H, false);
   menu_item(ui_str("KEY_CONFIG_RESET"), NULL, 4, 450 + ITEM_H * 4, false);
   if (M.binding >= 0) {
     char w[48];

@@ -83,9 +83,9 @@ Celeste comes as its own app, `Celeste.nwa`: it is too big to share the calculat
 | --- | --- |
 | **Arrows** | Move, and aim the dash |
 | **OK** | Jump |
-| **⌫** | Dash, and talk |
+| **Back** | Dash, and talk |
 | **toolbox** | Grab, climb |
-| **Back** | Pause |
+| **⌫** | Pause |
 | **Home** | Save and quit |
 
 Choose Climb, then a chapter, then Start. Madeline can dash once in the air (twice later on), and grab and climb walls until she gets tired. In menus, **OK** or **EXE** confirms and **Back** goes back. The first time you open Celeste it shows these keys; you can change them in Options, then Keyboard Config. Home saves and quits, and Climb then offers Continue. Your progress is also copied into `celeste_saves.py`, so installing the app again doesn't erase it.

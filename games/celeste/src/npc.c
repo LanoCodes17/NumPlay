@@ -196,16 +196,8 @@ Ent *hahaha_new(V2 at, const char *ifset) {
 
 /* ---------------------------------------------------------------- BirdTutorialGui */
 Tutorial g_tuts[2];   /* (one bird shows its bubbles at a time) */
-/* the calculator's keys (Input.GuiButton): a key cap with its name */
-static const char *key_name(int action) {
-  switch (action) {
-    case IN_JUMP: return "OK";
-    case IN_DASH: return "Backspace";
-    case IN_GRAB: return "Toolbox";
-    case IN_TALK: return "Backspace";
-    default: return "Back";
-  }
-}
+/* the calculator's keys (Input.GuiButton): a key cap with the name of the key bound */
+static const char *key_name(int action) { return key_label(action < 4 ? g_bind[action] : KEY_BACKSPACE); }
 /* the width of a control in interface pixels */
 static float control_width(const GuiControl *c) {
   switch (c->kind) {

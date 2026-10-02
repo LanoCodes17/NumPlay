@@ -44,6 +44,7 @@ static void save_new(void) {
   g_save.size = sizeof g_save;
   plat_default_binds();
   memcpy(g_save.bind, g_bind, 4);
+  g_save.binds_set = 1;
 }
 
 /* The copy: installing apps from the NumWorks website keeps only Python scripts, so the save is
@@ -114,6 +115,11 @@ void save_load(void) {
   memset(&g_save, 0, sizeof g_save);
   if (p && len <= sizeof g_save) memcpy(&g_save, p, len);   /* the record is not aligned: copy it */
   if (!(p && whole(len)) && !restore_copy()) save_new();
+  if (!g_save.binds_set) {   /* 1.6.0's keys: what was on backspace (pause now) goes to Back, as the defaults did */
+    for (int a = 0; a < 4; a++)
+      if (g_save.bind[a] == KEY_BACKSPACE) g_save.bind[a] = KEY_BACK;
+    g_save.binds_set = 1;
+  }
   if (g_save.bind[0] && g_save.bind[1] && g_save.bind[2] && g_save.bind[3]) memcpy(g_bind, g_save.bind, 4);
   else plat_default_binds(), memcpy(g_save.bind, g_bind, 4);
 }

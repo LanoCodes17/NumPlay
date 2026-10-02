@@ -9,7 +9,7 @@ uint32_t host_time, host_keys;
 
 uint32_t plat_keys(void) { return host_keys; }
 uint8_t g_bind[4];
-void plat_default_binds(void) { g_bind[0] = 4, g_bind[1] = 17, g_bind[2] = 16, g_bind[3] = 17; }
+void plat_default_binds(void) { g_bind[0] = 4, g_bind[1] = 5, g_bind[2] = 16, g_bind[3] = 5; }
 int plat_key_pressed(void) { return -1; }
 uint32_t plat_millis(void) { return host_time; }
 void plat_sleep(uint32_t ms) { host_time += ms; }

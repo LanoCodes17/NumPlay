@@ -9,7 +9,7 @@
 /* key bindings: one EADK key per game action (settings can change them) */
 uint8_t g_bind[4];   /* jump, dash, grab, talk */
 void plat_default_binds(void) {
-  g_bind[0] = eadk_key_ok, g_bind[1] = eadk_key_backspace, g_bind[2] = eadk_key_toolbox, g_bind[3] = eadk_key_backspace;
+  g_bind[0] = eadk_key_ok, g_bind[1] = eadk_key_back, g_bind[2] = eadk_key_toolbox, g_bind[3] = eadk_key_back;
 }
 static uint64_t scan, scan_prev;
 /* the key that went down this frame (an EADK key), -1 if none */
@@ -31,7 +31,8 @@ uint32_t plat_keys(void) {
   if (k & KEY(g_bind[2])) r |= K_GRAB;
   if (k & KEY(g_bind[3])) r |= K_TALK;
   if (k & (KEY(eadk_key_ok) | KEY(eadk_key_exe))) r |= K_OK;
-  if (k & KEY(eadk_key_back)) r |= K_BACK | K_PAUSE;
+  if (k & KEY(eadk_key_back)) r |= K_BACK;   /* (menus: cancel) */
+  if (k & KEY(eadk_key_backspace)) r |= K_PAUSE;
   if (k & (KEY(eadk_key_home) | KEY(eadk_key_on_off))) r |= K_HOME;
   if (k) r |= K_ANY;
   return r;

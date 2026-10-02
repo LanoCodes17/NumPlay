@@ -7,11 +7,12 @@
 <p align="center">
   <b>17 free games for your NumWorks calculator, in one app.</b><br>
   NumDash, Crossy Road, NumBlocks, NumDrive, Balatro, Buckshot Roulette, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.<br>
-  And <b>Champion Island</b>, the Doodle Champion Island Games, as an app of its own.
+  And two apps of their own: <b>Celeste</b>, the whole climb up Celeste Mountain, and <b>Champion Island</b>, the Doodle Champion Island Games.
 </p>
 
 <p align="center">
-  <b>New: <a href="#new-numblocks">NumBlocks</a></b>. Mine, craft and survive in a world like Minecraft 1.8.
+  <b>New: <a href="#new-numblocks">NumBlocks</a></b>. Mine, craft and survive in a world like Minecraft 1.8.<br>
+  <b>And <a href="#new-celeste">Celeste</a></b>. Climb Celeste Mountain with Madeline, every chapter, B-side and C-side.
 </p>
 
 <p align="center">
@@ -57,6 +58,29 @@ Mine, craft and survive in a world like Minecraft 1.8, right on your calculator.
 
 
 
+## New: Celeste
+
+<p align="center">
+  <img src="docs/media/celeste.gif" width="640" alt="Celeste: Madeline dashing through the Forsaken City, climbing Golden Ridge and the Summit">
+</p>
+
+Climb Celeste Mountain with Madeline, right on your calculator.
+
+- **The whole climb:** the Prologue, all eight chapters, the Epilogue, and every B-side and C-side.
+- **Madeline moves like in the game:** the same jumps, dashes, climbing and wall jumps.
+- **The story:** every conversation with Theo, Granny, Oshiro and Badeline, with their portraits.
+- **Everything to find:** strawberries, crystal hearts, cassettes and the Summit's gems.
+
+<p align="center">
+  <a href="https://github.com/Mason363/NumPlay/releases/latest/download/Celeste.nwa"><img src="https://img.shields.io/badge/Download-Celeste.nwa-AC3232?style=for-the-badge" alt="Download Celeste.nwa"></a>
+</p>
+
+<p align="center">
+  It fills the calculator's app space, so it comes on its own. &nbsp;<a href="games/celeste/README.md"><b>More about Celeste</b></a> &nbsp;·&nbsp; <a href="docs/play.md#celeste"><b>How to play</b></a>
+</p>
+
+
+
 ## Go support the original games!
 
 NumPlay is a fan project, made out of love for these games and for the NumWorks calculator. It is not meant to replace any of them. If you enjoy a game here, go play the original and support the people who made it.
@@ -98,6 +122,10 @@ Click a file to download it. Not sure which one? Take the first.
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_numblocks.png" width="112" alt="NumBlocks"></td>
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumBlocks.nwa">NumBlocks.nwa</a><br>Only NumBlocks: mine, craft, survive (<a href="games/numblocks/README.md">more</a>)</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_celeste.png" width="112" alt="Celeste"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Celeste.nwa">Celeste.nwa</a><br>Celeste: the whole climb up Celeste Mountain. It fills the calculator's app space, so it comes on its own, not inside NumPlay (<a href="games/celeste/README.md">more</a>)</td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_numdrive.png" width="112" alt="NumDrive"></td>
@@ -197,6 +225,10 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
     <td><img src="docs/media/numblocks_night.gif" alt="NumBlocks: sunset, then a zombie walks up and is beaten with an iron sword"></td>
   </tr>
   <tr>
+    <td><img src="docs/media/celeste.gif" alt="Celeste: Madeline dashing through the Forsaken City, climbing Golden Ridge and the Summit"></td>
+    <td><img src="games/celeste/docs/reflection.png" width="100%" alt="Celeste: Badeline fights back in Reflection"></td>
+  </tr>
+  <tr>
     <td><img src="docs/media/numdrive.gif" alt="NumDrive gameplay"></td>
     <td><img src="docs/media/balatro.gif" alt="Balatro: a Four of a Kind scoring with five Jokers"></td>
   </tr>
@@ -242,6 +274,7 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
 - **[gd3ds](https://github.com/AleFunky/gd3ds)** by AleFunky and friends, whose research into Geometry Dash made NumDash possible. Clubstep, Deadlocked and Dash also rely on [gdsolver](https://github.com/gdsolver/gdsolver)'s measurements of Geometry Dash 2.2, level data from [gmdkit](https://github.com/UHDanke/gmdkit) by HDanke and checks against [GDRWeb](https://github.com/iliasHDZ/GDRWeb) by IliasHDZ.
 - **Balatro** by LocalThunk inspired NumPlay's Balatro, which uses art adapted from the game and the **m6x11** font by Daniel Linssen.
 - **Minecraft** by Mojang inspired NumBlocks, which uses Minecraft 1.8.8's textures, font and screens and makes its worlds the way Minecraft 1.8.8 does.
+- **Celeste** inspired NumPlay's Celeste, which uses the game's own pictures, maps, texts and fonts. Not affiliated with Maddy Makes Games.
 - **Buckshot Roulette** by Mike Klubnika inspired NumPlay's Buckshot Roulette, whose scenes are rendered from the game through the Open Buckshot Roulette project (1503Dev). Fonts: Fake Receipt by Ray Larabie and Dot Matrix by Dionaea.
 - The **Doodle Champion Island Games** (2021) inspired Champion Island, which uses the doodle's own pictures, maps and texts from the [Google-Doodle-Champion-Island](https://github.com/potherca-blog/Google-Doodle-Champion-Island) archive by potherca-blog, and the **PixelMplus** font by Itou Hiroki ([license](LICENSES/PixelMplus.txt)).
 - **[Portal Returns](https://www.cemetech.net/downloads/files/1313/x1313)** by MateoConLechuga for the TI-84 Plus CE, with sprites by CKH4 and Portal Prelude chambers ported by Unicorn from BuilderBoy's original.
@@ -253,4 +286,4 @@ NumPlay is licensed under the [GNU General Public License v3.0](LICENSE). Copyri
 
 Code and fonts from others keep their own licenses: the `UNLICENSE` files in the games' folders and the [LICENSES](LICENSES) folder. The names, artwork and music of the games NumPlay is inspired by belong to their makers and are not covered by it.
 
-<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, LocalThunk or Playstack (Balatro), Mike Klubnika or Critical Reflex (Buckshot Roulette), Mojang or Microsoft (Minecraft), MateoConLechuga (Portal Returns), Valve (Portal), .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Google (Snake, Solitaire, Block Breaker, Doodle Champion Island Games), STUDIO4°C or Microsoft (Minesweeper). Tetris is a trademark of The Tetris Company, Minecraft of Mojang Synergies AB, Pac-Man of Bandai Namco and Connect Four of Hasbro.</sub>
+<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, LocalThunk or Playstack (Balatro), Mike Klubnika or Critical Reflex (Buckshot Roulette), Mojang or Microsoft (Minecraft), Maddy Makes Games (Celeste), MateoConLechuga (Portal Returns), Valve (Portal), .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Google (Snake, Solitaire, Block Breaker, Doodle Champion Island Games), STUDIO4°C or Microsoft (Minesweeper). Tetris is a trademark of The Tetris Company, Minecraft of Mojang Synergies AB, Pac-Man of Bandai Namco and Connect Four of Hasbro.</sub>

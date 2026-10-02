@@ -142,7 +142,8 @@ APP_portal = games/portal/output/portal.nwa:PortalReturns.nwa
 APP_chess = games/chess/output/chess.nwa:NumChess.nwa
 APP_tetris = games/tetris/tetris/target/thumbv7em-none-eabihf/release/tetris:Tetris.nwa
 APP_numvisuals = games/numvisuals/output/numvisuals.nwa:NumVisuals.nwa
-# too big to share the calculator's app space with NumPlay: only on its own
+# too big to share the calculator's app space with NumPlay: only on their own
+APP_celeste = games/celeste/output/celeste.nwa:Celeste.nwa
 APP_championisland = games/championisland/output/championisland.nwa:ChampionIsland.nwa
 
 apps: | $(B)
@@ -154,6 +155,7 @@ apps: | $(B)
 	$(MAKE) -C games/portal build NWLINK="$(NWLINK)"
 	$(MAKE) -C games/chess build NWLINK="$(NWLINK)"
 	$(MAKE) -C games/numvisuals build NWLINK="$(NWLINK)"
+	$(MAKE) -C games/celeste build NWLINK="$(NWLINK)"
 	$(MAKE) -C games/championisland build NWLINK="$(NWLINK)"
 	cd games/tetris/tetris && NWLINK="$(NWLINK)" $(CARGO) build --release --quiet
 	cp $(word 1,$(subst :, ,$(APP_numdash))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numdash)))
@@ -165,6 +167,7 @@ apps: | $(B)
 	cp $(word 1,$(subst :, ,$(APP_chess))) $(B)/apps/$(word 2,$(subst :, ,$(APP_chess)))
 	cp $(word 1,$(subst :, ,$(APP_tetris))) $(B)/apps/$(word 2,$(subst :, ,$(APP_tetris)))
 	cp $(word 1,$(subst :, ,$(APP_numvisuals))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numvisuals)))
+	cp $(word 1,$(subst :, ,$(APP_celeste))) $(B)/apps/$(word 2,$(subst :, ,$(APP_celeste)))
 	cp $(word 1,$(subst :, ,$(APP_championisland))) $(B)/apps/$(word 2,$(subst :, ,$(APP_championisland)))
 	arm-none-eabi-strip --strip-unneeded $(B)/apps/Tetris.nwa
 

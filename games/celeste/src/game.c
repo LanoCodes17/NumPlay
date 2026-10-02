@@ -34,6 +34,10 @@ void game_init(void) {
   g_session.level = (uint8_t)chapter_find_room(PERF_CHAPTER, PERF_ROOM);
   g_in_level = true;
   level_start(INTRO_NONE);
+#ifdef PERF_X   /* and at a point of it */
+  g_player.ent->x = g_level.room->x + PERF_X, g_player.ent->y = g_level.room->y + PERF_Y;
+  g_level.cam = player_camera_target(&g_player);
+#endif
   return;
 #endif
   menu_open_title();   /* the key sheet first, the first time */

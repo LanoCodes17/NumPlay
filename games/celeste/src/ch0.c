@@ -281,7 +281,7 @@ static void new_bridge(const EData *d) {
   e->visible = 0;
   BridgeS *b = ST(e, BridgeS);
   b->width = EA(d, bridge, width);
-  float gap0 = ed_node(d, 0).x - d->rx + g_level.room->x, gap1 = ed_node(d, 1).x - d->rx + g_level.room->x;
+  float gap0 = ed_node(d, 0).x, gap1 = ed_node(d, 1).x;   /* Added: the nodes' x in the level (its Bounds.Left) */
   /* Calc.PushRandom(1): the same pieces as the game's */
   NetRandom r;
   rnd_seed(&r, 1);

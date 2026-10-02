@@ -114,10 +114,11 @@ void ents_awake_new(void) {
   unsorted = true;
   for (int i = 0; i < g_nents; i++) {
     Ent *e = &g_ents[i];
-    if (e->cls && e->cls->awake && !e->awoken) {
-      e->awoken = 1;
-      e->cls->awake(e);
-    }
+    if (!e->cls || e->awoken) continue;
+    e->awoken = 1;
+    /* Solid.Awake / JumpThru.Awake: the static movers riding it are its own (not the level's tiles': AllowStaticMovers) */
+    if ((e->kind & (KIND_SOLID | KIND_JUMPTHRU)) && e != g_solidtiles && e->dead != 1) plat_static_movers_attach(e);
+    if (e->cls->awake) e->cls->awake(e);
   }
 }
 
@@ -489,6 +490,8 @@ void plat_static_movers_trigger(Ent *p) {
 }
 
 void plat_static_movers_attach(Ent *p) {
+  uint8_t was = p->collidable;
+  if (p->kind & KIND_SOLID) p->collidable = 1;   /* Solid.Awake: collidable while it looks */
   for (int i = 0; i < g_nents; i++) {
     Ent *m = &g_ents[i];
     if (!m->cls || !(m->kind & KIND_STATICMOVER) || m->plat || m->dead == 1) continue;
@@ -497,6 +500,7 @@ void plat_static_movers_attach(Ent *p) {
       if (MORE(m->cls)->sm_attach) MORE(m->cls)->sm_attach(m, p);
     }
   }
+  p->collidable = was;
 }
 
 #define MAX_SHAKES 24

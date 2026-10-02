@@ -1122,7 +1122,7 @@ static void ts_layer(uint16_t *strip, int sy0, int sy1, void *ctx) {
     bool vert = s->dir == TS_UP || s->dir == TS_DOWN;
     for (int i = 0; i < s->n; i++) {
       int k = s->first + i;
-      uint32_t h = hash32((uint32_t)(int)e->x * 7919u + (uint32_t)(int)e->y * 104729u + (uint32_t)i);
+      uint32_t h = hash32((uint32_t)e->eid * 104729u + (uint32_t)i);   /* its own (Added's randoms): not from where it is, it rides blocks */
       V2 at = v2add(v2(e->x, e->y), v2mul(along, 2 + i * 4.f));
       if (!(ts_state[k] & 128)) {   /* the tendril, waving */
         int frame = (int)(fmodf((h % 900) / 100.f + g_level.time_active * 12, 9));

@@ -391,15 +391,16 @@ void blit_part_ex(uint16_t *strip, int sy0, int sy1, const Tex *t, int x, int y,
                       uint8_t flags, uint16_t tint, uint8_t alpha) {
   prep(t->pal, tint, alpha, flags);
   bool fx = flags & GF_FLIPX, fy = flags & GF_FLIPY;
+  int k = t->scale > 1 ? t->scale : 1;   /* (a texture stored k times smaller: its frame's pixels k times bigger) */
   for (int r = 0; r < h; r++) {
     int vy = y + r;
     if (vy < sy0 || vy >= sy1) continue;
-    int fr = sy + (fy ? h - 1 - r : r) - t->oy;    /* stored row */
+    int fr = (sy + (fy ? h - 1 - r : r)) / k - t->oy;    /* stored row */
     if (fr < 0 || fr >= t->h) continue;
     uint16_t *row = strip + (vy - sy0) * VIEW_W;
     turned_src = NULL, tex_row(t, fr, rowbuf);
     for (int i = 0; i < w; i++) {
-      int c = sx + (fx ? w - 1 - i : i) - t->ox;
+      int c = (sx + (fx ? w - 1 - i : i)) / k - t->ox;
       int dx = x + i;
       if ((unsigned)dx >= VIEW_W || c < 0 || c >= t->w || !rowbuf[c]) continue;
       plot(row + dx, rowbuf[c]);

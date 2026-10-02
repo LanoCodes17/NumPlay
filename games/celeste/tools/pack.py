@@ -1718,6 +1718,9 @@ def main():
             if name == "parallax" and tid is None:
                 print("missing styleground texture", a.get("texture"))
             ch.style_tex.append(tid)
+    mist = TEX.by_path.get("objects/heartdoor/mist")   # HeartGemDoor's: 320x320, most of Core's texture cache at full size
+    if mist is not None:
+        TEX.list[mist].scale = 2
     for ch in chapters:   # (once every styleground is known: one can be some room's entity's too)
         for r in ch.rooms:
             need = []

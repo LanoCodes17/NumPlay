@@ -233,8 +233,9 @@ static void layer_strip(uint16_t *strip, int y0, int y1, void *ctx) {
       if (t == TERR_SCENERY) {
         Tex sc;
         if (tex_get(T_tilesets_scenery, &sc)) {
-          int q = C_QUAD(v);
-          scenery_tile(strip, y0, y1, &sc, (q % 30) * 8, (q / 30) * 8, ox + k * 8, y);
+          /* Tileset: Texture.Width / 8 tiles a row, the frame's width (256: 32), not the trimmed one */
+          int q = C_QUAD(v), cols = sc.fw >> 3;
+          scenery_tile(strip, y0, y1, &sc, (q % cols) * 8, (q / cols) * 8, ox + k * 8, y);
         }
         continue;
       }

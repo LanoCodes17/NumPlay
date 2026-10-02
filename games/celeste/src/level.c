@@ -791,6 +791,10 @@ void level_update(void) {
     }
     ents_update();
   }
+  if (!g_level.frozen) {   /* !FrozenOrPaused: the wind's sway (Wire) */
+    g_level.wind_sine_timer += DT;
+    g_level.wind_sine = (sinf(g_level.wind_sine_timer) + 1) / 2;
+  }
   player_after_update(&g_player);
   ents_flush_removed();
   ents_awake_new();

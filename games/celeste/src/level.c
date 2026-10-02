@@ -357,7 +357,7 @@ bool level_on_interval(float interval) {
   return floorf((g_level.time_active - DT) / interval) < floorf(g_level.time_active / interval);
 }
 bool level_on_raw_interval(float interval) {
-  return floorf((g_level.raw_time_active - DT) / interval) < floorf(g_level.raw_time_active / interval);
+  return floorf((g_level.raw_time_active - RAW_DT) / interval) < floorf(g_level.raw_time_active / interval);
 }
 void level_shake(float t) {
   if (g_save.options & 1) return;   /* Settings: Screen Shake Effects off */
@@ -367,6 +367,7 @@ void level_shake(float t) {
 void level_dir_shake(V2 dir, float t) {
   if (g_save.options & 1) return;
   g_level.shake_dir = v2norm(dir);
+  g_level.last_dir_shake = 0;
   g_level.shake_timer = fmaxf(g_level.shake_timer, t);
 }
 void level_freeze(float t) {
@@ -754,7 +755,7 @@ void level_update(void) {
     return;
   }
   if (g_level.freeze > 0) {
-    g_level.freeze = fmaxf(g_level.freeze - DT, 0);
+    g_level.freeze = fmaxf(g_level.freeze - RAW_DT, 0);   /* (Engine.FreezeTimer, in raw time) */
     return;
   }
   update_time();
@@ -762,19 +763,20 @@ void level_update(void) {
   if (g_level.ending_delay > 0 && (g_level.ending_delay -= DT) <= 0) level_complete_area(false, false);
   g_level.prev_time_active = g_level.time_active;
   g_level.time_active += DT;
-  g_level.raw_time_active += DT;
-  if (g_level.shake_timer > 0) {
+  g_level.raw_time_active += RAW_DT;
+  if (g_level.shake_timer > 0) {   /* as many pixels as tenths of a second left, rounded up */
     if (level_on_raw_interval(0.04f)) {
+      int n = (int)ceilf(g_level.shake_timer * 10);
       if (g_level.shake_dir.x == 0 && g_level.shake_dir.y == 0)
-        g_level.shake_vec = v2((float)(rndi(3) - 1), (float)(rndi(3) - 1));
+        g_level.shake_vec = v2((float)(rndi(n * 2 + 1) - n), (float)(rndi(n * 2 + 1) - n));
       else {
-        int s = rndi(2) ? 1 : -1;
-        g_level.shake_vec = v2(roundf(g_level.shake_dir.x * s), roundf(g_level.shake_dir.y * s));
+        g_level.last_dir_shake = (int8_t)(g_level.last_dir_shake ? -g_level.last_dir_shake : 1);
+        g_level.shake_vec = v2mul(g_level.shake_dir, (float)(-g_level.last_dir_shake * n));
       }
     }
-    g_level.shake_timer -= DT;
-    if (g_level.shake_timer <= 0) g_level.shake_vec = v2(0, 0);
-  }
+    g_level.shake_timer -= RAW_DT;
+  } else
+    g_level.shake_vec = v2(0, 0);
   if (g_level.do_flash) {
     g_level.flash = approach(g_level.flash, 1, DT * 10);
     if (g_level.flash >= 1) g_level.do_flash = false;

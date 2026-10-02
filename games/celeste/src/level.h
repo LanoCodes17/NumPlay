@@ -84,6 +84,7 @@ typedef struct {
   bool do_flash, flash_draw_player, no_retry;   /* no_retry: !Level.CanRetry */
   bool has_cassette_blocks;   /* Level.HasCassetteBlocks, CassetteBlockBeats (the room's) */
   uint8_t cassette_beats;
+  int8_t last_dir_shake;  /* Level.lastDirectionalShake: a directional shake goes one way, then the other */
   float shake_timer;
   /* time */
   float time_active, raw_time_active, prev_time_active;

@@ -93,7 +93,7 @@ typedef struct {
   float time;
   int8_t shakex, shakey;
   float shake_timer;
-  TileQ tiles[7 * 4];
+  TileQ *tiles;
   uint8_t tw, th;
 } Crusher;
 static void crusher_shake(Crusher *c, float t) { c->shake_timer = t; }
@@ -148,13 +148,12 @@ static void crusher_update(Ent *e) {
 }
 static void crusher_render(Ent *e) {
   Crusher *c = ST(e, Crusher);
-  tiles_draw(c->tiles, c->tw, c->th, e->x + c->shakex, e->y + c->shakey, 0xFFFF, 255);
+  if (c->tiles) tiles_draw(c->tiles, '3', c->tw, c->th, e->x + c->shakex, e->y + c->shakey, 0xFFFF, 255);
 }
 static const EntClass CRUSHER = {.size = sizeof(Crusher), .name = "introCrusher", .update = crusher_update, .render = crusher_render,
                                  .kind = KIND_SOLID};
 static void new_crusher(const EData *d) {
   int w = (int)EA(d, introCrusher, width), h = (int)EA(d, introCrusher, height);
-  if (w / 8 * (h / 8) > 7 * 4) return;
   Ent *e = ent_new(&CRUSHER, d->x, d->y);
   if (!e) return;
   ent_box(e, (float)w, (float)h, 0, 0);
@@ -164,7 +163,7 @@ static void new_crusher(const EData *d) {
   c->start = v2(d->x, d->y);
   c->end = ed_node(d, 0);
   c->tw = (uint8_t)(w / 8), c->th = (uint8_t)(h / 8);
-  tiles_box('3', c->tw, c->th, c->tiles);
+  if ((c->tiles = blocks_new_tiles(c->tw * c->th))) tiles_box('3', c->tw, c->th, c->tiles);
   if (level_visited("1") || level_visited("0b")) {
     e->x = c->end.x, e->y = c->end.y;
     c->co.co = -1;

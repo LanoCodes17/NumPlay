@@ -19,7 +19,7 @@ static bool hud, ui;   /* hud: screen coordinates; ui: the interface (drawn afte
 static uint16_t clear_color;
 static bool letterbox_dirty = true;
 
-enum { OP_TEX, OP_PART, OP_AFFINE, OP_RECT, OP_LINE, OP_PIXEL, OP_CUSTOM, OP_SCALED, OP_MASK };
+enum { OP_TEX, OP_PART, OP_AFFINE, OP_RECT, OP_LINE, OP_PIXEL, OP_CUSTOM, OP_SCALED, OP_MASK, OP_TILES };
 
 typedef struct {
   uint8_t op, flags, alpha, extra;
@@ -445,6 +445,29 @@ void blit_cells(uint16_t *strip, int sy0, int sy1, const Tex *t, float x, float 
   }
 }
 
+/* a block's tiles: a grid of w x h 8x8 tiles of t (quads, ty * 8 + tx, 255 for none) at strip-relative (x, y) */
+static void blit_tiles(uint16_t *strip, int sy0, int sy1, const Tex *t, int x, int y, const uint8_t *q, int w, int h,
+                       uint16_t tint, uint8_t alpha) {
+  prep(t->pal, tint, alpha, 0);
+  int r0 = y > sy0 ? y : sy0, r1 = y + h * 8 < sy1 ? y + h * 8 : sy1;
+  for (int vy = r0; vy < r1; vy++) {
+    const uint8_t *qr = q + ((vy - y) >> 3) * w;
+    uint16_t *row = strip + (vy - sy0) * VIEW_W;
+    int cached = -1;
+    for (int i = 0; i < w; i++) {
+      int k = qr[i], dx = x + i * 8;
+      if (k == 255 || dx >= VIEW_W || dx + 8 <= 0) continue;
+      int sr = (k >> 3) * 8 + ((vy - y) & 7) - t->oy;
+      if (sr < 0 || sr >= t->h) continue;
+      if (sr != cached) turned_src = NULL, tex_row(t, sr, rowbuf), cached = sr;
+      for (int px = 0; px < 8; px++) {
+        int c = (k & 7) * 8 + px - t->ox;
+        if ((unsigned)(dx + px) < VIEW_W && c >= 0 && c < t->w && rowbuf[c]) plot(row + dx + px, rowbuf[c]);
+      }
+    }
+  }
+}
+
 /* a palette's first 16 colors as drawn (tint folded in) and their alphas (0..256) */
 void pal_lut(uint16_t pal, uint16_t tint, uint16_t *col, uint16_t *alpha) {
   int n;
@@ -756,6 +779,18 @@ void gfx_tex_part(uint16_t tex, float x, float y, int sx, int sy, int w, int h, 
   c->a = (uint16_t)(sx | sy << 8), c->b = (uint16_t)(w | h << 8);
 }
 
+/* a block's w x h tiles of tex (q: TileQ in g_tile_pool), its top-left at (x, y): one command */
+void gfx_tiles(uint16_t tex, const uint8_t *q, int w, int h, float x, float y, uint16_t tint, uint8_t alpha) {
+  Tex t;
+  if (!alpha || w > 255 || h > 127 || q < g_tile_pool || q + w * h > g_tile_pool + TILE_POOL || !tex_get(tex, &t)) return;
+  int X = sx_(x), Y = sy_(y);
+  if (X >= VIEW_W || X + w * 8 <= 0) return;
+  Cmd *c = add(OP_TILES, Y, Y + h * 8);
+  if (!c) return;
+  c->tex = tex, c->x = (int16_t)X, c->y = (int16_t)Y, c->tint = tint, c->alpha = alpha;
+  c->flags = (uint8_t)w, c->extra |= (uint8_t)(h << 1), c->a = (uint16_t)(q - g_tile_pool);
+}
+
 void gfx_rect(float x, float y, float w, float h, uint16_t col, uint8_t alpha) {
   if (!alpha) return;
   int X = sx_(x), Y = sy_(y), W_ = (int)floorf(w + 0.5f), H_ = (int)floorf(h + 0.5f);
@@ -857,6 +892,10 @@ static void replay(int y0, int y1, int pass) {
       case OP_RECT: fill(g_strip, y0, y1, c->x, c->y, c->a, c->b, c->tint, c->alpha); break;
       case OP_LINE: line(g_strip, y0, y1, c->x, c->y, (int16_t)c->a, (int16_t)c->b, c->tint, c->alpha); break;
       case OP_CUSTOM: customs[c->a].fn(g_strip, y0, y1, customs[c->a].ctx); break;
+      case OP_TILES:
+        if (tex_get(c->tex, &t))
+          blit_tiles(g_strip, y0, y1, &t, c->x, c->y, g_tile_pool + c->a, c->flags, c->extra >> 1, c->tint, c->alpha);
+        break;
     }
   }
 }

@@ -192,6 +192,9 @@ void gfx_screen(bool on);   /* screen coordinates for gameplay layers (zoomed wi
 void gfx_tex_part_ex(uint16_t tex, float x, float y, int sx, int sy, int w, int h, float ox, float oy, float scx, float scy,
                      float rot, uint16_t tint, uint8_t alpha, uint8_t flags);
 void gfx_tex_part(uint16_t tex, float x, float y, int sx, int sy, int w, int h, uint8_t flags, uint16_t tint, uint8_t alpha);
+#define TILE_POOL 1600
+extern uint8_t g_tile_pool[TILE_POOL];   /* the blocks' tiles (entities.c), which gfx_tiles draws */
+void gfx_tiles(uint16_t tex, const uint8_t *q, int w, int h, float x, float y, uint16_t tint, uint8_t alpha);
 void gfx_rect(float x, float y, float w, float h, uint16_t c, uint8_t alpha);
 void gfx_hollow_rect(float x, float y, float w, float h, uint16_t c, uint8_t alpha);
 void gfx_line(float x0, float y0, float x1, float y1, uint16_t c, uint8_t alpha);

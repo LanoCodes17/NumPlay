@@ -1315,44 +1315,18 @@ static void new_hstatue(const EData *d) {
   }
 }
 /* ---------------------------------------------------------------- the boss's blocks: tiles 'g', highlighted 'G' */
-/* their tiles live in a small pool, in runs of 8, owned by the block */
-#define BT_CHUNK 8
-#define BT_CHUNKS 48
-static TileQ bt_pool[BT_CHUNKS * BT_CHUNK];
-static uint8_t bt_owner[BT_CHUNKS];   /* 0: free, else the block's entity + 1 */
-static int bt_alloc(Ent *e, int n) {
-  int k = (n + BT_CHUNK - 1) / BT_CHUNK, run = 0;
-  for (int i = 0; i < BT_CHUNKS; i++) {
-    run = bt_owner[i] ? 0 : run + 1;
-    if (run == k) {
-      for (int j = i - k + 1; j <= i; j++) bt_owner[j] = (uint8_t)(ent_ref(e) + 1);
-      return (i - k + 1) * BT_CHUNK;
-    }
-  }
-  return -1;
-}
-static void bt_free(Ent *e) {
-  for (int i = 0; i < BT_CHUNKS; i++)
-    if (bt_owner[i] == ent_ref(e) + 1) bt_owner[i] = 0;
-}
+/* their tiles: in the blocks' pool (entities.c), with the room */
 /* the tiles at alpha a, and the same box in 'G' (the same random picks) at alpha hl */
-static void bt_draw(int t0, int w, int h, float x, float y, float a, float hl) {
-  if (t0 < 0) return;
-  const TileQ *q = bt_pool + t0;
-  if (a > 0) tiles_draw(q, w, h, x, y, 0xFFFF, a8(a));
-  if (hl > 0) {
-    TileQ tmp[BT_CHUNKS * BT_CHUNK / 2];
-    int n = w * h, g = terrain_of(0, 'G');
-    if (n > (int)(sizeof tmp / sizeof tmp[0]) || g < 0) return;
-    for (int i = 0; i < n; i++) tmp[i].quad = q[i].quad, tmp[i].terrain = q[i].terrain == 255 ? 255 : (uint8_t)g;
-    tiles_draw(tmp, w, h, x, y, 0xFFFF, a8(hl));
-  }
+static void bt_draw(const TileQ *q, int w, int h, float x, float y, float a, float hl) {
+  if (!q) return;
+  if (a > 0) tiles_draw(q, 'g', w, h, x, y, 0xFFFF, a8(a));
+  if (hl > 0) tiles_draw(q, 'G', w, h, x, y, 0xFFFF, a8(hl));
 }
 
 /* FallingBlock(finalBoss: true), the map's finalBossFallingBlock */
 typedef struct {
   float wait, timer, delay, speed, hl, hl_from, hl_to, hl_p;
-  int16_t t0;
+  TileQ *q;
   uint8_t w, h, step, triggered, hl_run, pad;
 } BFall;
 static void bfall_highlight(BFall *b, float to) {   /* HighlightFade(to): its coroutine starts next frame */
@@ -1461,11 +1435,11 @@ static void bfall_update(Ent *e) {
 }
 static void bfall_render(Ent *e) {
   BFall *b = ST(e, BFall);
-  bt_draw(b->t0, b->w, b->h, e->x + e->shakex, e->y + e->shakey, 1 - b->hl, b->hl);
+  bt_draw(b->q, b->w, b->h, e->x + e->shakex, e->y + e->shakey, 1 - b->hl, b->hl);
 }
 static void bfall_shake(Ent *e, V2 a) { plat_static_movers_shake(e, a); }
 static const EntClass BFALL = {.name = "finalBossFallingBlock", .size = sizeof(BFall), .update = bfall_update, .render = bfall_render,
-                               .removed = bt_free, .on_shake = bfall_shake, .kind = KIND_SOLID};
+                               .on_shake = bfall_shake, .kind = KIND_SOLID};
 static void new_bfall(const EData *d) {
   float w = EA(d, finalBossFallingBlock, width), h = EA(d, finalBossFallingBlock, height);
   Ent *e = ent_new(&BFALL, d->x, d->y);
@@ -1473,8 +1447,7 @@ static void new_bfall(const EData *d) {
   ent_box(e, w, h, 0, 0);
   BFall *b = ST(e, BFall);
   b->w = (uint8_t)(w / 8), b->h = (uint8_t)(h / 8);
-  b->t0 = (int16_t)bt_alloc(e, b->w * b->h);
-  if (b->t0 >= 0) tiles_box('g', b->w, b->h, bt_pool + b->t0);
+  if ((b->q = blocks_new_tiles(b->w * b->h))) tiles_box('g', b->w, b->h, b->q);
 }
 
 /* FinalBossMovingBlock */
@@ -1484,7 +1457,7 @@ typedef struct {
   Tween tw;
   V2 from, to;
   int16_t nodes[BM_NODES][2];
-  int16_t t0;
+  TileQ *q;
   uint8_t w, h, node, nnodes, boss_node, step, highlighted, tw_on;
 } BMove;
 static const EntClass BMOVE;
@@ -1612,7 +1585,7 @@ static void bmove_update(Ent *e) {
 static void bmove_render(Ent *e) {
   BMove *b = ST(e, BMove);
   float x = e->x + e->shakex, y = e->y + e->shakey;
-  bt_draw(b->t0, b->w, b->h, x, y, 1 - b->hl, b->hl);
+  bt_draw(b->q, b->w, b->h, x, y, 1 - b->hl, b->hl);
   if (b->hl > 0 && b->hl < 1) {   /* a hollow rect closing in, Color.Lerp(Purple, Pink, 0.7) */
     int n = (int)((1 - b->hl) * 16);
     gfx_hollow_rect(x - n, y - n, e->cw + 2 * n, e->ch + 2 * n, rgb(0xD886B4), 255);
@@ -1620,7 +1593,7 @@ static void bmove_render(Ent *e) {
 }
 static void bmove_shake(Ent *e, V2 a) { plat_static_movers_shake(e, a); }
 static const EntClass BMOVE = {.name = "finalBossMovingBlock", .size = sizeof(BMove), .update = bmove_update, .render = bmove_render,
-                               .removed = bt_free, .on_shake = bmove_shake, .kind = KIND_SOLID};
+                               .on_shake = bmove_shake, .kind = KIND_SOLID};
 static void new_bmove(const EData *d) {
   float w = EA(d, finalBossMovingBlock, width), h = EA(d, finalBossMovingBlock, height);
   Ent *e = ent_new(&BMOVE, d->x, d->y);
@@ -1636,8 +1609,7 @@ static void new_bmove(const EData *d) {
     b->nodes[n][0] = (int16_t)v.x, b->nodes[n][1] = (int16_t)v.y;
   }
   b->nnodes = (uint8_t)n;
-  b->t0 = (int16_t)bt_alloc(e, b->w * b->h);
-  if (b->t0 >= 0) tiles_box('g', b->w, b->h, bt_pool + b->t0);
+  if ((b->q = blocks_new_tiles(b->w * b->h))) tiles_box('g', b->w, b->h, b->q);
 }
 
 /* ---------------------------------------------------------------- FinalBossShot */

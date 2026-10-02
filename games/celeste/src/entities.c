@@ -750,31 +750,40 @@ static void new_zip(const EData *d) {
 }
 
 /* ---------------------------------------------------------------- tile blocks */
-/* the tiles of blocks come from a pool, one half per room slot */
-#define POOL_TILES 400
-static TileQ tile_pool[2][POOL_TILES];
+/* the tiles of blocks come from one pool: the rooms in slot 0 take them from its start, in slot 1 from its end */
+TileQ g_tile_pool[TILE_POOL];
 static int tile_pool_n[2];
 static TileQ *pool_tiles(int slot, int n) {
-  if (tile_pool_n[slot] + n > POOL_TILES) return NULL;
-  TileQ *q = tile_pool[slot] + tile_pool_n[slot];
+  if (tile_pool_n[0] + tile_pool_n[1] + n > TILE_POOL) return NULL;
   tile_pool_n[slot] += n;
-  return q;
+  return slot ? g_tile_pool + TILE_POOL - tile_pool_n[1] : g_tile_pool + tile_pool_n[0] - n;
 }
+TileQ *blocks_new_tiles(int n) { return pool_tiles(g_level.room_slot, n); }
+void blocks_free_tiles(int slot) { tile_pool_n[slot] = 0; }
+enum { BF_OVERLAY = 0x80 };   /* Block.flags: the tiles blend into the room's (TileGrid of the level's grid) */
 typedef struct {
   char type;
   uint8_t w, h, mode;
-  uint8_t flags;      /* fallingBlock: climbFall; dashBlock: permanent, canDash */
+  uint8_t flags;      /* fallingBlock: climbFall; dashBlock: permanent, canDash; BF_OVERLAY */
   int step;
   float timer, speed, alpha;
   bool triggered;
   uint32_t hash;
   TileQ *q;
 } Block;
+/* its tiles from the pool; with too many in the two rooms, it tries again when drawn, once in the level's room */
+static bool block_tiles(Ent *e) {
+  Block *b = ST(e, Block);
+  if (e->room != g_level.room_slot || !(b->q = pool_tiles(e->room, b->w * b->h))) return false;
+  if (b->flags & BF_OVERLAY) tiles_overlay(b->type, (int)(e->x / 8), (int)(e->y / 8), b->w, b->h, b->q);
+  else tiles_box(b->type, b->w, b->h, b->q);
+  return true;
+}
 
 static void block_render(Ent *e) {
   Block *b = ST(e, Block);
-  if (!b->q) return;
-  tiles_draw(b->q, b->w, b->h, e->x + e->shakex, e->y + e->shakey, 0xFFFF, (uint8_t)(b->alpha * 255));
+  if (!b->q && !block_tiles(e)) return;
+  tiles_draw(b->q, b->type, b->w, b->h, e->x + e->shakex, e->y + e->shakey, 0xFFFF, (uint8_t)(b->alpha * 255));
 }
 
 /* FallingBlock */
@@ -861,7 +870,7 @@ static void block_shake(Ent *e, V2 a) { plat_static_movers_shake(e, a); }
 static const EntClass FALLING = {.size = sizeof(Block), .name = "fallingBlock", .update = falling_update, .render = block_render,
                                  .on_staticmover_trigger = falling_trigger, .on_shake = block_shake, .kind = KIND_SOLID};
 
-static Ent *new_block(const EntClass *cls, const EData *d, float w, float h, char type) {
+static Ent *new_block(const EntClass *cls, const EData *d, float w, float h, char type, bool overlay) {
   Ent *e = ent_new(cls, d->x, d->y);
   if (!e) return NULL;
   ent_box(e, w, h, 0, 0);
@@ -870,8 +879,8 @@ static Ent *new_block(const EntClass *cls, const EData *d, float w, float h, cha
   b->w = (uint8_t)(w / 8), b->h = (uint8_t)(h / 8);
   b->alpha = 1;
   b->hash = level_entity_hash(d);
-  b->q = pool_tiles(g_level.room_slot, b->w * b->h);
-  if (b->q) tiles_box(type, b->w, b->h, b->q);
+  b->flags = overlay ? BF_OVERLAY : 0;
+  block_tiles(e);
   return e;
 }
 /* data.Char("tiletype", '3'): a number in some maps, a letter in others (data.bin keeps those as text) */
@@ -1173,53 +1182,39 @@ bool ent_create(const EData *d) {
     case ET_zipMover: new_zip(d); return true;
     case ET_fallingBlock: {
       Ent *e = new_block(&FALLING, d, EA(d, fallingBlock, width), EA(d, fallingBlock, height),
-                         TILE_ATTR(d, fallingBlock, tiletype));
+                         TILE_ATTR(d, fallingBlock, tiletype), false);
       if (!e) return true;
       if (EAB(d, fallingBlock, behind)) e->depth = 5000;
-      ST(e, Block)->flags = EAB(d, fallingBlock, climbFall) ? 1 : 0;
+      ST(e, Block)->flags |= EAB(d, fallingBlock, climbFall) ? 1 : 0;
       return true;
     }
     case ET_dashBlock: {
-      char t = TILE_ATTR(d, dashBlock, tiletype);
-      Ent *e = new_block(&DASHBLOCK, d, EA(d, dashBlock, width), EA(d, dashBlock, height), t);
+      bool blend = EAB(d, dashBlock, blendin);
+      Ent *e = new_block(&DASHBLOCK, d, EA(d, dashBlock, width), EA(d, dashBlock, height), TILE_ATTR(d, dashBlock, tiletype),
+                         blend);
       if (!e) return true;
-      e->depth = -12999;
+      e->depth = blend ? -10501 : -12999;
       e->safe = 1;
-      Block *b = ST(e, Block);
-      b->flags = (EAB(d, dashBlock, permanent) ? 1 : 0) | (EAB(d, dashBlock, canDash) ? 2 : 0);
-      if (EAB(d, dashBlock, blendin)) {
-        e->depth = -10501;
-        if (b->q) tiles_overlay(t, (int)(d->x / 8), (int)(d->y / 8), b->w, b->h, b->q);
-      }
+      ST(e, Block)->flags |= (EAB(d, dashBlock, permanent) ? 1 : 0) | (EAB(d, dashBlock, canDash) ? 2 : 0);
       return true;
     }
     case ET_fakeWall: {
-      char t = TILE_ATTR(d, fakeWall, tiletype);
-      Ent *e = new_block(&FAKEWALL, d, EA(d, fakeWall, width), EA(d, fakeWall, height), t);
-      if (!e) return true;
-      e->depth = -13000;
-      Block *b = ST(e, Block);
-      if (b->q) tiles_overlay(t, (int)(d->x / 8), (int)(d->y / 8), b->w, b->h, b->q);
+      Ent *e = new_block(&FAKEWALL, d, EA(d, fakeWall, width), EA(d, fakeWall, height), TILE_ATTR(d, fakeWall, tiletype), true);
+      if (e) e->depth = -13000;
       return true;
     }
     case ET_coverupWall: {
-      char t = TILE_ATTR(d, coverupWall, tiletype);
-      Ent *e = new_block(&COVERUP, d, EA(d, coverupWall, width), EA(d, coverupWall, height), t);
-      if (!e) return true;
-      e->depth = -13000;
-      Block *b = ST(e, Block);
-      if (b->q) tiles_overlay(t, (int)(d->x / 8), (int)(d->y / 8), b->w, b->h, b->q);
+      Ent *e = new_block(&COVERUP, d, EA(d, coverupWall, width), EA(d, coverupWall, height), TILE_ATTR(d, coverupWall, tiletype),
+                         true);
+      if (e) e->depth = -13000;
       return true;
     }
     case ET_exitBlock: {
-      char t = TILE_ATTR(d, exitBlock, tileType);
-      Ent *e = new_block(&EXITBLOCK, d, EA(d, exitBlock, width), EA(d, exitBlock, height), t);
+      Ent *e = new_block(&EXITBLOCK, d, EA(d, exitBlock, width), EA(d, exitBlock, height), TILE_ATTR(d, exitBlock, tileType), true);
       if (!e) return true;
       e->depth = -13000;
       e->collidable = 0;
-      Block *b = ST(e, Block);
-      b->alpha = 0;
-      if (b->q) tiles_overlay(t, (int)(d->x / 8), (int)(d->y / 8), b->w, b->h, b->q);
+      ST(e, Block)->alpha = 0;
       return true;
     }
     case ET_killbox: {

@@ -3,6 +3,7 @@
  *        [--draw N: draw every N frames (else only for shots and the last frame)]
  *        [--load F:ROOM:INTRO:FX:FY: at frame F, LoadLevel(INTRO) into ROOM at the spawn nearest (FX, FY) of it]
  *        [--record A-B:DIR: every frame from A to B as DIR/NNNNN.ppm (for the README's GIFs)]
+ *        [--nowipe: no wipe into the room] [--cam X,Y: the view's top-left there (in the room) when drawn]
  * keys: l r u d j(ump) x(dash) g(rab) p(ause) o(k) b(ack) */
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +13,7 @@
 #include "../src/text.h"
 #include "../src/player.h"
 #include "../src/entities.h"
+#include "../src/wipe.h"
 
 extern uint32_t host_keys, host_time;
 void host_shot(const char *path);
@@ -48,11 +50,13 @@ int main(int argc, char **argv) {
   fread(data, 1, n, f);
   fclose(f);
   cel_bin = data;
-  int frames = 120, chapter = -1, area = -1, checkpoint = -1, at_set = 0, dash_code = 0, list = 0, draw = 0, load_at = -1, load_intro = 0;
+  int frames = 120, chapter = -1, area = -1, checkpoint = -1, at_set = 0, dash_code = 0, list = 0, draw = 0, load_at = -1, load_intro = 0,
+      nowipe = 0;
   const char *load_room = NULL, *rec_dir = NULL;
   int rec_from = -1, rec_to = -1;
   float load_fx = 0, load_fy = 1;
-  float at_x = 0, at_y = 0;
+  float at_x = 0, at_y = 0, cam_x = 0, cam_y = 0;
+  int cam_set = 0;
   const char *keys = "", *room = NULL, *saves = "build/no-saves", *say = NULL;
   const char *shots[64];
   int shot_at[64], nshots = 0;
@@ -66,6 +70,8 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "--saves")) saves = argv[++i];
     else if (!strcmp(argv[i], "--say")) say = argv[++i];
     else if (!strcmp(argv[i], "--dash-code")) dash_code = 1;
+    else if (!strcmp(argv[i], "--nowipe")) nowipe = 1;
+    else if (!strcmp(argv[i], "--cam")) sscanf(argv[++i], "%f,%f", &cam_x, &cam_y), cam_set = 1;
     else if (!strcmp(argv[i], "--draw")) draw = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--record")) {
       char *a = argv[++i];
@@ -108,6 +114,7 @@ int main(int argc, char **argv) {
     level_start(room ? INTRO_NONE : session_intro(true));
     g_in_level = true, g_menu = 0;
   }
+  if (nowipe) g_wipe.active = false;   /* --nowipe: the room at once (no wipe in) */
   if (at_set) {   /* --at X,Y: the player there (in the room) */
     g_player.ent->x = g_level.room->x + at_x, g_player.ent->y = g_level.room->y + at_y;
     g_level.cam = player_camera_target(&g_player);
@@ -157,6 +164,7 @@ int main(int argc, char **argv) {
       if (shot_at[i] == fr) want = true;
     bool rec = rec_dir && fr >= rec_from && fr <= rec_to;
     if (want || rec || fr == frames - 1 || (draw && fr % draw == 0)) {
+      if (cam_set) g_level.cam = v2(g_level.room->x + cam_x, g_level.room->y + cam_y);   /* --cam X,Y: the view there */
       game_draw();
       if (rec) {
         char path[512];

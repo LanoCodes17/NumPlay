@@ -284,13 +284,11 @@ static char box_get(int x, int y, void *ctx) {
 void tiles_box(char type, int w, int h, TileQ *out) {
   BoxCtx b = {type, w, h};
   AutoCtx a = {box_get, &b, NULL, false};
-  int t = terrain_of(0, type);
   for (int y = 0; y < h; y++)
     for (int x = 0; x < w; x++) {
       int ov;
       int q = autotile_at(0, type, &a, x, y, &ov, 3);
-      out[y * w + x].terrain = q < 0 ? 255 : (uint8_t)t;
-      out[y * w + x].quad = q < 0 ? 0 : (uint8_t)q;
+      out[y * w + x] = q < 0 ? 255 : (uint8_t)q;
     }
 }
 
@@ -307,24 +305,17 @@ static bool over_in(int x, int y, void *ctx) {
 void tiles_overlay(char type, int x, int y, int w, int h, TileQ *out) {
   OverCtx o = {type, x, y, w, h};
   AutoCtx a = {over_get, &o, over_in, true};
-  int t = terrain_of(0, type);
   for (int j = 0; j < h; j++)
     for (int i = 0; i < w; i++) {
       int ov;
       int q = autotile_at(0, type, &a, x + i, y + j, &ov, 0);
-      out[j * w + i].terrain = q < 0 ? 255 : (uint8_t)t;
-      out[j * w + i].quad = q < 0 ? 0 : (uint8_t)q;
+      out[j * w + i] = q < 0 ? 255 : (uint8_t)q;
     }
 }
 
-void tiles_draw(const TileQ *q, int w, int h, float x, float y, uint16_t tint, uint8_t alpha) {
-  for (int j = 0; j < h; j++)
-    for (int i = 0; i < w; i++) {
-      const TileQ *t = &q[j * w + i];
-      if (t->terrain == 255) continue;
-      uint16_t tex = terrain_tex(t->terrain);
-      gfx_tex_part(tex, x + i * 8, y + j * 8, (t->quad & 7) * 8, (t->quad >> 3) * 8, 8, 8, 0, tint, alpha);
-    }
+void tiles_draw(const TileQ *q, char type, int w, int h, float x, float y, uint16_t tint, uint8_t alpha) {
+  int t = terrain_of(0, type);
+  if (t >= 0) gfx_tiles(terrain_tex(t), q, w, h, x, y, tint, alpha);
 }
 
 /* ---------------------------------------------------------------- decals */

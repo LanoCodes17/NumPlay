@@ -371,6 +371,7 @@ static float spawn_fx = 0, spawn_fy = 1;   /* LoadLevel's spawn: the one nearest
 static bool just_started;                  /* Session.JustStarted: the session's first room is loading */
 static void load_into_current(int index, int intro) {
   ents_clear(false);
+  blocks_free_tiles(1);   /* (slot 0's go when it loads) */
   g_level.rooms[0].index = g_level.rooms[1].index = -1;
   g_level.room_slot = 0;
   g_level.room = &g_level.rooms[0];
@@ -575,6 +576,7 @@ static void transition_update(void) {
   if (arrived && g_level.tr_at >= 1) {
     int old = g_level.room_slot ^ 1;
     ents_remove_room(old);
+    blocks_free_tiles(old);
     g_level.rooms[old].index = -1;
     V2 sp = player_spawn_near(v2(pe->x, pe->y));   /* Session.RespawnPoint = the closest spawn */
     g_session.rx = (int32_t)sp.x, g_session.ry = (int32_t)sp.y;

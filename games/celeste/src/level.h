@@ -276,10 +276,7 @@ bool level_do_not_load(uint32_t id);
 void level_set_do_not_load(uint32_t id);
 
 /* tiles (tiles.c) */
-typedef struct {
-  uint8_t terrain;   /* 255: none */
-  uint8_t quad;      /* ty * 8 + tx in the tile sheet */
-} TileQ;
+typedef uint8_t TileQ;   /* a block's tile: its quad, ty * 8 + tx in the tile sheet (255: none) */
 int autotile(int layer, char (*get)(int x, int y, void *ctx), void *ctx, int x, int y, uint8_t *quad, int variant);
 void tiles_render_layer(int layer, int depth);
 void tiles_invalidate(void);
@@ -288,7 +285,9 @@ uint16_t terrain_tex(int t);
 /* a box of tiles of one type, as Celeste's GenerateBox (falling blocks...) */
 void tiles_box(char type, int w, int h, TileQ *out);
 void tiles_overlay(char type, int x, int y, int w, int h, TileQ *out);   /* blended into the room (dash blocks) */
-void tiles_draw(const TileQ *q, int w, int h, float x, float y, uint16_t tint, uint8_t alpha);
+void tiles_draw(const TileQ *q, char type, int w, int h, float x, float y, uint16_t tint, uint8_t alpha);
+TileQ *blocks_new_tiles(int n);     /* n tiles for an entity of the room being made (NULL: none left), until it goes */
+void blocks_free_tiles(int slot);   /* the room in that slot is gone: its blocks' tiles (entities.c) */
 
 /* stylegrounds (style.c) */
 void style_init(void);

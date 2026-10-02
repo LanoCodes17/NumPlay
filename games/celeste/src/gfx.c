@@ -11,7 +11,7 @@
 #define STRIP_H 15
 #define NSTRIPS (VIEW_H / STRIP_H)
 #define MAX_CMDS 400
-#define MAX_AFFINE 48
+#define MAX_AFFINE 56
 
 uint16_t g_strip[VIEW_W * STRIP_H];
 int g_camx, g_camy;
@@ -67,14 +67,18 @@ void gfx_top_label(const char *s) {
 
 #ifdef HOST
 #include <stdio.h>
-static int dropped_cmds;
+static int dropped_cmds, dropped_affs;
+#define AFF_DROP() (dropped_affs++)
+#else
+#define AFF_DROP() ((void)0)
 #endif
 void gfx_begin(void) {
 #ifdef HOST
   extern void res_debug_working_set(void);
   res_debug_working_set();
-  if (getenv("CMDDBG")) printf("cmds %d dropped %d\n", ncmds, dropped_cmds);
+  if (getenv("CMDDBG")) printf("cmds %d dropped %d affs %d dropped %d\n", ncmds, dropped_cmds, naffs, dropped_affs);
   dropped_cmds = 0;
+  dropped_affs = 0;
 #endif
   g_res_frame++;
   g_res_drawing = true;
@@ -765,14 +769,19 @@ void gfx_tex_ex(uint16_t tex, float x, float y, float ox, float oy, float sx, fl
     gfx_tex(tex, px, py, f, tint, alpha);
     return;
   }
-  if (naffs >= (ui ? MAX_AFFINE : MAX_AFFINE - HUD_AFFS)) return;
+  float px = floorf(x + 0.5f) - (hud ? 0 : g_camx), py = floorf(y + 0.5f) - (hud ? 0 : g_camy);
+  float r = (fabsf(sx) + fabsf(sy)) * k * (t.fw + t.fh + 2), rc = r + (fabsf(sx) + fabsf(sy)) * (fabsf(ox) + fabsf(oy));
+  if (px - rc >= VIEW_W || px + rc <= 0 || py + rc <= 0 || py - rc >= VIEW_H) return;   /* off the view: no slot used */
+  if (naffs >= (ui ? MAX_AFFINE : MAX_AFFINE - HUD_AFFS)) {
+    AFF_DROP();
+    return;
+  }
   Affine *a = &affs[naffs];
-  a->px = floorf(x + 0.5f) - (hud ? 0 : g_camx), a->py = floorf(y + 0.5f) - (hud ? 0 : g_camy);
+  a->px = px, a->py = py;
   a->ox = ox / k, a->oy = oy / k, a->sx = sx * k, a->sy = sy * k, a->rot = rot;
   a->cx0 = a->cy0 = -32768, a->cx1 = a->cy1 = 32767;
   if (flags & GF_FLIPX) a->sx = -a->sx;
   if (flags & GF_FLIPY) a->sy = -a->sy;
-  float r = (fabsf(a->sx) + fabsf(a->sy)) * (t.fw + t.fh + 2);
   Cmd *c = add(OP_AFFINE, (int)(a->py - r), (int)(a->py + r) + 1);
   if (!c) return;
   naffs++;
@@ -783,14 +792,26 @@ void gfx_tex_ex(uint16_t tex, float x, float y, float ox, float oy, float sx, fl
 void gfx_tex_part_ex(uint16_t tex, float x, float y, int sx, int sy, int w, int h, float ox, float oy, float scx, float scy,
                      float rot, uint16_t tint, uint8_t alpha, uint8_t flags) {
   Tex t;
-  if (!alpha || !tex_get(tex, &t) || naffs >= (ui ? MAX_AFFINE : MAX_AFFINE - HUD_AFFS)) return;
+  if (!alpha || !tex_get(tex, &t)) return;
+  if (rot == 0 && scx == 1 && scy == 1 && t.scale <= 1 && ox == (int)ox && oy == (int)oy && (sx | sy | w | h) < 256) {
+    /* drawn as it is: a plain part (its corner and size fit its bytes), the same pixels (the affine slots are few: 40
+     * for the world) */
+    gfx_tex_part(tex, x - ox, y - oy, sx, sy, w, h, flags, tint, alpha);
+    return;
+  }
+  float px = floorf(x + 0.5f) - (hud ? 0 : g_camx), py = floorf(y + 0.5f) - (hud ? 0 : g_camy);
+  float r = (fabsf(scx) + fabsf(scy)) * (w + h + 2), rc = r + (fabsf(scx) + fabsf(scy)) * (fabsf(ox) + fabsf(oy));
+  if (px - rc >= VIEW_W || px + rc <= 0 || py + rc <= 0 || py - rc >= VIEW_H) return;   /* off the view: no slot used */
+  if (naffs >= (ui ? MAX_AFFINE : MAX_AFFINE - HUD_AFFS)) {
+    AFF_DROP();
+    return;
+  }
   Affine *a = &affs[naffs];
-  a->px = floorf(x + 0.5f) - (hud ? 0 : g_camx), a->py = floorf(y + 0.5f) - (hud ? 0 : g_camy);
+  a->px = px, a->py = py;
   a->ox = sx + ox, a->oy = sy + oy, a->sx = scx, a->sy = scy, a->rot = rot;
   if (flags & GF_FLIPX) a->sx = -a->sx, a->ox = sx + w - ox;
   if (flags & GF_FLIPY) a->sy = -a->sy, a->oy = sy + h - oy;
   a->cx0 = (int16_t)sx, a->cy0 = (int16_t)sy, a->cx1 = (int16_t)(sx + w), a->cy1 = (int16_t)(sy + h);
-  float r = (fabsf(scx) + fabsf(scy)) * (w + h + 2);
   Cmd *c = add(OP_AFFINE, (int)(a->py - r), (int)(a->py + r) + 1);
   if (!c) return;
   naffs++;

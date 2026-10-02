@@ -219,8 +219,9 @@ static void btile_render(Ent *e) {
   if (w == 16) {
     for (int i = 0, y = 0, h = 24; y < 52; y += h, h = 12, i++) {
       float ox = i == 0 ? t->shakex : 0, oy = i == 0 ? t->shakey : 0;
-      gfx_tex_part_ex(T_scenery_bridge, e->x + 8 + ox, e->y + y - 8 + t->dy[i] + oy, x, y, w, h < 52 - y ? h : 52 - y, 8, 0, 1,
-                      1, t->rot[i], i == 0 ? tint : 0xFFFF, 255, 0);
+      /* GetSubtexture(x, y, 16, h): the last piece goes on below the 52 rows, to the texture's bottom (60) */
+      gfx_tex_part_ex(T_scenery_bridge, e->x + 8 + ox, e->y + y - 8 + t->dy[i] + oy, x, y, w, h, 8, 0, 1, 1, t->rot[i],
+                      i == 0 ? tint : 0xFFFF, 255, 0);
     }
   } else
     gfx_tex_part_ex(T_scenery_bridge, e->x + w / 2.f + t->shakex, e->y - 8 + t->shakey, x, 0, w, 52, w / 2.f, 0, 1, 1, 0, tint, 255, 0);
@@ -291,6 +292,7 @@ static void new_bridge(const EData *d) {
     if ((x < gap0 || x >= gap1) && b->n < MAX_TILES) {
       Ent *t = ent_new(&BTILE, x, d->y);
       if (t) {
+        t->depth = -9000;   /* Platform's: in front of Madeline */
         ent_box(t, (float)TILE_W[img], 5, 0, 0);
         ST(t, BTile)->img = (uint8_t)img;
         b->tiles[b->n++] = (uint16_t)(t - g_ents);

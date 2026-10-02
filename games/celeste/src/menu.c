@@ -42,11 +42,20 @@ static uint16_t highlight(void) {   /* TextMenu.HighlightColor: A and B in turn 
 #define GRAY rgb(0x808080)
 #define SLATE rgb(0x2F4F4F)
 
-/* the overworld behind the menus: a night sky and HiresSnow (50 flakes blown left) */
+/* HiresSnow's overlay over black: Overworld "overlay" added at White * 0.45 (x 0.2025, stored so, opaque),
+ * scrolling 32 and 20 pixels a second of 1920 x 1080, wrapping */
+static void snow_overlay(float time) {
+  Tex t;
+  if (!tex_get(T__overlay, &t)) return;
+  int w = t.fw * t.scale, h = t.fh * t.scale;
+  int ox = (int)(time * 32 / 6) % w, oy = (int)(time * 20 / 6) % h;
+  for (int j = 0; j < 2; j++)
+    for (int i = 0; i < 2; i++) gfx_tex(T__overlay, (float)(ox - i * w), (float)(oy - j * h), 0, WHITE, 255);
+}
+/* the overworld behind the menus: HiresSnow (its overlay and 50 flakes blown left) */
 static void backdrop(void) {
   if (pass) return;
-  static const uint32_t sky[6] = {0x0b0d24, 0x121633, 0x1a1e45, 0x262759, 0x35306a, 0x45376f};
-  for (int i = 0; i < 6; i++) gfx_rect(0, i * 30, VIEW_W, 30, rgb(sky[i]), 255);
+  snow_overlay(M.t + 100);
   hires_snow(M.t + 100, 1);
 }
 /* HiresSnow's flakes at `time`, faded by alpha (screen coordinates) */
@@ -239,11 +248,40 @@ static void sheet_update(void) {
 }
 
 /* ---------------------------------------------------------------- title and main menu */
+/* OuiTitleScreen: black (fade 1) under HiresSnow's overlay, the logo (the mountain on top of CELESTE) scaled
+ * Lerp(0.5, 1, SineOut(alpha)) about the screen's middle, under it the title's reflection: 4-row slices of "title"
+ * (here the logo's own letters, which are "title" at 1468 / 1920), flipped, fading (CubeIn), waving, at the logo's
+ * scale; HiresSnow's flakes over it all. Shown at once at first, coming back from the main menu it waits 0.4 s and
+ * comes in over 0.6 s (CubeInOut). */
+#define LOGO_LETTERS 112   /* the logo's first stored row of letters (its frame row 125) */
+static void reflection(float a, float sc) {
+  const float num4 = 1468.f / 1920 * sc, n = 77;   /* (311 - 4) / 4 + 1 slices */
+  float t = M.t + 100, num2 = t * 3, num3 = 1 / n * PI_F * 2 * 2;
+  int last = -1;
+  for (int i = 0; i < 77; i++) {
+    float num6 = sinf(num2) * 32 * (i / n), al = (1 - i / n) * (1 - i / n) * (1 - i / n) * a * 0.9f;
+    /* the slice's rows on screen (1/6): y 540 + (540 + 4i) * num4 -+ 2 * num4; the logo row a screen row shows
+     * mirrors about y 963.6 at full size (frame row 320.7 - y), the logo's rows scaled about the middle (90) */
+    int y0 = (int)ceilf((540 + (538 + 4 * i) * num4) / 6 - 0.5f), y1 = (int)ceilf((540 + (542 + 4 * i) * num4) / 6 - 0.5f);
+    if (y0 >= VIEW_H) break;
+    float x = 160 + (65 + 1.33f - 160) * sc + num6 * num4 / 6;
+    for (int y = y0 > last ? y0 : last + 1; y < y1 && y < VIEW_H; y++) {
+      int row = (int)(320.7f - (90 + (y - 90) / sc));
+      last = y;
+      if (row >= 13 + 151 || row < 13 + LOGO_LETTERS) continue;
+      if (sc >= 1) gfx_tex_part(T__logo, x, (float)y, 65, row, 187, 1, 0, WHITE, a8(al));
+      else gfx_tex_part_ex(T__logo, x, (float)y, 65, row, 187, 1, 0, 0, sc, 1, 0, WHITE, a8(al), 0);
+    }
+    num2 += num3 * (sinf(t + i * (PI_F * 2) * 0.04f) + 1);
+  }
+}
 static void title_draw(void) {
-  backdrop();
-  float a = fminf(1, M.t * 2);
-  pic(T__title, 960, 400, 0.5f, 0.5f, 1, WHITE, (uint8_t)(a * 255));
-  if (fmodf(M.t, 1) < 0.75f) pic(T__textboxbutton, 1824, 984, 0.5f, 0.5f, 1, WHITE, (uint8_t)(a * 255));
+  float a = M.sel ? ease_cube_inout(clampf((M.t - 0.4f) / 0.6f, 0, 1)) : 1, sc = 0.5f + 0.5f * sinf(a * PI_F / 2);
+  if (!pass) snow_overlay(M.t + 100);
+  pic(T__logo, 960, 540, 0.5f, 0.5f, sc, WHITE, a8(a));
+  if (!pass && a > 0) reflection(a, sc);
+  if (!pass) hires_snow(M.t + 100, 1);
+  if (fmodf(M.t, 1) < 0.75f) pic(T__textboxbutton, 1824, 984, 0.5f, 0.5f, 1, WHITE, a8(a));
 }
 static void title_update(void) {
   if (M.t > 0.3f && (confirm() || cancel())) go(S_MAIN, 0);
@@ -264,7 +302,7 @@ static void main_draw(void) {
 static void main_update(void) {
   int d = dir_pressed(1);
   if (d) M.sel = (int8_t)((M.sel + d + 4) % 4), M.wig = 0;
-  if (cancel()) go(S_TITLE, 0);
+  if (cancel()) go(S_TITLE, 1);   /* (the logo comes back in) */
   else if (confirm()) switch (M.sel) {
       case 0:
         M.advance = 0;
@@ -531,9 +569,9 @@ static void keys_update(void) {
 /* ---------------------------------------------------------------- credits */
 static void credits_draw(void) {
   backdrop();
-  pic(T__title, 960, 380, 0.5f, 0.5f, 0.8f, WHITE, 255);
-  say("Inspired by Celeste, not affiliated with Maddy Makes Games", 960, 620, 0.5f, 0.5f, 0.8f, WHITE, 255);
-  say("Made by Mason Chen as part of NumPlay", 960, 720, 0.5f, 0.5f, 0.8f, WHITE, 255);
+  if (!pass) gfx_tex_part(T__logo, 65, 380 / 6 - 19, 65, 13 + LOGO_LETTERS, 187, 151 - LOGO_LETTERS, 0, WHITE, 255);   /* the logo's letters */
+  say("Inspired by Celeste, not affiliated with Maddy Makes Games", 960, 620, 0.5f, 0.5f, 0.7f, WHITE, 255);
+  say("Made by Mason Chen as part of NumPlay", 960, 720, 0.5f, 0.5f, 0.7f, WHITE, 255);
 }
 static void credits_update(void) {
   if (confirm() || cancel()) go(S_MAIN, 2);

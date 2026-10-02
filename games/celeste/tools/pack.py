@@ -1208,6 +1208,31 @@ def hud_family_(atlas, paths, k, ncolors, div=1, hard=False, probe=False):
     return True if probe else ids
 
 
+def hud_overlay():
+    """HiresSnow's overlay (Overworld "overlay", added at White * 0.45 * 0.45 over the title's black) as an opaque
+    picture of what it adds, a quarter of the screen's size (drawn 4 times bigger): the title's background."""
+    from PIL import Image
+    from cel import Atlas as _A
+    sub = _A("Overworld")["overlay"]
+    a = sub.image().astype(np.float32)[:sub.fh, :sub.fw, :3] * (0.45 * 0.45)   # premultiplied: rgb added as is
+    div = 24   # 1920 x 1080 -> 80 x 45
+    h, w = 1080 // div, 1920 // div
+    src = np.zeros((1080, 1920, 3), np.float32)
+    src[:min(1080, a.shape[0]), :min(1920, a.shape[1])] = a[:1080, :1920]
+    small = src.reshape(h, div, w, div, 3).mean(axis=(1, 3))
+    q = Image.fromarray(np.clip(small.round(), 0, 255).astype(np.uint8), "RGB").quantize(colors=15, method=Image.Quantize.MEDIANCUT,
+                                                                                         dither=Image.Dither.NONE).convert("RGB")
+    out = np.zeros((h, w, 4), np.uint8)
+    out[..., :3] = np.array(q)
+    out[..., 3] = 255
+    path = "@overlay"
+    t = Tex(len(TEX.list), path, HudSub(path, out, 0, 0, w * 4, h * 4))
+    t.scale = 4
+    TEX.list.append(t)
+    TEX.by_path[path] = t.id
+    HUD_TEX.append(t.id)
+
+
 HUD_TEX = []          # interface textures, packed after the rooms' (in this order)
 PORTRAIT_EL = {}
 
@@ -1308,7 +1333,8 @@ def hud_assets():
     hud_family(gui, ["areaselect/title", "areaselect/accent"], 1 / 6, 8)
     for icon in ("start", "options", "credits", "exit"):
         hud_family(gui, ["menu/" + icon], 1 / 6, 16)
-    hud_family(gui, ["title"], 1 / 6, 16)
+    hud_family(gui, ["logo"], 1 / 6, 24)   # the title screen's: the mountain on top of CELESTE (its letters: the reflection)
+    hud_overlay()
     for icon in ("strawberry", "goldberry", "skullBlue"):
         hud_family(gui, ["collectables/" + icon], 1 / 6, 16)
     hud_family(gui, ["strawberryCountBG"], 1 / 6, 4)

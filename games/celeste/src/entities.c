@@ -1245,7 +1245,7 @@ bool ent_create(const EData *d) {
     }
     case ET_bonfire: {
       const char *mode = EAS(d, bonfire, mode);
-      Ent *e = new_sprite_ent(d, SB_campfire, !strcmp(mode, "lit") ? A_campfire_burn : !strcmp(mode, "smoking") ? A_campfire_smoking : A_campfire_idle, -5);
+      Ent *e = new_sprite_ent(d, SB_campfire, !strcmp(mode, "Lit") ? A_campfire_burn : !strcmp(mode, "Smoking") ? A_campfire_smoking : A_campfire_idle, -5);
       (void)e;
       return true;
     }

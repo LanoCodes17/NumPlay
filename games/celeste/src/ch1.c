@@ -249,7 +249,7 @@ static void new_bonfire(const EData *d) {
   wiggler_init(&b->wig, 0.2f, 4);
   b->light = 1;
   const char *m = EAS(d, bonfire, mode);
-  bonfire_set_mode(e, !strcmp(m, "lit") ? BF_LIT : !strcmp(m, "smoking") ? BF_SMOKING : BF_UNLIT);   /* Added */
+  bonfire_set_mode(e, !strcmp(m, "Lit") ? BF_LIT : !strcmp(m, "Smoking") ? BF_SMOKING : BF_UNLIT);   /* Added */
   b->activated = 0;
   bonfire_set_mode(e, b->mode);
 }

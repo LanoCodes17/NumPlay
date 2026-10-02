@@ -772,8 +772,8 @@ static void new_kevin(const EData *d) {
   k->giant = w >= 48 && h >= 48 && k->chill;
   k->can_activate = 1;
   const char *ax = EAS(d, crushBlock, axes);
-  if (!strcmp(ax, "horizontal")) k->axes = 1, k->can_h = 1;
-  else if (!strcmp(ax, "vertical")) k->axes = 2, k->can_v = 1;
+  if (!strcmp(ax, "Horizontal")) k->axes = 1, k->can_h = 1;
+  else if (!strcmp(ax, "Vertical")) k->axes = 2, k->can_v = 1;
   else k->axes = 3, k->can_h = k->can_v = 1;
   k->seed = (uint16_t)rndi(65536);
   cs_init(&k->face, k->giant ? SB_giant_crushblock_face : SB_crushblock_face);

@@ -654,7 +654,7 @@ def write_attrs(w, e):
     lay, size = SCHEMA.layout(e.name)
     rec = bytearray(size)
     for k, kind, off, sz in lay:
-        v = e.attr.get(k)
+        v = E.attr(e, k)
         if kind == "b":
             struct.pack_into("<B", rec, off, 1 if v else 0)
         elif kind == "i":
@@ -1582,7 +1582,7 @@ def main():
             uses = []
             for e in ents + [t for t in trigs if E.keep_trigger(t.name)]:
                 if e.name == "jumpThru":   # its own look, or the area's (AreaData.Jumpthru): not every one
-                    tx = e.get("texture", "default")
+                    tx = E.attr(e, "texture")
                     tx = tx if tx != "default" else JUMPTHRU[MAP_AREA.get(ch.name, 0)]
                     t_ = TEX("objects/jumpthru/" + tx)
                     uses.append(t_)
@@ -1591,10 +1591,11 @@ def main():
                 for a in E.needs(e):
                     uses += asset_textures(a)
                     need += asset_prefetch(a)
-                if "tiletype" in e.attr:
-                    c = str(e["tiletype"])
-                    if c in fgsets:
-                        need.append(TEX(fgsets[c].path))
+                for k in ("tiletype", "tileType"):   # blocks' tiles (data.Char)
+                    if (e.name, k) in E.CHARS:
+                        c = str(E.attr(e, k))
+                        if c in fgsets:
+                            need.append(TEX(fgsets[c].path))
             for layer in ("fgdecals", "bgdecals"):
                 for d in (r.e.child(layer).children if r.e.child(layer) else []):
                     need += decal_tex(d["texture"])

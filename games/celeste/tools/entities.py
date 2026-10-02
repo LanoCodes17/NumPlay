@@ -13,6 +13,82 @@ DROP_TRIGGERS = {
     "musicFadeTrigger", "musicTrigger", "altMusicTrigger", "ambienceParamTrigger", "audioFadeTrigger",
 }
 
+# The game's own defaults for attributes a map leaves out (its constructors' data.Bool, Int, Float, Char and Attr calls),
+# so data.bin holds what the game reads: FallingBlock's climbFall is true unless a map says otherwise.
+DEFAULTS = {
+    "spring": {"playerCanUse": True},
+    "wallSpringLeft": {"playerCanUse": True},
+    "wallSpringRight": {"playerCanUse": True},
+    "fallingBlock": {"tiletype": "3", "climbFall": True},
+    "fakeWall": {"tiletype": "3"},
+    "dashBlock": {"tiletype": "3", "permanent": True, "canDash": True},
+    "coverupWall": {"tiletype": "3"},
+    "exitBlock": {"tileType": "3"},
+    "conditionBlock": {"tileType": "3"},
+    "jumpThru": {"texture": "default", "surfaceIndex": -1},
+    "spikesUp": {"type": "default"},
+    "spikesDown": {"type": "default"},
+    "spikesLeft": {"type": "default"},
+    "spikesRight": {"type": "default"},
+    "switchGate": {"sprite": "block"},
+    "door": {"type": "wood"},
+    "lockBlock": {"sprite": "wood"},
+    "templeGate": {"sprite": "default"},
+    "dashSwitchH": {"sprite": "default"},
+    "dashSwitchV": {"sprite": "default"},
+    "moveBlock": {"canSteer": True},
+    "gondola": {"active": True},
+    "badelineBoost": {"lockCamera": True},
+    "finalBoss": {"cameraLockY": True, "cameraPastY": 120.0},
+    "fireBall": {"amount": 1, "speed": 1.0},
+    "oshiroTrigger": {"state": True},
+    "minitextboxTrigger": {"death_count": -1},
+}
+# Attributes read with data.Char: one character, else the default
+CHARS = {("fallingBlock", "tiletype"), ("fakeWall", "tiletype"), ("dashBlock", "tiletype"), ("coverupWall", "tiletype"),
+         ("exitBlock", "tileType"), ("conditionBlock", "tileType")}
+# Attributes read with data.Enum: the enum's names, its default first. The game reads them in any case (Enum.TryParse
+# ignoreCase) and falls back on the default; data.bin holds the name as the enum spells it.
+_POSITION = ("NoEffect", "HorizontalCenter", "VerticalCenter", "TopToBottom", "BottomToTop", "LeftToRight", "RightToLeft")
+_ENUMS = {
+    "bird": {"mode": ("None", "ClimbingTutorial", "DashingTutorial", "DreamJumpTutorial", "SuperWallJumpTutorial",
+                      "HyperJumpTutorial", "FlyAway", "Sleeping", "MoveToNodes", "WaitForLightningOff")},
+    "bonfire": {"mode": ("Unlit", "Lit", "Smoking")},
+    "trackSpinner": {"speed": ("Normal", "Slow", "Fast")},
+    "clutterDoor": {"type": ("Green", "Red", "Yellow", "Lightning")},
+    "colorSwitch": {"type": ("Green", "Red", "Yellow", "Lightning")},
+    "moveBlock": {"direction": ("Left", "Right", "Up", "Down")},
+    "templeGate": {"type": ("NearestSwitch", "CloseBehindPlayer", "CloseBehindPlayerAlways", "HoldingTheo", "TouchSwitches",
+                            "CloseBehindPlayerAndTheo")},
+    "zipMover": {"theme": ("Normal", "Moon")},
+    "swapBlock": {"theme": ("Normal", "Moon")},
+    "seekerStatue": {"hatch": ("Distance", "PlayerRightOfX")},
+    "conditionBlock": {"condition": ("Key", "Button", "Strawberry")},
+    "crushBlock": {"axes": ("Both", "Horizontal", "Vertical")},
+    "bigWaterfall": {"layer": ("BG", "FG")},
+    "cameraTargetTrigger": {"positionMode": _POSITION},
+    "bloomFadeTrigger": {"positionMode": _POSITION},
+    "lightFadeTrigger": {"positionMode": _POSITION},
+    "cameraAdvanceTargetTrigger": {"positionModeX": _POSITION, "positionModeY": _POSITION},
+    "windTrigger": {"pattern": ("None", "Left", "Right", "LeftStrong", "RightStrong", "LeftOnOff", "RightOnOff", "LeftOnOffFast",
+                                "RightOnOffFast", "Alternating", "LeftGemsOnly", "RightCrazy", "Down", "Up", "Space")},
+    "minitextboxTrigger": {"mode": ("OnPlayerEnter", "OnLevelStart", "OnTheoEnter")},
+}
+
+
+def attr(entity, k):
+    """Attribute k of an entity as the game reads it (None: the game reads none, and the map has none)."""
+    v = entity.attr.get(k)
+    names = _ENUMS.get(entity.name, {}).get(k)
+    if names:
+        s = str(v) if v is not None else ""
+        return next((n for n in names if n.lower() == s.lower()), names[0])
+    dflt = DEFAULTS.get(entity.name, {}).get(k)
+    if (entity.name, k) in CHARS and (v is None or len(str(v)) != 1):
+        return dflt
+    return dflt if v is None else v
+
+
 SPIKE_TYPES = ("default", "outline", "cliffside", "reflection")
 
 
@@ -135,8 +211,8 @@ def _load_chapter_assets():
         NPC_ASSETS.update(getattr(mod, "NPC_ASSETS", {}))
         DROP.update(getattr(mod, "DROP", set()))
         NEEDS.update(getattr(mod, "NEEDS", {}))
-        for name, (attr, table) in getattr(mod, "VARIANTS", {}).items():   # {name: (attribute, {value: assets})}
-            NEEDS[name] = (lambda attr, table: lambda e: table.get(e.get(attr, ""), []))(attr, table)
+        for name, (key, table) in getattr(mod, "VARIANTS", {}).items():   # {name: (attribute, {value: assets})}
+            NEEDS[name] = (lambda key, table: lambda e: table.get(attr(e, key), []))(key, table)
 
 
 _load_chapter_assets()

@@ -2883,7 +2883,8 @@ static void event_enter(Ent *e, Player *p) {
   if (s->end) level_register_complete();   /* CS02_Ending.OnBegin */
   cutscene_start(c, call_end, false, s->end);
 }
-static const EntClass EVENTTRIG = {.name = "eventTrigger", .size = sizeof(Event), .on_enter = event_enter, .kind = KIND_TRIGGER};
+static const EntClass EVENTTRIG = {.name = "eventTrigger", .size = sizeof(Event), .kind = KIND_TRIGGER,
+                                   .more = &(const EntMore){.on_enter = event_enter}};
 
 /* InteractTrigger: talk to read something (ch2_interact_new: chapter 3's too) */
 typedef struct { Talk talk; void (*on_talk)(Ent *e, Player *p); } Interact;

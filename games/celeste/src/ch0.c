@@ -30,7 +30,7 @@ static void car_render(Ent *e) {
   if (tex_get(T_scenery_car_body, &t)) gfx_tex_ex(T_scenery_car_body, e->x, e->y, t.fw / 2.f, (float)t.fh, 1, 1, 0, 0xFFFF, 255, 0);
 }
 static const EntClass CAR = {.size = sizeof(Car), .name = "introCar", .update = car_update, .render = car_render,
-                             .collide_rect = car_rect, .kind = KIND_JUMPTHRU};
+                             .kind = KIND_JUMPTHRU, .more = &(const EntMore){.collide_rect = car_rect}};
 typedef struct { uint16_t tex, tint; uint8_t origin_bottom, center; } Pic;
 static void pic_render(Ent *e) {
   Pic *p = ST(e, Pic);

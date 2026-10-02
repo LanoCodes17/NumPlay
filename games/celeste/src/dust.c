@@ -405,10 +405,11 @@ static void mover_awake(Ent *e) {
   m->eye = m->eye_target = angle_vec(a + diff * 0.3f, 1);
 }
 
-static const EntClass MOVER = {.name = "movingSpinner", .size = sizeof(Mover), .update = mover_update,
-                               .render = mover_render, .on_player = mover_on_player, .awake = mover_awake,
-                               .collide_rect = mover_collide, .sm_riding = mover_riding, .sm_move = mover_sm_move,
-                               .sm_destroy = mover_sm_destroy, .kind = KIND_PCOLLIDE | KIND_STATICMOVER};
+static const EntClass MOVER = {.name = "movingSpinner", .size = sizeof(Mover), .update = mover_update, .render = mover_render,
+                               .on_player = mover_on_player, .awake = mover_awake, .kind = KIND_PCOLLIDE | KIND_STATICMOVER,
+                               .more = &(const EntMore){.collide_rect = mover_collide,
+                                                        .sm_riding = mover_riding, .sm_move = mover_sm_move,
+                                                        .sm_destroy = mover_sm_destroy}};
 
 static bool dust_room_of(const EData *d) {
   int a = g_session.area;

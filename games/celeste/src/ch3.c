@@ -503,9 +503,9 @@ static void clutfront_render(Ent *e) {
   gfx_custom(clut_blk_layer, m, 0, VIEW_H);
 }
 static const EntClass CLUTTERFRONT = {.name = "clutterBlocks", .size = sizeof(ClutterFront), .render = clutfront_render};
-static const EntClass CLUTTER = {.name = "clutterBase", .size = sizeof(Clutter), .update = clutter_update, .render = clutter_render,
-                                 .awake = clutter_awake, .removed = clutter_removed, .collide_rect = clutter_collide_rect,
-                                 .kind = KIND_SOLID};
+static const EntClass CLUTTER = {.name = "clutterBase", .size = sizeof(Clutter), .update = clutter_update,
+                                 .render = clutter_render, .awake = clutter_awake, .removed = clutter_removed, .kind = KIND_SOLID,
+                                 .more = &(const EntMore){.collide_rect = clutter_collide_rect}};
 /* yellowBlocks / greenBlocks / redBlocks: ClutterBlockGenerator.Add */
 static void new_clutter_area(const EData *d, int color, float w, float h) {
   int slot = g_level.room_slot;
@@ -805,8 +805,9 @@ static void cswitch_render(Ent *e) {
   if (!s->pressed) gfx_tex_ex(cswitch_icon[s->color], e->x + 16, e->y + 8, 8, 8, 1, 1, 0, 0xFFFF, 255, 0);
   light_add(e->x + e->cw / 2, e->y - 1, 0x00FFFF, 1, s->pressed ? 24 : 32, s->pressed ? 48 : 64);
 }
-static const EntClass CSWITCH = {.name = "colorSwitch", .size = sizeof(CSwitch), .update = cswitch_update, .render = cswitch_render,
-                                 .on_dash_collide = cswitch_dashed, .kind = KIND_SOLID};
+static const EntClass CSWITCH = {.name = "colorSwitch", .size = sizeof(CSwitch), .update = cswitch_update,
+                                 .render = cswitch_render, .kind = KIND_SOLID,
+                                 .more = &(const EntMore){.on_dash_collide = cswitch_dashed}};
 static int clut_color_of(const char *s) {
   for (int i = 0; i < 3; i++)
     if (!strcmp(s, CLUT_NAMES[i])) return i;
@@ -864,7 +865,7 @@ static void gdoor_render(Ent *e) {
   spr_draw(&s, e->x + e->cw / 2, e->y + e->ch / 2);
 }
 static const EntClass GDOOR = {.name = "clutterDoor", .size = sizeof(GDoor), .update = gdoor_update, .render = gdoor_render,
-                               .on_dash_collide = gdoor_dashed, .kind = KIND_SOLID};
+                               .kind = KIND_SOLID, .more = &(const EntMore){.on_dash_collide = gdoor_dashed}};
 static void new_gdoor(const EData *d, bool oshiro) {
   Ent *e = ent_new(&GDOOR, d->x, d->y);
   if (!e) return;
@@ -1177,8 +1178,8 @@ static void ts_removed(Ent *e) {   /* frees its tendrils: the later ones move do
   s->n = 0;
 }
 static const EntClass TSPIKES_CLASS = {.name = "triggerSpikes", .size = sizeof(TSpikes), .update = ts_update, .render = ts_render,
-                                       .removed = ts_removed, .on_player = ts_on_player, .sm_riding = ts_riding,
-                                       .kind = KIND_PCOLLIDE | KIND_STATICMOVER};
+                                       .removed = ts_removed, .on_player = ts_on_player, .kind = KIND_PCOLLIDE | KIND_STATICMOVER,
+                                       .more = &(const EntMore){.sm_riding = ts_riding}};
 static void new_tspikes(const EData *d, int dir, int size) {
   int n = size / 4;
   if (nts + n > TSPIKES) return;
@@ -1240,8 +1241,8 @@ static void door_update(Ent *e) {
 }
 static void door_render(Ent *e) { spr_draw(&ST(e, Door)->spr, e->x, e->y); }
 static const EntClass DOOR = {.name = "door", .size = sizeof(Door), .update = door_update, .render = door_render,
-                              .on_player = door_on_player, .on_squish = door_squish, .is_riding_solid = door_riding,
-                              .kind = KIND_ACTOR | KIND_PCOLLIDE};
+                              .on_player = door_on_player, .kind = KIND_ACTOR | KIND_PCOLLIDE,
+                              .more = &(const EntMore){.on_squish = door_squish, .is_riding_solid = door_riding}};
 static void new_door(const EData *d) {
   Ent *e = ent_new(&DOOR, d->x, d->y);
   if (!e) return;
@@ -1407,8 +1408,9 @@ static void moving_update(Ent *e) {
 static void moving_trigger(Ent *e, Ent *m) { (void)m, ST(e, Moving)->sink_timer = 0.4f; }
 static void moving_render(Ent *e) { platform_draw(ST(e, Moving)->tex, e->x, e->y, e->cw); }
 static void moving_awake(Ent *e) { plat_static_movers_attach(e); }
-static const EntClass MOVING = {.name = "movingPlatform", .size = sizeof(Moving), .update = moving_update, .render = moving_render,
-                                .awake = moving_awake, .on_staticmover_trigger = moving_trigger, .kind = KIND_JUMPTHRU};
+static const EntClass MOVING = {.name = "movingPlatform", .size = sizeof(Moving), .update = moving_update,
+                                .render = moving_render, .awake = moving_awake, .kind = KIND_JUMPTHRU,
+                                .more = &(const EntMore){.on_staticmover_trigger = moving_trigger}};
 static void new_moving(const EData *d) {
   float w = EA(d, movingPlatform, width);
   Ent *e = ent_new(&MOVING, d->x, d->y);
@@ -2006,7 +2008,8 @@ static void oshtrig_enter(Ent *e, Player *p) {
       }
   ent_remove(e);
 }
-static const EntClass OSHTRIG = {.name = "oshiroTrigger", .size = sizeof(OshTrig), .on_enter = oshtrig_enter, .kind = KIND_TRIGGER};
+static const EntClass OSHTRIG = {.name = "oshiroTrigger", .size = sizeof(OshTrig), .kind = KIND_TRIGGER,
+                                 .more = &(const EntMore){.on_enter = oshtrig_enter}};
 
 /* ---------------------------------------------------------------- ResortMirror */
 /* the glass (glassbg's middle), its shine (glassfg) at shineAlpha x mirrorAlpha, and the frame (its own entity,
@@ -4231,7 +4234,8 @@ static void fade_stay(Ent *e, Player *p) {
     g_level.lighting = area_darkness() + v;
   }
 }
-static const EntClass FADETRIG = {.name = "fadeTrigger", .size = sizeof(Fade), .on_stay = fade_stay, .kind = KIND_TRIGGER};
+static const EntClass FADETRIG = {.name = "fadeTrigger", .size = sizeof(Fade), .kind = KIND_TRIGGER,
+                                  .more = &(const EntMore){.on_stay = fade_stay}};
 
 /* ---------------------------------------------------------------- the factories */
 bool ents_ch3(const EData *d) {

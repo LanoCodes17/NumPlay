@@ -672,8 +672,8 @@ static void kevin_update(Ent *e) {
           for (int i = 0; i < g_nents; i++) {
             Ent *o = &g_ents[i];
             if (o->cls && o->dead != 1 && !strcmp(o->cls->name, "fallingBlock") && collide_ent_at(e, e->x + k->crush_dir.x, e->y + k->crush_dir.y, o) &&
-                o->cls->on_staticmover_trigger)
-              o->cls->on_staticmover_trigger(o, NULL);
+                MORE(o->cls)->on_staticmover_trigger)
+              MORE(o->cls)->on_staticmover_trigger(o, NULL);
           }
           kevin_impact(e);
           level_dir_shake(k->crush_dir, 0.3f);
@@ -761,7 +761,7 @@ static void kevin_render(Ent *e) {
   cs_draw(&k->face, x + fx, y + fy, 1, 1, 0, 0xFFFF, 255);
 }
 static const EntClass KEVIN = {.name = "crushBlock", .size = sizeof(Kevin), .update = kevin_update, .render = kevin_render,
-                               .on_dash_collide = kevin_dashed, .kind = KIND_SOLID};
+                               .kind = KIND_SOLID, .more = &(const EntMore){.on_dash_collide = kevin_dashed}};
 static void new_kevin(const EData *d) {
   float w = EA(d, crushBlock, width), h = EA(d, crushBlock, height);
   Ent *e = ent_new(&KEVIN, d->x, d->y);
@@ -1289,7 +1289,8 @@ static void hstatue_render(Ent *e) {
 }
 static void hstatue_awake(Ent *e) { hstatue_check_all(e, true); }
 static const EntClass HSTATUE = {.name = "reflectionHeartStatue", .size = sizeof(HStatue), .update = hstatue_update,
-                                 .render = hstatue_render, .awake = hstatue_awake, .on_dash = hstatue_on_dash};
+                                 .render = hstatue_render, .awake = hstatue_awake,
+                                 .more = &(const EntMore){.on_dash = hstatue_on_dash}};
 static void new_hstatue(const EData *d) {
   if (d->nnodes < 5) return;
   Ent *e = ent_new(&HSTATUE, d->x, d->y);
@@ -1438,8 +1439,8 @@ static void bfall_render(Ent *e) {
   bt_draw(b->q, b->w, b->h, e->x + e->shakex, e->y + e->shakey, 1 - b->hl, b->hl);
 }
 static void bfall_shake(Ent *e, V2 a) { plat_static_movers_shake(e, a); }
-static const EntClass BFALL = {.name = "finalBossFallingBlock", .size = sizeof(BFall), .update = bfall_update, .render = bfall_render,
-                               .on_shake = bfall_shake, .kind = KIND_SOLID};
+static const EntClass BFALL = {.name = "finalBossFallingBlock", .size = sizeof(BFall), .update = bfall_update,
+                               .render = bfall_render, .kind = KIND_SOLID, .more = &(const EntMore){.on_shake = bfall_shake}};
 static void new_bfall(const EData *d) {
   float w = EA(d, finalBossFallingBlock, width), h = EA(d, finalBossFallingBlock, height);
   Ent *e = ent_new(&BFALL, d->x, d->y);
@@ -1592,8 +1593,8 @@ static void bmove_render(Ent *e) {
   }
 }
 static void bmove_shake(Ent *e, V2 a) { plat_static_movers_shake(e, a); }
-static const EntClass BMOVE = {.name = "finalBossMovingBlock", .size = sizeof(BMove), .update = bmove_update, .render = bmove_render,
-                               .on_shake = bmove_shake, .kind = KIND_SOLID};
+static const EntClass BMOVE = {.name = "finalBossMovingBlock", .size = sizeof(BMove), .update = bmove_update,
+                               .render = bmove_render, .kind = KIND_SOLID, .more = &(const EntMore){.on_shake = bmove_shake}};
 static void new_bmove(const EData *d) {
   float w = EA(d, finalBossMovingBlock, width), h = EA(d, finalBossMovingBlock, height);
   Ent *e = ent_new(&BMOVE, d->x, d->y);
@@ -4346,7 +4347,8 @@ static void event6_enter(Ent *e, Player *p) {
   } else if (!level_get_flag("reflection") && (cs = s6_new(reflect6_run, reflect6_end, true, false)))   /* ch6_reflect */
     S6_(cs)->f[0] = cx - 5;
 }
-static const EntClass EVENT6 = {.name = "eventTrigger", .size = sizeof(Event6), .on_enter = event6_enter, .kind = KIND_TRIGGER};
+static const EntClass EVENT6 = {.name = "eventTrigger", .size = sizeof(Event6), .kind = KIND_TRIGGER,
+                                .more = &(const EntMore){.on_enter = event6_enter}};
 static bool new_event6(const EData *d) {
   const char *ev = EAS(d, eventTrigger, event);
   int which = !strcmp(ev, "ch6_boss_intro") ? 0 : !strcmp(ev, "ch6_reflect") ? 1 : -1;

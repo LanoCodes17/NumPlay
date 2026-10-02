@@ -661,8 +661,8 @@ static void on_collide_h(Ent *e, Collision *c) {
     return;
   }
   if (P->state == ST_DREAMDASH) return;
-  if (player_dash_attacking(P) && c->hit && c->hit->cls->on_dash_collide && c->dir.x == signf(P->dash_dir.x)) {
-    int r = c->hit->cls->on_dash_collide(c->hit, P, c->dir);
+  if (player_dash_attacking(P) && c->hit && MORE(c->hit->cls)->on_dash_collide && c->dir.x == signf(P->dash_dir.x)) {
+    int r = MORE(c->hit->cls)->on_dash_collide(c->hit, P, c->dir);
     if (P->state == ST_REDDASH) r = DASH_IGNORE;
     if (r == DASH_REBOUND) { player_rebound(P, -(int)signf(P->speed.x)); return; }
     if (r == DASH_BOUNCE) { reflect_bounce(v2(-signf(P->speed.x), 0)); return; }
@@ -691,7 +691,7 @@ static void on_collide_h(Ent *e, Collision *c) {
     P->wall_speed_retained = P->speed.x;
     P->wall_speed_retention_timer = WallSpeedRetentionTime;
   }
-  if (c->hit && c->hit->cls->on_collide) c->hit->cls->on_collide(c->hit, c->dir);
+  if (c->hit && MORE(c->hit->cls)->on_collide) MORE(c->hit->cls)->on_collide(c->hit, c->dir);
   P->speed.x = 0;
   P->dash_attack_timer = 0;
   if (P->state == ST_REDDASH) SET(ST_HITSQUASH);
@@ -709,15 +709,15 @@ static void on_collide_v(Ent *e, Collision *c) {
     return;
   }
   if (P->state == ST_DREAMDASH) return;
-  if (c->hit && c->hit->cls->on_dash_collide) {
+  if (c->hit && MORE(c->hit->cls)->on_dash_collide) {
     if (player_dash_attacking(P) && c->dir.y == signf(P->dash_dir.y)) {
-      int r = c->hit->cls->on_dash_collide(c->hit, P, c->dir);
+      int r = MORE(c->hit->cls)->on_dash_collide(c->hit, P, c->dir);
       if (P->state == ST_REDDASH) r = DASH_IGNORE;
       if (r == DASH_REBOUND) { player_rebound(P, 0); return; }
       if (r == DASH_BOUNCE) { reflect_bounce(v2(0, -signf(P->speed.y))); return; }
       if (r == DASH_IGNORE) return;
     } else if (P->state == ST_SUMMITLAUNCH) {
-      c->hit->cls->on_dash_collide(c->hit, P, c->dir);
+      MORE(c->hit->cls)->on_dash_collide(c->hit, P, c->dir);
       return;
     }
   }
@@ -780,7 +780,7 @@ static void on_collide_v(Ent *e, Collision *c) {
       return;
     }
   }
-  if (c->hit && c->hit->cls->on_collide) c->hit->cls->on_collide(c->hit, c->dir);
+  if (c->hit && MORE(c->hit->cls)->on_collide) MORE(c->hit->cls)->on_collide(c->hit, c->dir);
   P->dash_attack_timer = 0;
   P->speed.y = 0;
   if (P->state == ST_REDDASH) SET(ST_HITSQUASH);
@@ -2567,12 +2567,12 @@ static void trigger_check(void) {
     if (collide_ent_at(E, E->x, E->y, t)) {
       if (!t->triggered) {
         t->triggered = 1;
-        if (t->cls->on_enter) t->cls->on_enter(t, P);
+        if (MORE(t->cls)->on_enter) MORE(t->cls)->on_enter(t, P);
       }
-      if (t->cls->on_stay) t->cls->on_stay(t, P);
+      if (MORE(t->cls)->on_stay) MORE(t->cls)->on_stay(t, P);
     } else if (t->triggered) {
       t->triggered = 0;
-      if (t->cls->on_leave) t->cls->on_leave(t, P);
+      if (MORE(t->cls)->on_leave) MORE(t->cls)->on_leave(t, P);
     }
   }
 }
@@ -2736,10 +2736,11 @@ static void player_render(Ent *e) {
 
 
 /* ---------------------------------------------------------------- spawning */
-static const EntClass PLAYER_CLASS = {
-    .name = "player", .size = sizeof(ActorExt), .update = player_update, .render = player_render,
-    .on_squish = on_squish, .is_riding_solid = is_riding_solid, .is_riding_jumpthru = is_riding_jumpthru,
-    .kind = KIND_ACTOR | KIND_PLAYER};
+static const EntClass PLAYER_CLASS = {.name = "player", .size = sizeof(ActorExt), .update = player_update,
+                                      .render = player_render, .kind = KIND_ACTOR | KIND_PLAYER,
+                                      .more = &(const EntMore){.on_squish = on_squish,
+                                                               .is_riding_solid = is_riding_solid,
+                                                               .is_riding_jumpthru = is_riding_jumpthru}};
 
 void player_spawn(V2 at, int intro) {
   Player *p = P;

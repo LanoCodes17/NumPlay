@@ -59,7 +59,7 @@ bool leader_gain(Ent *e, float follow_delay, bool persistent) {
   f->move = 1;
   f->persistent = persistent;
   if (persistent) e->tags |= TAG_PERSISTENT;
-  if (e->cls->on_gain_leader) e->cls->on_gain_leader(e);
+  if (MORE(e->cls)->on_gain_leader) MORE(e->cls)->on_gain_leader(e);
   return true;
 }
 /* Follower.OnLoseLeaderUtil */
@@ -69,7 +69,7 @@ static void lost(Fol *f) {
     e->tags &= (uint8_t)~TAG_PERSISTENT;
     e->room = (uint8_t)g_level.room_slot;   /* it stays in this room now */
   }
-  if (e->cls->on_lose_leader) e->cls->on_lose_leader(e);
+  if (MORE(e->cls)->on_lose_leader) MORE(e->cls)->on_lose_leader(e);
 }
 void leader_lose(Ent *e) {
   int i = find(e);
@@ -371,8 +371,8 @@ static void berry_on_dash(Ent *e, V2 dir) {
 }
 
 static const EntClass BERRY = {.size = sizeof(Berry), .name = "strawberry", .update = berry_update, .render = berry_render,
-                               .on_player = berry_on_player, .on_lose_leader = berry_lose_leader,
-                               .on_dash = berry_on_dash, .kind = KIND_PCOLLIDE};
+                               .on_player = berry_on_player, .kind = KIND_PCOLLIDE,
+                               .more = &(const EntMore){.on_lose_leader = berry_lose_leader, .on_dash = berry_on_dash}};
 
 int berry_golden_room(void) {
   for (int i = 0; i < leader_count(); i++) {
@@ -554,9 +554,10 @@ static void seed_attach(Ent *e, Ent *solid) {
 static void seed_sm_move(Ent *e, V2 amount) { e->x += amount.x, e->y += amount.y; }
 
 static const EntClass SEED = {.size = sizeof(Seed), .name = "strawberrySeed", .update = seed_update, .render = seed_render,
-                              .on_player = seed_on_player, .on_gain_leader = seed_gain_leader,
-                              .on_lose_leader = seed_lose_leader, .sm_riding = seed_riding, .sm_attach = seed_attach,
-                              .sm_move = seed_sm_move, .kind = KIND_PCOLLIDE | KIND_STATICMOVER};
+                              .on_player = seed_on_player, .kind = KIND_PCOLLIDE | KIND_STATICMOVER,
+                              .more = &(const EntMore){.on_gain_leader = seed_gain_leader,
+                                                       .on_lose_leader = seed_lose_leader, .sm_riding = seed_riding,
+                                                       .sm_attach = seed_attach, .sm_move = seed_sm_move}};
 
 /* ---------------------------------------------------------------- the strawberry entity */
 static void berry_new(const EData *d, bool golden, bool memorial) {

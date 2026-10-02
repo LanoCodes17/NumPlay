@@ -759,8 +759,9 @@ static void dswitch_render(Ent *e) {
   DSwitch *s = ST(e, DSwitch);
   cs_draw(&s->spr, e->x + SIDE_SPR[s->side][0], e->y + SIDE_SPR[s->side][1], 1, 1, SIDE_ROT[s->side], 0xFFFF, 255);
 }
-static const EntClass DSWITCH = {.name = "dashSwitch", .size = sizeof(DSwitch), .update = dswitch_update, .render = dswitch_render,
-                                 .awake = dswitch_awake, .on_dash_collide = dswitch_hit, .kind = KIND_SOLID};
+static const EntClass DSWITCH = {.name = "dashSwitch", .size = sizeof(DSwitch), .update = dswitch_update,
+                                 .render = dswitch_render, .awake = dswitch_awake, .kind = KIND_SOLID,
+                                 .more = &(const EntMore){.on_dash_collide = dswitch_hit}};
 static bool is_dswitch(Ent *e) { return e && e->cls == &DSWITCH; }
 
 static void new_dswitch(const EData *d, bool horizontal) {
@@ -881,7 +882,7 @@ static void swap_render(Ent *e) {
   if (s->red_alpha > 0) swap_style(pos, e->cw, e->ch, swap_tex[s->moon][1], swap_mid[s->moon][1][f], a8(s->red_alpha));
 }
 static const EntClass SWAP = {.name = "swapBlock", .size = sizeof(Swap), .update = swap_update, .render = swap_render,
-                              .on_dash = swap_on_dash, .kind = KIND_SOLID};
+                              .kind = KIND_SOLID, .more = &(const EntMore){.on_dash = swap_on_dash}};
 
 static void swappath_update(Ent *e) { ST(e, SwapPath)->timer += DT * 4; }
 static void swappath_render(Ent *e) {
@@ -1577,8 +1578,8 @@ static void theo_render(Ent *e) {
   light_add(e->x, e->y - 5, 0xFFFFFF, 1, 32, 64);
 }
 static const EntClass THEO = {.name = "theoCrystal", .size = sizeof(Theo), .update = theo_update, .render = theo_render,
-                              .awake = theo_awake, .on_squish = theo_squish, .is_riding_solid = theo_riding,
-                              .kind = KIND_ACTOR | KIND_HOLDABLE};
+                              .awake = theo_awake, .kind = KIND_ACTOR | KIND_HOLDABLE,
+                              .more = &(const EntMore){.on_squish = theo_squish, .is_riding_solid = theo_riding}};
 static void new_theo(const EData *d) {
   Ent *e = ent_new(&THEO, d->x, d->y);
   if (!e) return;
@@ -1659,8 +1660,8 @@ static void pedestal_render(Ent *e) {
   gfx_tex_ex(T_characters_theoCrystal_pedestal, e->x, e->y, 32, 72, 1, 1, 0, 0xFFFF, 255, 0);   /* JustifyOrigin(0.5, 1) */
 }
 static const EntClass PEDESTAL = {.name = "theoCrystalPedestal", .size = sizeof(Pedestal), .update = pedestal_update,
-                                  .render = pedestal_render, .awake = pedestal_awake, .on_dash_collide = pedestal_hit,
-                                  .kind = KIND_SOLID};
+                                  .render = pedestal_render, .awake = pedestal_awake, .kind = KIND_SOLID,
+                                  .more = &(const EntMore){.on_dash_collide = pedestal_hit}};
 static void new_pedestal(const EData *d) {
   Ent *e = ent_new(&PEDESTAL, d->x, d->y);
   if (!e) return;
@@ -2455,8 +2456,9 @@ static void seeker_removed(Ent *e) {
 }
 static bool seeker_riding(Ent *e, Ent *o) { return (void)e, (void)o, false; }
 static const EntClass SEEKER = {.name = "seeker", .size = sizeof(Seeker), .update = seeker_update, .render = seeker_render,
-                                .awake = seeker_awake, .removed = seeker_removed, .on_squish = seeker_squish,
-                                .is_riding_solid = seeker_riding, .is_riding_jumpthru = seeker_riding, .kind = KIND_ACTOR};
+                                .awake = seeker_awake, .removed = seeker_removed, .kind = KIND_ACTOR,
+                                .more = &(const EntMore){.on_squish = seeker_squish,
+                                                         .is_riding_solid = seeker_riding, .is_riding_jumpthru = seeker_riding}};
 
 /* the HotPink DeathEffect of a squished seeker */
 typedef struct { float t; uint16_t color, pad; } DeathFx;
@@ -4102,8 +4104,8 @@ static void event_update(Ent *e) {   /* Brighten() */
   Event *ev = ST(e, Event);
   if (ev->brighten && (g_level.lighting = approach(g_level.lighting, 0.15f, DT * 4)) == 0.15f) ev->brighten = 0;
 }
-static const EntClass EVENTTRIG = {.name = "eventTrigger", .size = sizeof(Event), .update = event_update,
-                                   .on_enter = event_enter, .kind = KIND_TRIGGER};
+static const EntClass EVENTTRIG = {.name = "eventTrigger", .size = sizeof(Event), .update = event_update, .kind = KIND_TRIGGER,
+                                   .more = &(const EntMore){.on_enter = event_enter}};
 static bool new_event(const EData *d) {
   static const char *const names[4] = {"ch5_see_theo", "ch5_found_theo", "ch5_mirror_reflection", "cancel_ch5_see_theo"};
   const char *ev = EAS(d, eventTrigger, event);
@@ -4185,7 +4187,8 @@ static void minitrig_update(Ent *e) {   /* OnTheoEnter: a HoldableCollider */
   if (ST(e, MiniTrig)->mode == 2 && t && collide_ent_at(e, e->x, e->y, t)) minitrig_fire(e);
 }
 static const EntClass MINITRIG = {.name = "minitextboxTrigger", .size = sizeof(MiniTrig), .update = minitrig_update,
-                                  .awake = minitrig_awake, .on_enter = minitrig_enter, .kind = KIND_TRIGGER};
+                                  .awake = minitrig_awake, .kind = KIND_TRIGGER,
+                                  .more = &(const EntMore){.on_enter = minitrig_enter}};
 static void new_minitrig(const EData *d) {
   uint32_t h = level_entity_hash(d);
   Ent *e = ent_new(&MINITRIG, d->x, d->y);

@@ -117,7 +117,7 @@ V2 level_closest_spawn(V2 at) {
 void level_dash_listeners(V2 dir) {
   for (int i = 0; i < g_nents; i++) {
     Ent *e = &g_ents[i];
-    if (e->cls && e->dead != 1 && e->cls->on_dash) e->cls->on_dash(e, dir);
+    if (e->cls && e->dead != 1 && MORE(e->cls)->on_dash) MORE(e->cls)->on_dash(e, dir);
   }
 }
 WEAK void level_booster_boosted(Ent *b, V2 dir) { (void)b, (void)dir; }
@@ -242,8 +242,9 @@ void spikes_set_cassette(Ent *e, uint16_t on, uint16_t off, V2 origin) {
 }
 static void spikes_sm_shake(Ent *e, V2 a) { e->shakex = (int8_t)(e->shakex + a.x), e->shakey = (int8_t)(e->shakey + a.y); }
 static const EntClass SPIKES = {.size = sizeof(Spikes), .name = "spikes", .render = spikes_render, .on_player = spikes_on_player,
-                                .sm_riding = spikes_riding, .sm_shake = spikes_sm_shake, .sm_enable = spikes_sm_enable,
-                                .kind = KIND_PCOLLIDE | KIND_STATICMOVER | KIND_SPIKES};
+                                .kind = KIND_PCOLLIDE | KIND_STATICMOVER | KIND_SPIKES,
+                                .more = &(const EntMore){.sm_riding = spikes_riding,
+                                                         .sm_shake = spikes_sm_shake, .sm_enable = spikes_sm_enable}};
 
 static void new_spikes(const EData *d, int dir) {
   int size;
@@ -330,8 +331,8 @@ static void spring_attach(Ent *e, Ent *p) {
   ents_mark_unsorted();
 }
 static const EntClass SPRING = {.size = sizeof(Spring), .name = "spring", .update = spring_update, .render = spring_render,
-                                .on_player = spring_on_player, .sm_riding = spring_riding, .sm_attach = spring_attach,
-                                .kind = KIND_PCOLLIDE | KIND_STATICMOVER};
+                                .on_player = spring_on_player, .kind = KIND_PCOLLIDE | KIND_STATICMOVER,
+                                .more = &(const EntMore){.sm_riding = spring_riding, .sm_attach = spring_attach}};
 
 static void new_spring(const EData *d, int orient, bool can_use) {
   if (!spring_tex[0]) {
@@ -868,7 +869,8 @@ static void falling_trigger(Ent *e, Ent *m) {
 }
 static void block_shake(Ent *e, V2 a) { plat_static_movers_shake(e, a); }
 static const EntClass FALLING = {.size = sizeof(Block), .name = "fallingBlock", .update = falling_update, .render = block_render,
-                                 .on_staticmover_trigger = falling_trigger, .on_shake = block_shake, .kind = KIND_SOLID};
+                                 .kind = KIND_SOLID,
+                                 .more = &(const EntMore){.on_staticmover_trigger = falling_trigger, .on_shake = block_shake}};
 
 static Ent *new_block(const EntClass *cls, const EData *d, float w, float h, char type, bool overlay) {
   Ent *e = ent_new(cls, d->x, d->y);
@@ -896,7 +898,7 @@ static char tile_attr(const EData *d, int off, char kind) {
 /* DashBlock */
 static int dash_block_hit(Ent *e, Player *p, V2 dir);
 static const EntClass DASHBLOCK = {.size = sizeof(Block), .name = "dashBlock", .update = plat_update, .render = block_render,
-                                   .on_dash_collide = dash_block_hit, .kind = KIND_SOLID};
+                                   .kind = KIND_SOLID, .more = &(const EntMore){.on_dash_collide = dash_block_hit}};
 void level_break_dash_block(Ent *e, V2 dir) {
   (void)dir;
   Block *b = ST(e, Block);
@@ -1065,7 +1067,7 @@ static void camtarget_leave(Ent *e, Player *p) {
   bool other = false;
   for (int i = 0; i < g_nents; i++) {
     Ent *o = &g_ents[i];
-    if (o != e && o->cls && o->cls->on_stay == camtarget_stay && o->triggered) other = true;
+    if (o != e && o->cls && MORE(o->cls)->on_stay == camtarget_stay && o->triggered) other = true;
   }
   if (!other) {
     p->cam_anchor_lerp = v2(0, 0);
@@ -1078,9 +1080,12 @@ static void respawn_enter(Ent *e, Player *p) {
     g_session.rx = (int16_t)t->a.x, g_session.ry = (int16_t)t->a.y;
   }
 }
-static const EntClass CAMOFF = {.size = sizeof(Trig), .name = "cameraOffsetTrigger", .on_enter = camoff_enter, .kind = KIND_TRIGGER};
-static const EntClass CAMTARGET = {.size = sizeof(Trig), .name = "cameraTargetTrigger", .on_stay = camtarget_stay, .on_leave = camtarget_leave, .kind = KIND_TRIGGER};
-static const EntClass RESPAWN = {.size = sizeof(Trig), .name = "changeRespawnTrigger", .on_enter = respawn_enter, .kind = KIND_TRIGGER};
+static const EntClass CAMOFF = {.size = sizeof(Trig), .name = "cameraOffsetTrigger", .kind = KIND_TRIGGER,
+                                .more = &(const EntMore){.on_enter = camoff_enter}};
+static const EntClass CAMTARGET = {.size = sizeof(Trig), .name = "cameraTargetTrigger", .kind = KIND_TRIGGER,
+                                   .more = &(const EntMore){.on_stay = camtarget_stay, .on_leave = camtarget_leave}};
+static const EntClass RESPAWN = {.size = sizeof(Trig), .name = "changeRespawnTrigger", .kind = KIND_TRIGGER,
+                                 .more = &(const EntMore){.on_enter = respawn_enter}};
 static const EntClass KILLBOX = {.size = sizeof(int), .name = "killbox", .kind = KIND_KILLBOX};
 
 /* HeartGem.removeCameraTriggers: every CameraOffsetTrigger goes */

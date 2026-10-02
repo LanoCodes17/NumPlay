@@ -235,7 +235,8 @@ static void booster_render(Ent *e) {
 static void outline_render(Ent *e) { gfx_tex_ex(tex("objects/booster/outline"), e->x, e->y, 16, 16, 1, 1, 0, 0xFFFF, 191, 0); }
 static const EntClass BOOSTER_OUTLINE = {.name = "boosterOutline", .size = 0, .render = outline_render};
 static const EntClass BOOSTER = {.name = "booster", .size = sizeof(Booster), .update = booster_update, .render = booster_render,
-                                 .on_player = booster_on_player, .on_dash = booster_on_dash, .kind = KIND_PCOLLIDE};
+                                 .on_player = booster_on_player, .kind = KIND_PCOLLIDE,
+                                 .more = &(const EntMore){.on_dash = booster_on_dash}};
 static void new_booster(const EData *d) {
   Ent *e = ent_new(&BOOSTER, d->x, d->y);
   if (!e) return;
@@ -415,8 +416,9 @@ static void mdebris_render(Ent *e) {
   float s = d->returning ? 1 + d->ret * 0.5f : 1;
   gfx_tex_ex(mb_debris_tex[d->tex], e->x + d->ox, e->y + d->oy, 4, 4, d->flip ? -s : s, s, d->rot, 0xFFFF, (uint8_t)(d->alpha * 255), 0);
 }
-static const EntClass MB_DEBRIS = {.name = "moveBlockDebris", .size = sizeof(MDebris), .update = mdebris_update, .render = mdebris_render,
-                                   .on_squish = mdebris_squish, .kind = KIND_ACTOR};
+static const EntClass MB_DEBRIS = {.name = "moveBlockDebris", .size = sizeof(MDebris), .update = mdebris_update,
+                                   .render = mdebris_render, .kind = KIND_ACTOR,
+                                   .more = &(const EntMore){.on_squish = mdebris_squish}};
 
 /* MoveBlock.Border */
 typedef struct { int16_t parent; } MBorder;
@@ -703,8 +705,9 @@ static void mb_awake(Ent *e) {
   if (b) b->depth = 1, b->collidable = 0, ST(b, MBorder)->parent = ent_ref(e);
   ST(e, MoveB)->border = ent_ref(b);
 }
-static const EntClass MOVEBLOCK = {.name = "moveBlock", .size = sizeof(MoveB), .update = mb_update, .render = mb_render, .awake = mb_awake,
-                                   .on_staticmover_trigger = mb_trigger, .kind = KIND_SOLID};
+static const EntClass MOVEBLOCK = {.name = "moveBlock", .size = sizeof(MoveB), .update = mb_update, .render = mb_render,
+                                   .awake = mb_awake, .kind = KIND_SOLID,
+                                   .more = &(const EntMore){.on_staticmover_trigger = mb_trigger}};
 static void new_moveblock(const EData *d) {
   Ent *e = ent_new(&MOVEBLOCK, d->x, d->y);
   if (!e) return;
@@ -974,7 +977,8 @@ static bool bgsolid_collide_rect(const Ent *e, float l, float t, float r, float 
     }
   return false;
 }
-static const EntClass BGSOLID = {.name = "bgSolidTiles", .size = sizeof(BgSolid), .collide_rect = bgsolid_collide_rect, .kind = KIND_SOLID};
+static const EntClass BGSOLID = {.name = "bgSolidTiles", .size = sizeof(BgSolid), .kind = KIND_SOLID,
+                                 .more = &(const EntMore){.collide_rect = bgsolid_collide_rect}};
 typedef struct { float duck_timer; int16_t bg; uint8_t enabled, activated; } White;
 static void white_disable(Ent *e) {
   White *w = ST(e, White);
@@ -1416,7 +1420,8 @@ static void windtrig_enter(Ent *e, Player *p) {
   }
   wind_set_pattern(ST(c, Wind), ST(e, WindTrig)->pattern);
 }
-static const EntClass WINDTRIG = {.name = "windTrigger", .size = sizeof(WindTrig), .on_enter = windtrig_enter, .kind = KIND_TRIGGER};
+static const EntClass WINDTRIG = {.name = "windTrigger", .size = sizeof(WindTrig), .kind = KIND_TRIGGER,
+                                  .more = &(const EntMore){.on_enter = windtrig_enter}};
 /* Level.TransitionRoutine: the wind trigger under the player's destination sets the pattern, else the room's */
 static void wind_transition_pattern(Wind *w) {
   w->pattern = 0, w->ever_set = 0;
@@ -1517,7 +1522,8 @@ static void windattack_enter(Ent *e, Player *p) {
   }
   ent_remove(e);
 }
-static const EntClass WINDATTACK = {.name = "windAttackTrigger", .size = 0, .on_enter = windattack_enter, .kind = KIND_TRIGGER};
+static const EntClass WINDATTACK = {.name = "windAttackTrigger", .size = 0, .kind = KIND_TRIGGER,
+                                    .more = &(const EntMore){.on_enter = windattack_enter}};
 
 /* ---------------------------------------------------------------- the factories */
 /* ---------------------------------------------------------------- the story: helpers */

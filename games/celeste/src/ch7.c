@@ -881,7 +881,8 @@ static void summit_enter(Ent *e, Player *p) {
   level_register_complete();   /* OnBegin: RegisterAreaComplete */
   ST(cs, Ending7)->target = s->target;
 }
-static const EntClass SUMMITTRIG = {.name = "eventTrigger", .size = sizeof(Summit), .on_enter = summit_enter, .kind = KIND_TRIGGER};
+static const EntClass SUMMITTRIG = {.name = "eventTrigger", .size = sizeof(Summit), .kind = KIND_TRIGGER,
+                                    .more = &(const EntMore){.on_enter = summit_enter}};
 
 /* ---------------------------------------------------------------- NPC07X_Granny_Ending */
 typedef struct {
@@ -1754,7 +1755,8 @@ static void ctrig_enter(Ent *e, Player *p) {
   (void)p;
   if (have_ch7() && cr.active) cr.event = *ST(e, uint8_t);
 }
-static const EntClass CTRIG = {.name = "creditsTrigger", .size = 4, .on_enter = ctrig_enter, .kind = KIND_TRIGGER};
+static const EntClass CTRIG = {.name = "creditsTrigger", .size = 4, .kind = KIND_TRIGGER,
+                               .more = &(const EntMore){.on_enter = ctrig_enter}};
 
 /* ---------------------------------------------------------------- the factories */
 bool ents_ch7(const EData *d) {

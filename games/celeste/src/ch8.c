@@ -314,7 +314,8 @@ static void door_enter(Ent *e, Player *p) {
   Ent *cs = scene_new(&ENTERDOOR, door_end, true, false);
   if (cs) ST(cs, EnterDoor)->target_x = d->left;
 }
-static const EntClass DOORTRIG = {.name = "eventTrigger", .size = sizeof(Door8), .on_enter = door_enter, .kind = KIND_TRIGGER};
+static const EntClass DOORTRIG = {.name = "eventTrigger", .size = sizeof(Door8), .kind = KIND_TRIGGER,
+                                  .more = &(const EntMore){.on_enter = door_enter}};
 
 /* ---------------------------------------------------------------- the factories */
 bool ents_ch8(const EData *d) {

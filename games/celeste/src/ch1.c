@@ -469,7 +469,8 @@ static void event1_enter(Ent *e, Player *p) {
   level_register_complete();   /* OnBegin */
   cutscene_start(c, end1_end, false, true);
 }
-static const EntClass EVENT1 = {.size = 1, .name = "eventTrigger", .on_enter = event1_enter, .kind = KIND_TRIGGER};
+static const EntClass EVENT1 = {.size = 1, .name = "eventTrigger", .kind = KIND_TRIGGER,
+                                .more = &(const EntMore){.on_enter = event1_enter}};
 
 /* ---------------------------------------------------------------- Memorial and MemorialText */
 #define MEMO_N 96

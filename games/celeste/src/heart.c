@@ -635,8 +635,8 @@ static void sat_render(Ent *e) {
   if (s->pulse_on) bloom_add(e->x - 12, e->y - 44, 1, 8), bloom_add(e->x + 32, e->y + 20, 1, 8);
   if (s->bloom > 0) bloom_add(s->bird_at.x, s->bird_at.y, s->bloom, 32);
 }
-static const EntClass SATELLITE = {.name = "birdForsakenCityGem", .size = sizeof(Sat), .update = sat_update,
-                                   .render = sat_render, .on_dash = sat_on_dash};
+static const EntClass SATELLITE = {.name = "birdForsakenCityGem", .size = sizeof(Sat), .update = sat_update, .render = sat_render,
+                                   .more = &(const EntMore){.on_dash = sat_on_dash}};
 
 static bool sat_new(const EData *d) {
   Ent *e = ent_new(&SATELLITE, d->x, d->y);

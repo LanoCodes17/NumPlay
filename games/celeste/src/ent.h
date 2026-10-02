@@ -30,20 +30,13 @@ enum {
 typedef struct { V2 dir, moved, target; Ent *hit, *pusher; } Collision;
 typedef void (*CollideFn)(Ent *self, Collision *c);
 
+/* what few kinds of entities have (EntClass.more) */
 typedef struct {
-  const char *name;
-  uint16_t size;          /* bytes of state (ST) */
-  void (*update)(Ent *e);
-  void (*render)(Ent *e);
-  void (*awake)(Ent *e);
-  void (*removed)(Ent *e);
   /* platforms */
   int (*on_dash_collide)(Ent *e, Player *p, V2 dir);   /* DASH_* */
   void (*on_collide)(Ent *e, V2 dir);
   void (*on_shake)(Ent *e, V2 amount);
   void (*on_staticmover_trigger)(Ent *e, Ent *mover);
-  /* PlayerCollider */
-  void (*on_player)(Ent *e, Player *p);
   /* StaticMover */
   void (*sm_move)(Ent *e, V2 amount);
   void (*sm_shake)(Ent *e, V2 amount);
@@ -65,9 +58,21 @@ typedef struct {
   void (*on_dash)(Ent *e, V2 dir);
   /* custom collision for entities made of many parts (spinners, clutter): e vs a rect */
   bool (*collide_rect)(const Ent *e, float l, float t, float r, float b);
-  /* tracker-like membership */
-  uint16_t kind;
+} EntMore;
+typedef struct {
+  const char *name;
+  uint16_t size;          /* bytes of state (ST) */
+  uint16_t kind;          /* tracker-like membership */
+  void (*update)(Ent *e);
+  void (*render)(Ent *e);
+  void (*awake)(Ent *e);
+  void (*removed)(Ent *e);
+  /* PlayerCollider */
+  void (*on_player)(Ent *e, Player *p);
+  const EntMore *more;    /* the rest (NULL: none of it) */
 } EntClass;
+extern const EntMore g_no_more;
+#define MORE(cls) ((cls)->more ? (cls)->more : &g_no_more)
 
 /* An entity: about 64 bytes here, plus its type's own state (EntClass.size bytes)
  * in a shared arena, reached with ST(e, Type). */

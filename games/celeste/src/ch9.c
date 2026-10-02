@@ -1453,14 +1453,15 @@ static void adv_leave(Ent *e, Player *p) {
   }
   p->cam_anchor_lerp = v2(0, 0);
 }
-static const EntClass ADVTRIG = {.name = "cameraAdvanceTargetTrigger", .size = sizeof(AdvTrig), .on_stay = adv_stay, .on_leave = adv_leave,
-                                 .kind = KIND_TRIGGER};
+static const EntClass ADVTRIG = {.name = "cameraAdvanceTargetTrigger", .size = sizeof(AdvTrig), .kind = KIND_TRIGGER,
+                                 .more = &(const EntMore){.on_stay = adv_stay, .on_leave = adv_leave}};
 typedef struct { uint8_t state; } NoRefill;
 static void norefill_enter(Ent *e, Player *p) {
   g_session.no_refills = ST(e, NoRefill)->state;   /* Session.Inventory.NoRefills */
   p->inventory_norefills = ST(e, NoRefill)->state;
 }
-static const EntClass NOREFILL = {.name = "noRefillTrigger", .size = sizeof(NoRefill), .on_enter = norefill_enter, .kind = KIND_TRIGGER};
+static const EntClass NOREFILL = {.name = "noRefillTrigger", .size = sizeof(NoRefill), .kind = KIND_TRIGGER,
+                                  .more = &(const EntMore){.on_enter = norefill_enter}};
 
 /* ---------------------------------------------------------------- CoreMessage */
 typedef struct { float alpha; uint8_t line; } CoreMsg;

@@ -2,6 +2,7 @@
  * JumpThru movement (pixel by pixel, pushing and carrying riders). */
 #include "ent.h"
 #include "level.h"
+const EntMore g_no_more;
 
 Ent g_ents[MAX_ENTS];
 int g_nents;
@@ -216,10 +217,10 @@ bool collide_ent_at(const Ent *e, float x, float y, const Ent *o) {
   if (e->ctype == COL_NONE || o->ctype == COL_NONE) return false;
   /* ColliderLists: the entity's own test against the other's box */
   if (o->ctype == COL_LIST && e->ctype == COL_BOX)
-    return o->cls->collide_rect(o, x + e->cx, y + e->cy, x + e->cx + e->cw, y + e->cy + e->ch);
+    return MORE(o->cls)->collide_rect(o, x + e->cx, y + e->cy, x + e->cx + e->cw, y + e->cy + e->ch);
   if (e->ctype == COL_LIST && o->ctype == COL_BOX) {
     float dx = e->x - x, dy = e->y - y;
-    return e->cls->collide_rect(e, o->x + o->cx + dx, o->y + o->cy + dy, o->x + o->cx + o->cw + dx, o->y + o->cy + o->ch + dy);
+    return MORE(e->cls)->collide_rect(e, o->x + o->cx + dx, o->y + o->cy + dy, o->x + o->cx + o->cw + dx, o->y + o->cy + o->ch + dy);
   }
   float l = x + e->cx, t = y + e->cy;
   if (e->ctype == COL_BOX) {
@@ -248,7 +249,7 @@ bool collide_rect(const Ent *e, float l, float t, float r, float b) {
   if (e->ctype == COL_CIRCLE) return rect_circle(l, t, r, b, e->x + e->cx, e->y + e->cy, e->cw);
   if (e == g_solidtiles) return tiles_solid_rect(l, t, r, b);
   if (e->ctype == COL_GRID) return level_grid_collide(e, l, t, r, b);
-  if (e->ctype == COL_LIST) return e->cls->collide_rect(e, l, t, r, b);
+  if (e->ctype == COL_LIST) return MORE(e->cls)->collide_rect(e, l, t, r, b);
   return false;
 }
 
@@ -292,12 +293,12 @@ bool point_solid(float x, float y) { return rect_solid(x, y, x + 1, y + 1); }
 
 /* ---------------------------------------------------------------- Actor */
 bool actor_is_riding_jumpthru(Ent *e, Ent *j) {
-  if (e->cls->is_riding_jumpthru) return e->cls->is_riding_jumpthru(e, j);
+  if (MORE(e->cls)->is_riding_jumpthru) return MORE(e->cls)->is_riding_jumpthru(e, j);
   if (e->ignore_jumpthrus) return false;
   return collide_ent_at(e, e->x, e->y + 1, j) && !collide_ent_at(e, e->x, e->y, j);
 }
 bool actor_is_riding_solid(Ent *e, Ent *s) {
-  if (e->cls->is_riding_solid) return e->cls->is_riding_solid(e, s);
+  if (MORE(e->cls)->is_riding_solid) return MORE(e->cls)->is_riding_solid(e, s);
   return collide_ent_at(e, e->x, e->y + 1, s);
 }
 
@@ -426,7 +427,7 @@ bool actor_try_squish_wiggle(Ent *e, Collision *c) {
 }
 
 static void actor_squish(Ent *e, Collision *c) {
-  if (e->cls->on_squish) e->cls->on_squish(e, c);
+  if (MORE(e->cls)->on_squish) MORE(e->cls)->on_squish(e, c);
   else if (!actor_try_squish_wiggle(e, c)) ent_remove(e);
 }
 
@@ -453,7 +454,7 @@ void plat_static_movers_move(Ent *p, V2 amount) {
   for (int i = 0; i < g_nents; i++) {
     Ent *m = &g_ents[i];
     if (m->cls && ent_platform(m) == p && m->dead != 1) {
-      if (m->cls->sm_move) m->cls->sm_move(m, amount);
+      if (MORE(m->cls)->sm_move) MORE(m->cls)->sm_move(m, amount);
       else m->x += amount.x, m->y += amount.y;
     }
   }
@@ -461,14 +462,14 @@ void plat_static_movers_move(Ent *p, V2 amount) {
 void plat_static_movers_shake(Ent *p, V2 amount) {
   for (int i = 0; i < g_nents; i++) {
     Ent *m = &g_ents[i];
-    if (m->cls && ent_platform(m) == p && m->cls->sm_shake) m->cls->sm_shake(m, amount);
+    if (m->cls && ent_platform(m) == p && MORE(m->cls)->sm_shake) MORE(m->cls)->sm_shake(m, amount);
   }
 }
 void plat_static_movers_enable(Ent *p, bool on) {
   for (int i = 0; i < g_nents; i++) {
     Ent *m = &g_ents[i];
     if (m->cls && ent_platform(m) == p) {
-      if (m->cls->sm_enable) m->cls->sm_enable(m, on);
+      if (MORE(m->cls)->sm_enable) MORE(m->cls)->sm_enable(m, on);
       else m->collidable = m->visible = m->active = on;
     }
   }
@@ -477,23 +478,23 @@ void plat_static_movers_destroy(Ent *p) {
   for (int i = 0; i < g_nents; i++) {
     Ent *m = &g_ents[i];
     if (m->cls && ent_platform(m) == p) {
-      if (m->cls->sm_destroy) m->cls->sm_destroy(m);
+      if (MORE(m->cls)->sm_destroy) MORE(m->cls)->sm_destroy(m);
       else ent_remove(m);
       ent_set_platform(m, NULL);
     }
   }
 }
 void plat_static_movers_trigger(Ent *p) {
-  if (p->cls->on_staticmover_trigger) p->cls->on_staticmover_trigger(p, NULL);
+  if (MORE(p->cls)->on_staticmover_trigger) MORE(p->cls)->on_staticmover_trigger(p, NULL);
 }
 
 void plat_static_movers_attach(Ent *p) {
   for (int i = 0; i < g_nents; i++) {
     Ent *m = &g_ents[i];
     if (!m->cls || !(m->kind & KIND_STATICMOVER) || m->plat || m->dead == 1) continue;
-    if (m->cls->sm_riding && m->cls->sm_riding(m, p)) {
+    if (MORE(m->cls)->sm_riding && MORE(m->cls)->sm_riding(m, p)) {
       ent_set_platform(m, p);
-      if (m->cls->sm_attach) m->cls->sm_attach(m, p);
+      if (MORE(m->cls)->sm_attach) MORE(m->cls)->sm_attach(m, p);
     }
   }
 }
@@ -510,7 +511,7 @@ void plat_update(Ent *e) {
       V2 was = e_shake(e);
       e->shakex = (int8_t)(rndi(3) - 1), e->shakey = (int8_t)(rndi(3) - 1);   /* Calc.Random.ShakeVector */
       V2 d = v2sub(e_shake(e), was);
-      if (e->cls->on_shake) e->cls->on_shake(e, d);
+      if (MORE(e->cls)->on_shake) MORE(e->cls)->on_shake(e, d);
       else plat_static_movers_shake(e, d);
     }
     for (int i = 0; i < nshakes; i++)
@@ -542,7 +543,7 @@ void plat_stop_shaking(Ent *e) {
   e->shaking = 0;
   if (e->shakex || e->shakey) {
     V2 d = v2(-e->shakex, -(float)e->shakey);
-    if (e->cls->on_shake) e->cls->on_shake(e, d);
+    if (MORE(e->cls)->on_shake) MORE(e->cls)->on_shake(e, d);
     else plat_static_movers_shake(e, d);
     e->shakex = e->shakey = 0;
   }

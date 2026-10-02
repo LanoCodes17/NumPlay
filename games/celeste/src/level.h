@@ -262,6 +262,7 @@ int level_player_facing(void);
 bool level_solid_cells(int cx0, int cy0, int cx1, int cy1);
 bool level_grid_collide(const Ent *grid, float l, float t, float r, float b);
 char level_tile_type(int layer, int cx, int cy);
+void level_tile_row(int layer, int cx, int cy, int n, char *out);
 bool level_is_dash_block(Ent *e);
 void level_break_dash_block(Ent *e, V2 dir);
 void level_enforce_bounds(Player *p);

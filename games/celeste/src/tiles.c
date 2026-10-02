@@ -120,8 +120,15 @@ static TileCache tcache[2];
 
 void tiles_invalidate(void) { tcache[0].valid = tcache[1].valid = false; }
 
-typedef struct { int layer; const Room *room; } RoomCtx;
-static char room_get(int x, int y, void *ctx) { return level_tile_type(((RoomCtx *)ctx)->layer, x, y); }
+/* the tile types of the window and 2 cells around it (what the autotiler looks at), read a row at a time */
+#define WIN_W (TC_W + 4)
+#define WIN_H (TC_H + 4)
+typedef struct { int layer; const Room *room; char (*win)[WIN_W]; int wx, wy; } RoomCtx;
+static char room_get(int x, int y, void *ctx) {
+  RoomCtx *rc = ctx;
+  unsigned u = (unsigned)(x - rc->wx), v = (unsigned)(y - rc->wy);
+  return u < WIN_W && v < WIN_H ? rc->win[v][u] : level_tile_type(rc->layer, x, y);
+}
 static bool in_room(const Room *rm, int x, int y) {
   int px = x * 8, py = y * 8;
   return rm && px >= rm->x && px < rm->x + rm->w && py >= rm->y && py < rm->y + rm->h;
@@ -129,16 +136,28 @@ static bool in_room(const Room *rm, int x, int y) {
 /* CheckForSameLevel: the other cell is in the room of the cell being tiled */
 static bool room_in_level(int x, int y, void *ctx) { return in_room(((RoomCtx *)ctx)->room, x, y); }
 
+/* the cache's window at cell (cx, cy): the cells already there move along, only the new ones are tiled */
 static void fill_cache(int layer, int cx, int cy) {
   TileCache *c = &tcache[layer];
+  int dx = cx - c->cx, dy = cy - c->cy, ox = c->cx, oy = c->cy;
+  bool keep = c->valid && dx > -TC_W && dx < TC_W && dy > -TC_H && dy < TC_H;
+  if (keep) {
+    int ady = dy < 0 ? -dy : dy, adx = dx < 0 ? -dx : dx;
+    if (dy) memmove(&c->cell[dy < 0 ? ady : 0], &c->cell[dy > 0 ? ady : 0], sizeof c->cell[0] * (size_t)(TC_H - ady));
+    if (dx)
+      for (int r = 0; r < TC_H; r++) memmove(&c->cell[r][dx < 0 ? adx : 0], &c->cell[r][dx > 0 ? adx : 0], 2 * (size_t)(TC_W - adx));
+  }
   c->cx = cx, c->cy = cy, c->valid = true;
-  RoomCtx rc = {layer, NULL};
+  char win[WIN_H][WIN_W];
+  for (int r = 0; r < WIN_H; r++) level_tile_row(layer, cx - 2, cy - 2 + r, WIN_W, win[r]);
+  RoomCtx rc = {layer, NULL, win, cx - 2, cy - 2};
   /* padding looks only inside the cell's room for the fg (PaddingIgnoreOutOfLevel), anywhere for the bg */
   AutoCtx a = {room_get, &rc, layer == 0 ? room_in_level : NULL, false};
   for (int r = 0; r < TC_H; r++)
     for (int k = 0; k < TC_W; k++) {
       int x = cx + k, y = cy + r;
-      char t = level_tile_type(layer, x, y);
+      if (keep && x >= ox && x < ox + TC_W && y >= oy && y < oy + TC_H) continue;
+      char t = win[r + 2][k + 2];
       c->cell[r][k] = 31;
       if (t == '0') continue;
       rc.room = in_room(g_level.room, x, y) ? g_level.room : &g_level.rooms[g_level.room_slot ^ 1];

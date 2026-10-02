@@ -45,8 +45,8 @@ static void pack_info(uint16_t p, const uint8_t **data, uint32_t *comp, uint32_t
   *raw = rd32(s + 8);
 }
 
-/* decodes pack p from its start, giving bytes [from, to) to sink */
-static void lz_run(uint16_t p, uint32_t from, uint32_t to, Sink sink, void *ctx) {
+/* decodes pack p from its start, giving bytes [from, to) to sink (until *stop, if given) */
+static void lz_run(uint16_t p, uint32_t from, uint32_t to, Sink sink, void *ctx, const bool *stop) {
   const uint8_t *src;
   uint32_t comp, raw;
   pack_info(p, &src, &comp, &raw);
@@ -61,11 +61,12 @@ static void lz_run(uint16_t p, uint32_t from, uint32_t to, Sink sink, void *ctx)
   dec.dicBufSize = DICT_SIZE;
   LzmaDec_Init(&dec);
   uint32_t pos = 0, in = 0;
-  while (pos < to) {
+  while (pos < to && !(stop && *stop)) {
     if (dec.dicPos == dec.dicBufSize) dec.dicPos = 0;
     SizeT start = dec.dicPos, inlen = comp - in;
     ELzmaStatus st;
     SizeT limit = dec.dicBufSize;
+    if (limit - start > 1024) limit = start + 1024;   /* (a bit at a time: it can stop sooner) */
     if (limit - start > to - pos) limit = start + (to - pos);
     if (LzmaDec_DecodeToDic(&dec, limit, src + in, &inlen, LZMA_FINISH_ANY, &st) != SZ_OK) return;
     in += (uint32_t)inlen;
@@ -79,7 +80,7 @@ static void lz_run(uint16_t p, uint32_t from, uint32_t to, Sink sink, void *ctx)
 }
 
 void res_stream(uint16_t pack, uint32_t off, uint32_t size, Sink sink, void *ctx) {
-  lz_run(pack, off, off + size, sink, ctx);
+  lz_run(pack, off, off + size, sink, ctx, NULL);
 }
 
 /* ---------------------------------------------------------------- the cache */
@@ -326,6 +327,7 @@ typedef struct {
   uint8_t mark;            /* what the loaded entries are marked */
   bool soft;               /* all but `hard` only if there is room for them as it is */
   uint16_t hard;
+  bool done;               /* all read: the rest of the pack is not decoded */
 } Reader;
 
 static uint32_t entry_offset(uint16_t id) { return tex_entry(id) & 0x3FFFF; }
@@ -366,7 +368,7 @@ static void finish_tex(Reader *r) {
   }
   g_res_gen++;
   r->e = NULL;
-  r->cur++;
+  r->done = ++r->cur == r->n;
   r->hdr_n = 0;
   r->px_n = 0;
   r->row_n = 0;
@@ -483,7 +485,7 @@ static void load_list_ex(uint16_t *ids, int n, uint8_t mark, int hard) {
     rd.mark = mark;
     rd.soft = hard >= 0, rd.hard = (uint16_t)hard;
     uint32_t last = entry_offset(ids[j - 1]);
-    lz_run((uint16_t)pack, 0, last + 20 + 4096u * 4096u, reader_sink, &rd);
+    lz_run((uint16_t)pack, 0, last + 20 + 4096u * 4096u, reader_sink, &rd, &rd.done);
     i = j;
   }
 }

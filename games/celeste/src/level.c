@@ -212,7 +212,6 @@ static void need_textures(void) {
   }
   for (int i = 0; i < nextra_tex; i++) res_need(extra_tex[i]);
   res_load_needed();
-  tiles_invalidate();
 }
 void level_extra_textures(const uint16_t *ids, int n) {
   extra_tex = ids, nextra_tex = n;
@@ -246,6 +245,45 @@ char level_tile_type(int layer, int cx, int cy) {
     }
   }
   return c;
+}
+
+/* the room's tile types of cells [x0, x1) of row cy (as rle_at) into out (out[0]: cell x0) */
+static void rle_span(const Room *rm, int layer, int cy, int x0, int x1, char *out) {
+  int ly = cy - rm->ty, lx = x0 - rm->tx, end = x1 - rm->tx;
+  memset(out, '0', (size_t)(x1 - x0));
+  if (ly < 0 || ly >= rm->th) return;
+  if (end > rm->tw) end = rm->tw;
+  const TileLayer *L = &rm->layer[layer];
+  const uint8_t *p = L->data + L->rows[ly];
+  int mask = (1 << L->bits) - 1;
+  if (lx < 0) lx = 0;
+  for (int x = 0; lx < end; p++) {   /* x: where the run starts */
+    int x2 = x + (*p & mask) + 1;
+    char c = (char)L->types[*p >> L->bits];
+    for (; lx < x2 && lx < end; lx++) out[lx - (x0 - rm->tx)] = c;
+    x = x2;
+  }
+}
+
+/* level_tile_type of cells [cx, cx + n) of row cy (n <= 64) */
+void level_tile_row(int layer, int cx, int cy, int n, char *out) {
+  Room *rm = g_level.room;
+  if (!rm) {
+    memset(out, '0', (size_t)n);
+    return;
+  }
+  rle_span(rm, layer, cy, cx, cx + n, out);
+  Room *o = &g_level.rooms[g_level.room_slot ^ 1];
+  int py = cy * 8;
+  if (!g_level.transitioning || o->index < 0 || py < o->y || py >= o->y + o->h) return;
+  bool row_cur = py >= rm->y && py < rm->y + rm->h;
+  char other[64];
+  rle_span(o, layer, cy, cx, cx + n, other);
+  for (int k = 0; k < n; k++) {
+    int px = (cx + k) * 8;
+    bool in_cur = row_cur && px >= rm->x && px < rm->x + rm->w;
+    if (!in_cur && px >= o->x && px < o->x + o->w) out[k] = other[k];
+  }
 }
 
 /* any solid tile in the cells [cx0, cx1] x [cy0, cy1] (inclusive) */
@@ -540,6 +578,7 @@ static void transition_to(int index, V2 dir) {
   g_level.room_slot = slot;
   g_level.room = &g_level.rooms[slot];
   need_textures();
+  tiles_invalidate();   /* (the tiles at its edges with the other room) */
   ents_awake_new();
   cassette_level_start(true);
   Room *rm = g_level.room;
@@ -577,6 +616,7 @@ static void transition_update(void) {
     int old = g_level.room_slot ^ 1;
     ents_remove_room(old);
     blocks_free_tiles(old);
+    tiles_invalidate();   /* (its tiles go from the cache, the edges change) */
     g_level.rooms[old].index = -1;
     V2 sp = player_spawn_near(v2(pe->x, pe->y));   /* Session.RespawnPoint = the closest spawn */
     g_session.rx = (int32_t)sp.x, g_session.ry = (int32_t)sp.y;

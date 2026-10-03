@@ -173,7 +173,7 @@ void geo_fling_at(int type, int n, float x, float y, float smin, float smax, flo
 }
 
 /* ObjectBounce: off what it hit, at its speed before, times the bounce factor (and a little chance) */
-static void bounce(Body *b, float pvx, float pvy, int had, float factor) {
+void body_bounce(Body *b, float pvx, float pvy, int had, float factor) {
   if (factor < 0 || b->ncontacts <= had) return;
   float speed = sqrtf(pvx * pvx + pvy * pvy);
   if (speed <= 1) return;
@@ -202,7 +202,7 @@ static void geo_tick(void) {
     int had = b.ncontacts;
     body_step(&b, DT);
     bool hit = b.ncontacts > had;
-    if (hit) bounce(&b, pvx, pvy, had, geo_kinds[g->type].bounce);
+    if (hit) body_bounce(&b, pvx, pvy, had, geo_kinds[g->type].bounce);
     g->x = b.x, g->y = b.y, g->vx = b.vx, g->vy = b.vy;
     g->ncontacts = (uint8_t)(b.ncontacts < GEO_CONTACTS ? b.ncontacts : GEO_CONTACTS);
     for (int c = 0; c < g->ncontacts; c++) g->ccol[c] = b.ccol[c], g->cnx[c] = b.cnx[c], g->cny[c] = b.cny[c];
@@ -3779,7 +3779,7 @@ static void gfly_corpse_tick(void) {
     float pvx = b->vx, pvy = b->vy;
     int had = b->ncontacts;
     body_step(b, DT);
-    bounce(b, pvx, pvy, had, 0.5f);   /* (ObjectBounce) */
+    body_bounce(b, pvx, pvy, had, 0.5f);   /* (ObjectBounce) */
     gm.banim.events = 0;
     anim_update(&gm.banim, DT);
     gm.bt += DT;
@@ -4077,12 +4077,12 @@ void enemies_fixed(void) {
             e->st = CS_DEATH_ANIM;
             if (FSM(e) == EF_HATCHER) hatcher_corpse_smash(e);
           } else {
-            bounce(&e->body, pvx, pvy, had, cbounce);
+            body_bounce(&e->body, pvx, pvy, had, cbounce);
             anim_play(&e->anim, kinds[e->kind].clip[R_DEATH_LAND]);
             e->st = CS_LANDED;
           }
         } else
-          bounce(&e->body, pvx, pvy, had, cbounce);
+          body_bounce(&e->body, pvx, pvy, had, cbounce);
         if (e->body.y < -10) e->mode = EM_OFF;
       }
     }

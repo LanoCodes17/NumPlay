@@ -101,7 +101,7 @@ ACTORS = {"knight": KNIGHT,
           "chest": ("sharedassets6.assets", 1148, None),
           # the HUD: drawn by its own camera, 11.48 pixels a unit (scenes: K0), masks at 0.7135
           "hud": ("resources.assets", 20665, ["Health Empty", "Health Idle", "Health Break", "Health Refill", "Health Appear",
-                                              "Blue Appear", "Blue Idle", "Blue Break", "HUD Frame", "HUD Frame Idle",
+                                              "Blue Appear", "Blue Idle", "Blue Break", "Blue Break Fast", "HUD Frame", "HUD Frame Idle",
                                               "HUD Frame CrackAppear", "HUD Frame Cracked", "Coin Appear", "Coin Idle",
                                               "Coin Get", "Soul Burst"]),
           "liquid": ("resources.assets", 20843, None),
@@ -119,6 +119,9 @@ ACTORS.update(_enemy_actors())
 # battle gates (BG Control: the plain ones and the bone ones)
 ACTORS["bgate"] = ("sharedassets9.assets", 197, ["BG Opened", "BG Close 1", "BG Close 2", "BG Open", "BG Closed",
                                                  "Bone Gate Opened", "Bone Gate Close", "Bone Gate Closed", "Bone Gate Open"])
+# lifeblood cocoons and their scuttlers (HealthCocoon, ScuttlerControl); effects (splats)
+ACTORS["cocoon"] = ("sharedassets6.assets", 1092, ["Cocoon Idle", "Cocoon Sweat", "Scuttler Land", "Scuttler Run"])
+ACTORS["fx"] = ("resources.assets", 21298, ["Splat", "Splat2"])
 # water drips (WaterDrip)
 ACTORS["drip"] = ("sharedassets6.assets", 1095, ["Idle", "Drip", "Fall", "Impact"])
 PROP_ACTOR = {}   # (props' libraries: their actors)

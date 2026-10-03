@@ -1236,6 +1236,16 @@ void hero_recoil_unfreeze(void) {
   g_hero.cs.recoiling = true;
 }
 
+/* PlayerData.TakeHealth: lifeblood first */
+static void take_health(int damage) {
+  if (g_pd.health_blue > 0) {
+    int rest = damage - g_pd.health_blue;
+    g_pd.health_blue = (int8_t)(g_pd.health_blue > damage ? g_pd.health_blue - damage : 0);
+    if (rest > 0) take_health(rest);
+  } else
+    g_pd.health = (int8_t)(g_pd.health > damage ? g_pd.health - damage : 0);
+}
+
 void hero_take_damage(int side, int damage, int hazard) {
   Hero *h = &g_hero;
   if (damage <= 0) return;
@@ -1245,7 +1255,7 @@ void hero_take_damage(int side, int damage, int hazard) {
     cancel_attack();
     if (h->cs.recoiling_left || h->cs.recoiling_right) cancel_recoil_horizontal();
     if (h->cs.bouncing) cancel_bounce(), h->body.vy = 0;
-    g_pd.health = (int8_t)(g_pd.health > damage ? g_pd.health - damage : 0);
+    take_health(damage);
     if (g_pd.health == 0) {
       hero_die();
       return;
@@ -1254,7 +1264,7 @@ void hero_take_damage(int side, int damage, int hazard) {
     else if (hazard != HAZ_LAVA) start_recoil(side);
   } else if (h->cs.invulnerable && !h->cs.hazard_death && (hazard == HAZ_SPIKES || hazard == HAZ_ACID)) {
     /* (spikes and acid hurt even through invulnerability) */
-    g_pd.health = (int8_t)(g_pd.health > damage ? g_pd.health - damage : 0);
+    take_health(damage);
     if (g_pd.health == 0) hero_die();
     else die_from_hazard();
   }
@@ -1308,7 +1318,16 @@ void hero_face(bool right) {
   else face_left();
 }
 void hero_gravity(bool on) { affected_by_gravity(on); }
-void hero_max_health(void) { g_pd.health = g_pd.max_health; }
+/* MaxHealth: whole again, the lifeblood gone (UpdateBlueHealth) */
+void hero_max_health(void) {
+  g_pd.health = g_pd.max_health;
+  g_pd.health_blue = 0;
+}
+
+/* ADD BLUE HEALTH (Blue Health Control) */
+void hero_add_blue_health(void) {
+  if (g_pd.health_blue < 8) g_pd.health_blue++;
+}
 
 /* FindGroundPoint: where the Knight stands on the ground below (x, y) (no ground: there) */
 float hero_ground_y(float x, float y) {

@@ -5,6 +5,7 @@
 
 #define DT 0.02f
 #define MAX_MASKS 11
+#define MAX_BLUE 8
 
 /* (Hud Canvas, then Health, Soul Orb, Geo Counter: their places) */
 #define CANVAS_X (-8.71f)
@@ -22,6 +23,10 @@
 static struct {
   Anim mask[MAX_MASKS];
   int8_t shown_health;   /* what the masks show */
+  /* lifeblood (Blue Health: blue_health_display): each mask's state, its place's number (after the masks) */
+  Anim blue[MAX_BLUE];
+  uint8_t blue_st[MAX_BLUE];
+  int8_t shown_blue;
   Anim frame, liquid, coin, burst;
   bool burst_on;
   float liquid_grey;     /* (Liquid Control: grey while it cannot heal) */
@@ -46,9 +51,11 @@ void hud_soul_limiter(bool up) {
   hd.burst_on = true;
 }
 
+enum { BL_NONE, BL_APPEAR, BL_IDLE, BL_BREAK };
+
 void hud_reset(void) {
   memset(&hd, 0, sizeof hd);
-  hd.shown_health = -1;
+  hd.shown_health = -1, hd.shown_blue = -1;
   hd.scale = 1, hd.scale_t = SCALE_TIME;
   anim_play(&hd.frame, g_pd.soul_limited ? CLIP_HUD_HUD_FRAME_CRACKED : CLIP_HUD_HUD_FRAME_IDLE);
   anim_play(&hd.liquid, CLIP_LIQUID_IDLE);
@@ -70,6 +77,34 @@ void hud_tick(void) {
     a->events = 0;
     anim_update(a, DT);
     if (a->events & ANIM_DONE) anim_play(a, a->clip == CLIP_HUD_HEALTH_BREAK ? CLIP_HUD_HEALTH_EMPTY : CLIP_HUD_HEALTH_IDLE);
+  }
+  /* lifeblood: one more appears after the rest; one lost breaks (all at once, fast, as the Knight is healed full) */
+  int blue = g_pd.health_blue > MAX_BLUE ? MAX_BLUE : g_pd.health_blue;
+  if (hd.shown_blue < 0) {
+    for (int i = 0; i < blue; i++) anim_play(&hd.blue[i], CLIP_HUD_BLUE_IDLE), hd.blue_st[i] = BL_IDLE;
+    hd.shown_blue = (int8_t)blue;
+  }
+  while (hd.shown_blue < blue) {
+    int i = hd.shown_blue++;
+    anim_play_from_frame(&hd.blue[i], CLIP_HUD_BLUE_APPEAR, 0), hd.blue_st[i] = BL_APPEAR;
+  }
+  bool full = blue == 0 && g_pd.health == g_pd.max_health;
+  while (hd.shown_blue > blue) {
+    int i = --hd.shown_blue;
+    anim_play_from_frame(&hd.blue[i], full ? CLIP_HUD_BLUE_BREAK_FAST : CLIP_HUD_BLUE_BREAK, 0), hd.blue_st[i] = BL_BREAK;
+  }
+  for (int i = 0; i < MAX_BLUE; i++) {
+    Anim *a = &hd.blue[i];
+    if (hd.blue_st[i] == BL_NONE) continue;
+    a->events = 0;
+    anim_update(a, DT);
+    if (!(a->events & ANIM_DONE)) continue;
+    if (hd.blue_st[i] == BL_BREAK) hd.blue_st[i] = BL_NONE;
+    else if (hd.blue_st[i] == BL_APPEAR) {
+      /* (Idle, from a frame at random) */
+      anim_play_from_frame(a, CLIP_HUD_BLUE_IDLE, (int)rand_range(0, 26.999f));
+      hd.blue_st[i] = BL_IDLE;
+    }
   }
   hd.frame.events = 0;
   anim_update(&hd.frame, DT);
@@ -93,13 +128,15 @@ void hud_tick(void) {
   else if (hd.liquid_grey > to) hd.liquid_grey = fmaxf(to, hd.liquid_grey - DT / 0.2f);
 }
 
-static void hud_sprite(int sprite, float x, float y, float sx, uint8_t tint, int clip) {
+static void hud_sprite_s(int sprite, float x, float y, float sx, float sy, uint8_t tint, int clip) {
   /* (on the canvas: about its corner, at its scale) */
   float k = hd.scale;
   Inst in;
-  sprite_inst(sprite, CANVAS_X + (x - CANVAS_X) * k, CANVAS_Y + (y - CANVAS_Y) * k, 0, sx * k, k, tint, &in);
+  sprite_inst(sprite, CANVAS_X + (x - CANVAS_X) * k, CANVAS_Y + (y - CANVAS_Y) * k, 0, sx * k, sy * k, tint, &in);
   gfx_hud(&in, clip);
 }
+
+static void hud_sprite(int sprite, float x, float y, float sx, uint8_t tint, int clip) { hud_sprite_s(sprite, x, y, sx, 1, tint, clip); }
 
 void hud_draw(void) {
   if (!hd.started || hd.off) return;
@@ -117,6 +154,10 @@ void hud_draw(void) {
   /* the masks */
   int max = g_pd.max_health > MAX_MASKS ? MAX_MASKS : g_pd.max_health;
   for (int i = 0; i < max; i++) hud_sprite(hd.mask[i].sprite, HEALTH_X - 10.32f + 0.94f * i, HEALTH_Y + 7.7f, 1, white, 0);
+  for (int i = 0; i < MAX_BLUE; i++)
+    if (hd.blue_st[i] != BL_NONE)
+      hud_sprite_s(hd.blue[i].sprite, HEALTH_X - 10.32f + 0.94f * (max + i), HEALTH_Y + 7.68f, 0.75f / 0.7135f, 0.75f / 0.7135f,
+                   white, 0);   /* (its frames at the masks' 0.7135) */
   /* geo: the coin, the count (TrajanPro, its left at the text's place) */
   hud_sprite(hd.coin.sprite, HEALTH_X - 10.33f, HEALTH_Y + 6.61f, 1, white, 0);
   char buf[12];

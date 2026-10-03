@@ -100,7 +100,7 @@ int main(int argc, char **argv) {
           printf("%4d keys %02x pos %.3f,%.3f v %.3f,%.3f state %d ground %d jump %d fall %d clip %d frame %d cam %.2f,%.2f\n", tick,
                  keys, g_hero.body.x, g_hero.body.y, g_hero.body.vx, g_hero.body.vy, g_hero.state, g_hero.cs.on_ground,
                  g_hero.cs.jumping, g_hero.cs.falling, g_hero.anim.clip, g_hero.anim.frame, g_cam_x, g_cam_y);
-        if (trace && getenv("HKSTATS")) printf("   health %d mp %d geo %d\n", g_pd.health, g_pd.mp, (int)g_pd.geo);
+        if (trace && getenv("HKSTATS")) printf("   health %d blue %d mp %d geo %d\n", g_pd.health, g_pd.health_blue, g_pd.mp, (int)g_pd.geo);
         if (trace && getenv("ENEMIES")) {
           extern void enemies_debug(void);
           enemies_debug();

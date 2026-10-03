@@ -9,7 +9,7 @@ ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_M
     ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
 # objects (ENT_OBJ's flags: src/obj.c)
 OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR, OK_BGATE, OK_ARENA, \
-    OK_EVENT, OK_SUMMON, OK_COND, OK_PROP, OK_DRIP = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+    OK_EVENT, OK_SUMMON, OK_COND, OK_PROP, OK_DRIP, OK_COCOON = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
 # the battle gates' events (src/game.h: BG_*)
 BG_EVENTS = ["BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY"]
 # battle gates (BG Control: OK_BGATE's s0): closed at first, the bone ones' clips, gone once a PlayerData bool is set
@@ -858,6 +858,39 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
             layer, order = _sorting(o)
             recs.append(rec(ENT_OBJ, OK_PROP, (o["pos"][0], o["pos"][1], o["pos"][2], sx), (sy, _angle(o), ci, 0),
                             a=order + 32768, group=layer, s0=sprites.tk2d(*sp) if sp else 0))
+        hc = next((c.get("v") for c in o["c"] if c.get("class") == "HealthCocoon" and c.get("v")), None)
+        if hc is not None:
+            # a lifeblood cocoon: its place, its sweat's waits; its colliders, the children it hides as it breaks (a
+            # group); its hit boxes, its cap (a piece), then its splat (sprite, effect clip, their place and sorting)
+            import actors
+            kids = {by_id[c]["name"]: by_id[c] for c in o.get("children", [])}
+            ref_ids = lambda refs: [r[1] for r in refs or [] if r and r[1] in by_id]
+            hidden = ref_ids(hc.get("disableChildren"))
+            g_hide = new_group(hidden[0]) if hidden else 0
+            for h in hidden[1:]:
+                subtree(h, g_hide)
+            c0, cn = _subcols(d, owners, o["id"]) if owners else (0, 0)
+            hits = _hit_boxes(o, by_id, depth=0)
+            cap = ref_ids([hc.get("cap")]) if hc.get("cap") else []
+            pieces = _pieces(d, o, cap, by_id, sprites)
+            splat, eff = kids.get("Splat Sprite"), kids.get("Splat Effect")
+            sp = _tk2d_sprite(d, splat) if splat else None
+            ean = next((c.get("v") for c in eff["c"] if c.get("class") == "tk2dSpriteAnimator"), None) if eff else None
+            eclip = -1
+            if ean:
+                import tk2d, unity
+                lib = _ref_file(d, ean["library"])
+                eclip = CLIP_INDEX.get(actors.clip_id("fx", unity.S(tk2d.animation(*lib)["clips"][ean["defaultClipId"]]["name"])), -1)
+            layer, order = _sorting(splat) if splat else (0, 0)
+            persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
+            recs.append(rec(ENT_OBJ, OK_COCOON, (o["pos"][0], o["pos"][1], o["pos"][2], 0),
+                            (hc.get("waitMin", 2), hc.get("waitMax", 6), 0, 0), a=c0, group=cn, group2=g_hide,
+                            persist=persist.id(name, o["path"]) if persistent else NO_PERSIST, s0=len(pieces), s1=len(hits)))
+            recs += [rec(ENT_BOX, fl, box=b) for b, fl in hits]
+            recs += pieces
+            recs.append(rec(ENT_BOX, 0, (splat["lpos"][0] if splat else 0, splat["lpos"][1] if splat else 0,
+                                         splat["pos"][2] if splat else 0, 0),
+                            (sprites.tk2d(*sp) if sp else -1, eclip, layer, order)))
         dv = next((c.get("v") for c in o["c"] if c.get("class") == "WaterDrip" and c.get("v")), None)
         if dv is not None:
             # a water drip: its place, its idle times, fall speed and how far it sinks as it hits

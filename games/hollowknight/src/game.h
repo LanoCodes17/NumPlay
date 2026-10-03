@@ -54,7 +54,7 @@ void save_set_respawn(const char *marker, bool facing_right);   /* (Bench Contro
 enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE,
        ENT_BOX, ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER };   /* (shape, box, piece: more of the record before) */
 enum { OK_BREAKABLE = 1, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR, OK_BGATE,
-       OK_ARENA, OK_EVENT, OK_SUMMON, OK_COND, OK_PROP, OK_DRIP };   /* objects (ENT_OBJ's flags) */
+       OK_ARENA, OK_EVENT, OK_SUMMON, OK_COND, OK_PROP, OK_DRIP, OK_COCOON };   /* objects (ENT_OBJ's flags) */
 /* an enemy record's s1: starts alert (or first); startles; one of an arena's Pre Battle Enemies; its death counts for its arena; gone once its arena's
  * fight is over; spawned by its mother's burster; there only once its arena's fight is over; its FSMs off till near
  * the camera (FSMActivator); then its death's effects
@@ -117,6 +117,7 @@ int enemies_nail(const float *pts, int npts, float direction, int damage);
 int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side);   /* -> its damage, 0: none */
 void enemies_hero_leave(void);   /* HERO LEAVE (the Knight dead): the shade departs */
 /* geo of a size (0 small, 1 medium, 2 large) flung from (x, y), each from a little about it (FlingUtils) */
+void body_bounce(Body *b, float pvx, float pvy, int had, float factor);   /* ObjectBounce */
 void geo_fling_at(int type, int n, float x, float y, float smin, float smax, float amin, float amax, float spread);
 int cardinal(float degrees);            /* DirectionUtils.GetCardinalDirection */
 const Ent *room_ents(int *n);
@@ -217,6 +218,7 @@ void hero_finished_entering_scene(bool set_hazard_marker);
 void hero_leave_scene(int gate);   /* LeaveScene: walking, jumping or falling out through the gate */
 /* EnterScene: the Knight through the room's entry gate (its record, kind, place, entry offset, G_* flags) after delay */
 void hero_enter_scene(int gate_ent, int gate, float gx, float gy, float ox, float oy, uint8_t flags, float delay);
+void hero_add_blue_health(void);   /* (a lifeblood mask more) */
 void hero_take_damage(int side, int damage, int hazard);   /* (side: where the damage comes from, SIDE_LEFT/RIGHT) */
 void hero_recoil_unfreeze(void);       /* the end of StartRecoil, after the freeze */
 void hero_hazard_respawn(void);        /* HeroController.HazardRespawn */

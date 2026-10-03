@@ -532,12 +532,191 @@ static void drip_draw(const Obj *o, const Ent *e) {
   gfx_actor(&in, SORT_KEY(e->group, (int)e->a - 32768));
 }
 
+/* ---------------------------------------------------------------- lifeblood cocoons (HealthCocoon) and their scuttlers
+ * (ScuttlerControl, Health Scuttler): hit, a cocoon breaks and lets out two that run from the Knight; each one hit
+ * gives him a lifeblood mask a moment later */
+#define MAX_SCUTTLERS 4
+enum { CO_IDLE, CO_SWEAT, CO_BROKEN };
+enum { SC_OFF, SC_AIR, SC_LAND, SC_RUN, SC_BOUNCE, SC_DEAD };
+typedef struct {
+  uint8_t st;
+  bool splat_on;
+  Body body;
+  Anim anim, splat;
+  float sx, max_speed, t, born;   /* (its scale; Run's top speed; a timer; how long it has been out) */
+} Scuttler;
+static Scuttler scuttlers[MAX_SCUTTLERS];
+static Anim cocoon_fx;   /* (a broken cocoon's splat effect: one a room) */
+static bool cocoon_fx_on;
+
+static const Ent *cocoon_splat(const Ent *e) { return e + 1 + e->s1 + e->s0; }
+
+static void cocoon_broken(Obj *o, const Ent *e) {
+  /* SetBroken: its sprite off, the children it hides off, its colliders off */
+  o->state = CO_BROKEN;
+  if (e->group2) group_fade(e->group2, 0, 0);
+  for (int c = e->a; c < e->a + e->group; c++) phys_collider_enable(c, false);
+}
+
+static void cocoon_enter(Obj *o, const Ent *e) {
+  anim_play(&o->anim, CLIP_COCOON_COCOON_IDLE);
+  o->state = CO_IDLE, o->t = rand_range(e->p0, e->p1);
+  if (persist_get(e->persist)) cocoon_broken(o, e);
+}
+
+static void cocoon_hit(Obj *o, const Ent *e) {
+  if (o->state == CO_BROKEN) return;
+  /* (its splat effect on; its cap knocked off away from the Knight; two scuttlers out) */
+  const Ent *sp = cocoon_splat(e);
+  if (sp->p1 >= 0) anim_play_from_frame(&cocoon_fx, (int)sp->p1, 0), cocoon_fx_on = true;
+  float dx = e->x0 - g_hero.body.x, dy = e->y0 - g_hero.body.y, a = atan2f(dy, dx) * 180 / (float)M_PI;
+  for (int i = 0; i < e->s0; i++) piece_fling(e + 1 + e->s1 + i, e->x0, e->y0, 0, a, a, 10, 10, 1);
+  for (int k = 0; k < 2; k++) {
+    Scuttler *s = NULL;
+    for (int i = 0; i < MAX_SCUTTLERS && !s; i++)
+      if (scuttlers[i].st == SC_OFF && !scuttlers[i].splat_on) s = &scuttlers[i];
+    if (!s) break;
+    memset(s, 0, sizeof *s);
+    s->st = SC_AIR;
+    s->sx = rand_range(1.35f, 1.5f), s->max_speed = rand_range(6, 9);
+    Body *b = &s->body;
+    b->x = e->x0 + 0.5f * rand_range(-1, 1), b->y = e->y0 + 0.5f * rand_range(-1, 1);
+    b->oy = -0.06f * s->sx, b->hx = 0.77f / 2 * s->sx, b->hy = 0.89f / 2 * s->sx;
+    b->gravity_scale = 0.6f, b->friction = 0.2828f, b->mask = CF_TERRAIN;
+    float v = rand_range(10, 15), an = rand_range(40, 140) * (float)M_PI / 180;
+    b->vx = cosf(an) * v, b->vy = sinf(an) * v;
+    anim_play(&s->anim, CLIP_COCOON_SCUTTLER_RUN);   /* (its default clip) */
+  }
+  cam_shake(SHAKE_ENEMY_KILL);
+  persist_set(e->persist);
+  cocoon_broken(o, e);
+}
+
+static void cocoon_tick(Obj *o, const Ent *e) {
+  if (o->state == CO_IDLE && (o->t -= DT) <= 0) {
+    /* (Animate: its sweat now and then) */
+    anim_play_from_frame(&o->anim, CLIP_COCOON_COCOON_SWEAT, 0);
+    o->state = CO_SWEAT;
+  } else if (o->state == CO_SWEAT && (o->anim.events & ANIM_DONE)) {
+    anim_play(&o->anim, CLIP_COCOON_COCOON_IDLE);
+    o->state = CO_IDLE, o->t = rand_range(e->p0, e->p1);
+  }
+}
+
+static void cocoon_draw(const Obj *o, const Ent *e) {
+  Inst in;
+  const Ent *sp = cocoon_splat(e);
+  if (sp->p0 >= 0) {
+    sprite_inst((int)sp->p0, e->x0 + sp->x0, e->y0 + sp->y0, sp->x1, 1, 1, 0, &in);
+    gfx_actor(&in, SORT_KEY((int)sp->p2, (int)sp->p3));
+  }
+  if (cocoon_fx_on) {
+    sprite_inst(cocoon_fx.sprite, e->x0 + sp->x0, e->y0 + sp->y0, sp->x1 - 0.001f, 1, 1, 0, &in);
+    gfx_actor(&in, SORT_KEY((int)sp->p2, (int)sp->p3));
+  }
+  if (o->state != CO_BROKEN) {
+    sprite_inst(o->anim.sprite, e->x0, e->y0, e->x1, 1, 1, 0, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+  }
+}
+
+static void scuttlers_tick(void) {
+  if (cocoon_fx_on) {
+    cocoon_fx.events = 0;
+    anim_update(&cocoon_fx, DT);
+    if (cocoon_fx.events & ANIM_DONE) cocoon_fx_on = false;
+  }
+  for (int i = 0; i < MAX_SCUTTLERS; i++) {
+    Scuttler *s = &scuttlers[i];
+    if (s->splat_on) {
+      s->splat.events = 0;
+      anim_update(&s->splat, DT);
+      if (s->splat.events & ANIM_DONE) s->splat_on = false;
+    }
+    if (s->st == SC_OFF) continue;
+    s->born += DT;
+    if (s->st == SC_DEAD) {
+      /* Heal: a lifeblood mask, 1.2 s after */
+      if ((s->t += DT) >= 1.2f) hero_add_blue_health(), s->st = SC_OFF;
+      continue;
+    }
+    Body *b = &s->body;
+    float pvx = b->vx, pvy = b->vy;
+    int had = b->ncontacts;
+    body_step(b, DT);
+    body_bounce(b, pvx, pvy, had, 0.45f);   /* (ObjectBounce) */
+    s->anim.events = 0;
+    anim_update(&s->anim, DT);
+    switch (s->st) {
+      case SC_AIR: {
+        bool ground = false;
+        for (int c = 0; c < b->ncontacts; c++) ground |= b->cny[c] > 0.5f;
+        if (ground) anim_play_from_frame(&s->anim, CLIP_COCOON_SCUTTLER_LAND, 0), s->st = SC_LAND;
+        break;
+      }
+      case SC_LAND:
+        if (s->anim.events & ANIM_DONE) anim_play(&s->anim, CLIP_COCOON_SCUTTLER_RUN), s->st = SC_RUN;
+        break;
+      case SC_RUN: {
+        /* Run: away from the Knight, faster to its top speed */
+        float side = g_hero.body.x - b->x > 0 ? 1.0f : -1.0f, v = b->vx - 0.3f * 1.2f * side;
+        s->sx = fabsf(s->sx) * side;
+        b->vx = v > s->max_speed ? s->max_speed : v < -s->max_speed ? -s->max_speed : v;
+        /* (a wall ahead: Bounce back off it) */
+        float dir = b->vx >= 0 ? 1.0f : -1.0f;
+        if (phys_ray(b->x + b->ox, b->y + b->oy, dir, 0, b->hx + 0.1f, CF_TERRAIN, NULL)) {
+          float a = (dir > 0 ? rand_range(110, 130) : rand_range(50, 70)) * (float)M_PI / 180;
+          b->vx = 5 * cosf(a), b->vy = 5 * sinf(a);
+          s->st = SC_BOUNCE, s->t = 0.5f;
+        }
+        break;
+      }
+      case SC_BOUNCE:
+        if ((s->t -= DT) <= 0) s->st = SC_RUN;
+        break;
+    }
+    if (b->y < -10) s->st = SC_OFF;
+  }
+}
+
+/* (the nail: a scuttler out a quarter second dies, its splat there) */
+static int scuttlers_nail(const float *pts, int npts) {
+  int out = 0;
+  for (int i = 0; i < MAX_SCUTTLERS; i++) {
+    Scuttler *s = &scuttlers[i];
+    if (s->st == SC_OFF || s->st == SC_DEAD || s->born < 0.25f) continue;
+    const Body *b = &s->body;
+    if (!box_meets_shape(b->x + b->ox - b->hx, b->y + b->oy - b->hy, b->x + b->ox + b->hx, b->y + b->oy + b->hy, pts, npts))
+      continue;
+    s->st = SC_DEAD, s->t = 0;
+    anim_play_from_frame(&s->splat, CLIP_FX_SPLAT, 0), s->splat_on = true;
+  }
+  return out;
+}
+
+static void scuttlers_draw(void) {
+  for (int i = 0; i < MAX_SCUTTLERS; i++) {
+    const Scuttler *s = &scuttlers[i];
+    Inst in;
+    if (s->st != SC_OFF && s->st != SC_DEAD) {
+      sprite_inst(s->anim.sprite, s->body.x, s->body.y, 0.005f, s->sx, fabsf(s->sx), 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
+    if (s->splat_on) {
+      sprite_inst(s->splat.sprite, s->body.x, s->body.y, 0.004f, 1, 1, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
+  }
+}
+
 /* ---------------------------------------------------------------- the room */
 void obj_enter(void) {
   nobjs = 0;
   phys_colliders_reset();
   memset(pieces, 0, sizeof pieces);
   memset(swing_hit, 0, sizeof swing_hit);
+  memset(scuttlers, 0, sizeof scuttlers);
+  cocoon_fx_on = false;
   int n;
   const Ent *es = room_ents(&n);
   for (int i = 0; i < n && nobjs < MAX_OBJS; i++) {
@@ -563,6 +742,7 @@ void obj_enter(void) {
     else if (o->kind == OK_BGATE) gate_enter(o, &es[i]);
     else if (o->kind == OK_PROP && es[i].p2 >= 0) anim_play(&o->anim, (int)es[i].p2);
     else if (o->kind == OK_DRIP) drip_enter(o, &es[i]);
+    else if (o->kind == OK_COCOON) cocoon_enter(o, &es[i]);
   }
   /* (then what sends the gates their events: SendPlaymakerEventOnEnable, the arenas) */
   for (int i = 0; i < n; i++)
@@ -590,7 +770,9 @@ void obj_tick(void) {
     else if (o->kind == OK_CHEST) chest_tick(o, e);
     else if (o->kind == OK_BGATE) gate_tick(o, e);
     else if (o->kind == OK_DRIP) drip_tick(o, e);
+    else if (o->kind == OK_COCOON) cocoon_tick(o, e);
   }
+  scuttlers_tick();
   arena_tick();
   pieces_tick();
   enemies_update();
@@ -613,12 +795,15 @@ void obj_draw(void) {
       prop_draw(o, e);
     else if (o->kind == OK_DRIP)
       drip_draw(o, e);
+    else if (o->kind == OK_COCOON)
+      cocoon_draw(o, e);
     else if (o->kind == OK_BGATE && o->state != GT_GONE) {
       sprite_inst(o->anim.sprite, e->x0, e->y0, e->x1, e->y1, e->p0, 0, &in);
       gfx_actor(&in, SORT_KEY(0, 0));
     }
   }
   pieces_draw();
+  scuttlers_draw();
   enemies_draw();
 }
 
@@ -648,7 +833,9 @@ int obj_nail(const float *pts, int npts, float direction) {
     else if (o->kind == OK_GREAT_DOOR) great_door_hit(o, e);
     else if (o->kind == OK_GEO_ROCK) georock_hit(o, e, direction);
     else if (o->kind == OK_CHEST) chest_hit(o, e);
+    else if (o->kind == OK_COCOON) cocoon_hit(o, e);
   }
+  out |= scuttlers_nail(pts, npts);
   return out;
 }
 

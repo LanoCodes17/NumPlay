@@ -63,6 +63,7 @@ def _pdf_flags():
 BLENDS = {"alpha": 0, "add": 1, "screen": 2, "linearlight": 3, "overlay": 4, "multiply": 5}
 F_LIT, F_ROT, F_SOLID, F_DYN, F_GRASS = 8, 16, 32, 64, 128
 
+TC_N0 = 1   # (src/tilecode.h)
 LZ = [{"id": lzma.FILTER_LZMA1, "lc": 0, "lp": 0, "pb": 0, "dict_size": 1 << 16, "preset": 9 | lzma.PRESET_EXTREME}]
 
 
@@ -290,28 +291,15 @@ def room_blobs(name, keep, st, tex_id, variant=0):
     return body, o_sec, blobs, bytes(cb), b"".join(erecs)
 
 
-def tile_blocks(t):
-    """A texture's tiles in blocks: (bits, tiles, per tile the one to its left and the one above in the block (255:
-    none), as src/tex.c finds them)"""
-    pos = [(tx, ty) for ty in range(t.th) for tx in range(t.tw) if not t.empty[ty, tx]]
-    assert len(pos) == t.ntiles
-    out = []
-    for i in range(0, t.ntiles, art.BLOCK_TILES):
-        at = {p: j for j, p in enumerate(pos[i:i + art.BLOCK_TILES])}
-        nb = b"".join(bytes([at.get((tx - 1, ty), 255), at.get((tx, ty - 1), 255)]) for tx, ty in pos[i:i + art.BLOCK_TILES])
-        out.append((t.bits, t.tiles[i:i + art.BLOCK_TILES], nb))
-    return out
-
-
 def tilecode(blocks):
     """Trains the tile coder's starting probabilities on every block and encodes them (tools/tilecode.c)."""
     import subprocess, tempfile
     tmp = tempfile.mkdtemp()
     exe = os.path.join(tmp, "tilecode")
-    subprocess.check_call(["cc", "-O2", "-o", exe, os.path.join(HERE, "tilecode.c"), "-lm"])
+    subprocess.check_call(["cc", "-O2", "-o", exe, os.path.join(HERE, "tilecode.c")])
     job = bytearray(struct.pack("<I", len(blocks)))
-    for bits, tiles, nb in blocks:
-        job += struct.pack("<BBH", bits, 0, len(tiles)) + nb + b"".join(tiles)
+    for bits, tiles in blocks:
+        job += struct.pack("<BBH", bits, 0, len(tiles)) + b"".join(tiles)
     open(os.path.join(tmp, "in.bin"), "wb").write(job)
     subprocess.check_call([exe, "train", os.path.join(tmp, "in.bin"), os.path.join(tmp, "prior.bin")])
     subprocess.check_call([exe, "encode", os.path.join(tmp, "in.bin"), os.path.join(tmp, "prior.bin"), os.path.join(tmp, "out.bin")])
@@ -361,13 +349,13 @@ def main():
     blocks = []
     for t in texs:
         t.first_block = len(blocks)
-        if t.ntiles:
-            blocks += tile_blocks(t)
+        for i in range(0, t.ntiles, art.BLOCK_TILES):
+            blocks.append((t.bits, t.tiles[i:i + art.BLOCK_TILES]))
     prior, coded = tilecode(blocks)
     print("tiles coded %.0fs" % (time.time() - t0), flush=True)
     secs = {k: Blob() for k in SECTIONS}
-    # the starting probabilities as the game uses them (tilecode.h)
-    secs["PRIOR"].b += prior
+    # the starting probabilities as the game uses them: each with its count (tilecode.h: tc_pack)
+    secs["PRIOR"].b += b"".join(struct.pack("<H", v << 4 | TC_N0) for v in struct.unpack("<%dH" % (len(prior) // 2), prior))
     tex_id = {}
     pal_at = {}   # (palettes shared: once each)
     nblk = 0
@@ -410,7 +398,6 @@ def main():
             secs["BLK"].b += bl
         bidx += struct.pack("<I", len(secs["BLK"].b))
         texrec += struct.pack("<HHBBBBIII", t.w, t.h, t.tw, t.th, t.fmt, 1 if v.blur else 0, pal_off, map_off, first)
-    secs["BLK"].b += bytes(3)   # (the game reads up to 3 bytes past a block)
     if os.environ.get("ACTSTATS"):
         import collections
         tot = collections.Counter()

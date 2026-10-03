@@ -99,7 +99,10 @@ def path_key(d):
 
 
 # objects off in the scene whose colliders the scripts turn on (ActivateAllChildren): there, off at first
-SWITCHED = {"Hornet Saver/Colliders"}
+SWITCHED = {"Hornet Saver/Colliders", "Fk Break Wall/Breakable", "Fk Break Wall/Repaired", "Fk Break Wall/Broken/Slope",
+            "Fk Break Wall/Broken/Roof Collider"}
+# (solid though on another layer: the False Knight's broken wall's slope, on Hero Detector, which the Knight meets)
+SOLID_PATHS = {"Fk Break Wall/Broken/Slope"}
 
 
 def room(d, w, h):
@@ -108,7 +111,7 @@ def room(d, w, h):
     segs, cols, owners = [], [CF_SOLID | CF_TERRAIN], [0]
     tm_edges = []
     for o in sorted(d["objects"], key=path_key(d)):
-        if (not o["active"] and o["path"] not in SWITCHED) or o["layer"] not in SOLID_LAYERS:
+        if (not o["active"] and o["path"] not in SWITCHED) or (o["layer"] not in SOLID_LAYERS and o["path"] not in SOLID_PATHS):
             continue
         if "TileMap Render Data/" in o["path"]:
             for c in o["c"]:

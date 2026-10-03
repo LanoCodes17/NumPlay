@@ -32,7 +32,8 @@ ROOMS = {
                     "_Props/Tute Door 5/Active/Jump Reminder", "_Props/Tut_tablet_top", "_Props/Tut_tablet_top (1)",
                     "_Props/Tut_tablet_top (2)"],   # (its chest: src/obj.c, which turns on what is in it)
     "Fungus1_22": ["Shiny Item", "Gate Switch", "Metal Gate", "Breakable Wall"],
-    "Crossroads_10": ["Key Giver", "Breakable Wall"],
+    # (Fk Break Wall's Escape Checker finds no False Knight: its scene loads after it looks, as SceneLoad's LoadBoss)
+    "Crossroads_10": ["Key Giver", "Breakable Wall", "Fk Break Wall"],
     # the shops: their keepers, their regions (the menu: src/shop.c)
     "Room_shop": ["Basement Closed"],
     "Room_mapper": ["Iselda", "Shop Region"],
@@ -73,6 +74,10 @@ def _piece(doc, q, rigid=True):
     ob = next((c.get("v") or {} for c in q["c"] if c.get("class") == "ObjectBounce"), None)
     sp = next((c.get("v") or {} for c in q["c"] if c.get("class") == "SpinSelf"), None)
     ss = next((c.get("v") or {} for c in q["c"] if c.get("class") == "SpinSelfSimple"), None)
+    sf = next((c["fsm"] for c in q["c"] if c.get("fsm") and _spins(c["fsm"])), None)
+    if ss is None and sf is not None:
+        # (a piece's FSM that spins it: as SpinSelfSimple)
+        ss = {"spinFactor": sf["vars"]["Spin Factor"][1], "randomStartRotation": sf["vars"]["Random Start Rotation"][1]}
     # (SpinSelf: a push of its speed times its factor, turned at random first; SpinSelfSimple: against its speed)
     spin, flags = (sp.get("spinFactor", -7.5), 3) if sp is not None else (-ss.get("spinFactor", 0), 1 | (2 if ss.get("randomStartRotation") else 0)) if ss is not None else (0, 0)
     return {"sprite": PIECE_SPRITES(doc, sr["m_Sprite"], max(sx, sy)), "layer": scene.layer_index(sr.get("m_SortingLayerID", 0)),
@@ -140,13 +145,27 @@ def _behaviours(rm, o):
 # FSMs left out (what this port does not have: the dream nail, sounds...)
 SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "Shop Open Voice", "Enviro Region", "tink_effect",
              "RespawnTriggerFSM"}
+
+
+def _spins(f):
+    """A piece's FSM that spins it against its speed (as SpinSelfSimple: the piece's, src/obj.c)."""
+    return f["name"] == "FSM" and {s["name"] for s in f["states"]} == {"Spin At Start?", "Wait", "Randomise z", "Spin"}
+
+
+def _tinks(f):
+    """An enemy's old health FSM, Invincible: all a hit does is its Blocked Hit (as tink_effect's)."""
+    return f["name"] == "FSM" and f["vars"].get("Invincible") == ["bool", True] and \
+        any(s["name"] == "Blocked Hit" for s in f["states"])
+
+
 # objects left out (effects drawn by the C code, or nothing at all; the dream nail's; Dreamer Scene 1's Knight Lift,
 # which nothing turns on)
 SKIP_CLASSES = {"SpellGetOrb", "ParticleSystem"}
 SKIP_NAMES = {"Dream Dialogue", "Dream Dialogue Flower", "Flower", "Flower Give", "white_light", "white_light 1",
               "Knight Lift"}
-# (the Mender House's door: its inspect region, for a key there is none of, never on)
-SKIP_PATHS = {("Crossroads_04", "_Transition Gates/Mender Door/Inspect")}
+# (the Mender House's door: its inspect region, for a key there is none of, never on; the False Knight's arena wall's
+# battle gate: src/obj.c's, which FindChild finds)
+SKIP_PATHS = {("Crossroads_04", "_Transition Gates/Mender Door/Inspect"), ("Crossroads_10", "Fk Break Wall/Battle Gate 1")}
 MAX_OBJS, MAX_FSMS, MAX_VARS, MAX_ANIMS = 48, 26, 256, 20   # (src/vm.c)
 # the grubs in this part of the game (Crossroads_03, Fungus1_21): the Grubfather's rewards past them never come
 GRUBS = 2
@@ -220,7 +239,8 @@ for e in ("FINISHED", "CONVO_FINISH", "CONVO START", "CONVO END", "BIG TITLE STA
           "HORNET LEAVE", "BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY", "WAKE", "BOX UP DREAM",
           "BOX DOWN DREAM", "FADE IN", "FADE OUT", "FSM CANCEL", "CLOSE", "FK DEATH", "SHOP UP", "SHOP CLOSED",
           "SHOP CLOSED QUICK", "SHOP WINDOW UP", "RESET SHOP WINDOW", "CLOSE SHOP WINDOW", "BOX UP YN", "BOX DOWN YN",
-          "YES", "NO", "CONTINUE", "RESET", "HIT", "UNCOVER", "UP", "DOWN", "FIRST MAP UP", "FIRST MAP DOWN"):
+          "YES", "NO", "CONTINUE", "RESET", "HIT", "UNCOVER", "UP", "DOWN", "FIRST MAP UP", "FIRST MAP DOWN",
+          "FK RAGE COMPLETE"):
     EVENTS.id(e)
 FIXED_EVENTS = len(EVENTS.list)   # (src/data.h: VMEV_*)
 
@@ -407,7 +427,8 @@ HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "S
                 "FaceRight", "CanTalk", "PreventCastByDialogueEnd", "SetBackOnGround", "AddMPCharge",
                 "FindGroundPoint", "SetBenchRespawn", "SetHazardRespawn", "RelinquishControlNotVelocity",
                 "SetCState", "SaveGame", "AffectedByGravity", "ResetHardLandingTimer", "StopPlayingAudio", "CanInspect",
-                "CanInput", "GetState", "CancelHeroJump", "ForceHardLanding", "AddHealth", "TryAddMPChargeSpa"]
+                "CanInput", "GetState", "CancelHeroJump", "ForceHardLanding", "AddHealth", "TryAddMPChargeSpa", "RecoilLeft",
+                "RecoilRight"]
 # (GetState's states, by name: its argument)
 HERO_STATES = ["onGround", "attacking", "upAttacking", "downAttacking", "dashing", "backDashing", "willHardLand",
                "spellQuake"]   # (backDashing, spellQuake: never here)
@@ -1187,13 +1208,15 @@ class Compiler:
                                                         speedMin=P.get("speedMin"), speedMax=P.get("speedMax"),
                                                         angleMin=P.get("angleMin"), angleMax=P.get("angleMax")))
             return out or None
-        if n == "SpawnRandomObjects":
+        if n in ("SpawnRandomObjects", "SpawnRandomObjectsV2"):
             r = P.get("gameObject")
             import ents
             f, pid = ents._ref_file(self.o.get("_doc") or self.rm.d, [r[1], r[2]])
             d2 = unity.prefab(f, pid)
             pp = _piece(d2, d2["objects"][0])
-            if pp is None or (P.get("originVariation") or 0) != 0:
+            if not any(c["type"] in ("SpriteRenderer", "MeshRenderer") for q in d2["objects"] for c in q["c"]):
+                return None   # (particles: not drawn here)
+            if pp is None or any(P.get(k) for k in ("originVariation", "originVariationX", "originVariationY")):
                 self.problem("SpawnRandomObjects %s %s" % (f, pid))
                 return None
             pos = P.get("position") or [0, 0, 0]
@@ -1309,7 +1332,7 @@ class Compiler:
                 return None
             if fn in ("advanceTypewriter", "TimePasses", "StoryRecord_acquired", "StoryRecord_visited", "SetActionString",
                       "RefreshButtonIcon", "StopBounce", "CheckGrubAchievements", "AddToGrubList", "CountCharms",
-                      "TriggerStartVideo", "CheckAllMaps"):
+                      "TriggerStartVideo", "CheckAllMaps", "CancelSuperDash"):
                 return None
             self.problem("SendMessage %s" % fn)
             return None
@@ -1570,7 +1593,8 @@ def prepare(rooms, sprites, texts):
             for c in o["c"] + _behaviours(rm, o):
                 f = c.get("fsm")
                 # (a door's own scripts: the game's gates are its doors here)
-                if not f or f["name"] in SKIP_FSMS or any(c2.get("class") == "TransitionPoint" for c2 in o["c"]):
+                if not f or f["name"] in SKIP_FSMS or _tinks(f) or _spins(f) or \
+                        any(c2.get("class") == "TransitionPoint" for c2 in o["c"]):
                     continue
                 cp = Compiler(rm, o, f)
                 body, init = cp.compile()
@@ -1761,7 +1785,7 @@ def room_blob(name, clip_index, sprites, owners=(), persist=None):
                 blend = {"alpha": 0, "add": 1, "screen": 2, "linearlight": 3, "overlay": 4, "multiply": 5}[
                     scene.blend_of(unity.material(unity.ref_path(doc, m0[0]), m0[1])[1])]
         # (tink_effect: the nail clinks off it, the Knight recoils: blend's high bit)
-        if any(c.get("fsm") and c["fsm"]["name"] == "tink_effect" for c in o["c"]):
+        if any(c.get("fsm") and (c["fsm"]["name"] == "tink_effect" or _tinks(c["fsm"])) for c in o["c"]):
             blend |= 0x8000
         col = (mr or {}).get("m_Color") or {"r": 1, "g": 1, "b": 1, "a": 1}
         rgba = [max(0, min(255, int(round(col[k] * 255)))) for k in "rgba"]

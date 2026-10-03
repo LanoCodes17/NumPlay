@@ -2692,6 +2692,7 @@ static void fk_update(Enemy *e) {
           fk_hitter(e, -1);
           anim_play(&e->anim, CLIP_FK_IDLE);
           e->st = FK_RAGE_END, e->t0 = 0;
+          vm_broadcast(VMEV_FK_RAGE_COMPLETE);   /* (the arena's wall: breakable) */
         } else
           e->st = FK_RAGE, e->t0 = 0, fk_hitter(e, CLIP_FK_RAGE);
       }

@@ -465,6 +465,10 @@ int camlock_find(uint16_t name) {
   return -1;
 }
 
+void gate_off(int k) {
+  if (k >= 0 && k < nobjs && objs[k].kind == OK_BGATE) gate_gone(&objs[k], ent_at(objs[k].ent));
+}
+
 void gate_event_at(int k, int ev) {
   if (k >= 0 && k < nobjs && objs[k].kind == OK_BGATE) gate_event(&objs[k], ent_at(objs[k].ent), ev);
 }

@@ -39,7 +39,8 @@ enum {
   PDF_SALUBRA_NOTCH4, PDF_MET_STAG, PDF_CORNIFER_AT_HOME, PDF_ISELDA_CONVO1, PDF_ISELDA_CORNIFER_HOME_CONVO,
   PDF_SALUBRA_CONVO_COMBO, PDF_SALUBRA_CONVO_OVERCHARM, PDF_SALUBRA_CONVO_TRUTH, PDF_SLY_CONVO_MAPPER,
   PDF_OPENED_CROSSROADS, PDF_OPENED_GREENPATH, PDF_TRAVELLING, PDF_STAG_REMEMBER1, PDF_STAG_CONVO_TISO,
-  PDF_QUIRREL_LEFT_EGG_TEMPLE, PDF_MET_CORNIFER, PDF_CORN_CROSSROADS_ENCOUNTERED, PDF_CORNIFER_INTRODUCED, PDF_MENDER_SIGN_BROKEN, PDF_COUNT
+  PDF_QUIRREL_LEFT_EGG_TEMPLE, PDF_MET_CORNIFER, PDF_CORN_CROSSROADS_ENCOUNTERED, PDF_CORNIFER_INTRODUCED, PDF_MENDER_SIGN_BROKEN,
+  PDF_FALSE_KNIGHT_WALL_REPAIRED, PDF_FALSE_KNIGHT_WALL_BROKEN, PDF_COUNT
 };
 typedef struct {
   /* (saved: the layout only ever grows into reserved) */
@@ -133,6 +134,7 @@ enum { BG_CLOSE, BG_QUICK_CLOSE, BG_OPEN, BG_QUICK_OPEN, BG_DESTROY };
 void gates_event(int ev);
 int gate_find(uint16_t name);    /* (a gate by its name: the scripts' strings) */
 void gate_event_at(int k, int ev);
+void gate_off(int k);   /* (ActivateGameObject false: gone) */
 int camlock_find(uint16_t name);  /* (a camera lock area, a mask, by its name: the scripts' strings) */
 void arena_start(void);          /* START (sent by an enemy) */
 void arena_enemy_died(void);     /* (one it counts) */

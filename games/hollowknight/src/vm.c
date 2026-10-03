@@ -393,6 +393,10 @@ static void obj_set_active(int o, bool on) {
     if (on) vm.title_start = true;
     return;
   }
+  if (o >= O_GATE && o < O_GATE + 0x100) {
+    if (!on) gate_off(o - O_GATE);   /* (a battle gate off: gone) */
+    return;
+  }
   if (!obj_ok(o)) return;
   bool was = obj_active(o);
   if (on) vm.objs[o].flags |= OF_ACTIVE;
@@ -892,7 +896,8 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
     case VMOP_FINDCHILD: {
       int o = oval(f, rv(&r));
       uint16_t name = (uint16_t)val(f, rv(&r));
-      set_var(f, rb(&r), find_child(o, name));
+      int c = find_child(o, name), g = c == NONE ? gate_find(name) : -1;
+      set_var(f, rb(&r), g >= 0 ? O_GATE + g : c);   /* (a battle gate among its children: obj.c's) */
       return true;
     }
     case VMOP_GETPARENT: {
@@ -1456,6 +1461,8 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
         case 23: if (!h->cs.on_ground) h->cs.will_hard_land = true; break;   /* (ForceHardLanding) */
         case 24: hero_add_health((int)a0); break;      /* (AddHealth) */
         case 25: hero_add_mp_charge((int)a0); break;   /* (TryAddMPChargeSpa) */
+        case 26: hero_recoil_left(); break;
+        case 27: hero_recoil_right(); break;
         case 21: {
           /* (GetState: tools/vm.py's HERO_STATES) */
           int k = (int)a0;

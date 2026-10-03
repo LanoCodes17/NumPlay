@@ -120,7 +120,7 @@ int main(int argc, char **argv) {
         /* (HKREENTER=tick: the room entered again then, as it was left) */
         if (getenv("HKREENTER") && atoi(getenv("HKREENTER")) == tick) game_enter(id, px, py, true);
         if (getenv("HKGOD")) g_pd.health = g_pd.max_health;
-        if (getenv("HKHIT") && atoi(getenv("HKHIT")) <= tick &&
+        if (getenv("HKHIT") && atoi(getenv("HKHIT")) <= tick && (!getenv("HKHITEND") || tick < atoi(getenv("HKHITEND"))) &&
             tick % (getenv("HKHITN") ? atoi(getenv("HKHITN")) : 10) == 0) {
           extern void enemies_debug_hit(int damage);
           enemies_debug_hit(getenv("HKHITD") ? atoi(getenv("HKHITD")) : 21);

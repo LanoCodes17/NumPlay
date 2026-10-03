@@ -126,10 +126,12 @@ void cam_init(void) {
 }
 
 /* ---------------------------------------------------------------- lock areas */
-static void lock_bounds(const Ent *e, float *x0, float *y0, float *x1, float *y1) {
-  /* (CameraLockArea.ValidateBounds) */
-  *x0 = e->p0 == -1 ? X_MIN : e->p0, *y0 = e->p1 == -1 ? Y_MIN : e->p1;
-  *x1 = e->p2 == -1 ? c.x_limit : e->p2, *y1 = e->p3 == -1 ? c.y_limit : e->p3;
+/* (LockToArea: below 0, the defaults; else, as ReleaseLock has them, CameraLockArea.ValidateBounds's: -1 the defaults) */
+static void lock_bounds(const Ent *e, bool entering, float *x0, float *y0, float *x1, float *y1) {
+  float v[4] = {e->p0, e->p1, e->p2, e->p3}, d[4] = {X_MIN, Y_MIN, c.x_limit, c.y_limit};
+  for (int i = 0; i < 4; i++)
+    if (entering ? v[i] < 0 : v[i] == -1) v[i] = d[i];
+  *x0 = v[0], *y0 = v[1], *x1 = v[2], *y1 = v[3];
 }
 
 static void target_enter_lock_zone(float x0, float x1, float y0, float y1) {
@@ -187,7 +189,7 @@ void cam_lock(int ent) {
   if (c.cur_lock >= 0 && (es[c.cur_lock].flags & CL_MAX_PRIORITY) && !(e->flags & CL_MAX_PRIORITY)) return;
   c.cur_lock = (int16_t)ent;
   c.mode = CM_LOCKED;
-  lock_bounds(e, &c.x_lock0, &c.y_lock0, &c.x_lock1, &c.y_lock1);
+  lock_bounds(e, true, &c.x_lock0, &c.y_lock0, &c.x_lock1, &c.y_lock1);
   if (c.start_locked_timer > 0) {
     c.tx = clampf(hx, c.x_lock0, c.x_lock1), c.ty = clampf(hy, c.y_lock0, c.y_lock1);
     target_enter_lock_zone_instant(c.x_lock0, c.x_lock1, c.y_lock0, c.y_lock1);
@@ -215,8 +217,7 @@ void cam_release(int ent) {
   if (c.nlocks > 0) {
     c.cur_lock = c.locks[c.nlocks - 1];
     const Ent *l = &es[c.cur_lock];
-    /* (as the game: the raw values) */
-    c.x_lock0 = l->p0, c.y_lock0 = l->p1, c.x_lock1 = l->p2, c.y_lock1 = l->p3;
+    lock_bounds(l, false, &c.x_lock0, &c.y_lock0, &c.x_lock1, &c.y_lock1);
     target_enter_lock_zone(c.x_lock0, c.x_lock1, c.y_lock0, c.y_lock1);
     return;
   }
@@ -306,7 +307,7 @@ static void controller_late_update(void) {
       int n;
       const Ent *l = &room_ents(&n)[c.cur_lock];
       float x0, y0, x1, y1;
-      lock_bounds(l, &x0, &y0, &x1, &y1);
+      lock_bounds(l, false, &x0, &y0, &x1, &y1);
       if (c.look_offset > 0 && (l->flags & CL_PREVENT_UP) && dy > y1) dy = c.cy > y1 ? dy - c.look_offset : y1;
       if (c.look_offset < 0 && (l->flags & CL_PREVENT_DOWN) && dy < y0) dy = c.cy < y0 ? dy - c.look_offset : y0;
     }

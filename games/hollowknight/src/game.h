@@ -13,7 +13,7 @@ enum {
   PDF_ELDERBUG_HISTORY1, PDF_ELDERBUG_SPEECH_SLY, PDF_ELDERBUG_SPEECH_STATION, PDF_ELDERBUG_SPEECH_EGG_TEMPLE,
   PDF_ELDERBUG_SPEECH_MAP_SHOP, PDF_ELDERBUG_FIRST_CALL, PDF_SLY_RESCUED, PDF_OPENED_TOWN_BUILDING,
   PDF_EGG_TEMPLE_VISITED, PDF_OPENED_MAPPER_SHOP, PDF_DREAMER_SCENE1, PDF_CORN_GREENPATH_LEFT,
-  PDF_HORNET_F19, PDF_COUNT
+  PDF_HORNET_F19, PDF_MET_QUIRREL, PDF_TISO_ENCOUNTERED_BENCH, PDF_COUNT
 };
 typedef struct {
   /* (saved: the layout only ever grows into reserved) */
@@ -35,7 +35,8 @@ typedef struct {
   uint8_t current_area;   /* (the area whose title showed last: AreaTitleController) */
   uint8_t elderbug;       /* (Elderbug's state) */
   uint8_t hornet_greenpath;   /* (hornetGreenpath: her encounters in Greenpath) */
-  uint8_t reserved[60];
+  uint8_t quirrel_egg_temple;   /* (quirrelEggTemple: his talks at the Black Egg) */
+  uint8_t reserved[59];
   /* (saved apart, by the objects' names: their states) */
   uint8_t persist[MAX_PERSIST / 8];
   /* (not saved) */

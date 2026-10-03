@@ -39,7 +39,7 @@ typedef struct {
   uint16_t blend;   /* (its material's: BL_*) */
   uint8_t col0, ncol;   /* (the colliders it has: on as it is) */
   uint8_t r, g, b, a;   /* (its renderer's color) */
-  uint16_t pad;
+  uint16_t cond2;        /* (a second condition, as cond) */
 } ObjRec;
 
 typedef struct {
@@ -193,6 +193,7 @@ static int pd_int(int i) {
     case 8: return g_pd.elderbug;
     case 10: return g_pd.nail_damage;
     case 11: return g_pd.hornet_greenpath;
+    case 12: return g_pd.quirrel_egg_temple;
     default: return 0;
   }
 }
@@ -205,6 +206,7 @@ static void pd_set_int(int i, int v) {
     case 7: g_pd.shaman = (uint8_t)v; break;
     case 8: g_pd.elderbug = (uint8_t)v; break;
     case 11: g_pd.hornet_greenpath = (uint8_t)v; break;
+    case 12: g_pd.quirrel_egg_temple = (uint8_t)v; break;
   }
 }
 
@@ -903,6 +905,19 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
     case VMOP_STARTCONVERSATION:
       dialogue_start(rv(&r));
       return true;
+    case VMOP_STARTCONVERSATIONOF: {
+      /* (the conversation its key and sheet name now) */
+      uint16_t key = (uint16_t)val(f, rv(&r)), sheet = (uint16_t)val(f, rv(&r));
+      int n = rb(&r);
+      for (int k = 0; k < n; k++) {
+        uint16_t kk = rv(&r), ss = rv(&r), t = rv(&r);
+        if (kk == key && ss == sheet) {
+          dialogue_start(t);
+          break;
+        }
+      }
+      return true;
+    }
     case VMOP_HEROCALL: {
       int m = rb(&r);
       uint8_t store = rb(&r);
@@ -1212,7 +1227,9 @@ void vm_enter(void) {
     o->x = r->x, o->y = r->y, o->sx = r->sx, o->sy = r->sy;
     o->flags = r->flags & (OF_ACTIVE | OF_RENDERER | OF_COLLIDER);
     /* (DeactivateIfPlayerdataTrue, False; or a scene loaded with the room's by a bool, not now) */
-    if (r->cond != NONE && pd_flag(r->cond & 0x7FFF) == ((r->cond & 0x8000) != 0)) o->flags = OF_COND_OFF;
+    if ((r->cond != NONE && pd_flag(r->cond & 0x7FFF) == ((r->cond & 0x8000) != 0)) ||
+        (r->cond2 != NONE && pd_flag(r->cond2 & 0x7FFF) == ((r->cond2 & 0x8000) != 0)))
+      o->flags = OF_COND_OFF;
     o->anim.clip = -1, o->anim.sprite = -1;
     o->alpha = 255;
   }

@@ -10,7 +10,10 @@ import unity, text, state
 
 # rooms -> the objects whose scripts run here (and all under them)
 ROOMS = {
-    "Town": ["_NPCs/Elderbug"],
+    "Town": ["_NPCs/Elderbug", "_NPCs/Tiso Town NPC"],
+    "Room_temple": ["Quirrel"],
+    "Crossroads_47": ["_NPCs/Tiso Bench NPC"],
+    "Room_ruinhouse": ["Sly Dazed"],
     "Fungus1_04": ["Hornet Infected Knight Encounter", "Hornet Saver", "Cloak Corpse", "Dream Scene Activate",
                    "Dreamer Scene 1"],
     "Crossroads_ShamanTemple": ["_Props/Shaman Meeting", "_Props/Shaman Trapped", "_Props/Shaman Killed Blocker",
@@ -37,11 +40,11 @@ SPECIAL = {"Hero": 0xFF00, "HeroLight": 0xFF01, "DialogueManager": 0xFF02, "Dial
 O_NONE = 0xFFFF
 # PlayerData ints (src/vm.c: pd_int)
 PD_INTS = ["MPCharge", "health", "maxHealth", "geo", "fireballLevel", "quakeLevel", "screamLevel", "shaman", "elderbug",
-           "permadeathMode", "nailDamage", "hornetGreenpath"]
+           "permadeathMode", "nailDamage", "hornetGreenpath", "quirrelEggTemple"]
 # PlayerData bools kept elsewhere (src/vm.c)
 PD_SPECIAL = {"disablePause": 0xFFF0, "hasSpell": 0xFFF1, "canDash": 0xFFF2}
 # PlayerData bools that keep their new game value all through this part of the game
-PD_CONST = {"equippedCharm_10": False, "elderbugGaveFlower": False, "elderbugRequestedFlower": False,
+PD_CONST = {"backerCredits": False, "equippedCharm_10": False, "elderbugGaveFlower": False, "elderbugRequestedFlower": False,
             "xunFlowerBroken": False, "hasXunFlower": False, "openedBlackEggDoor": False,
             "visitedCrossroadsInfected": False, "defeatedNightmareGrimm": False, "jijiDoorUnlocked": False,
             "visitedCliffs": False, "mineLiftOpened": False, "brettaRescued": False, "elderbugHistory2": False,
@@ -192,6 +195,7 @@ op("SetFsmFloat", ("gameObject", "o"), ("fsmName", "s"), ("variableName", "s"), 
 op("TextAlign", ("centre", "n"))
 op("ObjAlpha", ("gameObject", "o"), ("alpha", "f"), ("everyFrame", "n"))
 op("BuildString")   # (custom: its parts, the strings they can make, where it keeps it)
+op("StartConversationOf")   # (custom: its key and sheet, then the conversations they can name)
 op("GetObjAlpha", ("gameObject", "o"), ("store", "F"))
 
 # HeroController's methods the scripts call (HeroCall's method)
@@ -316,8 +320,10 @@ class Room:
         return self.obj_index.get(o["id"], O_NONE)
 
 
-def _string_values(rm, f, v):
-    """the strings a string operand of an FSM can be (constants: itself; a variable: as it starts and as it is set)"""
+def _string_values(rm, f, v, depth=0):
+    """the strings a string operand of an FSM can be (constants: itself; a variable: as it starts and as it is set,
+    by other FSMs or its own SetStringValue and BuildString)"""
+    import itertools
     if not (isinstance(v, str) and v.startswith("$")):
         return [v or ""]
     n = v[1:]
@@ -329,6 +335,18 @@ def _string_values(rm, f, v):
                     P = dict(a["params"])
                     if a["name"] == "SetFsmString" and P.get("fsmName") == f["name"] and P.get("variableName") == n:
                         out.append(P.get("setValue") or "")
+    for st in f["states"]:
+        for a in st["actions"]:
+            if not a.get("enabled", True):
+                continue
+            P = dict(a["params"])
+            if a["name"] == "SetStringValue" and P.get("stringVariable") == v and depth < 4:
+                out += _string_values(rm, f, P.get("stringValue"), depth + 1)
+            elif a["name"] == "BuildString" and P.get("storeResult") == v and depth < 4:
+                sep = P.get("separator") or ""
+                parts = [_string_values(rm, f, q, depth + 1) for q in P.get("stringParts") or []]
+                for row in itertools.product(*parts):
+                    out.append(sep.join(row) + (sep if P.get("addToEnd") else ""))
     return sorted(set(out))
 
 
@@ -698,8 +716,22 @@ class Compiler:
             beh, m = P.get("behaviour"), P.get("methodName")
             args = P.get("parameters") or []
             if beh == "DialogueBox" and m == "StartConversation":
-                key, sheet = args[0]["s"], args[1]["s"]
-                return self.emit("StartConversation", {"text": self.rm.texts.id(sheet, key)})
+                arg = lambda q: q["s"] if isinstance(q, dict) else q
+                key, sheet = arg(args[0]), arg(args[1])
+                keys, sheets = self.string_values(key), self.string_values(sheet)
+                import text
+                rows = [(k, sh) for k in keys for sh in sheets if k in text.sheets().get(sh, {})]
+                if not rows:
+                    self.problem("conversation %s %s" % (keys, sheets))
+                    return None
+                if len(keys) == 1 and len(sheets) == 1:
+                    return self.emit("StartConversation", {"text": self.rm.texts.id(sheet, key)})
+                # (by what its variables hold: each conversation they can name)
+                body = struct.pack("<HHB", self.value(key, "s"), self.value(sheet, "s"), len(rows))
+                for k, sh in rows:
+                    body += struct.pack("<HHH", STR.id(k), STR.id(sh), self.rm.texts.id(sh, k))
+                assert len(body) < 256, rows
+                return bytes([OPS["StartConversationOf"][0], len(body)]) + body
             if beh == "GameManager" and m == "CheckCharmAchievements":
                 return None
             if beh == "HeroController" and m in HERO_METHODS:
@@ -713,8 +745,8 @@ class Compiler:
                 v = (P.get("functionCall") or {}).get("value")
                 return self.emit("HeroCall", {"method": HERO_METHODS.index(fn), "store": None,
                                               "a": float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0})
-            if fn in ("advanceTypewriter", "TimePasses", "StoryRecord_acquired", "SetActionString", "RefreshButtonIcon",
-                      "StopBounce"):
+            if fn in ("advanceTypewriter", "TimePasses", "StoryRecord_acquired", "StoryRecord_visited", "SetActionString",
+                      "RefreshButtonIcon", "StopBounce"):
                 return None
             self.problem("SendMessage %s" % fn)
             return None
@@ -1011,15 +1043,16 @@ def room_blob(name, clip_index, sprites, owners=()):
             if sr and sr.get("m_Sprite"):
                 # (its own size, drawn at its scale: its texture as fine as it is drawn)
                 sprite = sprites.id(o.get("_doc") or rm.d, sr["m_Sprite"], 1.0, max(abs(sx), abs(sy)))
-        cond = 0xFFFF
-        for bn, off_if in state.conditions(o):
-            if bn in pdf:
-                cond = pdf[bn] | (0x8000 if off_if else 0)
+        # (DeactivateIfPlayerdataTrue, False: two at most)
+        conds = [pdf[bn] | (0x8000 if off_if else 0) for bn, off_if in state.conditions(o) if bn in pdf]
+        conds = sorted(set(conds), key=conds.index)
         if o.get("_variant"):
             # (a scene loaded with the room's by a PlayerData bool: there only when it has that value)
             bn, val = o["_variant"]
-            assert cond == 0xFFFF, o["path"]
-            cond = pdf[bn] | (0 if val else 0x8000)
+            assert not conds, o["path"]
+            conds = [pdf[bn] | (0 if val else 0x8000)]
+        assert len(conds) <= 2, o["path"]
+        cond, cond2 = (conds + [0xFFFF, 0xFFFF])[:2]
         cols = [k for k, ow in enumerate(owners) if k and ow == (o.get("_scene", name), o.get("_raw", o["id"]))]
         assert cols == list(range(cols[0], cols[-1] + 1)) if cols else True, o["path"]
         assert len(cols) < 256 and (not cols or cols[-1] < 256), o["path"]
@@ -1037,7 +1070,7 @@ def room_blob(name, clip_index, sprites, owners=()):
         rgba = [max(0, min(255, int(round(col[k] * 255)))) for k in "rgba"]
         objs += struct.pack(OBJ, o["pos"][0], o["pos"][1], o["pos"][2], sx, sy, bx, by, bhx, bhy, parent,
                             STR.id(o["name"]), sprite, first, start, min(count, 255), fl, cond, layer, order, blend,
-                            cols[0] if cols else 0, len(cols), *rgba, 0)
+                            cols[0] if cols else 0, len(cols), *rgba, cond2)
     fsms = bytearray()
     for di, owner, init, fname in rm.fsms:
         fsms += struct.pack("<HHHH", di, owner, fname, len(init)) + b"".join(struct.pack("<I", v) for v in init)

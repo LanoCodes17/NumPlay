@@ -152,16 +152,8 @@ static float width_of(int text, int style) {
 
 /* an action's key (ActionButtonIcon: the calculator's, by name) -> its left (from the menu's place) */
 static float key_box(const float *k, int name, float a, uint8_t white) {
-  const uint8_t *st = font_style(STYLE_MSG);
-  const uint8_t *s = text_get(name);
-  float w = text_width(STYLE_MSG, s, 2), g = grow();
-  float x = at[0] + k[0] * g, y = at[1] + k[1] * g;
-  Inst in;
-  sprite_inst(SPRITE_MSG_KEY, x, y, 0, (w / HUD_PX + 0.3f) / 0.95f, 0.75f, white, &in);
-  gfx_overlay(&in);
-  gfx_text(STYLE_MSG, VIEW_W / 2 + x * HUD_PX - w / 2, VIEW_H / 2 - y * HUD_PX + (font_asc(st) - font_desc(st)) / 2, s, 2,
-           (uint32_t)(a * 255 + 0.5f) << 24 | 0xFFFFFF, 0);
-  return k[0] - (w / HUD_PX + 0.3f) / 2;
+  float g = grow();
+  return k[0] - ui_key(name, at[0] + k[0] * g, at[1] + k[1] * g, white, a);
 }
 
 /* an action's text, ending before its key (the text bigger than the game's: kept clear of it) */

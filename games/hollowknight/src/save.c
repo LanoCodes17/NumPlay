@@ -118,6 +118,7 @@ bool save_load(int slot) {
   /* (counts kept within their arrays whatever the file says) */
   for (int c = 0; c < 4; c++)
     if (g_pd.markers_placed[c] > 6) g_pd.markers_placed[c] = 6;
+  if (g_pd.map_key_pref > 2) g_pd.map_key_pref = 0;
   /* (names kept within their bounds whatever the file says) */
   g_pd.respawn_scene[SCENE_NAME - 1] = g_pd.respawn_marker[SCENE_NAME - 1] = g_pd.shade_scene[SCENE_NAME - 1] = 0;
   uint32_t nbits;

@@ -34,6 +34,7 @@ static struct {
   bool in_control, walk_right, walking;
   /* the quick map: shown (and its area), the backdrop's, the name's, the no map message's fades */
   bool shown;
+  bool pins_hidden;    /* (the HUD camera's culling mask without the pins' layer: the map's key's None) */
   int8_t area;         /* (-1: no map of it) */
   float bg_a, name_a, nomap_a, t_open;
   Anim compass;
@@ -51,7 +52,7 @@ static void set_bit(uint8_t *b, int i) {
 void map_room_entered(void) { set_bit(g_pd.rooms_visited, g_room.id); }   /* (SceneManager: scenesVisited) */
 void map_cocoon_broken(void) { set_bit(g_pd.rooms_cocoon, g_room.id); }   /* (AddToCocoonList) */
 
-static bool have_area(int a) { return areas[a].have < 0 || pd_flag(areas[a].have); }
+static bool have_area(int a) { return areas[a].have == -1 || (areas[a].have >= 0 && pd_flag(areas[a].have)); }
 
 /* UpdateGameMap: with the quill, the rooms visited whose area's map the Knight has, mapped -> any new */
 bool map_update(void) {
@@ -285,18 +286,26 @@ void map_hud_tick(void) {
   }
 }
 
-/* the map's colors: a tint each (the menus', the item message's: never up with it), afresh each frame */
-static uint32_t tint_used[4];
+/* the map's colors: a tint each, afresh each frame: the quick map's on the HUD (the menus', the item message's: never up
+ * with it); the inventory's (its overlay: each sprite's colors made as it is drawn) its own, times its pane's alpha */
+static uint32_t tint_used[6];
 static int tint_n;
+static bool to_overlay;   /* (drawing the inventory's map pane) */
+static float pane_a;
 static uint8_t map_tint(uint32_t rgb, uint8_t a) {
-  static const uint8_t slots[] = {29, 30, 31, 25};
-  uint32_t *used = tint_used;
-  int n = tint_n;
+  static const uint8_t hud_slots[] = {29, 30, 31, 25}, pane_slots[] = {15, 22, 23, 24, 25, 26};
+  const uint8_t *slots = to_overlay ? pane_slots : hud_slots;
+  int max = to_overlay ? (int)sizeof pane_slots : (int)sizeof hud_slots;
+  if (to_overlay) a = (uint8_t)(a * pane_a + 0.5f);
+  else if (rgb == 0xFFFFFF && a == 255) return gfx_dyn_tint(16, 255, 255, 255, 255);   /* (the HUD's white) */
   uint32_t key = rgb << 8 | a;
-  for (int i = 0; i < n; i++)
-    if (used[i] == key) return gfx_dyn_tint(slots[i], (uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb, a);
-  int i = n < 4 ? tint_n++ : 3;
-  used[i] = key;
+  int i = 0;
+  while (i < tint_n && tint_used[i] != key) i++;
+  if (i == tint_n) {
+    if (tint_n < max) tint_n++;
+    else i = max - 1;
+    tint_used[i] = key;
+  }
   return gfx_dyn_tint(slots[i], (uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb, a);
 }
 
@@ -305,11 +314,13 @@ static void hud_sprite(int sprite, float x, float y, float k, float deg, uint8_t
   Inst in;
   if (deg != 0) sprite_inst_rot(sprite, x, y, 0, k, k, deg, tint, &in);
   else sprite_inst(sprite, x, y, 0, k, k, tint, &in);
-  gfx_hud(&in, 0);
+  if (to_overlay) gfx_overlay(&in);
+  else gfx_hud(&in, 0);
 }
 
 /* a text: its lines centred on x, from its left or to its right (align 0 left, 1 centred, 2 right), its top at top */
 static void hud_text(int text, int style, float x, float top, int align, uint32_t rgb, float a) {
+  if (to_overlay) a *= pane_a;
   uint8_t al = (uint8_t)(a * 255 + 0.5f);
   if (text < 0 || !al) return;
   const uint8_t *s = text_get(text), *st = font_style(style);
@@ -341,7 +352,6 @@ static bool pin_shown(const MapPin *p) {
  * not */
 static void draw_area(int a, float ox, float oy, float k, bool quick) {
   float sk = k / MAP_QUICK_K;
-  uint8_t white = gfx_dyn_tint(16, 255, 255, 255, 255);
   for (int i = areas[a].first; i < areas[a].first + areas[a].n; i++) {
     const MapRoom *r = &rooms[i];
     if (!room_shown(i)) continue;
@@ -349,10 +359,10 @@ static void draw_area(int a, float ox, float oy, float k, bool quick) {
     hud_sprite(mapped && r->full >= 0 ? r->full : r->sprite, ox + r->x * k, oy + r->y * k, sk, 0, map_tint(r->rgb, 255));
   }
   /* (the pins: the HUD camera's layer 30, as Map Key Pref has it) */
-  for (unsigned i = 0; i < sizeof pins / sizeof pins[0]; i++) {
+  for (unsigned i = 0; i < sizeof pins / sizeof pins[0] && !mc.pins_hidden; i++) {
     const MapPin *p = &pins[i];
     if (rooms[p->room].area != a || !room_shown(p->room) || !pin_shown(p)) continue;
-    hud_sprite(p->sprite, ox + p->x * k, oy + p->y * k, sk, 0, white);
+    hud_sprite(p->sprite, ox + p->x * k, oy + p->y * k, sk, 0, map_tint(0xFFFFFF, 255));
   }
   for (unsigned i = 0; i < sizeof names / sizeof names[0]; i++) {
     const MapName *n = &names[i];
@@ -363,7 +373,7 @@ static void draw_area(int a, float ox, float oy, float k, bool quick) {
   for (unsigned i = 0; i < sizeof nexts / sizeof nexts[0]; i++) {
     const MapNext *n = &nexts[i];
     if (rooms[n->room].area != a || !room_shown(n->room) || (n->visited >= 0 && !pd_flag(n->visited))) continue;
-    hud_sprite(n->sprite, ox + n->x * k, oy + n->y * k, sk, n->ang, white);
+    hud_sprite(n->sprite, ox + n->x * k, oy + n->y * k, sk, n->ang, map_tint(0xFFFFFF, 255));
     hud_text(n->text, STYLE_MSG, ox + n->tx * k, oy + n->top * k, n->align, 0xFFFFFF, 1);
   }
 }
@@ -399,7 +409,7 @@ static void draw_marks(float ox, float oy, float k) {
   if (shade_at(ox, oy, k, &x, &y))
     for (int i = 0; i < 2; i++)
       hud_sprite(shade[i].sprite, x + shade[i].dx * k, y + shade[i].dy * k, sk, 0, map_tint(0xFFFFFF, shade[i].a));
-  uint8_t white = gfx_dyn_tint(16, 255, 255, 255, 255);
+  uint8_t white = map_tint(0xFFFFFF, 255);
   for (int c = 0; c < 4; c++)
     for (int m = 0; m < g_pd.markers_placed[c] && m < 6; m++)
       hud_sprite(markers[c], ox + g_pd.markers[c][m][0] * 0.01f * k, oy + g_pd.markers[c][m][1] * 0.01f * k, sk, 0, white);
@@ -410,7 +420,7 @@ static void draw_marks(float ox, float oy, float k) {
 static void map_msg_draw(void);
 
 void map_draw(void) {
-  tint_n = 0;
+  tint_n = 0, to_overlay = false;
   map_msg_draw();
   if (mc.bg_a <= 0 && mc.name_a <= 0 && mc.nomap_a <= 0) return;
   float bga = MAP_BG_A * mc.bg_a;
@@ -489,4 +499,400 @@ static void map_msg_draw(void) {
     gfx_hud(&in, 0);
   }
   (void)k;
+}
+
+/* ---------------------------------------------------------------- the inventory's map pane */
+/* (Inventory/Map/World Map's UI Control: the wide map, the area chosen white, the others grey; Map Zoom into Game_Map
+ * (WorldMap: all the areas had, the next areas' arrows not), panned (GameMap's Update, KeepWithinBounds); the map's key
+ * (Map Key: the pins had, the key and the pins shown or not); the markers' menu (MapMarkerMenu: placed and taken back,
+ * six of each kind). Places: the pane's from the inventory's, Game_Map's from the HUD's middle.) */
+typedef struct { UiPiece piece; int16_t text; UiText name; float zx, zy, cx, cy, ext[4]; } WidePiece;
+typedef struct { UiPiece back; float key[2]; UiText text; int16_t texts[3]; } MapAction;
+typedef struct { UiPiece icon; int16_t text; UiText at; } KeyRow;
+static const WidePiece wide[NAREAS] = MAP_WIDE;
+static const MapAction act_confirm = MAP_ACT_CONFIRM, act_marker = MAP_ACT_MARKER, act_cancel = MAP_ACT_CANCEL,
+                       act_change = MAP_ACT_CHANGE, act_key = MAP_ACT_KEY;
+static const KeyRow key_rows[MAP_KEY_N] = MAP_KEY_ROWS;
+static const int16_t key_flags[MAP_KEY_N] = MAP_KEY_FLAGS;
+static const UiPiece key_bb = MAP_KEY_BB;
+static const struct { int16_t sprite; float x, y, k, deg; } pan_arrows[4] = MAP_PAN_ARROWS;
+static const UiPiece mm_pieces[4] = MAP_MM_PIECES;   /* (backboard, its shadow, the cursor's back, the cursor) */
+static const int16_t mm_markers[4] = MAP_MM_MARKERS;
+static const struct { float x, y, x0, dx, y0; } mm_row = MAP_MM_ROW;
+static const UiText mm_amount = MAP_MM_AMOUNT;
+static const struct { int16_t sprite; float x, y, minx, maxx, miny, maxy, speed, pull; } mm_place = MAP_MM_PLACE;
+static const struct { float x, y, k0, k; } zoom = MAP_ZOOM;
+static const float pan_base[4] = MAP_PAN;
+
+enum { A_TOWN, A_CROSSROADS, A_GREENPATH };   /* (MAP_AREAS' order) */
+enum { MP_WIDE, MP_ZOOM, MP_ZOOMED, MP_ZOOM_OUT, MP_MARKERS, MP_MARKER_CANCEL };
+#define ARROW_L (-1)
+#define ARROW_R (-2)
+#define ZOOM_TIME 0.4f       /* (Map Zoom: iTween 0.4 s easeOutSine; Zoomed In after 0.45) */
+#define ZOOM_OUT_TIME 0.25f  /* (Zoom Out: 0.25 s linear; Map Up after 0.1, Map Off 0.15 later, Reset 0.1 later) */
+#define MAX_MARKERS 6
+static struct {
+  int8_t sel;           /* the area chosen (ARROW_L, ARROW_R: the pane's arrows) */
+  int8_t hit;           /* the marker under the placement cursor (kind * 8 + its index; -1 none) */
+  uint8_t st, marker;   /* (marker: the kind chosen, 0..3: b, r, y, w) */
+  float t;              /* (the state's time) */
+  float x, y, k, ox, oy;   /* Game_Map's place and scale; zooming out: from where */
+  float wide_a, nav_a, key_a, mm_a;   /* (the wide map's pieces; World Map's FadeGroup; Map Key's; Map Markers') */
+  float px, py, cur_x;  /* the placement cursor (from the markers' menu's place); the menu's cursor */
+  float confirm_t, place_t;   /* (MapMarkerMenu's confirmTimer, placementTimer) */
+  bool closed;          /* (the inventory closing: Game_Map's areas gone, the map's key down) */
+} mp;
+
+static void select_area(int a) {
+  mp.sel = (int8_t)a;
+  inv_cursor_arrow(a < 0 ? a : 0);
+}
+
+/* UI Control's moves (each way: the areas tried in order, their maps had; then where it goes) */
+static int wide_move(int from, uint32_t dir) {
+  bool cr = have_area(A_CROSSROADS), gp = have_area(A_GREENPATH);
+  switch (from) {
+    case A_TOWN:   /* (T Down, T Left, T Right) */
+      if (dir & K_DOWN) return cr ? A_CROSSROADS : gp ? A_GREENPATH : A_TOWN;
+      if (dir & K_LEFT) return gp ? A_GREENPATH : ARROW_L;
+      return dir & K_RIGHT ? ARROW_R : A_TOWN;
+    case A_CROSSROADS:   /* (CR Up, CR Left, CR Right, CR Down) */
+      if (dir & K_UP) return A_TOWN;
+      if (dir & K_LEFT) return gp ? A_GREENPATH : ARROW_L;
+      return dir & K_RIGHT ? ARROW_R : A_CROSSROADS;
+    case A_GREENPATH:   /* (GP Up, GP Right, GP Left, GP Down) */
+      if (dir & K_UP) return A_TOWN;
+      if (dir & K_RIGHT) return cr ? A_CROSSROADS : A_TOWN;
+      return dir & K_LEFT ? ARROW_L : A_GREENPATH;
+    case ARROW_L:   /* (To Map) */
+      return dir & K_RIGHT ? (gp ? A_GREENPATH : A_TOWN) : ARROW_L;
+    default:   /* (To Map 2) */
+      return dir & K_LEFT ? (cr ? A_CROSSROADS : A_TOWN) : ARROW_R;
+  }
+}
+
+/* (WorldMap's bounds: widened by the areas had, or the one the Knight is in with the compass on) */
+static void pan_bounds(float *b) {
+  memcpy(b, pan_base, sizeof pan_base);
+  int z = area_of_zone();
+  for (int a = 0; a < NAREAS; a++) {
+    if (!have_area(a) && !(a == z && charm_on(2))) continue;
+    const float *e = wide[a].ext;
+    b[0] = fminf(b[0], e[0]), b[1] = fmaxf(b[1], e[1]), b[2] = fminf(b[2], e[2]), b[3] = fmaxf(b[3], e[3]);
+  }
+}
+
+static void keep_within_bounds(void) {
+  float b[4];
+  pan_bounds(b);
+  mp.x = fminf(fmaxf(mp.x, b[0]), b[1]), mp.y = fminf(fmaxf(mp.y, b[2]), b[3]);
+}
+
+static bool has_marker(int c) { return pd_flag(PDF_HAS_MARKER_B + c); }
+static int spare(int c) { return MAX_MARKERS - g_pd.markers_placed[c]; }
+static int marker_kinds(void) { return has_marker(0) + has_marker(1) + has_marker(2) + has_marker(3); }
+/* (a kind's place in the menu's row: after the kinds had before it) */
+static float marker_x(int c) {
+  int n = 0;
+  for (int i = 0; i < c; i++) n += has_marker(i);
+  return mm_row.x0 + n * mm_row.dx;
+}
+
+/* (Activate: the area the Knight is in, its map had; else Dirtmouth. Zoom Shortcut: zoomed into at once) */
+static void zoom_in(void);
+void map_pane_enter(bool shortcut) {
+  memset(&mp, 0, sizeof mp);
+  mp.hit = -1, mp.wide_a = mp.nav_a = 1;
+  int a = area_of_zone();
+  select_area(a >= 0 && have_area(a) ? a : A_TOWN);
+  if (mc.compass.sprite < 0) anim_play(&mc.compass, CLIP_MAPUI_IDLE);
+  if (shortcut) zoom_in();
+}
+
+static void zoom_in(void) {
+  /* Map Zoom: the pieces unselected and down, the pane's arrows away; Game_Map from the wide map's place (0.436) */
+  mp.st = MP_ZOOM, mp.t = 0;
+  mp.x = zoom.x, mp.y = zoom.y, mp.k = zoom.k0;
+}
+
+static void zoomed(void) {
+  /* Zoomed In: the map's key up, its pins as the key has them; the pan on */
+  mp.st = MP_ZOOMED, mp.t = 0;
+  mc.pins_hidden = g_pd.map_key_pref == 2;
+}
+
+static void markers_open(void) {
+  /* Marker Select Menu (OpenMarkerMenu): the first kind with any left chosen (else the first had); the placement cursor
+   * at its first place; the map's key down, the pan off */
+  mp.st = MP_MARKERS, mp.t = 0;
+  mp.marker = 255;
+  for (int c = 0; c < 4 && mp.marker == 255; c++)
+    if (has_marker(c) && spare(c) > 0) mp.marker = (uint8_t)c;
+  for (int c = 0; c < 4 && mp.marker == 255; c++)
+    if (has_marker(c)) mp.marker = (uint8_t)c;
+  mp.cur_x = mm_row.x0;
+  mp.px = mm_place.x, mp.py = mm_place.y;
+  mp.confirm_t = MAP_MM_UI_PAUSE, mp.place_t = 0, mp.hit = -1;
+}
+
+/* the placement cursor's place on the HUD */
+static float place_x(void) { return INV_X + mm_row.x + mp.px; }
+static float place_y(void) { return INV_Y + mm_row.y + mp.py; }
+
+/* (PanMap: the cursor moved; at its bounds, the map moved instead (not just after a marker is placed)) */
+static bool pan_cursor(uint32_t keys) {
+  float ix = (float)((keys & K_RIGHT) != 0) - (float)((keys & K_LEFT) != 0);
+  float iy = (float)((keys & K_UP) != 0) - (float)((keys & K_DOWN) != 0);
+  if (ix == 0 && iy == 0) return false;
+  float vx = ix * mm_place.speed * DT, vy = iy * mm_place.speed * DT;
+  float px = mp.px + vx, py = mp.py + vy;
+  if (px < mm_place.minx || px > mm_place.maxx) {
+    px = px < mm_place.minx ? mm_place.minx : mm_place.maxx;
+    if (mp.place_t <= 0) mp.x -= vx;
+  }
+  if (py < mm_place.miny || py > mm_place.maxy) {
+    py = py < mm_place.miny ? mm_place.miny : mm_place.maxy;
+    if (mp.place_t <= 0) mp.y -= vy;
+  }
+  mp.px = px, mp.py = py;
+  keep_within_bounds();
+  return true;
+}
+
+static void marker_at(int c, int i, float *x, float *y) {
+  *x = mp.x + g_pd.markers[c][i][0] * 0.01f * mp.k, *y = mp.y + g_pd.markers[c][i][1] * 0.01f * mp.k;
+}
+
+/* (InvMarkerCollide: the markers the placement box touches; the one touched last kept while it still is) */
+static void find_hit(void) {
+  float cx = place_x(), cy = place_y(), x, y;
+  int last = -1;
+  bool kept = false;
+  for (int c = 0; c < 4; c++)
+    for (int i = 0; i < g_pd.markers_placed[c] && i < MAX_MARKERS; i++) {
+      marker_at(c, i, &x, &y);
+      if (hypotf(x - cx, y - cy) > MAP_MM_RADII) continue;
+      if (mp.hit == c * 8 + i) kept = true;
+      last = c * 8 + i;
+    }
+  if (!kept) mp.hit = (int8_t)last;
+}
+
+static void place_marker(void) {
+  int c = mp.marker;
+  if (c > 3 || spare(c) <= 0) return;   /* (failure: none of that kind left) */
+  int i = g_pd.markers_placed[c]++;
+  g_pd.markers[c][i][0] = (int16_t)lrintf((place_x() - mp.x) / mp.k * 100);
+  g_pd.markers[c][i][1] = (int16_t)lrintf((place_y() - mp.y) / mp.k * 100);
+  mp.place_t = 0.3f;
+}
+
+static void remove_marker(void) {
+  int c = mp.hit >> 3, i = mp.hit & 7, n = g_pd.markers_placed[c];
+  for (int j = i; j + 1 < n; j++) g_pd.markers[c][j][0] = g_pd.markers[c][j + 1][0], g_pd.markers[c][j][1] = g_pd.markers[c][j + 1][1];
+  g_pd.markers_placed[c] = (uint8_t)(n - 1);
+  mp.hit = -1;
+}
+
+/* (MarkerSelectRight: the next kind had, round) */
+static void marker_next(void) {
+  for (int n = 1; n < 4; n++) {
+    int c = (mp.marker + n) % 4;
+    if (has_marker(c)) {
+      mp.marker = (uint8_t)c;
+      return;
+    }
+  }
+}
+
+static float fade_to(float a, bool up, float time) { return up ? fminf(1, a + DT / time) : fmaxf(0, a - DT / time); }
+
+bool map_pane_holds(void) { return mp.st != MP_WIDE && !mp.closed; }   /* (Do Not Close) */
+float map_pane_nav(void) { return mp.nav_a; }
+void map_pane_close(void) { mp.closed = true, mp.key_a = mp.mm_a = 0; }   /* (Close: CloseQuickMap, MAP KEY DOWN) */
+
+int map_pane_tick(uint32_t keys, uint32_t pressed, uint32_t move, bool repeat) {
+  int out = MAP_PANE_NONE;
+  mp.t += DT;
+  mc.compass.events = 0;
+  anim_update(&mc.compass, DT);
+  switch (mp.st) {
+    case MP_WIDE:
+      if (move) {
+        int to = wide_move(mp.sel, move);
+        if (mp.sel == ARROW_L && (move & K_LEFT)) out = repeat ? MAP_PANE_NONE : MAP_PANE_LEFT;       /* (Move Pane L) */
+        else if (mp.sel == ARROW_R && (move & K_RIGHT)) out = repeat ? MAP_PANE_NONE : MAP_PANE_RIGHT;
+        else select_area(to);
+      }
+      if (pressed & K_OK) {
+        if (mp.sel >= 0) zoom_in();
+        else out = mp.sel == ARROW_L ? MAP_PANE_LEFT : MAP_PANE_RIGHT;
+      }
+      break;
+    case MP_ZOOM: {
+      float q = fminf(1, mp.t / ZOOM_TIME), e = sinf(q * 1.5707964f);
+      const WidePiece *w = &wide[mp.sel];
+      mp.k = zoom.k0 + (zoom.k - zoom.k0) * e;
+      mp.x = zoom.x + (w->zx - zoom.x) * e, mp.y = zoom.y + (w->zy - zoom.y) * e;
+      if (mp.t >= ZOOM_TIME + 0.05f) zoomed();
+      break;
+    }
+    case MP_ZOOMED:
+      /* (the pan: the map against the arrows held) */
+      mp.x -= ((float)((keys & K_RIGHT) != 0) - (float)((keys & K_LEFT) != 0)) * MAP_PAN_SPEED * DT;
+      mp.y -= ((float)((keys & K_UP) != 0) - (float)((keys & K_DOWN) != 0)) * MAP_PAN_SPEED * DT;
+      keep_within_bounds();
+      if (pressed & (K_INV | K_MAP)) out = MAP_PANE_CLOSE;   /* (Inventory Cancel) */
+      else if (pressed & K_BACK) mp.st = MP_ZOOM_OUT, mp.t = 0, mp.ox = mp.x, mp.oy = mp.y;
+      else if ((pressed & K_OK) && pd_flag(PDF_HAS_MARKER)) markers_open();
+      else if ((pressed & K_DASH) && pd_flag(PDF_HAS_PIN)) {
+        /* (the map's key's action: the key and the pins, the pins only, neither) */
+        g_pd.map_key_pref = (uint8_t)((g_pd.map_key_pref + 1) % 3);
+        mc.pins_hidden = g_pd.map_key_pref == 2;
+      }
+      break;
+    case MP_ZOOM_OUT: {
+      float q = fminf(1, mp.t / ZOOM_OUT_TIME);
+      mp.k = zoom.k + (zoom.k0 - zoom.k) * q;
+      mp.x = mp.ox + (zoom.x - mp.ox) * q, mp.y = mp.oy + (zoom.y - mp.oy) * q;
+      if (mp.t >= 0.35f) {
+        /* Reset: the area chosen again */
+        mp.st = MP_WIDE, mp.wide_a = 1;
+        select_area(mp.sel);
+      }
+      break;
+    }
+    case MP_MARKERS:
+      if (!pan_cursor(keys) && mp.hit >= 0) {
+        /* (pulled to the marker it is on) */
+        float x, y, q = fminf(1, mm_place.pull * DT);
+        marker_at(mp.hit >> 3, mp.hit & 7, &x, &y);
+        mp.px += (x - place_x()) * q, mp.py += (y - place_y()) * q;
+      }
+      find_hit();
+      if (mp.confirm_t <= 0) {
+        if (pressed & K_OK) {
+          if (mp.hit >= 0) remove_marker();
+          else place_marker();
+        } else if (pressed & K_DASH)
+          marker_next();
+      }
+      if (mp.confirm_t > 0) mp.confirm_t -= DT;
+      if (mp.place_t > 0) mp.place_t -= DT;
+      if (pressed & K_INV) out = MAP_PANE_CLOSE;   /* (Marker Inv Cancel) */
+      else if (pressed & K_BACK) mp.st = MP_MARKER_CANCEL, mp.t = 0;
+      break;
+    case MP_MARKER_CANCEL:
+      if (mp.t >= 0.05f) zoomed();
+      break;
+    default:
+      break;
+  }
+  /* the fades: the wide map's pieces (down in 0.15 s; up in 0.4 from the zoom out's 0.1 s), World Map's (0.2 s: up from
+   * the zoom out's 0.25), the map's key's (0.2), the markers' menu's (0.1); its cursor to the kind chosen (0.1 s) */
+  if (mp.st == MP_ZOOM) mp.wide_a = fade_to(mp.wide_a, false, 0.15f);
+  else if (mp.st == MP_ZOOM_OUT && mp.t >= 0.1f) mp.wide_a = fade_to(mp.wide_a, true, 0.4f);
+  bool nav = mp.st == MP_WIDE || (mp.st == MP_ZOOM_OUT && mp.t >= 0.25f);
+  mp.nav_a = fade_to(mp.nav_a, nav, 0.2f);
+  mp.key_a = fade_to(mp.key_a, mp.st == MP_ZOOMED && g_pd.map_key_pref == 0 && pd_flag(PDF_HAS_PIN), 0.2f);
+  mp.mm_a = fade_to(mp.mm_a, mp.st == MP_MARKERS, 0.1f);
+  if (mp.marker < 4) {
+    float to = marker_x(mp.marker), d = mm_row.dx * DT / 0.1f;
+    mp.cur_x = fabsf(to - mp.cur_x) <= d ? to : mp.cur_x + (to > mp.cur_x ? d : -d);
+  }
+  return out;
+}
+
+/* an action: its backboard, its key, its text (right aligned: ending before the key; left: from after it) */
+static void action_draw(const MapAction *m, int which, int key, float ox, float oy, uint8_t white, float a, bool right) {
+  ui_piece(&m->back, ox, oy, 1, white);
+  float hw = ui_key(key, ox + m->key[0], oy + m->key[1], white, a);
+  UiText t = m->text;
+  if (right && t.x > m->key[0] - hw - 0.15f) t.x = m->key[0] - hw - 0.15f;
+  if (!right && t.x < m->key[0] + hw + 0.15f) t.x = m->key[0] + hw + 0.15f;
+  ui_text_at(m->texts[which], STYLE_MSG, &t, ox, oy, right ? 2 : 0, a);
+}
+
+/* the pane at (ox, oy) (its alpha a; its white); current: the pane shown (else going: Pane Reset, nothing chosen) */
+void map_pane_draw(float ox, float oy, float a, uint8_t white, bool current) {
+  to_overlay = true, pane_a = a, tint_n = 0;
+  int st = current ? mp.st : MP_WIDE;
+  /* the wide map: the areas had (Dirtmouth always), their names; chosen: white (in the wide map only) */
+  float wa = current ? mp.wide_a : 1;
+  if (wa > 0) {
+    uint8_t wa8 = (uint8_t)(wa * 255 + 0.5f);
+    for (int i = 0; i < NAREAS; i++) {
+      if (!have_area(i) || wide[i].piece.sprite < 0) continue;
+      bool on = current && st == MP_WIDE && mp.sel == i;
+      uint8_t g = on ? 255 : MAP_WIDE_GREY, gn = on ? 255 : MAP_WIDE_NAME_GREY;
+      ui_piece(&wide[i].piece, ox, oy, 1, map_tint((uint32_t)g * 0x10101u, wa8));
+      hud_text(wide[i].text, STYLE_MSG_S, ox + wide[i].name.x, oy + wide[i].name.top, 1, (uint32_t)gn * 0x10101u, wa);
+    }
+    /* (its compass: where the Knight's area is) */
+    int z = area_of_zone();
+    if (charm_on(2) && z >= 0 && mc.compass.sprite >= 0)
+      hud_sprite(mc.compass.sprite, ox + wide[z].cx, oy + wide[z].cy, MAP_WIDE_COMPASS_K, 0, map_tint(0xFFFFFF, wa8));
+  }
+  /* Game_Map, zoomed into: its areas had, the marks on it */
+  bool map_on = current && !mp.closed && (st == MP_ZOOM || st == MP_ZOOMED || st == MP_MARKERS ||
+                                          st == MP_MARKER_CANCEL || (st == MP_ZOOM_OUT && mp.t < 0.35f));
+  if (map_on) {
+    for (int i = 0; i < NAREAS; i++)
+      if (have_area(i)) draw_area(i, mp.x, mp.y, mp.k, false);
+    draw_marks(mp.x, mp.y, mp.k);
+  }
+  if (current && !mp.closed && st == MP_ZOOMED) {
+    /* (the pan's arrows: where there is more of it) */
+    float b[4];
+    pan_bounds(b);
+    bool show[4] = {mp.y > b[2], mp.y < b[3], mp.x < b[1], mp.x > b[0]};
+    for (int i = 0; i < 4; i++)
+      if (show[i]) hud_sprite(pan_arrows[i].sprite, ox + pan_arrows[i].x, oy + pan_arrows[i].y, pan_arrows[i].k, pan_arrows[i].deg, white);
+  }
+  /* the map's key: its backboard, its rows (the pins had); its action */
+  if (current && pd_flag(PDF_HAS_PIN)) {
+    if (mp.key_a > 0) {
+      uint8_t kw = map_tint(0xFFFFFF, (uint8_t)(mp.key_a * 255 + 0.5f));
+      int n = 0;
+      for (int i = 0; i < MAP_KEY_N; i++) n += key_flags[i] >= 0 && pd_flag(key_flags[i]);
+      ui_piece(&key_bb, ox, oy + n * MAP_KEY_STEP, 1, kw);
+      n = 0;
+      for (int i = 0; i < MAP_KEY_N; i++) {
+        if (key_flags[i] < 0 || !pd_flag(key_flags[i])) continue;
+        ui_piece(&key_rows[i].icon, ox, oy + n * MAP_KEY_STEP, 1, kw);
+        ui_text_at(key_rows[i].text, STYLE_MSG, &key_rows[i].at, ox, oy + n * MAP_KEY_STEP, 0, mp.key_a * a);
+        n++;
+      }
+    }
+    if (st == MP_ZOOMED && !mp.closed) action_draw(&act_key, g_pd.map_key_pref, TXT_KEY_SHIFT, ox, oy, white, a, true);
+  }
+  /* the markers' menu: its backboard, its cursor, the kinds had (the chosen bigger; none left: grey), how many are left;
+   * the placement cursor; its actions */
+  if (current && mp.mm_a > 0) {
+    float ma = mp.mm_a;
+    uint8_t mw = map_tint(0xFFFFFF, (uint8_t)(ma * 255 + 0.5f)), mg = map_tint(0x808080, (uint8_t)(ma * 255 + 0.5f));
+    float bx = ox + mm_row.x, by = oy + mm_row.y;
+    ui_piece(&mm_pieces[1], ox, oy, 1, mw);
+    ui_piece(&mm_pieces[0], ox, oy, 1, mw);
+    ui_piece(&mm_pieces[2], ox + mp.cur_x - mm_row.x0, oy, 1, mw);
+    ui_piece(&mm_pieces[3], ox + mp.cur_x - mm_row.x0, oy, 1, mw);
+    for (int c = 0; c < 4; c++) {
+      if (!has_marker(c)) continue;
+      float k = c == mp.marker ? 0.7f : 0.6f, x = bx + marker_x(c), y = by + mm_row.y0;
+      bool left = spare(c) > 0;
+      hud_sprite(mm_markers[c], x, y, k / 0.7f, 0, left ? mw : mg);
+      UiText t = {mm_amount.x * k / 0.6f, mm_amount.top * k / 0.6f, mm_amount.w};
+      ui_number_at(spare(c), STYLE_MSG, x + t.x, y + t.top, 1, ma * a);
+    }
+    if (st == MP_MARKERS || st == MP_MARKER_CANCEL)
+      action_draw(&act_cancel, 0, TXT_KEY_BACK, ox, oy, mw, ma * a, true);
+    if (marker_kinds() >= 2) action_draw(&act_change, 0, TXT_KEY_SHIFT, ox, oy, mw, ma * a, false);
+  }
+  if (current && !mp.closed && st == MP_MARKERS) hud_sprite(mm_place.sprite, place_x() - INV_X + ox, place_y() - INV_Y + oy, 1, 0, white);
+  /* the confirm action (Zoom In; zoomed: Zoom Out), the markers' (Markers; in their menu: Place, Remove) */
+  if (current && (st == MP_WIDE || st == MP_ZOOM)) action_draw(&act_confirm, 0, TXT_KEY_OK, ox, oy, white, a, true);
+  if (current && st == MP_ZOOMED) action_draw(&act_confirm, 1, TXT_KEY_BACK, ox, oy, white, a, true);
+  if (current && pd_flag(PDF_HAS_MARKER) && (st == MP_ZOOMED || st == MP_MARKERS || st == MP_MARKER_CANCEL))
+    action_draw(&act_marker, st == MP_ZOOMED ? 0 : mp.hit >= 0 ? 2 : 1, TXT_KEY_OK, ox, oy, white, a, false);
+  to_overlay = false;
 }

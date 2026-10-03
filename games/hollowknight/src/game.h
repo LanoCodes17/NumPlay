@@ -75,7 +75,8 @@ typedef struct {
   uint8_t stations_opened;      /* (stationsOpened) */
   /* (scenesVisited, scenesMapped (the quill's), scenesEncounteredCocoon (a lifeblood cocoon broken there): by room) */
   uint8_t rooms_visited[5], rooms_mapped[5], rooms_cocoon[5];
-  uint8_t reserved[15];
+  uint8_t map_key_pref;         /* (mapKeyPref: the map's key and its pins shown 0, the pins only 1, neither 2) */
+  uint8_t reserved[14];
   /* (save version 2 on) the markers placed on the map (placedMarkers_b, _r, _y, _w: their places, 1/100 map units) */
   uint8_t markers_placed[4];
   int16_t markers[4][6][2];
@@ -462,6 +463,16 @@ uint32_t inv_tick(uint32_t keys);   /* -> the keys the game has (none while it i
 void inv_damage(void);          /* (HERO DAMAGED: it closes) */
 bool inv_open(void);
 void inv_open_map(void);      /* (OPEN INVENTORY MAP: the map tapped twice) */
+void inv_cursor_arrow(int which);   /* (the map pane's: on the left arrow -1, the right -2; else not shown) */
+float ui_key(int name, float x, float y, uint8_t white, float a);   /* an action's key, by name -> its half width */
+/* the inventory's map pane (map.c) */
+enum { MAP_PANE_NONE, MAP_PANE_LEFT, MAP_PANE_RIGHT, MAP_PANE_CLOSE };
+void map_pane_enter(bool shortcut);
+int map_pane_tick(uint32_t keys, uint32_t pressed, uint32_t move, bool repeat);   /* -> MAP_PANE_* */
+void map_pane_draw(float ox, float oy, float a, uint8_t white, bool current);
+bool map_pane_holds(void);    /* (Do Not Close: zoomed into) */
+float map_pane_nav(void);     /* (the pane's arrows' and the side panes' names' alpha: away as it is zoomed into) */
+void map_pane_close(void);
 float text_box(int text, int style, float x, float y, float w, int align, float a);
 int charm_cost(int id);         /* (charmCost_N) */
 bool charm_equipped(int id);

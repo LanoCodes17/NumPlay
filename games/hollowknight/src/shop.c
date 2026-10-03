@@ -380,16 +380,7 @@ static void anim_piece(const AnimPiece *p, const Anim *an, uint8_t tint) {
 }
 
 /* an action's key (ActionButtonIcon: the calculator's, by name) */
-static void key_at(const float *at, int name, float a, uint8_t white) {
-  const uint8_t *st = font_style(STYLE_MSG);
-  const uint8_t *s = text_get(name);
-  float w = text_width(STYLE_MSG, s, 2);
-  Inst in;
-  sprite_inst(SPRITE_MSG_KEY, at[0], at[1], 0, (w / HUD_PX + 0.3f) / 0.95f, 0.75f, white, &in);
-  gfx_overlay(&in);
-  gfx_text(STYLE_MSG, VIEW_W / 2 + at[0] * HUD_PX - w / 2, VIEW_H / 2 - at[1] * HUD_PX + (font_asc(st) - font_desc(st)) / 2,
-           s, 2, (uint32_t)(a * 255 + 0.5f) << 24 | 0xFFFFFF, 0);
-}
+static void key_at(const float *at, int name, float a, uint8_t white) { ui_key(name, at[0], at[1], white, a); }
 
 static void shop_draw(void) {
   float bob = sh.bob_t > 0 ? (sh.bob_t > 0.2f ? (0.4f - sh.bob_t) / 0.2f : sinf(sh.bob_t / 0.2f * 1.5707964f)) * 0.5f : 0;

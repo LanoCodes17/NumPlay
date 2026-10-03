@@ -100,17 +100,22 @@ static struct {
   uint8_t area, coll, eq;   /* (the collection: a backboard 1..40; the equipped row: 1.. its items) */
   uint8_t tween, tw_charm, oc_attempts;
   float tw_t, tw_from[2], tw_to[2];
-  /* Inventory: its items shown (their kinds), the one selected (-1, -2: the arrows) */
-  uint8_t items[MAX_INV_ITEMS];
-  float item_xy[MAX_INV_ITEMS][2];
-  int nitems;
+  /* Inventory: the item selected (-1, -2: the arrows; its items: as the Knight has them, made when needed) */
   int8_t sel;
+  bool map_shortcut;   /* (opened by the map tapped twice: Map Shortcut, the map zoomed into at once) */
 } iv;
+
+/* the Inventory pane's items shown: their kinds, their places */
+typedef struct {
+  uint8_t kind[MAX_INV_ITEMS];
+  float xy[MAX_INV_ITEMS][2];
+  int n;
+} Items;
 
 bool inv_open(void) { return iv.st != IV_CLOSED; }
 
 static bool has_pane(int p) {
-  return p == P_INV || (p == P_CHARMS && pd_flag(PDF_HAS_CHARM));
+  return p == P_INV || (p == P_CHARMS && pd_flag(PDF_HAS_CHARM)) || (p == P_MAP && pd_flag(PDF_HAS_MAP));
 }
 
 /* ---------------------------------------------------------------- the Knight's charms */
@@ -186,11 +191,11 @@ static void charms_cursor(void) {
 
 /* the Inventory pane's items as the Knight has them now */
 enum { K_HEART_I, K_VESSEL_I, K_NAIL_I, K_FIREBALL_I, K_FOCUS_I, K_GEO_I, K_EQ0 = 16, K_TRINKET0 = 32 };
-static void build_items(void) {
+static void build_items(Items *l) {
   int n = 0;
   for (int k = 0; k < NFIXED; k++) {
     if (k == IT_FIREBALL && !g_pd.fireball_level) continue;
-    iv.items[n] = (uint8_t)k, iv.item_xy[n][0] = inv_fixed[k].x, iv.item_xy[n][1] = inv_fixed[k].y, n++;
+    l->kind[n] = (uint8_t)k, l->xy[n][0] = inv_fixed[k].x, l->xy[n][1] = inv_fixed[k].y, n++;
   }
   int slot = 0;
   for (int k = 0; k < NEQ; k++) {
@@ -198,16 +203,16 @@ static void build_items(void) {
              : k == EQ_MAP ? (pd_flag(PDF_HAS_MAP) || pd_flag(PDF_HAS_QUILL)) : k == EQ_CITY_KEY ? pd_flag(PDF_HAS_CITY_KEY)
              : k == EQ_SIMPLE_KEY ? g_pd.simple_keys > 0 : g_pd.rancid_eggs > 0;
     if (!has) continue;
-    iv.items[n] = (uint8_t)(K_EQ0 + k);
-    iv.item_xy[n][0] = INV_EQ_X + (slot % 4) * INV_EQ_DX, iv.item_xy[n][1] = INV_EQ_Y + (slot / 4) * INV_EQ_DY;
+    l->kind[n] = (uint8_t)(K_EQ0 + k);
+    l->xy[n][0] = INV_EQ_X + (slot % 4) * INV_EQ_DX, l->xy[n][1] = INV_EQ_Y + (slot / 4) * INV_EQ_DY;
     n++, slot++;
   }
   for (int k = 0; k < 4; k++)
     if (g_pd.trinkets[k]) {
-      iv.items[n] = (uint8_t)(K_TRINKET0 + k), iv.item_xy[n][0] = inv_trinkets[k].x, iv.item_xy[n][1] = inv_trinkets[k].y;
+      l->kind[n] = (uint8_t)(K_TRINKET0 + k), l->xy[n][0] = inv_trinkets[k].x, l->xy[n][1] = inv_trinkets[k].y;
       n++;
     }
-  iv.nitems = n;
+  l->n = n;
 }
 
 static const Box *item_box(int kind) {
@@ -215,9 +220,19 @@ static const Box *item_box(int kind) {
 }
 
 static void inv_cursor(void) {
+  Items l;
+  build_items(&l);
+  if (iv.sel >= l.n) iv.sel = (int8_t)(l.n - 1);
   if (iv.sel == -1) cursor_to(arrow_l.x, arrow_l.y, &arrow_box, 1, 1);
   else if (iv.sel == -2) cursor_to(arrow_r.x, arrow_r.y, &arrow_box, 1, 1);
-  else cursor_to(iv.item_xy[iv.sel][0], iv.item_xy[iv.sel][1], item_box(iv.items[iv.sel]), 1, 1);
+  else cursor_to(l.xy[iv.sel][0], l.xy[iv.sel][1], item_box(l.kind[iv.sel]), 1, 1);
+}
+
+/* (the map pane's cursor: on an arrow, or not shown (an area chosen)) */
+void inv_cursor_arrow(int which) {
+  if (which == -1) cursor_to(arrow_l.x, arrow_l.y, &arrow_box, 1, 1);
+  else if (which == -2) cursor_to(arrow_r.x, arrow_r.y, &arrow_box, 1, 1);
+  else iv.cursor_set = false;
 }
 
 static bool other_panes(void) {
@@ -234,8 +249,10 @@ static void pane_enter(int p) {
     /* (Activate: at the first charm's backboard) */
     iv.area = CA_COLLECTION, iv.coll = (uint8_t)bb_of_charm(1), iv.eq = 1, iv.oc_attempts = 0, iv.tween = TW_NONE;
     charms_cursor();
+  } else if (p == P_MAP) {
+    map_pane_enter(iv.map_shortcut);
+    iv.map_shortcut = false;
   } else {
-    build_items();
     iv.sel = 0;
     inv_cursor();
   }
@@ -272,9 +289,9 @@ static bool can_open(void) {
          !game_changing_room() && !msg_shown();
 }
 
-static void open(void) {
+static void open(bool map_shortcut) {
   memset(&iv, 0, sizeof iv);
-  iv.st = IV_OPEN, iv.slide_t = -1, iv.ct = CURSOR_TIME;
+  iv.st = IV_OPEN, iv.slide_t = -1, iv.ct = CURSOR_TIME, iv.map_shortcut = map_shortcut;
   iv.prev_keys = g_hero.keys;
   g_pd.disable_pause = true;
   if (!pd_flag(PDF_AT_BENCH)) hero_relinquish_control_not_velocity();
@@ -296,11 +313,16 @@ static void close_now(void) {
 void inv_open_map(void) {
   if (iv.st != IV_CLOSED || !can_open()) return;
   g_pd.current_inv_pane = P_MAP;
-  open();
+  open(true);
+}
+
+static void start_close(float t) {
+  iv.st = IV_CLOSING, iv.t = t;
+  if (iv.pane == P_MAP) map_pane_close();
 }
 
 void inv_damage(void) {
-  if (iv.st == IV_OPEN) iv.st = IV_CLOSING, iv.t = FADE - 0.05f;   /* (Damage Close: down fast) */
+  if (iv.st == IV_OPEN) start_close(FADE - 0.05f);   /* (Damage Close: down fast) */
 }
 
 void inv_reset(void) {
@@ -446,10 +468,12 @@ static void inv_move(uint32_t p) {
     }
     if ((left && (p & K_RIGHT)) || (!left && (p & K_LEFT))) {
       /* (back to the nearest item) */
+      Items l;
+      build_items(&l);
       float ax = left ? arrow_l.x : arrow_r.x;
       int best = 0;
-      for (int i = 1; i < iv.nitems; i++)
-        if (fabsf(iv.item_xy[i][0] - ax) < fabsf(iv.item_xy[best][0] - ax)) best = i;
+      for (int i = 1; i < l.n; i++)
+        if (fabsf(l.xy[i][0] - ax) < fabsf(l.xy[best][0] - ax)) best = i;
       iv.sel = (int8_t)best;
       inv_cursor();
     }
@@ -458,12 +482,14 @@ static void inv_move(uint32_t p) {
   /* the nearest item that way (by how far it is, along more than across) */
   float dx = (p & K_RIGHT) ? 1 : (p & K_LEFT) ? -1 : 0, dy = (p & K_UP) ? 1 : (p & K_DOWN) ? -1 : 0;
   if (!dx && !dy) return;
-  float x0 = iv.item_xy[iv.sel][0], y0 = iv.item_xy[iv.sel][1];
+  Items l;
+  build_items(&l);
+  float x0 = l.xy[iv.sel][0], y0 = l.xy[iv.sel][1];
   int best = -1;
   float bd = 1e9f;
-  for (int i = 0; i < iv.nitems; i++) {
+  for (int i = 0; i < l.n; i++) {
     if (i == iv.sel) continue;
-    float ex = iv.item_xy[i][0] - x0, ey = iv.item_xy[i][1] - y0;
+    float ex = l.xy[i][0] - x0, ey = l.xy[i][1] - y0;
     float along = ex * dx + ey * dy, across = fabsf(ex * dy - ey * dx);
     if (along < 0.3f || across > along * 2.5f) continue;
     float dist = along + across * 2;
@@ -483,7 +509,7 @@ uint32_t inv_tick(uint32_t keys) {
     g_gfx_overlay = NULL, g_gfx_reserve = 0;
     iv.blocked &= keys;
     if ((pressed & K_INV) && can_open()) {
-      open();
+      open(false);
       iv.prev_keys = keys;
       return 0;
     }
@@ -513,9 +539,9 @@ uint32_t inv_tick(uint32_t keys) {
     iv.tw_t += DT;
     if (iv.tw_t >= (iv.tween == TW_FAIL ? 0.5f : TWEEN_TIME)) tween_done();
   }
-  /* closing: the inventory key, or back */
-  if ((pressed & (K_INV | K_BACK)) && iv.tween == TW_NONE) {
-    iv.st = IV_CLOSING, iv.t = 0;
+  /* closing: the inventory key, or back (not as the map is zoomed into: Do Not Close) */
+  if ((pressed & (K_INV | K_BACK)) && iv.tween == TW_NONE && !(iv.pane == P_MAP && map_pane_holds())) {
+    start_close(0);
     return 0;
   }
   if (iv.slide_t >= 0) return 0;
@@ -527,7 +553,11 @@ uint32_t inv_tick(uint32_t keys) {
     if (iv.held_t >= REPEAT_FIRST) move = dirs, iv.held_t -= REPEAT;
   } else
     iv.held = dirs, iv.held_t = 0;
-  if (iv.pane == P_CHARMS) {
+  if (iv.pane == P_MAP) {
+    int r = map_pane_tick(keys, pressed, move, move && !(pressed & dirs));
+    if (r == MAP_PANE_LEFT || r == MAP_PANE_RIGHT) move_pane(r == MAP_PANE_LEFT ? -1 : 1);
+    else if (r == MAP_PANE_CLOSE) start_close(0);
+  } else if (iv.pane == P_CHARMS) {
     if (move) charms_move(move);
     if (pressed & K_OK) charms_confirm();
   } else {
@@ -578,6 +608,19 @@ void ui_number_at(int v, int style, float x, float top, int align, float a) {
   float w = text_width(style, (const uint8_t *)s, n);
   float px = VIEW_W / 2 + x * HUD_PX - (align == 1 ? w / 2 : align == 2 ? w : 0);
   gfx_text(style, px, VIEW_H / 2 - top * HUD_PX + font_asc(st), (const uint8_t *)s, n, (uint32_t)(a * 255 + 0.5f) << 24 | 0xFFFFFF, 0);
+}
+
+/* an action's key (ActionButtonIcon: the calculator's key, by name, in a box as wide as it) at (x, y) -> its half width */
+float ui_key(int name, float x, float y, uint8_t white, float a) {
+  const uint8_t *st = font_style(STYLE_MSG), *s = text_get(name);
+  int n = (int)strlen((const char *)s);
+  float w = text_width(STYLE_MSG, s, n), bw = w / HUD_PX + 0.3f;
+  Inst in;
+  sprite_inst(SPRITE_MSG_KEY, x, y, 0, bw / 0.95f, 0.75f, white, &in);
+  gfx_overlay(&in);
+  gfx_text(STYLE_MSG, VIEW_W / 2 + x * HUD_PX - w / 2, VIEW_H / 2 - y * HUD_PX + (font_asc(st) - font_desc(st)) / 2, s, n,
+           (uint32_t)(a * 255 + 0.5f) << 24 | 0xFFFFFF, 0);
+  return bw / 2;
 }
 
 static void cursor_draw(float ox, float oy, uint8_t tint) {
@@ -677,6 +720,8 @@ static void charms_draw(float ox, float oy, float a, uint8_t white) {
 }
 
 static void items_draw(float ox, float oy, float a, uint8_t white) {
+  Items l;
+  build_items(&l);
   for (int i = 0; i < 2; i++) {
     const TurnedPiece *d = &inv_dividers[i];
     Inst in;
@@ -684,11 +729,11 @@ static void items_draw(float ox, float oy, float a, uint8_t white) {
     gfx_overlay(&in);
   }
   bool any_trinket = false;
-  for (int i = 0; i < iv.nitems; i++) any_trinket |= iv.items[i] >= K_TRINKET0;
+  for (int i = 0; i < l.n; i++) any_trinket |= l.kind[i] >= K_TRINKET0;
   if (any_trinket) ui_piece(&inv_trinket_bb, ox, oy, 1, white);
-  for (int i = 0; i < iv.nitems; i++) {
-    int k = iv.items[i];
-    float x = ox + iv.item_xy[i][0], y = oy + iv.item_xy[i][1];
+  for (int i = 0; i < l.n; i++) {
+    int k = l.kind[i];
+    float x = ox + l.xy[i][0], y = oy + l.xy[i][1];
     if (k < NFIXED) {
       ui_piece(&inv_fixed_bg[k], ox, oy, 1, white);
       ui_piece(&inv_fixed[k], ox, oy, 1, white);
@@ -707,8 +752,8 @@ static void items_draw(float ox, float oy, float a, uint8_t white) {
     }
   }
   /* the selected item's name and description */
-  if (iv.sel >= 0 && iv.sel < iv.nitems) {
-    int k = iv.items[iv.sel];
+  if (iv.sel >= 0 && iv.sel < l.n) {
+    int k = l.kind[iv.sel];
     NameDesc nd = {-1, -1};
     if (k == IT_HEART) {
       int h = g_pd.max_health >= 9 ? 5 : !pd_flag(PDF_HEART_PIECE_COLLECTED) ? 0 : 1 + (g_pd.heart_pieces > 3 ? 3 : g_pd.heart_pieces);
@@ -735,7 +780,11 @@ static void items_draw(float ox, float oy, float a, uint8_t white) {
 static void pane_draw(int p, float a, uint8_t white) {
   float ox = INV_X + pane_x(p), oy = INV_Y;
   if (p == P_CHARMS) charms_draw(ox, oy, a, white);
-  else items_draw(ox, oy, a, white);
+  else if (p == P_MAP) {
+    map_pane_draw(ox, oy, a, white, p == iv.pane);
+    if (iv.cursor_set && p == iv.pane) cursor_draw(ox, oy, white);
+  } else
+    items_draw(ox, oy, a, white);
 }
 
 void inv_draw(void) {
@@ -747,11 +796,14 @@ void inv_draw(void) {
   ui_piece(&frame, INV_X, INV_Y, 1, bw);
   for (int i = 0; i < INV_NBORDER; i++) ui_piece(&border[i], INV_X, INV_Y, 1, bw);
   int l = neighbor_pane(-1), r = neighbor_pane(1);
-  if (l >= 0) ui_piece(&arrow_l, INV_X, INV_Y, 1, bw), ui_piece(&pane_arrow_l, INV_X, INV_Y, 1, bw);
-  if (r >= 0) ui_piece(&arrow_r, INV_X, INV_Y, 1, bw), ui_piece(&pane_arrow_r, INV_X, INV_Y, 1, bw);
+  /* (the arrows and the side panes' names: away as the map is zoomed into, World Map's FadeGroup) */
+  float na = iv.pane == P_MAP && iv.slide_t < 0 ? ba * map_pane_nav() : ba;
+  uint8_t nw = gfx_dyn_tint(30, 255, 255, 255, (uint8_t)(na * 255 + 0.5f));
+  if (l >= 0) ui_piece(&arrow_l, INV_X, INV_Y, 1, nw), ui_piece(&pane_arrow_l, INV_X, INV_Y, 1, nw);
+  if (r >= 0) ui_piece(&arrow_r, INV_X, INV_Y, 1, nw), ui_piece(&pane_arrow_r, INV_X, INV_Y, 1, nw);
   ui_text_at(pane_names[iv.pane], STYLE_TUTE, &pane_name, INV_X, INV_Y, 1, ba);
-  if (l >= 0) ui_text_at(pane_names[l], STYLE_TUTE, &pane_name_l, INV_X, INV_Y, 0, ba);
-  if (r >= 0) ui_text_at(pane_names[r], STYLE_TUTE, &pane_name_r, INV_X, INV_Y, 2, ba);
+  if (l >= 0) ui_text_at(pane_names[l], STYLE_TUTE, &pane_name_l, INV_X, INV_Y, 0, na);
+  if (r >= 0) ui_text_at(pane_names[r], STYLE_TUTE, &pane_name_r, INV_X, INV_Y, 2, na);
   /* the panes (the one going too, as they move) */
   uint8_t pw = gfx_dyn_tint(31, 255, 255, 255, (uint8_t)(pa * 255 + 0.5f));
   if (iv.slide_t >= 0) pane_draw(iv.prev_pane, pa, pw);

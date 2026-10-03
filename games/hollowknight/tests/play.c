@@ -167,7 +167,8 @@ int main(int argc, char **argv) {
       host_shot(shot);
     }
     if (getenv("HKGROUPS")) {
-      printf("fade %d items %u cam %.2f,%.2f groups:", g_screen_fade, g_gfx_items, g_cam_x, g_cam_y);
+      extern uint32_t g_gfx_dropped;
+      printf("fade %d items %u dropped %u cam %.2f,%.2f groups:", g_screen_fade, g_gfx_items, g_gfx_dropped, g_cam_x, g_cam_y);
       for (int g = 1; g < MAX_GROUPS; g++)
         if (g_group_alpha[g] != 255) printf(" %d=%d", g, g_group_alpha[g]);
       printf("\n");

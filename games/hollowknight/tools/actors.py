@@ -146,6 +146,9 @@ ACTORS = {"knight": KNIGHT,
           "heartui": ("sharedassets10.assets", 592, ["Fleur Appear", "Fleur Disappear", "Get 0", "Get 1", "Get 2", "Get 3",
                                                      "Get 4", "Got 1", "Got 2", "Got 3", "Fuse", "Head Move"]),
           "vesselui": ("sharedassets10.assets", 542, ["Get 0", "Get 1", "Get 2", "Get 3", "Got 1", "Got 2"]),
+          # the stag's menu: the map's selector, its borders unrolled up and down (on the HUD)
+          "stagui": ("resources.assets", 23333, ["Stag_Map_Selection_Cursor", "Stag_Border_Top Up", "Stag_Border_Top Down",
+                                                 "Stag_Border_Bottom Up", "Stag_Border_Bottom Down"]),
           # (Gathering Swarm: the bug that brings geo, a child of each)
           "geobug": ("resources.assets", 22564, ["Lamp_Bug_idle"]),
           # the dialogue box (on the HUD, a third bigger with its text) and the prompt markers
@@ -227,12 +230,14 @@ DRAWN_SCALE = {"Arrow Up": 1.3, "Arrow Down": 1.3, "Stop Up": 1.3, "Stop Down": 
                "Blast": 1.4, "Ball": 1.45, "Ball End": 1.45, "Fireball Wall Impact": 2.0,
                "Lamp_Bug_idle": 1.5 * 1.4838, "Shop_Menu_Top Up": 1.124, "Shop_Menu_Top Down": 1.124,
                "Shop_Menu_Bottom Up": 1.134, "Shop_Menu_Bottom Down": 1.134, "Small Idle": 1.5, "Small Air": 1.5, "Med Idle": 1.5, "Med Air": 1.5, "Large Idle": 1.5, "Large Air": 1.5,
-               "Head Move": 2.0, "Death Glow": 2.0}
+               "Head Move": 2.0, "Death Glow": 2.0, "Stag_Map_Selection_Cursor": 1.209,
+               "Stag_Border_Top Up": 1.003, "Stag_Border_Top Down": 1.003, "Stag_Border_Bottom Up": 0.939,
+               "Stag_Border_Bottom Down": 0.939}
 K0 = scene.FOCAL / (0.004 - scene.CAMZ)   # screen pixels a unit, where actors are (z near 0)
 HUD_K = (scene.VIEW_H / 2) / 8.7107        # the HUD's (its orthographic camera)
 # (actor, clip): drawn bigger or smaller than their sprites
 ACTOR_RES = float(os.environ.get("HK_ACTOR_RES", "1"))
-ACTOR_SCALE = {"hud": HUD_K / K0, "shopui": HUD_K / K0, "liquid": 1.4 * HUD_K / K0, "dialogue": text.TEXT_K * HUD_K / K0}
+ACTOR_SCALE = {"hud": HUD_K / K0, "shopui": HUD_K / K0, "stagui": HUD_K / K0, "liquid": 1.4 * HUD_K / K0, "dialogue": text.TEXT_K * HUD_K / K0}
 HUD_MASK = 0.7135
 
 
@@ -289,7 +294,7 @@ def build():
                     col = tk2d.collection(cpath, cpid)
                     img, lx, ty, upp, (wu, hu) = tk2d.sprite_image(cpath, col, f["spriteId"])
                     k = K0 * DRAWN_SCALE.get(name, 1.0) * ACTOR_SCALE.get(actor, 1.0)
-                    if actor not in ("knight", "hud", "dialogue", "liquid", "shopui"):
+                    if actor not in ("knight", "hud", "dialogue", "liquid", "shopui", "stagui"):
                         k *= ACTOR_RES   # (the others' frames: a little less fine, to fit)
                     if actor == "hud" and (name.startswith("Health") or name.startswith("Blue")):
                         k *= HUD_MASK

@@ -38,7 +38,8 @@ enum {
   PDF_HAS_MARKER_R, PDF_HAS_MARKER_Y, PDF_HAS_MARKER_W, PDF_SALUBRA_NOTCH1, PDF_SALUBRA_NOTCH2, PDF_SALUBRA_NOTCH3,
   PDF_SALUBRA_NOTCH4, PDF_MET_STAG, PDF_CORNIFER_AT_HOME, PDF_ISELDA_CONVO1, PDF_ISELDA_CORNIFER_HOME_CONVO,
   PDF_SALUBRA_CONVO_COMBO, PDF_SALUBRA_CONVO_OVERCHARM, PDF_SALUBRA_CONVO_TRUTH, PDF_SLY_CONVO_MAPPER,
-  PDF_COUNT
+  PDF_OPENED_CROSSROADS, PDF_OPENED_GREENPATH, PDF_TRAVELLING, PDF_STAG_REMEMBER1, PDF_STAG_CONVO_TISO,
+  PDF_QUIRREL_LEFT_EGG_TEMPLE, PDF_COUNT
 };
 typedef struct {
   /* (saved: the layout only ever grows into reserved) */
@@ -70,7 +71,9 @@ typedef struct {
   uint8_t grubs_collected, grub_rewards;   /* (grubsCollected, grubRewards: the Grubfather's given) */
   uint8_t equipped[12];         /* (equippedCharms: in the order they were equipped; 0 ends it) */
   uint8_t current_inv_pane;     /* (currentInvPane) */
-  uint8_t reserved[32];
+  uint8_t stag_position1;       /* (stagPosition + 1: 0 none yet, 1 Dirtmouth, 2 Crossroads, 3 Greenpath) */
+  uint8_t stations_opened;      /* (stationsOpened) */
+  uint8_t reserved[30];
   /* (saved apart, by the objects' names: their states) */
   uint8_t persist[MAX_PERSIST / 8];
   /* (not saved) */
@@ -151,6 +154,7 @@ void world_enter(void);                     /* the room's objects, as the room s
 void world_tick(void);                      /* 1/50 s */
 void world_trigger(int ent, int kind);      /* the Knight entering, staying in, leaving an object's trigger (EV_*) */
 void world_hero_in_position(void);          /* the Knight done entering the room (WaitForHeroInPosition) */
+bool world_hero_placed(void);               /* (he is: since the room loaded) */
 void world_send_hit(int ent);               /* HIT to an object's FSM (from another's) */
 void group_fade(int group, float alpha, float time);   /* iTweenFadeTo (linear) */
 bool persist_get(int bit);   /* an object's state in the save (PersistentBoolItem) */
@@ -332,6 +336,16 @@ void vm_enter(void);
 void vm_tick(void);
 void vm_draw(void);
 void vm_broadcast(int ev);
+void vm_send(int obj, int ev);   /* (an object's FSMs) */
+void vm_fsm_set(int fsm, int var, uint32_t v, int ev);   /* (an FSM's variable set, then an event to it) */
+/* the stag's menu and its rides (stag.c): Open Stag's menu for an FSM (its choice to that variable, then CONTINUE);
+ * nextScene; Cinematic_Stag_travel (the screen black, then the new room's door_stagExit) */
+void stag_reset(void);
+void stag_menu_open(int fsm, int var);
+void stag_next_scene(int str);
+void stag_travel(void);
+uint32_t stag_tick(uint32_t keys);   /* -> the keys the game has (none while the menu is open) */
+bool stag_busy(void);
 void vm_spell(float x0, float y0, float x1, float y1);   /* (a spell's box: the triggers it is in) */
 void vm_nail(const float *pts, int npts);                /* (the nail's slash: the triggers it meets) */
 void piece_spawn(int sprite, int layer, int order, int flags, float x, float y, float z, float rot, float gravity,
@@ -436,6 +450,11 @@ void dialogue_box_down(void);
 void dialogue_dream_box(bool up);   /* Box Open Dream: BOX UP DREAM, BOX DOWN DREAM */
 void dialogue_centre(bool on);      /* (SetTextMeshProAlignment: the text centred, or to the left) */
 void dialogue_start(int text);
+/* the yes or no box (Box Open YN, Text YN): its question, its toll (TakeGeo on YES), who hears YES or NO (a VM object) */
+void dialogue_box_up_yn(void);
+void dialogue_start_yn(int text);
+void dialogue_yn_toll(int cost);
+void dialogue_yn_requester(int obj);
 bool dialogue_finished(void);
 bool dialogue_box_shown(void);
 void dialogue_cancel(void);

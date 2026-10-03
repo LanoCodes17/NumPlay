@@ -25,7 +25,8 @@ enum { OF_ACTIVE = 1, OF_RENDERER = 2, OF_ANIMATOR = 4, OF_TRIGGER = 8, OF_COLLI
        OF_GONE = 32, OF_INSIDE = 64, OF_WAS_INSIDE = 128,
        OF_COND_OFF = 256,                                       /* (not there: its condition) */
        OF_SPELL_HIT = 512, OF_SPELL_IN = 1024, OF_SPELL_WAS = 2048,    /* (a spell in its trigger) */
-       OF_NAIL_HIT = 4096, OF_NAIL_IN = 8192, OF_NAIL_WAS = 16384 };   /* (the nail's slash on its collider) */
+       OF_NAIL_HIT = 4096, OF_NAIL_IN = 8192, OF_NAIL_WAS = 16384,     /* (the nail's slash on its collider) */
+       OF_STICK = 32768 };                                      /* (HeroPlatformStick on: the Knight on it goes with it) */
 #define OF_ANIM_OFF 32   /* (its record's: off once its clip is over, DeactivateAfter2dtkAnimation) */
 #define OF_WAVE 64       /* (its record's: WaveEffectControl, grows and fades as it is on: bx its speed, by its scale) */
 #define OF_FADE 128      /* (its record's: SimpleSpriteFade, fades as it is on, then off: bx its time, by the alpha to) */
@@ -97,6 +98,7 @@ static struct {
   bool blank_on;
   int title;
   uint32_t prev_keys;
+  uint32_t touch, touch_was;   /* (objects whose colliders the Knight touches, this step and the one before) */
 } vm;
 
 /* ---------------------------------------------------------------- the data (VMDEF: definitions, string tables) */
@@ -219,6 +221,8 @@ static int pd_int(int i) {
     case 19: return g_pd.ore;
     case 20: return g_pd.grubs_collected;
     case 21: return g_pd.grub_rewards;
+    case 22: return (int)g_pd.stag_position1 - 1;
+    case 23: return g_pd.stations_opened;
     default: return 0;
   }
 }
@@ -238,6 +242,8 @@ static void pd_set_int(int i, int v) {
     case 19: g_pd.ore = (uint8_t)v; break;
     case 20: g_pd.grubs_collected = (uint8_t)v; break;
     case 21: g_pd.grub_rewards = (uint8_t)v; break;
+    case 22: g_pd.stag_position1 = (uint8_t)(v + 1); break;
+    case 23: g_pd.stations_opened = (uint8_t)v; break;
   }
 }
 
@@ -263,6 +269,15 @@ static void obj_pos(int o, float *x, float *y) {
     *x = *y = 0;
 }
 
+/* the Knight against one of the object's colliders (his body's contacts) */
+static bool hero_touches(int o) {
+  const ObjRec *rc = &vm.rec[o];
+  const Body *b = &g_hero.body;
+  for (int i = 0; i < b->ncontacts; i++)
+    if (b->ccol[i] >= rc->col0 && b->ccol[i] < rc->col0 + rc->ncol) return true;
+  return false;
+}
+
 static void obj_move(int o, float x, float y) {
   if (o == O_HERO) {
     g_hero.body.x = x, g_hero.body.y = y;
@@ -272,6 +287,12 @@ static void obj_move(int o, float x, float y) {
   /* (its children with it) */
   float dx = x - vm.objs[o].x, dy = y - vm.objs[o].y;
   vm.objs[o].x = x, vm.objs[o].y = y;
+  /* (its colliders with it; the Knight touching them, with HeroPlatformStick on, too) */
+  const ObjRec *rc = &vm.rec[o];
+  if (rc->ncol && (dx != 0 || dy != 0)) {
+    if ((vm.objs[o].flags & OF_STICK) && hero_touches(o)) g_hero.body.x += dx, g_hero.body.y += dy;
+    for (int c = rc->col0; c < rc->col0 + rc->ncol; c++) phys_collider_shift(c, x - rc->x, y - rc->y);
+  }
   for (int c = 0; c < vm.nobjs; c++)
     if (vm.rec[c].parent == o) obj_move(c, vm.objs[c].x + dx, vm.objs[c].y + dy);
 }
@@ -417,6 +438,15 @@ void vm_broadcast(int ev) {
   game_event(ev);
 }
 
+static void obj_event(int o, int ev, uint16_t fsm_name);
+void vm_send(int obj, int ev) { obj_event(obj, ev, NONE); }
+/* (the stag's menu: its choice to an FSM's variable, then its event) */
+void vm_fsm_set(int fsm, int var, uint32_t v, int ev) {
+  if (fsm < 0 || fsm >= vm.nfsms) return;
+  set_var(&vm.fsms[fsm], (uint8_t)var, v);
+  fsm_event(&vm.fsms[fsm], ev);
+}
+
 static void obj_event(int o, int ev, uint16_t fsm_name) {
   if (o >= O_GATE && o < O_GATE + 0x100) {
     if (ev >= VMEV_BG_CLOSE && ev <= VMEV_BG_DESTROY) gate_event_at(o - O_GATE, ev - VMEV_BG_CLOSE);
@@ -442,9 +472,16 @@ static void obj_event(int o, int ev, uint16_t fsm_name) {
     shop_event(ev);   /* (the shop's menu: SHOP UP) */
     return;
   }
+  if (o == O_MAIN_CAMERA) {
+    /* (CameraFade: FADE OUT, FADE IN) */
+    if (ev == VMEV_FADE_OUT) game_fade(1, 0.33f, 0);
+    else if (ev == VMEV_FADE_IN) game_fade_scene_in();
+    return;
+  }
   if (o == O_DIALOGUE_MANAGER) {
     if (ev == VMEV_BOX_UP) dialogue_box_up();
-    else if (ev == VMEV_BOX_DOWN) dialogue_box_down();
+    else if (ev == VMEV_BOX_DOWN || ev == VMEV_BOX_DOWN_YN) dialogue_box_down();
+    else if (ev == VMEV_BOX_UP_YN) dialogue_box_up_yn();
     else if (ev == VMEV_BOX_UP_DREAM) dialogue_dream_box(true);
     else if (ev == VMEV_BOX_DOWN_DREAM) dialogue_dream_box(false);
     return;
@@ -575,7 +612,86 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       Rd t = r;
       r.p += 5;
       int ev = rb(&r);
+      r.p += 2;
+      bool every = rb(&r);
       send(f, &t, ev);
+      return !every;
+    }
+    case VMOP_SENDEVENTOF: {
+      /* (to itself, the event its string variable names) */
+      uint32_t s = val(f, rv(&r));
+      for (int i = 0, n = rb(&r); i < n; i++) {
+        uint16_t name = rv(&r);
+        int ev = rb(&r);
+        if (name == s) {
+          fsm_event(f, ev);
+          break;
+        }
+      }
+      return true;
+    }
+    case VMOP_HUDSLIDE:
+      hud_slide(rb(&r) != 0);
+      return true;
+    case VMOP_OPENSTAGMENU:
+      stag_menu_open((int)(f - vm.fsms), rb(&r));
+      return true;
+    case VMOP_SETNEXTSCENE:
+      stag_next_scene((int)val(f, rv(&r)));
+      return true;
+    case VMOP_STAGTRAVEL:
+      stag_travel();
+      return true;
+    case VMOP_TRANSLATE: {
+      /* (by so much, a second or at once; every frame: in its updates, not as it starts) */
+      int o = oval(f, rv(&r));
+      uint16_t vx = rv(&r), vy = rv(&r);
+      bool per = rb(&r), every = rb(&r);
+      if (every ? mode == M_UPDATE : enter) {
+        float x, y, k = per ? DT : 1;
+        obj_pos(o, &x, &y);
+        obj_move(o, x + (has(vx) ? fval(f, vx) * k : 0), y + (has(vy) ? fval(f, vy) * k : 0));
+      }
+      return !every;
+    }
+    case VMOP_HEROCOLLISION: {
+      int ev = rb(&r);
+      /* (OnCollisionEnter2D: as he comes against it) */
+      if (mode == M_FIXED && obj_ok(f->owner) && (vm.touch >> f->owner & 1) && !(vm.touch_was >> f->owner & 1)) {
+        fsm_event(f, ev);
+        return true;
+      }
+      return false;
+    }
+    case VMOP_PLATFORMSTICK:
+      if (obj_ok(f->owner))
+        vm.objs[f->owner].flags = (uint16_t)(rb(&r) ? vm.objs[f->owner].flags | OF_STICK : vm.objs[f->owner].flags & ~OF_STICK);
+      return true;
+    case VMOP_WAITFORHEROINPOSITION: {
+      int ev = rb(&r);
+      if (world_hero_placed()) {
+        fsm_event(f, ev);
+        return true;
+      }
+      return false;
+    }
+    case VMOP_SENDTRIGGER2DEVENT: {
+      /* (the Knight coming into its owner's trigger: the event to another) */
+      Rd t = r;
+      r.p += 5;
+      int ev = rb(&r);
+      if (mode == M_FIXED && obj_ok(f->owner) && (vm.objs[f->owner].flags & OF_INSIDE) &&
+          !(vm.objs[f->owner].flags & OF_WAS_INSIDE))
+        send(f, &t, ev);
+      return false;
+    }
+    case VMOP_FREEZEMOMENT: {
+      /* (GameManager.FreezeMoment: its kinds) */
+      int k = rb(&r);
+      if (k == 0) game_freeze(0.01f, 0.35f, 0.1f, 0, false);
+      else if (k == 1) game_freeze(0.04f, 0.03f, 0.04f, 0, false);
+      else if (k == 2) game_freeze(0.25f, 2, 0.25f, 0.15f, false);
+      else game_freeze(0.01f, 0.25f, 0.1f, 0, false);
       return true;
     }
     case VMOP_SETBOOLVALUE: {
@@ -1079,6 +1195,15 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
     case VMOP_STARTCONVERSATION:
       dialogue_start(rv(&r));
       return true;
+    case VMOP_STARTCONVERSATIONYN:
+      dialogue_start_yn(rv(&r));
+      return true;
+    case VMOP_SETTOLL:
+      dialogue_yn_toll((int)val(f, rv(&r)));
+      return true;
+    case VMOP_SETYNREQUESTER:
+      dialogue_yn_requester(oval(f, rv(&r)));
+      return true;
     case VMOP_NOTICEICON:
       notice_icon(rb(&r));
       return true;
@@ -1481,6 +1606,8 @@ void vm_tick(void) {
     Obj *o = &vm.objs[i];
     o->flags = (uint16_t)((o->flags & ~(OF_WAS_INSIDE | OF_SPELL_WAS | OF_NAIL_WAS)) | ((o->flags & OF_INSIDE) ? OF_WAS_INSIDE : 0) |
                           ((o->flags & OF_SPELL_IN) ? OF_SPELL_WAS : 0) | ((o->flags & OF_NAIL_IN) ? OF_NAIL_WAS : 0));
+    vm.touch_was = (vm.touch_was & ~(1u << i)) | (vm.touch & (1u << i));
+    vm.touch = (vm.touch & ~(1u << i)) | (vm.rec[i].ncol && obj_active(i) && hero_touches(i) ? 1u << i : 0);
     bool on = (vm.rec[i].flags & OF_TRIGGER) && (o->flags & OF_COLLIDER) && obj_active(i);
     bool in = on && hero_box_in(i), spell = on && (o->flags & OF_SPELL_HIT), nail = on && (o->flags & OF_NAIL_HIT);
     o->flags = (uint16_t)((in ? o->flags | OF_INSIDE : o->flags & ~OF_INSIDE) & ~(OF_SPELL_HIT | OF_NAIL_HIT));

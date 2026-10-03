@@ -30,16 +30,32 @@ void game_new(void) {
   inv_reset();
   shop_reset();
   collect_reset();
+  stag_reset();
   death_reset();
   white_blanker_reset();
 }
 
+/* a room just loaded: no triggers in yet, gates whose objects a PlayerData bool turns off (a box flagged 2 after the
+ * gate: the bool, off if it is true or false), the world's things */
+static void door_reset(void);
+static void room_entered(void) {
+  memset(inside, 0, sizeof inside);
+  door_reset();
+  memset(ent_off, 0, sizeof ent_off);
+  prompts_reset();   /* (PromptMarker.RecycleOnLevelLoad) */
+  int n;
+  const Ent *es = room_ents(&n);
+  if (n > MAX_ENTS) n = MAX_ENTS;
+  for (int i = 0; i < n; i++)
+    if (es[i].type == ENT_GATE)
+      for (int j = i + 1; j < n && es[j].type == ENT_BOX; j++)
+        if ((es[j].flags & 2) && pd_flag((int)es[j].p0) == (es[j].p1 != 0)) ent_set_enabled(i, false);
+  world_enter();
+}
+
 bool game_enter(int room, float x, float y, bool facing_right) {
   if (!room_load(room)) return false;
-  memset(inside, 0, sizeof inside);
-  memset(ent_off, 0, sizeof ent_off);
-  prompts_reset();
-  world_enter();
+  room_entered();
   hero_init(x, y, facing_right);
   cam_init();
   world_hero_in_position();
@@ -54,10 +70,7 @@ bool game_respawn(void) {
   for (int i = 0; i < NUM_ROOMS && room < 0; i++)
     if (!strcmp(room_name(i), g_pd.respawn_scene)) room = i;
   if (room < 0 || !room_load(room)) return false;
-  memset(inside, 0, sizeof inside);
-  memset(ent_off, 0, sizeof ent_off);
-  prompts_reset();
-  world_enter();
+  room_entered();
   float x = g_room.h->w / 2, y = g_room.h->h / 2;
   bool right = g_pd.respawn_facing_right;
   int n;
@@ -144,10 +157,7 @@ static void scene_load(void) {
   Game *g = &g_game;
   g->scene_phase = SP_NONE;
   if (!room_load(g->next_room)) return;
-  memset(inside, 0, sizeof inside);
-  memset(ent_off, 0, sizeof ent_off);
-  prompts_reset();   /* (PromptMarker.RecycleOnLevelLoad) */
-  world_enter();
+  room_entered();
   int n;
   const Ent *es = room_ents(&n);
   const char *want = str_at(g->next_entry);
@@ -156,7 +166,7 @@ static void scene_load(void) {
     if (e->type != ENT_GATE || strcmp(str_at(e->s0), want)) continue;
     float gx = (e->x0 + e->x1) / 2, gy = (e->y0 + e->y1) / 2;
     for (int j = i + 1; j < n && es[j].type == ENT_BOX; j++)
-      if (es[j].flags & 1) gx = es[j].x0, gy = es[j].y0;
+      if (es[j].flags == 1) gx = es[j].x0, gy = es[j].y0;
     hero_enter_scene(i, gate_kind(e), gx, gy, e->p1, e->p2, e->flags, g->next_delay + e->p0);
     return;
   }
@@ -172,6 +182,85 @@ static void scene_tick(float real_dt) {
   if (g->scene_t >= 0.5f) scene_load();
 }
 
+/* ---------------------------------------------------------------- doors (Door Control) */
+/* a door's record (a box flagged 4 after its gate): its prompt's place (x0, y0), Crossroads Ascent (x1), Over Hero (y1);
+ * the pause entering (p0), its prompt (p1: Enter, Ascend, Descend); the room it leads to (a), the gate there (s1) */
+static const int16_t door_labels[] = {TXT_PROMPT_ENTER, TXT_PROMPT_ASCEND, TXT_PROMPT_DESCEND};
+static struct {
+  int16_t ent;     /* the door whose prompt is up (-1: none) */
+  int8_t prompt;
+  bool entering, visited;
+  float t;         /* entering: since */
+  float clock;     /* since the Knight finished entering the room (Wait for enter scene, Pause, Init) */
+} door;
+
+static const Ent *door_rec(int i) {
+  int n;
+  const Ent *es = room_ents(&n);
+  for (int j = i + 1; j < n && es[j].type == ENT_BOX; j++)
+    if (es[j].flags == 4) return &es[j];
+  return NULL;
+}
+
+static void door_reset(void) { door.ent = -1, door.prompt = -1, door.entering = false, door.clock = 0; }
+
+/* (Can Enter?: HeroController.CanInteract) */
+static bool hero_can_interact(void) {
+  const Hero *h = &g_hero;
+  const CState *c = &h->cs;
+  return h->accepting_input && h->state != HS_NO_INPUT && !c->dashing && !c->attacking && !h->control_relinquished &&
+         !c->hazard_death && !c->hazard_respawning && !c->recoil_frozen && !c->recoiling && !c->transitioning &&
+         c->on_ground;
+}
+
+static void door_trigger(int i, int kind) {
+  const Ent *d = door_rec(i);
+  if (!d || door.entering) return;
+  if (kind == EV_EXIT) {
+    /* (Out of range: Idle) */
+    if (door.ent == i) prompt_hide(door.prompt), door.ent = -1;
+    return;
+  }
+  /* (Idle until its pauses are over: 1 s; a Crossroads Ascent's 3.5, or 10 the first time; then In Range) */
+  float wait = 0.2f + (d->x1 != 0 ? (door.visited ? 3.5f : 10) : 1);
+  if (door.clock < wait || d->a == 0xFFFF) return;
+  if (door.ent != i) {
+    int l = (int)d->p1;
+    door.ent = (int16_t)i;
+    door.prompt = (int8_t)prompt_show(-1, door_labels[l >= 0 && l < 3 ? l : 0], d->x0, d->y0);
+  }
+  uint32_t p = g_hero.keys & ~g_hero.prev_keys;
+  if (!(p & (K_UP | K_DOWN))) return;
+  if (!hero_can_interact()) {
+    /* (Cancel Frame: the prompt down, then Idle) */
+    prompt_hide(door.prompt), door.ent = -1;
+    return;
+  }
+  /* (Enter Anim?, Enter: the Knight's Enter (or Exit, over him) clip, his control gone, the camera's FADE OUT) */
+  door.entering = true, door.t = 0;
+  hero_relinquish_control();
+  hero_stop_anim_control();
+  anim_play(&g_hero.anim, d->y1 != 0 ? CLIP_KNIGHT_EXIT : CLIP_KNIGHT_ENTER);
+  g_pd.disable_pause = true;
+  game_fade(1, 0.33f, 0);
+}
+
+static void door_tick(void) {
+  if (!door.entering) {
+    if (world_hero_placed() && !g_hero.cs.transitioning) {
+      /* (Init's Visited Check, after the first pause) */
+      if (door.clock < 0.2f && door.clock + 0.02f >= 0.2f) door.visited = pd_flag(PDF_VISITED_CROSSROADS);
+      door.clock += 0.02f;
+    }
+    return;
+  }
+  /* (half a second; then Change Scene) */
+  if ((door.t += 0.02f) < 0.5f || g_game.scene_phase != SP_NONE) return;
+  const Ent *d = door_rec(door.ent);
+  hero_start_anim_control();
+  if (d) game_transition(d->a, d->s1, GATE_DOOR, d->p0, false);
+}
+
 static void trigger_event(int i, const Ent *e, int kind) {
   Hero *h = &g_hero;
   switch (e->type) {
@@ -180,7 +269,8 @@ static void trigger_event(int i, const Ent *e, int kind) {
       else cam_lock(i);   /* (Enter and Stay) */
       break;
     case ENT_GATE:
-      if (kind == EV_ENTER) gate_touched(e);
+      if (e->flags & G_DOOR) door_trigger(i, kind);
+      else if (kind == EV_ENTER) gate_touched(e);
       break;
     case ENT_HAZARD_TRIGGER:
       if (kind == EV_ENTER) {
@@ -207,7 +297,7 @@ static void triggers_tick(void) {
     if (e->type != ENT_CAMLOCK && e->type != ENT_GATE && e->type != ENT_HAZARD_TRIGGER && e->type != ENT_MASK) continue;
     bool in = false, off = ent_off[i >> 3] >> (i & 7) & 1;
     for (int j = i; j < n && (j == i || es[j].type == ENT_BOX); j++)
-      if (j == i || !(es[j].flags & 1)) in |= x1 > es[j].x0 && x0 < es[j].x1 && y1 > es[j].y0 && y0 < es[j].y1;
+      if (j == i || es[j].flags == 0) in |= x1 > es[j].x0 && x0 < es[j].x1 && y1 > es[j].y0 && y0 < es[j].y1;
     bool was = inside[i >> 3] >> (i & 7) & 1;
     if (off) in = false;
     if (in) inside[i >> 3] |= (uint8_t)(1 << (i & 7));
@@ -302,6 +392,7 @@ static void step(uint32_t keys) {
   hero_fixed(keys);
   enemies_fixed();
   triggers_tick();
+  door_tick();
   hero_check_damage();
   hero_update();
   fireballs_tick();

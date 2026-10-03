@@ -63,6 +63,7 @@ int main(int argc, char **argv) {
       g_pd.heart_pieces = (uint8_t)hp, g_pd.vessel_fragments = (uint8_t)vf;
     }
     if (getenv("HKGEO")) g_pd.geo = atoi(getenv("HKGEO"));
+    if (getenv("HKSTAG")) g_pd.stag_position1 = (uint8_t)(atoi(getenv("HKSTAG")) + 1);   /* (stagPosition) */
     if (getenv("HKFIRE")) g_pd.fireball_level = atoi(getenv("HKFIRE"));
     if (getenv("HKHORNETGP")) g_pd.hornet_greenpath = (uint8_t)atoi(getenv("HKHORNETGP"));
     if (getenv("HKDASH")) g_pd.has_dash = true;
@@ -124,7 +125,7 @@ int main(int argc, char **argv) {
         }
         if (getenv("HKPROMPT") && atoi(getenv("HKPROMPT")) == tick)
           prompt_show(-1, TXT_PROMPT_LISTEN, g_hero.body.x, g_hero.body.y + 1.5f);
-        if (!menu || !menu_tick(keys)) game_tick(shop_tick(inv_tick(keys)));
+        if (!menu || !menu_tick(keys)) game_tick(stag_tick(shop_tick(inv_tick(keys))));
         if (trace && menu) printf("   menu in game %d\n", menu_in_game());
         if (trace)
           printf("%4d keys %02x pos %.3f,%.3f v %.3f,%.3f state %d ground %d jump %d fall %d clip %d frame %d cam %.2f,%.2f\n", tick,

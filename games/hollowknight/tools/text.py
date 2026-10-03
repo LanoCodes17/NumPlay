@@ -102,6 +102,8 @@ STYLES = {
     "MENU": _style("TrajanPro-Bold", 31 / 6 * 1.6 * 10, 1, *TRAJAN, k=1),
     "MENU_TITLE": _style("TrajanPro-Bold", 53 / 6 * 1.35 * 10, 1, *TRAJAN, k=1, phases=1),
     "MENU_SMALL": _style("TrajanPro-Regular", 27 / 6 * 1.6 * 10, 1, *TRAJAN, k=1),
+    # the yes or no box's Yes and No (Text YN's UI List: TextMeshPro 10)
+    "YN": _style("Perpetua", 10, HUD_PX, 134.0625, 0, 117, 95.9375, -38.1875),
     # a shop's long descriptions, smaller (still bigger than the game's) where the message's size runs out of the window
     "MSG_S": _style("Perpetua", 3.73 * 1.4407 * 0.78, HUD_PX, 134.0625, 0, 117, 95.9375, -38.1875),
 }

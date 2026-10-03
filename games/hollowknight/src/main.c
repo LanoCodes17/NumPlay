@@ -58,7 +58,7 @@ int main(void) {
     acc += now - last, last = now;
     int ticks = 0;
     while (acc >= TICK_MS && ticks < MAX_TICKS) {
-      if (!menu_tick(keys)) game_tick(shop_tick(inv_tick(keys)));
+      if (!menu_tick(keys)) game_tick(stag_tick(shop_tick(inv_tick(keys))));
       acc -= TICK_MS, ticks++, perf_updates++;
     }
     if (ticks == MAX_TICKS) acc = 0;   /* (too slow to catch up: the game slows down instead) */

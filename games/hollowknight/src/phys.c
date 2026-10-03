@@ -28,7 +28,42 @@ void phys_collider_enable(int col, bool on) {
   else g_col_off[col >> 3] |= (uint8_t)(1 << (col & 7));
 }
 
-void phys_colliders_reset(void) { memset(g_col_off, 0, sizeof g_col_off); }
+/* colliders that move with their objects (a lift): how far from where the room has them, their segments (found once) */
+#define MAX_SHIFTS 2
+static struct {
+  uint8_t col;
+  uint16_t seg0, nseg;
+  float dx, dy;
+} g_shift[MAX_SHIFTS];
+static int g_nshift;
+
+void phys_colliders_reset(void) {
+  memset(g_col_off, 0, sizeof g_col_off);
+  g_nshift = 0;
+}
+
+static bool col_moved(uint8_t col) {
+  for (int m = 0; m < g_nshift; m++)
+    if (g_shift[m].col == col) return true;
+  return false;
+}
+
+static void ground_init(void);
+void phys_collider_shift(int col, float dx, float dy) {
+  if (col <= 0 || col >= 256) return;
+  ground_init();
+  int i = 0;
+  while (i < g_nshift && g_shift[i].col != col) i++;
+  if (i == g_nshift) {
+    int s0 = -1, s1 = -1;
+    for (int k = 0; k < g_room.h->nseg; k++)
+      if (g_seg_col[k] == col) s1 = k, s0 = s0 < 0 ? k : s0;
+    if (i == MAX_SHIFTS || s0 < 0) return;
+    g_shift[i].col = (uint8_t)col, g_shift[i].seg0 = (uint16_t)s0, g_shift[i].nseg = (uint16_t)(s1 - s0 + 1);
+    g_nshift++;
+  }
+  g_shift[i].dx = dx, g_shift[i].dy = dy;
+}
 
 static void ground_init(void) {
   if (g_room_ground == g_room.id) return;
@@ -85,12 +120,26 @@ static int gather(float x0, float y0, float x1, float y1, uint8_t mask, Cand *ou
       for (int k = g_cell_first[cy * gw + cx], e = g_cell_first[cy * gw + cx + 1]; k < e; k++) {
         int i = g_cell_list[k];
         uint8_t col = g_seg_col[i];
-        if (!(g_cols[col] & mask) || (g_col_off[col >> 3] >> (col & 7) & 1) || n == MAX_CAND) continue;
+        if (!(g_cols[col] & mask) || (g_col_off[col >> 3] >> (col & 7) & 1) || n == MAX_CAND || (g_nshift && col_moved(col)))
+          continue;
         const Seg *s = &g_segs[i];
         float ax = s->x0 * UNIT, ay = s->y0 * UNIT, bx = s->x1 * UNIT, by = s->y1 * UNIT;
         if ((ax < x0 && bx < x0) || (ax > x1 && bx > x1) || (ay < y0 && by < y0) || (ay > y1 && by > y1)) continue;
         out[n++] = (Cand){ax, ay, bx, by, col};
       }
+  /* (the moved ones, where they are now) */
+  for (int m = 0; m < g_nshift; m++) {
+    uint8_t col = g_shift[m].col;
+    if (!(g_cols[col] & mask) || (g_col_off[col >> 3] >> (col & 7) & 1)) continue;
+    for (int i = g_shift[m].seg0, e = i + g_shift[m].nseg; i < e && n < MAX_CAND; i++) {
+      if (g_seg_col[i] != col) continue;
+      const Seg *s = &g_segs[i];
+      float ax = s->x0 * UNIT + g_shift[m].dx, ay = s->y0 * UNIT + g_shift[m].dy;
+      float bx = s->x1 * UNIT + g_shift[m].dx, by = s->y1 * UNIT + g_shift[m].dy;
+      if ((ax < x0 && bx < x0) || (ax > x1 && bx > x1) || (ay < y0 && by < y0) || (ay > y1 && by > y1)) continue;
+      out[n++] = (Cand){ax, ay, bx, by, col};
+    }
+  }
   if (!(g_cols[0] & mask)) return n;
   int tx0 = (int)floorf(x0) - 1, tx1 = (int)floorf(x1) + 1, ty0 = (int)floorf(y0) - 1, ty1 = (int)floorf(y1) + 1;
   if (tx0 < 0) tx0 = 0;

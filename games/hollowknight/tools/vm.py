@@ -12,8 +12,13 @@ import unity, text, state
 ROOMS = {
     "Town": ["_NPCs/Elderbug", "_NPCs/Tiso Town NPC"],
     "Room_temple": ["Quirrel"],
-    "Crossroads_47": ["_NPCs/Tiso Bench NPC"],
+    "Crossroads_47": ["_NPCs/Tiso Bench NPC", "Stag", "_Scenery/Station Bell", "Stag_Tunnel/Stag_tunnel_Grate",
+                      "Stag Blanker"],
+    "Fungus1_16_alt": ["Stag", "Station Bell", "Stag_tunnel_Grate", "Stag Blanker"],
+    "Room_Town_Stag_Station": ["Stag", "Station Bell", "Stag_Tunnel/Stag_tunnel_Grate", "Stag Blanker", "Stag Lift",
+                               "Station Door", "Gate Switch"],
     "Room_ruinhouse": ["Sly Dazed"],
+    "Crossroads_06": ["Set NPC Leave"],
     "Fungus1_04": ["Hornet Infected Knight Encounter", "Hornet Saver", "Cloak Corpse", "Dream Scene Activate",
                    "Dreamer Scene 1"],
     "Crossroads_ShamanTemple": ["_Props/Shaman Meeting", "_Props/Shaman Trapped", "_Props/Shaman Killed Blocker",
@@ -97,7 +102,7 @@ def _behaviours(rm, o):
 
 
 # FSMs left out (what this port does not have: the dream nail, sounds...)
-SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "Shop Open Voice"}
+SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "Shop Open Voice", "Enviro Region"}
 # objects left out (effects drawn by the C code, or nothing at all; the dream nail's; Dreamer Scene 1's Knight Lift,
 # which nothing turns on)
 SKIP_CLASSES = {"SpellGetOrb", "ParticleSystem"}
@@ -119,11 +124,15 @@ O_NONE = 0xFFFF
 # PlayerData ints (src/vm.c: pd_int)
 PD_INTS = ["MPCharge", "health", "maxHealth", "geo", "fireballLevel", "quakeLevel", "screamLevel", "shaman", "elderbug",
            "permadeathMode", "nailDamage", "hornetGreenpath", "quirrelEggTemple", "charmsOwned", "trinket1", "trinket2",
-           "trinket3", "trinket4", "rancidEggs", "ore", "grubsCollected", "grubRewards"]
+           "trinket3", "trinket4", "rancidEggs", "ore", "grubsCollected", "grubRewards", "stagPosition", "stationsOpened",
+           "xunFlowerBrokeTimes"]
 # PlayerData bools kept elsewhere (src/vm.c)
 PD_SPECIAL = {"disablePause": 0xFFF0, "hasSpell": 0xFFF1, "canDash": 0xFFF2}
 # PlayerData bools that keep their new game value all through this part of the game
-PD_CONST = {"gotSlyCharm": False, "hasAllNailArts": False, "hasNailArt": False, "honedNail": False,
+PD_CONST = {"openedTown": True, "kingsStationNonDisplay": False, "queensStationNonDisplay": False,
+            "stagEggInspected": False, "stagHopeConvo": False, "openedStagNest": False, "stagRemember2": False,
+            "stagRemember3": False, "stagConvoTram": False,
+            "gotSlyCharm": False, "hasAllNailArts": False, "hasNailArt": False, "honedNail": False,
             "iseldaConvoGrimm": False, "iseldaNymmConvo": False, "slyConvoGrimm": False, "slyNymmConvo": False,
             "slyConvoNailArt": False, "slyConvoNailHoned": False, "backerCredits": False, "finalGrubRewardCollected": False, "gaveSlykey": False, "hasSlykey": False,
             "corn_fogCanyonLeft": False, "corn_fungalWastesLeft": False, "corn_cityLeft": False,
@@ -154,6 +163,11 @@ class Strings:
             self.list.append(s)
         return self.index[s]
 
+    def truncate(self, n):
+        for s in self.list[n:]:
+            del self.index[s]
+        del self.list[n:]
+
 
 STR = Strings()
 EVENTS = Strings()
@@ -161,7 +175,8 @@ for e in ("FINISHED", "CONVO_FINISH", "CONVO START", "CONVO END", "BIG TITLE STA
           "NPC TITLE DOWN", "NPC CONVO START", "BOX UP", "BOX DOWN", "LEAVING SCENE", "TAKE DAMAGE", "GET ITEM MSG END",
           "HORNET LEAVE", "BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY", "WAKE", "BOX UP DREAM",
           "BOX DOWN DREAM", "FADE IN", "FADE OUT", "FSM CANCEL", "CLOSE", "FK DEATH", "SHOP UP", "SHOP CLOSED",
-          "SHOP CLOSED QUICK", "SHOP WINDOW UP", "RESET SHOP WINDOW", "CLOSE SHOP WINDOW"):
+          "SHOP CLOSED QUICK", "SHOP WINDOW UP", "RESET SHOP WINDOW", "CLOSE SHOP WINDOW", "BOX UP YN", "BOX DOWN YN",
+          "YES", "NO", "CONTINUE"):
     EVENTS.id(e)
 FIXED_EVENTS = len(EVENTS.list)   # (src/data.h: VMEV_*)
 
@@ -179,8 +194,8 @@ def op(name, *params):
 op("Nop")
 op("Wait", ("time", "f"), ("finishEvent", "e"))
 op("NextFrameEvent", ("sendEvent", "e"))
-op("SendEvent", ("eventTarget", "t"), ("sendEvent", "e"), ("delay", "f"))
-op("SendEventByName", ("eventTarget", "t"), ("sendEvent", "es"), ("delay", "f"))
+op("SendEvent", ("eventTarget", "t"), ("sendEvent", "e"), ("delay", "f"), ("everyFrame", "n"))
+op("SendEventByName", ("eventTarget", "t"), ("sendEvent", "es"), ("delay", "f"), ("everyFrame", "n"))
 op("SetBoolValue", ("boolVariable", "B"), ("boolValue", "b"), ("everyFrame", "n"))
 op("SetFloatValue", ("floatVariable", "F"), ("floatValue", "f"), ("everyFrame", "n"))
 op("SetIntValue", ("intVariable", "I"), ("intValue", "i"), ("everyFrame", "n"))
@@ -306,6 +321,22 @@ op("WaitRandom", ("timeMin", "f"), ("timeMax", "f"), ("finishEvent", "e"))
 op("FlingPiece", ("gameObject", "o"), ("hide", "n"), ("snap", "n"), ("sprite", "x"), ("layer", "n"), ("order", "x"),
    ("flags", "n"), ("dx", "k"), ("dy", "k"), ("z", "k"), ("rot", "k"), ("gravity", "k"), ("bounce", "k"), ("spin", "k"),
    ("mirror", "k"), ("speedMin", "f"), ("speedMax", "f"), ("angleMin", "f"), ("angleMax", "f"))
+# the yes or no box (DialogueTextYN): its question, its toll (geo, 0 none), who hears YES or NO
+op("StartConversationYN", ("text", "x"))
+op("SetToll", ("cost", "i"))
+op("SetYNRequester", ("gameObject", "o"))
+op("SendEventOf")   # (custom: to itself, the event a string variable names: the variable, then names and events)
+op("HudSlide", ("out", "n"))
+# the stag menu (src/stag.c): the station chosen to the variable, then CONTINUE; a ride: to nextScene
+op("OpenStagMenu", ("result", "S"))
+op("SetNextScene", ("scene", "s"))
+op("StagTravel")
+op("Translate", ("gameObject", "o"), ("x", "f"), ("y", "f"), ("perSecond", "n"), ("everyFrame", "n"))
+op("HeroCollision", ("sendEvent", "e"))   # (Collision2dEvent with the Knight: him touching its owner's colliders)
+op("PlatformStick", ("on", "n"))          # (HeroPlatformStick: the Knight on its owner moves with it)
+op("WaitForHeroInPosition", ("sendEvent", "e"))
+op("SendTrigger2DEvent", ("eventTarget", "t"), ("sendEvent", "e"))   # (the Knight in its owner's trigger: to another)
+op("FreezeMoment", ("type", "n"))         # (GameManager.FreezeMoment)
 
 # HeroController's methods the scripts call (HeroCall's method)
 HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "StartAnimationControl", "FaceLeft",
@@ -378,7 +409,7 @@ class Room:
     def external_vars(self):
         """the variables FSMs set in other FSMs (SetFsmBool, PersistentBoolItem's Activated)"""
         if not hasattr(self, "_ext"):
-            self._ext = {"Activated"}
+            self._ext = {"Activated", "Selection Result"}   # (and the stag menu's: src/stag.c)
             for o in list(self.by_id.values()):
                 for c in o["c"]:
                     for st in (c.get("fsm") or {}).get("states", []):
@@ -810,8 +841,36 @@ class Compiler:
                  "VibrationPlayerStop", "TransitionToAudioSnapshot", "SetAudioPitch", "SetAudioVolume",
                  "AudioPlayInState", "FadeAudio", "PlayRandomSound", "SetRotation", "RandomFloat",
                  "GetLastEvent", "SetBoxCollider2DSize", "Tk2dSpriteSetColor", "SetTextMeshProColor",
-                 "AudioPlayRandom", "SetName", "GameObjectIsNull"):
+                 "AudioPlayRandom", "SetName", "GameObjectIsNull", "PlayVibrationV2"):
             return None
+        if n == "SendEventByNameV2":
+            n = "SendEventByName"
+        if n == "ReceivedDamage":
+            # (a nail's hit on its collider)
+            return self.emit("Trigger2dEvent", {"trigger": 0, "sendEvent": P.get("sendEvent"), "tag": TRIGGER_TAGS["Nail Attack"]})
+        if n in ("GetFsmInt", "GetFsmFloat") and P.get("gameObject") == "$Damager":
+            # (the hit's damage, more than none; its direction: either way rings the same)
+            if n == "GetFsmInt":
+                return self.emit("SetIntValue", {"intVariable": P.get("storeValue"), "intValue": 1, "everyFrame": 0})
+            return self.emit("SetFloatValue", {"floatVariable": P.get("storeValue"), "floatValue": 0.0, "everyFrame": 0})
+        if n == "GetLanguageString" and P.get("sheetName") == "Prices":
+            # (a price: kept for ConvertStringToInt)
+            import text
+            keys = self.string_values(P.get("convName"))
+            assert len(keys) == 1 and keys[0] in text.sheets()["Prices"], keys
+            self.prices[P.get("storeValue")] = int(text.sheets()["Prices"][keys[0]])
+            return None
+        if n == "ConvertStringToInt" and P.get("stringVariable") in self.prices:
+            return self.emit("SetIntValue", {"intVariable": P.get("intVariable"), "intValue": self.prices[P.get("stringVariable")],
+                                             "everyFrame": 0})
+        if n == "WaitForBossLoad":
+            return self.emit("NextFrameEvent", {"sendEvent": P.get("sendEvent")})
+        if n == "SetPlayerDataString" and P.get("stringName") == "nextScene":
+            return self.emit("SetNextScene", {"scene": P.get("value")})
+        if n == "LoadLevel" and P.get("levelName") == "Cinematic_Stag_travel":
+            return self.emit("StagTravel", {})
+        if n == "SetFsmGameObject" and P.get("gameObject") == "$MenuHolder":
+            return None   # (the stag menu's requester: OpenStagMenu's)
         if n in ("PlayerDataBoolTest",):
             return self.emit(n, P)
         if n == "CreateUIMsgGetItem":
@@ -871,6 +930,11 @@ class Compiler:
             return self.emit("TextAlign", {"centre": 1 if P.get("topCentre") else 0})
         if n == "SetFsmFloat":
             return self.emit(n, dict(P, slot=self.fsm_slot(P.get("fsmName"), P.get("variableName"))))
+        if P.get("gameObject") == "$DialogueTextYN" and P.get("fsmName") == "Dialogue Page Control":
+            if n == "SetFsmInt" and P.get("variableName") == "Toll Cost":
+                return self.emit("SetToll", {"cost": P.get("setValue")})
+            if n == "SetFsmGameObject" and P.get("variableName") == "Requester":
+                return self.emit("SetYNRequester", {"gameObject": P.get("setValue")})
         if n == "SetFsmInt" and P.get("fsmName") == "Charm Msg" and P.get("variableName") == "ID":
             return self.emit("CharmNotice", {"id": P.get("setValue")})
         if n == "SetSpriteRendererSprite" and P.get("gameObject") == "$Msg Icon":
@@ -1005,6 +1069,9 @@ class Compiler:
                     # (none the game has: it ends as it starts)
                     self.problem("conversation %s %s" % (keys, sheets))
                     return self.emit("SendEvent", {"eventTarget": "Self", "sendEvent": ["event", "CONVO_FINISH"], "delay": 0})
+                if P.get("gameObject") == "$DialogueTextYN":
+                    assert len(keys) == 1 and len(sheets) == 1, (keys, sheets)
+                    return self.emit("StartConversationYN", {"text": self.rm.texts.id(sheets[0], keys[0])})
                 if len(keys) == 1 and len(sheets) == 1:
                     return self.emit("StartConversation", {"text": self.rm.texts.id(sheets[0], keys[0])})
                 # (by what its variables hold: each conversation they can name)
@@ -1013,8 +1080,11 @@ class Compiler:
                     body += struct.pack("<HHH", STR.id(k), STR.id(sh), self.rm.texts.id(sh, k))
                 assert len(body) < 256, rows
                 return bytes([OPS["StartConversationOf"][0], len(body)]) + body
-            if beh == "GameManager" and m in ("CheckCharmAchievements", "AwardAchievement"):
+            if beh == "GameManager" and m in ("CheckCharmAchievements", "AwardAchievement", "CheckStagStationAchievements",
+                                              "SaveLevelState"):
                 return None
+            if beh == "HeroPlatformStick" and m in ("Activate", "Deactivate"):
+                return self.emit("PlatformStick", {"on": 1 if m == "Activate" else 0})
             if beh == "HeroController" and m in HERO_METHODS:
                 a0 = args[0]["f"] if args and args[0].get("type") in (5, 0) else 0
                 if m == "GetState":
@@ -1028,6 +1098,10 @@ class Compiler:
                 v = (P.get("functionCall") or {}).get("value")
                 return self.emit("HeroCall", {"method": HERO_METHODS.index(fn), "store": None,
                                               "a": float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0})
+            if fn == "FreezeMoment":
+                return self.emit("FreezeMoment", {"type": int((P.get("functionCall") or {}).get("value") or 0)})
+            if fn and fn.startswith("StoryRecord_"):
+                return None
             if fn in ("advanceTypewriter", "TimePasses", "StoryRecord_acquired", "StoryRecord_visited", "SetActionString",
                       "RefreshButtonIcon", "StopBounce", "CheckGrubAchievements", "AddToGrubList", "CountCharms",
                       "TriggerStartVideo"):
@@ -1045,7 +1119,16 @@ class Compiler:
                 return None
             if go == "$AudioManager":
                 return None   # (music)
-            if go in ("$DialogueManager",) and evn in ("BOX UP", "BOX DOWN"):
+            if go == "$HUD Canvas" and evn in ("IN", "OUT"):
+                return self.emit("HudSlide", {"out": 1 if evn == "OUT" else 0})
+            if go == "$MenuHolder" and evn == "OPEN STAG MENU":
+                return self.emit("OpenStagMenu", {"result": "$Selection Result"})
+            if isinstance(ev, str) and ev.startswith("$") and (t == "Self" or t is None) and ev[1:] in self.rm.external_vars():
+                # (an event a string set from outside names: those the state goes on by)
+                rows = [(STR.id(e), EVENTS.id(e)) for e, _ in self.cur_state["transitions"] if e]
+                body = struct.pack("<HB", self.value(ev, "s"), len(rows)) + b"".join(struct.pack("<HB", s, e) for s, e in rows)
+                return bytes([OPS["SendEventOf"][0], len(body)]) + body
+            if go in ("$DialogueManager",) and evn in ("BOX UP", "BOX DOWN", "BOX UP YN", "BOX DOWN YN"):
                 return self.emit("SendEventByName", P)
             if self.prompt and go == self.prompt[1] and evn in ("UP", "DOWN"):
                 # (a prompt marker it spawned: shown at its spawn point with its label, or hidden)
@@ -1066,6 +1149,11 @@ class Compiler:
             if P.get("gameObject") == "$Main Camera Obj" or P.get("gameObject") == "$MainCamera":
                 vec = P.get("vector") or [0, 0, 0]
                 return self.emit("CameraZoom", {"z": vec[2], "time": P.get("time"), "delay": P.get("delay") or 0})
+            # (a bob: a move by a hair and back, the second after the first; under a pixel here)
+            pair = [a for a in self.cur_state["actions"] if a["name"] == "iTweenMoveBy" and
+                    dict(a["params"]).get("gameObject") == P.get("gameObject")]
+            if len(pair) == 2 and all(max(abs(c) for c in dict(a["params"])["vector"]) < 0.1 for a in pair):
+                return None
             if P.get("speed") is not None or (P.get("loopType") or 0) > 2 or P.get("space") or P.get("delay") or \
                     (P.get("easeType") or 0) > 21:
                 self.problem("iTweenMoveBy %r" % P)
@@ -1080,7 +1168,22 @@ class Compiler:
             return self.emit(n, {"trigger": P.get("trigger"), "sendEvent": P.get("sendEvent"),
                                  "tag": TRIGGER_TAGS[P.get("collideTag")]})
         if n in ("Collision2dEvent", "Collision2dEventLayer"):
+            if P.get("collideTag") == "Player":
+                return self.emit("HeroCollision", P)
             return self.emit("Collision2dEvent", P)
+        if n == "WaitForHeroInPosition":
+            return self.emit(n, P)
+        if n == "SendTrigger2DEvent":
+            if P.get("collideTag") not in (None, "", "Player") or P.get("collideLayer") or P.get("trigger") != 0:
+                self.problem("SendTrigger2DEvent %r" % P)
+                return None
+            return self.emit(n, P)
+        if n == "Translate":
+            if P.get("vector") is not None or P.get("x") is not None or P.get("z") is not None or P.get("lateUpdate") \
+                    or P.get("fixedUpdate"):
+                self.problem("Translate %r" % P)
+                return None
+            return self.emit(n, dict(P, perSecond=1 if P.get("perSecond") else 0))
         if n in ("ListenForUp", "ListenForDown", "ListenForLeft", "ListenForRight", "ListenForAttack", "ListenForJump",
                  "ListenForCast", "ListenForInventory"):
             if P.get("eventTarget") not in (None, "Self"):
@@ -1144,8 +1247,10 @@ class Compiler:
         f = self.f
         states = []
         live = reachable(f, self.rm.external_vars())
+        self.prices = {}
         for s in f["states"]:
             self.where = s["name"]
+            self.cur_state = s
             acts = []
             cut = len(s["actions"])
             if s["name"] in live:
@@ -1215,6 +1320,8 @@ def prepare(rooms, sprites, texts):
             continue
         d = unity.scene(name)
         rm = Room(name, d, sprites, texts, None)
+        # (events: the game's own (VMEV_*), then each room's own, numbered afresh)
+        EVENTS.truncate(FIXED_EVENTS)
         for p in prefixes:
             if p in rm.by_path:
                 rm.add_tree(rm.by_path[p])
@@ -1226,7 +1333,8 @@ def prepare(rooms, sprites, texts):
             done += 1
             for c in o["c"] + _behaviours(rm, o):
                 f = c.get("fsm")
-                if not f or f["name"] in SKIP_FSMS:
+                # (a door's own scripts: the game's gates are its doors here)
+                if not f or f["name"] in SKIP_FSMS or any(c2.get("class") == "TransitionPoint" for c2 in o["c"]):
                     continue
                 cp = Compiler(rm, o, f)
                 body, init = cp.compile()
@@ -1245,6 +1353,7 @@ def prepare(rooms, sprites, texts):
                     rm.persist_objs.append((len(rm.fsms) - 1, rm.obj_index[o["id"]]))
         for p in rm.problems:
             print("vm:", p)
+        assert len(EVENTS.list) < 255, (name, len(EVENTS.list))
         nvars = sum(len(i) for _, _, i, _ in rm.fsms)
         assert len(rm.objs) <= MAX_OBJS and len(rm.fsms) <= MAX_FSMS and nvars <= MAX_VARS, \
             (name, len(rm.objs), len(rm.fsms), nvars)
@@ -1325,7 +1434,8 @@ def room_blob(name, clip_index, sprites, owners=(), persist=None):
         fl = (OF_ACTIVE if o.get("self_active", o["active"]) else 0)
         box = None
         # (one its scripts hear the nail hit: its collider, a trigger or not, is what the nail's trigger meets)
-        nail = any(a["name"] == "Trigger2dEvent" and dict(a["params"]).get("collideTag") == "Nail Attack"
+        nail = any((a["name"] == "Trigger2dEvent" and dict(a["params"]).get("collideTag") == "Nail Attack") or
+                   a["name"] == "ReceivedDamage"
                    for c in o["c"] if c.get("fsm") for s in c["fsm"]["states"] for a in s["actions"])
         for c in o["c"]:
             if c["type"] in ("BoxCollider2D", "CircleCollider2D", "PolygonCollider2D") and c.get("v"):

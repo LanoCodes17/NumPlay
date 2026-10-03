@@ -138,6 +138,8 @@ void world_enter(void) {
 
 /* (Pause's WaitForHeroInPosition: the masks start as the Knight is placed; its Wait only counts when it was placed
  * already) */
+bool world_hero_placed(void) { return hero_in_position; }
+
 void world_hero_in_position(void) {
   if (hero_in_position) return;
   hero_in_position = true;

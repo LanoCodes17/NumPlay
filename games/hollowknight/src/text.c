@@ -84,10 +84,16 @@ float text_box(int text, int style, float x, float y, float w, int align, float 
 #define MAX_PAGES 24
 #define KEYS_CONTINUE (K_JUMP | K_ATTACK | K_SPELL | K_FOCUS | K_DASH | K_OK | K_BACK | K_PAUSE | K_MAP | K_INV)
 
-enum { PC_IDLE, PC_PAGE_END, PC_STOP_PAUSE, PC_CONV_END, PC_SFX, PC_END };
+#define YN_BOX_Y 1.94f       /* (Box Open YN: the box lower) */
+#define YN_TEXT_Y 1.89f      /* (Text YN: its rect's center, its height; its lines centred) */
+#define YN_TEXT_H 3.9055f
+
+enum { PC_IDLE, PC_PAGE_END, PC_STOP_PAUSE, PC_CONV_END, PC_SFX, PC_END, PC_YN_PAUSE, PC_YN_LIST, PC_YN_CHOSEN };
 static struct {
-  /* Box Open: the box's scale (iTweenScaleTo) and its FadeGroup (0.5 s up, 0.3 s down, to 0.6) */
-  bool up;
+  /* Box Open: the box's scale (iTweenScaleTo) and its FadeGroup (0.5 s up, 0.3 s down, to 0.6); its place (Box Open
+   * YN's lower, the HUD left as it is) and its text's */
+  bool up, yn_box;
+  float box_y, text_y, text_h;
   float scale, scale_from, scale_to, scale_t, scale_time;
   float alpha, fade_t;
   Anim fleur_top, fleur_bot;
@@ -109,6 +115,12 @@ static struct {
   Anim dream;
   bool dream_on, centre;
   float dream_off;
+  /* Text YN: its Dialogue Page Control (the toll shown, its UI List of Yes and No, TakeGeo), who hears YES or NO */
+  bool yn, geo_on, cancel;
+  uint8_t yn_cur;       /* (ui_list's Current Item: 1 Yes, 2 No) */
+  int16_t toll, requester;
+  float yn_t, rep;
+  Anim coin;
 } dl;
 
 static float ease_sine(float t, bool out) { return out ? sinf(t * 1.5707964f) : 1 - cosf(t * 1.5707964f); }
@@ -117,10 +129,10 @@ static void box_scale_to(float to, float time) {
   dl.scale_from = dl.scale, dl.scale_to = to, dl.scale_t = 0, dl.scale_time = time;
 }
 
-void dialogue_box_up(void) {
-  /* (Box Up) */
-  dl.up = true;
-  hud_slide(true);
+static void box_up(bool yn) {
+  dl.up = true, dl.yn_box = yn;
+  dl.box_y = yn ? YN_BOX_Y : BOX_Y;
+  if (!yn) hud_slide(true);
   box_scale_to(1, 0.5f);
   dl.fade_t = 0;
   anim_play_from_frame(&dl.fleur_top, CLIP_DIALOGUE_FLEUR_TOP_UP, 0);
@@ -128,10 +140,13 @@ void dialogue_box_up(void) {
   dl.fleurs_on = true;
 }
 
+void dialogue_box_up(void) { box_up(false); }      /* (Box Up) */
+void dialogue_box_up_yn(void) { box_up(true); }    /* (Box Open YN's Box Up) */
+
 void dialogue_box_down(void) {
   if (!dl.up) return;
   dl.up = false;
-  hud_slide(false);
+  if (!dl.yn_box) hud_slide(false);
   box_scale_to(0.75f, 0.3f);
   dl.fade_t = 0;
   anim_play_from_frame(&dl.fleur_top, CLIP_DIALOGUE_FLEUR_TOP_DOWN, 0);
@@ -155,7 +170,7 @@ void dialogue_dream_box(bool up) {
 void dialogue_centre(bool on) { dl.centre = on; }
 
 static int lines_per_page(const uint8_t *st) {
-  float h = TEXT_H * HUD_PX * TEXT_K;
+  float h = dl.text_h * HUD_PX * TEXT_K;
   return 1 + (int)((h - font_asc(st) - font_desc(st)) / font_line(st));
 }
 
@@ -193,12 +208,25 @@ static void show_page(int p) {
 
 void dialogue_start(int text) {
   /* StartConversation */
+  dl.yn = false, dl.text_y = TEXT_Y, dl.text_h = TEXT_H;
   set_conversation(text_get(text));
   dl.finished = false;
   dl.pc = PC_IDLE;
   dl.prev_keys = g_hero.keys;
   show_page(0);
 }
+
+/* (Text YN's StartConversation: its question, then Yes and No) */
+void dialogue_start_yn(int text) {
+  dl.yn = true, dl.text_y = YN_TEXT_Y, dl.text_h = YN_TEXT_H;
+  set_conversation(text_get(text));
+  dl.finished = false, dl.geo_on = false;
+  dl.pc = PC_IDLE;
+  dl.prev_keys = g_hero.keys;
+  show_page(0);
+}
+void dialogue_yn_toll(int cost) { dl.toll = (int16_t)cost; }
+void dialogue_yn_requester(int obj) { dl.requester = (int16_t)obj; }
 
 bool dialogue_finished(void) { return dl.finished; }
 bool dialogue_box_shown(void) { return dl.up || dl.alpha > 0; }
@@ -242,6 +270,7 @@ void dialogue_tick(void) {
     anim_update(&dl.dream, DT);
     if (dl.dream_off > 0 && (dl.dream_off -= DT) <= 0) dl.dream_on = false;
   }
+  if (dl.geo_on) anim_update(&dl.coin, DT);
   if (dl.arrow_on) anim_update(&dl.arrow, DT);
   if (dl.stop_on) anim_update(&dl.stop, DT);
   if (!dl.text) return;
@@ -252,7 +281,12 @@ void dialogue_tick(void) {
     while (dl.reveal >= 1 && dl.visible < last) dl.visible++, dl.reveal -= 1;
     if (dl.visible >= last) {
       dl.typing = false;
-      if (dl.page + 1 >= dl.npages) dl.pc = PC_STOP_PAUSE;   /* CONVERSATION_END */
+      if (dl.page + 1 >= dl.npages && dl.yn) {
+        /* (CONVERSATION_END: Activate Geo Text?, a toll's, then a pause; Conversation End: the UI List) */
+        dl.geo_on = dl.toll > 0, dl.yn_t = 0, dl.yn_cur = 1, dl.rep = 0;
+        dl.pc = dl.geo_on ? PC_YN_PAUSE : PC_YN_LIST;
+        if (dl.geo_on) anim_play(&dl.coin, CLIP_HUD_COIN_IDLE);
+      } else if (dl.page + 1 >= dl.npages) dl.pc = PC_STOP_PAUSE;   /* CONVERSATION_END */
       else {
         /* PAGE_END: the arrow up */
         dl.pc = PC_PAGE_END;
@@ -290,6 +324,37 @@ void dialogue_tick(void) {
     case PC_END:
       end_conversation();
       break;
+    case PC_YN_PAUSE:
+      if ((dl.yn_t += DT) >= 0.2f) dl.pc = PC_YN_LIST, dl.yn_t = 0;
+      break;
+    case PC_YN_LIST: {
+      /* ui_list: left and right (again after 0.25 s held, then each 0.15 s), round; ui_list_button_listen (after a
+       * quarter second): submit, or cancel (No) */
+      dl.yn_t += DT;
+      uint32_t lr = keys & (K_LEFT | K_RIGHT);
+      if (!lr) dl.rep = 0;
+      else if (pressed & lr) dl.rep = 0.25f, dl.yn_cur = (uint8_t)(3 - dl.yn_cur);
+      else if ((dl.rep -= DT) <= 0) dl.rep = 0.15f, dl.yn_cur = (uint8_t)(3 - dl.yn_cur);
+      if (dl.yn_t < 0.25f) break;
+      if (pressed & K_OK) dl.cancel = false, dl.pc = PC_YN_CHOSEN, dl.yn_t = 0;
+      else if (pressed & K_BACK) dl.cancel = true, dl.yn_cur = 2, dl.pc = PC_YN_CHOSEN, dl.yn_t = 0;
+      break;
+    }
+    case PC_YN_CHOSEN: {
+      /* (Selection Made: half a second, a cancel's 0.2; Yes without the geo for it: Will Cancel, back) */
+      bool short_of = dl.yn_cur == 1 && dl.toll > g_pd.geo;
+      if ((dl.yn_t += DT) < (dl.cancel ? 0.2f : 0.5f)) break;
+      if (short_of) {
+        dl.pc = PC_YN_LIST, dl.yn_t = 0.25f;
+        break;
+      }
+      /* (End Conversation: the text, the list, the toll hidden; Take Geo; YES or NO to who asked) */
+      bool yes = dl.yn_cur == 1;
+      dl.text = NULL, dl.geo_on = false, dl.yn = false, dl.pc = PC_IDLE;
+      if (yes && dl.toll > 0) g_pd.geo -= dl.toll;
+      vm_send(dl.requester, yes ? VMEV_YES : VMEV_NO);
+      break;
+    }
   }
 }
 
@@ -297,20 +362,67 @@ static void box_sprite(int sprite, float x, float y, float sx, float sy, uint8_t
   /* (placed about the box's place at its scale and the text's; sized at its scale) */
   float k = dl.scale * TEXT_K;
   Inst in;
-  sprite_inst(sprite, BOX_X + (x - BOX_X) * k, BOX_Y + (y - BOX_Y) * k, 0, sx * dl.scale, sy * dl.scale, tint, &in);
+  sprite_inst(sprite, BOX_X + (x - BOX_X) * k, dl.box_y + (y - dl.box_y) * k, 0, sx * dl.scale, sy * dl.scale, tint, &in);
   gfx_hud(&in, 0);
 }
 #define MARKER_K (1.3f * TEXT_K)   /* (the arrow's and the stop's scale) */
+
+/* Text YN's pieces: placed about the lower box's place at the text's scale */
+static float yn_x(float x) { return BOX_X + (x - BOX_X) * TEXT_K; }
+static float yn_y(float y) { return YN_BOX_Y + (y - YN_BOX_Y) * TEXT_K; }
+static void yn_sprite(int sprite, float x, float y, float sx, uint8_t tint) {
+  if (sprite < 0) return;
+  Inst in;
+  sprite_inst(sprite, yn_x(x), yn_y(y), 0, sx, fabsf(sx), tint, &in);
+  gfx_hud(&in, 0);
+}
+/* a word centred on x, its top at the rect's (w x h about (x, y)) */
+static void yn_word(int text, int style, float x, float y, float h, uint32_t rgb) {
+  const uint8_t *s = text_get(text), *st = font_style(style);
+  int n = (int)strlen((const char *)s);
+  float px = VIEW_W / 2 + yn_x(x) * HUD_PX - text_width(style, s, n) / 2;
+  gfx_text(style, px, VIEW_H / 2 - yn_y(y + h / 2) * HUD_PX + font_asc(st), s, n, 0xFF000000u | rgb, 0);
+}
+
+static void yn_draw(uint8_t white) {
+  if (dl.geo_on) {
+    /* the toll (Geo Text: the coin, the count in TrajanPro, its left at its place, middle) */
+    yn_sprite(dl.coin.sprite, -1.22f, 2.2f, 1, white);
+    char buf[8];
+    int n = 0, v = dl.toll;
+    do buf[n++] = (char)('0' + v % 10), v /= 10;
+    while (v && n < 7);
+    static const float adv[10] = DIGIT_ADV;
+    float x = yn_x(-0.573f), y = yn_y(2.01f) + 0.23f;
+    while (n--) {
+      int d = buf[n] - '0';
+      Inst in;
+      sprite_inst(SPRITE_DIGIT0 + d, x, y, 0, 1, 1, white, &in);
+      gfx_hud(&in, 0);
+      x += adv[d];
+    }
+  }
+  if (dl.pc != PC_YN_LIST && dl.pc != PC_YN_CHOSEN) return;
+  /* the UI List: Yes (without the geo for it: Not Enough, grey, and its line), No; the pointers at the current one */
+  static const UiPiece pl = SHOP_POINTER_L, pr = SHOP_POINTER_R;
+  bool short_of = dl.toll > g_pd.geo;
+  yn_word(TXT_YN_YES, STYLE_YN, -4.153f, 0.61f, 1.5622f, short_of ? 0xA5A5A5 : 0xFFFFFF);
+  if (short_of) yn_word(TXT_YN_NOT_ENOUGH, STYLE_MSG, -4.033f, -0.465f, 1.5622f, 0xFFFFFF);
+  yn_word(TXT_YN_NO, STYLE_YN, 3.687f, 0.61f, 1.5622f, 0xFFFFFF);
+  float cx = dl.yn_cur == 1 ? -4.153f : 3.687f;
+  yn_sprite(pl.sprite, cx - 2.014f, 0.81f, pl.kx * TEXT_K, white);
+  yn_sprite(pr.sprite, cx + 2.104f, 0.81f, pr.kx * TEXT_K, white);
+}
 
 void dialogue_draw(void) {
   if (dl.alpha > 0 || dl.fleurs_on) {
     /* the backboard (0.6 of its color's alpha), the fleurs */
     uint8_t a = (uint8_t)(dl.alpha * 0.6f * 0.616f * 255);
-    if (a) box_sprite(SPRITE_DIALOGUE_BACKBOARD, 0, 4.51f - 0.09f, 1, 1.2527f / 2.325f, gfx_dyn_tint(18, 255, 255, 255, a));
+    if (a) box_sprite(SPRITE_DIALOGUE_BACKBOARD, 0, dl.box_y - 0.09f, 1, 1.2527f / 2.325f, gfx_dyn_tint(18, 255, 255, 255, a));
     uint8_t white = gfx_dyn_tint(19, 255, 255, 255, 255);
     if (dl.fleurs_on) {
-      box_sprite(dl.fleur_top.sprite, 0, 4.51f + 2.85f, TEXT_K, TEXT_K, white);
-      box_sprite(dl.fleur_bot.sprite, 0, 4.51f - 2.73f, TEXT_K, TEXT_K, white);
+      box_sprite(dl.fleur_top.sprite, 0, dl.box_y + 2.85f, TEXT_K, TEXT_K, white);
+      box_sprite(dl.fleur_bot.sprite, 0, dl.box_y - 2.73f, TEXT_K, TEXT_K, white);
     }
   }
   uint8_t white = gfx_dyn_tint(20, 255, 255, 255, 255);
@@ -323,18 +435,20 @@ void dialogue_draw(void) {
   }
   if (dl.arrow_on && dl.arrow.sprite >= 0) box_sprite(dl.arrow.sprite, 0.0069f, 1.695f, MARKER_K, MARKER_K, white);
   if (dl.stop_on && dl.stop.sprite >= 0) box_sprite(dl.stop.sprite, -0.0231f, 1.695f, MARKER_K, MARKER_K, white);
+  if (dl.yn) yn_draw(white);
   if (!dl.text) return;
   /* the page's lines, top left in the rect, as far as the typewriter shows */
   const uint8_t *st = font_style(STYLE_DIALOGUE);
-  float w = TEXT_W * HUD_PX * TEXT_K, h = TEXT_H * HUD_PX * TEXT_K;
+  float w = TEXT_W * HUD_PX * TEXT_K, h = dl.text_h * HUD_PX * TEXT_K;
   float left = VIEW_W / 2 + TEXT_X * HUD_PX - w / 2;
-  float y = VIEW_H / 2 - (BOX_Y + (TEXT_Y - BOX_Y) * TEXT_K) * HUD_PX - h / 2 + font_asc(st);
+  float by = dl.yn ? YN_BOX_Y : BOX_Y;
+  float y = VIEW_H / 2 - (by + (dl.text_y - by) * TEXT_K) * HUD_PX - h / 2 + font_asc(st);
   int i = dl.page_start[dl.page], last = page_last(), per = lines_per_page(st);
   for (int l = 0; l < per && i < last; l++) {
     int next, e = line_end(st, dl.text, i, w, &next);
     int n = (e < dl.visible ? e : dl.visible) - i;
     /* (centred: the whole line's place, as it is typed) */
-    float x = dl.centre ? left + (w - text_width(STYLE_DIALOGUE, dl.text + i, e - i)) / 2 : left;
+    float x = dl.centre || dl.yn ? left + (w - text_width(STYLE_DIALOGUE, dl.text + i, e - i)) / 2 : left;
     if (n > 0) gfx_text(STYLE_DIALOGUE, x, y, dl.text + i, n, 0xFFFFFFFFu, 0);
     if (dl.visible <= e) break;
     i = next, y += font_line(st);
@@ -344,6 +458,8 @@ void dialogue_draw(void) {
 void dialogue_reset(void) {
   memset(&dl, 0, sizeof dl);
   dl.scale = 0.75f;
+  dl.box_y = BOX_Y, dl.text_y = TEXT_Y, dl.text_h = TEXT_H;
+  dl.coin.sprite = -1;
   dl.arrow.sprite = dl.stop.sprite = dl.dream.sprite = -1;
 }
 

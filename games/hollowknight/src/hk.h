@@ -173,6 +173,7 @@ bool phys_ray(float x, float y, float dx, float dy, float dist, uint8_t mask, Ph
 uint8_t phys_col_flags(int col);
 bool phys_tile_solid(int x, int y);
 void phys_collider_enable(int col, bool on);   /* (a breakable's: off when it breaks) */
+void phys_collider_shift(int col, float dx, float dy);   /* (moved with its object: by so much from its place) */
 void phys_colliders_reset(void);               /* all on (a room starts) */
 /* a box and a convex polygon (n points, x y pairs): do they overlap? */
 bool box_meets_shape(float x0, float y0, float x1, float y1, const float *pts, int n);

@@ -520,12 +520,16 @@ def main():
         for i in range(41))
     for key, style in (("CHARM_TUTE_TITLE", "TUTE_TITLE"), ("CHARM_TUTE_SUB", "TUTE"), ("CHARM_REMINDER", "TUTE")):
         fleurs["TXT_" + key] = TEXTS.add(text.clean(text.sheets()["Prompts"][key]), style)
+    # the yes or no box: Yes, No (Prompts, TextMeshPro 10), Not enough Geo (5)
+    for name, key, style in (("YES", "YES", "YN"), ("NO", "NO", "YN"), ("NOT_ENOUGH", "NOT_ENOUGH_GEO", "MSG")):
+        fleurs["TXT_YN_" + name] = TEXTS.id("Prompts", key, style)
     # the title screen, the save profiles, the pause menu; each room's map zone (the save slots' area)
-    import menu, inv, shop, collect
+    import menu, inv, shop, collect, stag
     fleurs.update(menu.build(SPRITES, TEXTS))
     fleurs.update(inv.build(SPRITES, TEXTS, hud_res, vm.CHARMS, charm_icon))
     fleurs.update(shop.build(SPRITES, TEXTS, hud_res, actors.clip_id, vm.CHARMS))
     fleurs.update(collect.build())
+    fleurs.update(stag.build(SPRITES, TEXTS, hud_res, actors.clip_id, ents.pd_flags(), vm.STR.id, ROOMS))
     fleurs["ROOM_ZONES"] = "{%s}" % ", ".join(str(scene.settings(unity.scene(r)).get("map_zone") or 0) for r in ROOMS)
     for i, item in enumerate(text.MSGS):
         fleurs["MSG_" + item] = i
@@ -704,7 +708,7 @@ def main():
     secs["RVAR"].b += rvar
     # (the children enemy.c knows by name)
     str_ids = {n: STRINGS.id(n) for n in ("Attack Range", "Evade Range", "Spit Range", "Wake Box", "Slash Hitbox",
-                                          "Slash2 Hitbox")}
+                                          "Slash2 Hitbox", "door_stagExit")}
     secs["STR"].b += STRINGS.blob()
     secs["TEXT"].b += TEXTS.blob()
     secs["FONT"].b += TEXTS.fonts()

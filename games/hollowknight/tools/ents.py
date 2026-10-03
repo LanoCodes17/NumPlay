@@ -224,6 +224,9 @@ def rec(type_, flags=0, box=(0, 0, 0, 0), p=(0, 0, 0, 0), a=0, group=0, group2=0
     return struct.pack(REC, type_, flags, group, group2, a, persist, *box, *p, s0, s1)
 
 
+# a door's prompts (src/game.c: door_labels)
+DOOR_PROMPTS = ("Enter", "Ascend", "Descend")
+
 # PlayerData bools whose names are not camel case
 PD_RAW_NAMES = {"PDF_HORNET_F19": "hornet_f19", "PDF_HAS_MARKER_B": "hasMarker_b", "PDF_HAS_MARKER_R": "hasMarker_r",
                 "PDF_HAS_MARKER_Y": "hasMarker_y", "PDF_HAS_MARKER_W": "hasMarker_w"}
@@ -1154,6 +1157,20 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                 recs += _more_boxes(o)
                 # (the gate's own place, where the Knight comes in: a box record flagged 1, not part of its trigger)
                 recs.append(rec(ENT_BOX, 1, (o["pos"][0], o["pos"][1], o["pos"][0], o["pos"][1])))
+                # (off as the room loads while a PlayerData bool says its object is: flagged 2, the bool, off if true)
+                for flag, off_if in conds(o):
+                    recs.append(rec(ENT_BOX, 2, p=(flag, 1 if off_if else 0, 0, 0)))
+                # (a door: its Door Control's scene, gate, pause and prompt; the prompt's place; flagged 4)
+                dc = next((c2["fsm"] for c2 in o["c"] if c2.get("fsm") and c2["fsm"]["name"] == "Door Control" and
+                           c2.get("enabled") is not False), None)
+                if v.get("isADoor") and dc:
+                    fv = lambda n, dflt=None: (dc["vars"].get(n) or [None, dflt])[1]
+                    to = fv("New Scene") or ""
+                    pm = next((by_id[c2] for c2 in o.get("children", []) if by_id[c2]["name"] == "Prompt Marker"), o)
+                    recs.append(rec(ENT_BOX, 4, (pm["pos"][0], pm["pos"][1], 1 if fv("Crossroads Ascent") else 0,
+                                                 1 if fv("Over Hero") else 0),
+                                    (float(fv("Entry Pause", 0) or 0), DOOR_PROMPTS.index(fv("Prompt Name", "Enter")), 0, 0),
+                                    a=rooms.index(to) if to in rooms else 0xFFFF, s1=strings.id(fv("Entry Gate") or "")))
             elif cls == "HazardRespawnTrigger":
                 box = _trigger(o)
                 ref = v.get("respawnMarker")

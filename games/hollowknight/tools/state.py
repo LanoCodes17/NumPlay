@@ -7,12 +7,14 @@ CONSTANT = {"crossroadsInfected": False, "troupeInTown": False, "clothInTown": F
             "clothKilled": False, "clothLeftTown": False, "brettaLeftTown": False, "zoteDefeated": False,
             "brettaRescued": False, "visitedRuins": False, "visitedDeepnest": False, "colosseumSilverOpened": False,
             "nymmInTown": False, "killedGrimm": False, "divineInTown": False, "fatGrubKing": False}
-DYNAMIC = {"visitedDirtmouth", "tisoEncounteredTown", "hasDash", "hornet1Defeated", "shamanPillar"}
+DYNAMIC = {"visitedDirtmouth", "tisoEncounteredTown", "hasDash", "hornet1Defeated", "shamanPillar", "openedTownBuilding",
+           "slyRescued", "openedMapperShop"}
 
 
 def conditions(o):
-    """An object's DeactivateIfPlayerdata components -> [(bool name, off if true (else off if false))]."""
-    out = []
+    """An object's DeactivateIfPlayerdata components (and what its parent's Check Opened makes of it) -> [(bool name,
+    off if true (else off if false))]."""
+    out = list(o.get("_conds", []))
     for c in o["c"]:
         cl = c.get("class") or ""
         if cl in ("DeactivateIfPlayerdataTrue", "DeactivateIfPlayerdataFalse"):
@@ -20,9 +22,24 @@ def conditions(o):
     return out
 
 
+def _check_opened(o, by):
+    """Check Opened (Dirtmouth's buildings): its "open" child on with the bool, its "closed" one off"""
+    f = next((c["fsm"] for c in o["c"] if c.get("fsm") and c["fsm"]["name"] == "Check Opened"), None)
+    if f is None:
+        return
+    test = next(a for st in f["states"] for a in st["actions"] if a["name"] == "PlayerDataBoolTest")
+    name = dict(test["params"])["boolName"]
+    for ci in o.get("children", []):
+        q = by[ci]
+        if q["name"] in ("open", "closed"):
+            q["_conds"] = [(name, q["name"] == "closed")]
+
+
 def apply(d):
     """Turns off (with what is under them) the scene's objects that the constant bools turn off."""
     by = {o["id"]: o for o in d["objects"]}
+    for o in d["objects"]:
+        _check_opened(o, by)
     for o in d["objects"]:
         for name, off_if in conditions(o):
             if name in CONSTANT:

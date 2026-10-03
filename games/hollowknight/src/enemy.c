@@ -1713,16 +1713,16 @@ static int hitbox_touch(const Enemy *e, float x0, float y0, float x1, float y1) 
 /* ---------------------------------------------------------------- shockwaves (the shockwave FSM, its spurts) */
 #define MAX_WAVES 4
 #define MAX_SPURTS 32
-typedef struct {
-  bool on, spurting;
+typedef struct {   /* (its small fields together: many at once) */
   float x, y, speed, inc, scale, t;
+  bool on, spurting;
   int8_t dir;
 } Wave;
 typedef struct {
-  bool on;
   float x, y, scale, t;
-  int8_t dir;
   Anim anim;
+  bool on;
+  int8_t dir;
 } Spurt;
 static Wave waves[MAX_WAVES];
 static Spurt spurts[MAX_SPURTS];
@@ -2729,7 +2729,7 @@ static void fk_update(Enemy *e) {
     case FK_DEATH_ANIM:
       if (e->t0 >= 1) {
         /* Open Map Shop and Journal; Steam */
-        pd_set_flag(PDF_MAPPER_SHOP, true);
+        pd_set_flag(PDF_OPENED_MAPPER_SHOP, true);
         pd_set_flag(PDF_CORN_CROSSROADS_LEFT, true);
         e->flags |= 1;
         cam_shake(SHAKE_BIG);

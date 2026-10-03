@@ -56,7 +56,15 @@ int main(int argc, char **argv) {
     g_pd.can_dash = true;
     if (getenv("HKMP")) g_pd.mp = (int16_t)atoi(getenv("HKMP"));
     if (getenv("HKHEALTH")) g_pd.health = (int8_t)atoi(getenv("HKHEALTH"));
-    game_enter(id, px, py, true);
+    if (getenv("HKGEO")) g_pd.geo = atoi(getenv("HKGEO"));
+    /* (HKLOAD=slot: that save loaded, the Knight at its respawn point) */
+    if (getenv("HKLOAD")) {
+      if (!save_load(atoi(getenv("HKLOAD"))) || (getenv("HKGEO") && (g_pd.geo = atoi(getenv("HKGEO")), 0)) || !game_respawn()) {
+        printf("load failed\n");
+        return 1;
+      }
+    } else
+      game_enter(id, px, py, true);
     int tick = 0;
     for (const char *p = play; *p;) {
       uint32_t keys = 0;
@@ -72,6 +80,7 @@ int main(int argc, char **argv) {
           dialogue_box_up();
           dialogue_start(atoi(strchr(getenv("HKTALK"), ':') + 1));
         }
+        if (getenv("HKKILL") && atoi(getenv("HKKILL")) == tick) hero_take_damage(SIDE_LEFT, 99, HAZ_NORMAL);
         if (getenv("HKPROMPT") && atoi(getenv("HKPROMPT")) == tick)
           prompt_show(-1, TXT_PROMPT_LISTEN, g_hero.body.x, g_hero.body.y + 1.5f);
         game_tick(keys);

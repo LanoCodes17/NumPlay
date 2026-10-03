@@ -9,7 +9,8 @@
 #define TERRAIN_FRICTION 0.2f   /* (the Terrain material; with another, their geometric mean) */
 
 /* ---------------------------------------------------------------- what each kind is */
-enum { EK_CRAWLER = 1, EK_BUZZER };
+enum { EK_CRAWLER = 1, EK_BUZZER, EK_SHADE };
+#define NO_ENT 0xFFFF   /* (an enemy spawned, not one of the room's) */
 typedef struct {
   /* Recoil */
   float recoil_speed, recoil_time;
@@ -25,6 +26,7 @@ static const Kind kinds[] = {
                     CLIP_CRAWLER_DEATH_AIR, CLIP_CRAWLER_DEATH_LAND, 1, 0.2828f},
     [EK_BUZZER] = {15, 0.25f, false, 0, 15, 0.7f, 0.1016f, -0.2188f, 1.1406f / 2, 1.3125f / 2, -1, true,
                    CLIP_BUZZER_DEATH_AIR, CLIP_BUZZER_DEATH_LAND, 0, 0.2828f},
+    [EK_SHADE] = {15, 0.15f, false, 0, 0, 0, 0, 0, 0, 0, -1, false, -1, -1, 0, 0.2828f},
 };
 
 /* ---------------------------------------------------------------- an enemy */
@@ -33,7 +35,10 @@ enum { RC_READY, RC_RECOILING };
 enum { CS_AIR, CS_DEATH_ANIM, CS_LANDED };
 typedef struct {
   uint8_t mode, kind, st, flags;
-  uint16_t ent;
+  uint16_t ent;                   /* its record (NO_ENT: spawned) */
+  int8_t damage;                  /* DamageHero's */
+  uint8_t geo_s, geo_m, geo_l;    /* the geo it drops */
+  float z;
   Body body;
   Anim anim;
   float sx;   /* its transform's x scale: which way it faces */
@@ -48,7 +53,7 @@ typedef struct {
   float flash_t;
   bool flashing;
   /* the FSM's state */
-  float t0, t1, wait, start_x, start_y, ax, ay, pause0, pause1;
+  float t0, t1, wait, start_x, start_y, ax, ay, pause0, pause1, jx, jy;
   bool b0, b1;
   /* alert range (local circle) and sight */
   float ar_x, ar_y, ar_r;
@@ -225,14 +230,18 @@ static void corpse_start(Enemy *e, float direction, bool has_direction) {
 }
 
 /* HealthManager.Die, EnemyDeathEffects */
+static void shade_killed(Enemy *e);
 static void enemy_die(Enemy *e, float direction, bool has_direction) {
-  const Ent *d = ent_at(e->ent);
+  if (e->kind == EK_SHADE) {
+    shade_killed(e);
+    return;
+  }
   /* the geo: SpawnAndFling, small, medium then large */
   float x = e->body.x, y = e->body.y;
-  geo_fling(0, (int)d->p2, x, y, 15, 30, 80, 100);
-  geo_fling(1, (int)d->p3, x, y, 15, 30, 80, 100);
-  geo_fling(2, d->group, x, y, 15, 30, 80, 100);
-  persist_set(d->persist);
+  geo_fling(0, e->geo_s, x, y, 15, 30, 80, 100);
+  geo_fling(1, e->geo_m, x, y, 15, 30, 80, 100);
+  geo_fling(2, e->geo_l, x, y, 15, 30, 80, 100);
+  if (e->ent != NO_ENT) persist_set(ent_at(e->ent)->persist);
   corpse_start(e, direction, has_direction);
   cam_shake(SHAKE_ENEMY_KILL);
   FREEZE_MOMENT_1();
@@ -243,10 +252,10 @@ static void enemy_hit(Enemy *e, float direction, int damage) {
   if (e->mode != EM_ALIVE || e->evasion > 0 || damage <= 0) return;
   int dir = cardinal(direction);
   recoil_by_direction(e, dir, 1);
-  hero_soul_gain();
+  if (e->kind != EK_SHADE) hero_soul_gain();   /* (enemyType 3, a shade: no soul) */
   e->flashing = true, e->flash_t = 0;
   e->hp = (int16_t)(e->hp - damage < -50 ? -50 : e->hp - damage);
-  if (e->kind == EK_BUZZER && e->st == 0) e->b1 = true;   /* (TOOK DAMAGE, in Idle) */
+  if ((e->kind == EK_BUZZER || e->kind == EK_SHADE) && e->st == 0) e->b1 = true;   /* (TOOK DAMAGE, in Idle) */
   if (e->hp > 0)
     e->evasion = 0.2f;
   else
@@ -438,6 +447,354 @@ static void buzzer_update(Enemy *e, const Ent *d) {
   }
 }
 
+/* ---------------------------------------------------------------- the Hollow Shade: its Shade Control FSM */
+enum {
+  SH_IDLE, SH_STARTLE, SH_FLY, SH_POSITION, SH_SLASH_ANTIC, SH_SLASH, SH_SLASH_BOX, SH_SLASH_CD, SH_FIREBALL_POS,
+  SH_CAST_ANTIC, SH_CAST_CHARGE, SH_CHARGE_WAIT, SH_CAST, SH_DECEL, SH_COOLDOWN, SH_RETREAT_START, SH_RETREAT,
+  SH_RETREAT_END, SH_DEATH_START, SH_DEATH, SH_DEATH_END, SH_DISSIPATE, SH_LEAVE_PAUSE, SH_DEPART, SH_GONE
+};
+#define SHADE_MAX_ROAM 25.0f
+#define MAX_BALLS 3
+/* the shade's (Shadow Ball): flies 1 s, then slows and fades */
+typedef struct {
+  bool on, ending;
+  float x, y, vx, t;
+  Anim anim;
+} Ball;
+static Ball balls[MAX_BALLS];
+static struct {
+  bool on, slash_on;   /* (its Slash child's collider) */
+  Anim slash;
+  int8_t sp;           /* its soul: casts left */
+  float qx, qy;        /* (the tween back to its start) */
+} sh;
+
+/* the Slash's polygon (Slash's local points, at its place and x scale), on the shade facing its way */
+static const float shade_slash_pts[5][2] = {{-1.8682f, -0.2095f}, {0.8395f, 0.0287f}, {-0.9918f, -0.9513f}, {-2.0697f, -0.8551f},
+                                            {-2.4798f, -0.5897f}};
+
+static void shade_face_hero(Enemy *e, int clip) {
+  /* FaceObject (sprite facing left), playing its turn clip on turning */
+  float want = hero_x() > e->body.x ? -1.0f : 1.0f;
+  if (e->sx != want) {
+    set_scale_x(e, want);
+    if (clip >= 0) anim_play_from_frame(&e->anim, clip, 0);
+  }
+}
+
+static float hero_dist(const Enemy *e) {
+  float dx = e->body.x - hero_x(), dy = e->body.y - hero_y();
+  return sqrtf(dx * dx + dy * dy);
+}
+
+static bool roamed_off(const Enemy *e) {
+  float dx = e->body.x - e->start_x, dy = e->body.y - e->start_y;
+  return dx * dx + dy * dy > SHADE_MAX_ROAM * SHADE_MAX_ROAM;
+}
+
+/* DistanceFly (targets height): keeps a distance from the hero, at its height */
+static void distance_fly(Enemy *e, float dist, float vmax, float accel) {
+  float vx = e->body.vx, vy = e->body.vy, d = hero_dist(e);
+  bool left = e->body.x < hero_x();
+  vx += (d > dist) == left ? accel : -accel;
+  if (e->body.y < hero_y()) vy += accel;
+  if (e->body.y > hero_y()) vy -= accel;
+  e->body.vx = vx > vmax ? vmax : vx < -vmax ? -vmax : vx;
+  e->body.vy = vy > vmax ? vmax : vy < -vmax ? -vmax : vy;
+}
+
+static void shade_retreat(Enemy *e) {
+  /* Retreat Start: no collider, slowing */
+  e->st = SH_RETREAT_START;
+  e->flags |= 1;   /* (collider off) */
+  anim_play_from_frame(&e->anim, CLIP_SHADE_RETREAT_START, 0);
+}
+
+static void shade_fly(Enemy *e) {
+  e->st = SH_FLY;
+  anim_play(&e->anim, CLIP_SHADE_FLY);
+  e->wait = rand_range(1, 2);
+}
+
+/* Attack Choice (after Quake? and Scream?: the shade has neither here): a fireball a fifth of the time, if it can */
+static void shade_attack_choice(Enemy *e) {
+  for (;;) {
+    if (rand_range(0, 1) < 0.2f) {
+      /* Sp Check */
+      if (g_pd.shade_fireball_level >= 1 && sh.sp >= 1) {
+        sh.sp--;
+        e->st = SH_FIREBALL_POS, e->t0 = 0;
+        return;
+      }
+      continue;   /* (RETURN: chooses again) */
+    }
+    /* Q Other?: nothing else to choose; Position */
+    e->st = SH_POSITION, e->t0 = 0;
+    return;
+  }
+}
+
+static void shade_spawn(void) {
+  Enemy *e = NULL;
+  for (int i = 0; i < MAX_ENEMIES && !e; i++)
+    if (en[i].mode == EM_OFF) e = &en[i];
+  if (!e) return;
+  memset(e, 0, sizeof *e);
+  memset(&sh, 0, sizeof sh);
+  memset(balls, 0, sizeof balls);
+  sh.on = true;
+  e->mode = EM_ALIVE, e->kind = EK_SHADE, e->ent = NO_ENT;
+  e->damage = 1, e->z = 0.006f;
+  /* (Init: its hp the shade's health in nail hits) */
+  e->hp = (int16_t)(g_pd.nail_damage * g_pd.shade_health);
+  sh.sp = (int8_t)g_pd.shade_mp;
+  Body *b = &e->body;
+  b->x = g_pd.shade_x, b->y = g_pd.shade_y;
+  b->ox = 0, b->oy = -0.37f, b->hx = 0.25f, b->hy = 0.57f;
+  b->gravity_scale = 0, b->mask = CF_SOLID;
+  e->ar_r = 7.27f;
+  e->sx = 1;
+  e->start_x = b->x, e->start_y = b->y;
+  shade_face_hero(e, -1);
+  e->st = SH_IDLE;
+  anim_play(&e->anim, CLIP_SHADE_IDLE);
+}
+
+void shade_spawn_check(void) {
+  if (g_pd.soul_limited && !strcmp(g_pd.shade_scene, room_name(g_room.id))) shade_spawn();
+}
+
+/* (Killed: the Hollow Shade Death in its place) */
+static void shade_killed(Enemy *e) {
+  /* Death Start: the soul unlimited, the geo back, the shade gone from the save */
+  g_pd.soul_limited = false;
+  g_pd.max_mp = 99;
+  int geo_back = g_pd.geo_pool;
+  g_pd.geo += geo_back;
+  g_pd.geo_pool = 0;
+  strcpy(g_pd.shade_scene, "None");
+  e->body.vx = e->body.vy = 0;
+  e->flags |= 1;
+  sh.slash_on = false;
+  cam_shake(SHAKE_AVERAGE);
+  anim_play(&e->anim, CLIP_SHADE_DEATH_START);
+  e->st = SH_DEATH_START, e->t0 = 0;
+  e->mode = EM_CORPSE;
+}
+
+/* HERO LEAVE: the shade departs (Hollow Shade Depart) */
+void enemies_hero_leave(void) {
+  for (int i = 0; i < MAX_ENEMIES; i++) {
+    Enemy *e = &en[i];
+    if (e->kind != EK_SHADE || e->mode != EM_ALIVE) continue;
+    e->mode = EM_CORPSE, e->flags |= 1, sh.slash_on = false;
+    anim_play(&e->anim, CLIP_SHADE_FLY);
+    shade_face_hero(e, CLIP_SHADE_TURNTOFLY);
+    e->st = SH_LEAVE_PAUSE, e->t0 = 0;
+  }
+}
+
+static void shade_fixed(Enemy *e) {
+  switch (e->st) {
+    case SH_FLY: {
+      chase_object(e, 4, 0.2f);
+      /* ChaseObjectV2: a force towards the hero, the speed clamped (the force acts in the step) */
+      float dx = hero_x() - e->body.x, dy = hero_y() - e->body.y, l = sqrtf(dx * dx + dy * dy);
+      if (l > 1) dx /= l, dy /= l;
+      float sp = sqrtf(e->body.vx * e->body.vx + e->body.vy * e->body.vy);
+      if (sp > 4) e->body.vx *= 4 / sp, e->body.vy *= 4 / sp;
+      e->body.vx += dx * 8 * DT, e->body.vy += dy * 8 * DT;
+      break;
+    }
+    case SH_POSITION:
+    case SH_SLASH_ANTIC: distance_fly(e, 3, 4, 0.2f); break;
+    case SH_FIREBALL_POS: distance_fly(e, 12, 4, 0.2f); break;
+    case SH_CAST_ANTIC: e->body.vx *= 0.8f, e->body.vy *= 0.8f; break;
+    case SH_DECEL:
+    case SH_COOLDOWN:
+    case SH_LEAVE_PAUSE: e->body.vx *= 0.9f, e->body.vy *= 0.9f; break;
+    case SH_RETREAT_START: e->body.vx *= 0.85f, e->body.vy *= 0.85f; break;
+    default: break;
+  }
+}
+
+static void shade_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0;
+  e->t0 += DT;
+  switch (e->st) {
+    case SH_IDLE:
+      if ((e->in_alert && e->can_see) || e->b1) {
+        e->b1 = false;
+        e->st = SH_STARTLE;
+        anim_play_from_frame(&e->anim, CLIP_SHADE_STARTLE, 0);
+      }
+      break;
+    case SH_STARTLE:
+      if (done) shade_fly(e);
+      break;
+    case SH_FLY:
+      shade_face_hero(e, CLIP_SHADE_TURNTOFLY);
+      if (roamed_off(e)) shade_retreat(e);
+      else if ((e->wait -= DT) <= 0) shade_attack_choice(e);
+      break;
+    case SH_POSITION: {
+      shade_face_hero(e, CLIP_SHADE_TURNTOFLY);
+      bool same_y = fabsf(hero_y() - e->body.y) <= 0.2f;
+      if (hero_dist(e) < 5 && same_y) {
+        e->st = SH_SLASH_ANTIC;
+        anim_play_from_frame(&e->anim, CLIP_SHADE_SLASH_ANTIC, 0);
+      } else if (roamed_off(e))
+        shade_retreat(e);
+      else if (e->t0 >= 6)
+        shade_attack_choice(e);   /* (END: Quake?, Scream?, Attack Choice) */
+      break;
+    }
+    case SH_SLASH_ANTIC:
+      if (done) {
+        /* Check Dir, Right / Left: a lunge its way; Slash */
+        e->body.vx = e->sx < 0 ? 8 : -8;
+        sh.slash_on = true;
+        anim_play_from_frame(&sh.slash, CLIP_SHADE_SLASH_EFFECT, 0);
+        anim_play_from_frame(&e->anim, CLIP_SHADE_SLASH, 0);
+        e->st = SH_SLASH, e->t0 = 0;
+      }
+      break;
+    case SH_SLASH:
+      if (e->t0 >= 0.083f) e->st = SH_SLASH_BOX;   /* (its clip may have ended meanwhile: Slash Box sees that) */
+      break;
+    case SH_SLASH_BOX:
+      if (done || !e->anim.playing) {
+        sh.slash_on = false;
+        e->st = SH_SLASH_CD;
+        anim_play_from_frame(&e->anim, CLIP_SHADE_SLASH_CD, 0);
+      }
+      break;
+    case SH_SLASH_CD:
+      if (done) shade_fly(e);
+      break;
+    case SH_FIREBALL_POS: {
+      shade_face_hero(e, CLIP_SHADE_TURNTOFLY);
+      bool same_y = fabsf(hero_y() - e->body.y) <= 0.2f, at = fabsf(hero_dist(e) - 12) <= 1;
+      if ((at && same_y) || e->t0 >= 3) {
+        e->st = SH_CAST_ANTIC, e->t0 = 0;
+        anim_play(&e->anim, CLIP_SHADE_CAST_ANTIC);
+      } else if (roamed_off(e))
+        shade_retreat(e);
+      break;
+    }
+    case SH_CAST_ANTIC:
+      if (e->t0 >= 0.5f) {
+        e->st = SH_CAST_CHARGE, e->t0 = 0;
+        anim_play(&e->anim, CLIP_SHADE_CAST_CHARGE);
+        e->body.vx = e->body.vy = 0;
+        /* Check Dir 2: it will be pushed back as it casts */
+        e->ax = e->sx < 0 ? -10 : 10;
+        e->st = SH_CHARGE_WAIT;
+      }
+      break;
+    case SH_CHARGE_WAIT:
+      if (e->t0 >= 0.25f) {
+        /* Shoot R / L: a Shadow Ball, fast its way */
+        for (int i = 0; i < MAX_BALLS; i++)
+          if (!balls[i].on) {
+            Ball *b = &balls[i];
+            float k = e->sx < 0 ? 1.0f : -1.0f;
+            b->on = true, b->ending = false, b->t = 0;
+            b->x = e->body.x + 1.764f * k, b->y = e->body.y + 0.12f, b->vx = 20 * k;
+            anim_play_from_frame(&b->anim, CLIP_SHADE_FIREBALL, 0);
+            break;
+          }
+        cam_shake(SHAKE_AVERAGE);
+        anim_play_from_frame(&e->anim, CLIP_SHADE_CAST, 0);
+        e->body.vx = e->ax;
+        e->st = SH_DECEL, e->t0 = 0;
+      }
+      break;
+    case SH_DECEL:
+      if (done) {
+        e->st = SH_COOLDOWN, e->t0 = 0;
+        anim_play(&e->anim, CLIP_SHADE_FLY);
+      }
+      break;
+    case SH_COOLDOWN:
+      if (e->t0 >= 0.25f) shade_fly(e);
+      break;
+    case SH_RETREAT_START:
+      if (done) {
+        e->body.vx = e->body.vy = 0;
+        sh.qx = e->body.x, sh.qy = e->body.y;
+        e->st = SH_RETREAT, e->t0 = 0;
+      }
+      break;
+    case SH_RETREAT: {
+      /* iTweenMoveTo its start, 1 s, easeInOutCubic */
+      float t = e->t0 >= 1 ? 1 : e->t0, k = t < 0.5f ? 4 * t * t * t : 1 - powf(-2 * t + 2, 3) / 2;
+      e->body.x = sh.qx + (e->start_x - sh.qx) * k, e->body.y = sh.qy + (e->start_y - sh.qy) * k;
+      if (e->t0 >= 1) {
+        e->st = SH_RETREAT_END;
+        anim_play_from_frame(&e->anim, CLIP_SHADE_RETREAT_END, 0);
+      }
+      break;
+    }
+    case SH_RETREAT_END:
+      if (done) {
+        anim_play(&e->anim, CLIP_SHADE_IDLE);
+        e->flags &= (uint8_t)~1;
+        e->st = SH_IDLE;
+      }
+      break;
+    /* (Hollow Shade Death) */
+    case SH_DEATH_START:
+      e->jx = rand_range(-0.1f, 0.1f), e->jy = rand_range(-0.1f, 0.1f);   /* (ObjectJitter) */
+      if (e->t0 >= 0.5f) {
+        e->jx = e->jy = 0;
+        anim_play_from_frame(&e->anim, CLIP_SHADE_DEATH, 0);
+        cam_shake(SHAKE_AVERAGE);
+        e->st = SH_DEATH_END, e->t0 = 0;
+      }
+      break;
+    case SH_DEATH_END:
+      if (e->t0 >= 0.75f) e->st = SH_DISSIPATE, e->t0 = 0;
+      break;
+    case SH_DISSIPATE:
+      if (e->t0 >= 1) {
+        hud_soul_limiter(false);   /* (Give Geo: SOUL LIMITER DOWN) */
+        e->mode = EM_OFF, sh.on = false;
+      }
+      break;
+    case SH_LEAVE_PAUSE:
+      if (e->t0 >= 2) {
+        e->body.vx = e->body.vy = 0;
+        anim_play_from_frame(&e->anim, CLIP_SHADE_DEPART, 0);
+        e->st = SH_DEPART, e->t0 = 0;
+      }
+      break;
+    case SH_DEPART:
+      if (e->t0 >= 0.6f) e->mode = EM_OFF, sh.on = false;
+      break;
+  }
+  if (sh.slash_on) anim_update(&sh.slash, DT);
+}
+
+static void balls_tick(void) {
+  for (int i = 0; i < MAX_BALLS; i++) {
+    Ball *b = &balls[i];
+    if (!b->on) continue;
+    b->t += DT;
+    b->anim.events = 0;
+    anim_update(&b->anim, DT);
+    if (!b->ending && b->t >= 1) {
+      b->ending = true;
+      anim_play_from_frame(&b->anim, CLIP_SHADE_FIREBALL_END, 0);
+    }
+    if (b->ending) {
+      b->vx *= 0.1f;
+      if (b->anim.events & ANIM_DONE) b->on = false;
+    }
+    b->x += b->vx * DT;
+  }
+}
+
 /* ---------------------------------------------------------------- the room's */
 void enemies_enter(void) {
   memset(en, 0, sizeof en);
@@ -449,6 +806,8 @@ void enemies_enter(void) {
     if (d->type != ENT_OBJ || d->flags != OK_ENEMY || persist_get(d->persist)) continue;
     Enemy *e = &en[k++];
     e->mode = EM_ALIVE, e->kind = (uint8_t)d->a, e->ent = (uint16_t)i;
+    e->damage = (int8_t)d->p1, e->geo_s = (uint8_t)d->p2, e->geo_m = (uint8_t)d->p3, e->geo_l = (uint8_t)d->group;
+    e->z = d->x1;
     e->sx = d->y1 ? d->y1 : 1;
     e->hp = (int16_t)d->p0;
     Body *b = &e->body;
@@ -460,6 +819,9 @@ void enemies_enter(void) {
     if (e->kind == EK_CRAWLER) crawler_start(e, d);
     else if (e->kind == EK_BUZZER) buzzer_start(e, d);
   }
+  memset(&sh, 0, sizeof sh);
+  memset(balls, 0, sizeof balls);
+  shade_spawn_check();
 }
 
 /* FixedUpdate and the physics step */
@@ -467,6 +829,12 @@ void enemies_fixed(void) {
   for (int i = 0; i < MAX_ENEMIES; i++) {
     Enemy *e = &en[i];
     if (e->mode == EM_OFF) continue;
+    if (e->kind == EK_SHADE) {
+      if (e->mode == EM_ALIVE) shade_fixed(e), recoil_fixed(e);
+      else shade_fixed(e);
+      if (e->st != SH_RETREAT) body_step(&e->body, DT);
+      continue;
+    }
     if (e->mode == EM_ALIVE) {
       if (e->kind == EK_CRAWLER) crawler_fixed(e);
       else if (e->kind == EK_BUZZER) buzzer_fixed(e);
@@ -498,6 +866,7 @@ void enemies_fixed(void) {
     }
   }
   geo_tick();
+  balls_tick();
 }
 
 /* Update: the FSMs' every-frame actions, the animations, the timers */
@@ -512,7 +881,10 @@ void enemies_update(void) {
       if (e->evasion > 0) e->evasion -= DT;
       if (e->ar_r > 0) sight_update(e);
       if (e->kind == EK_BUZZER) buzzer_update(e, ent_at(e->ent));
-    } else if (e->st == CS_DEATH_ANIM && !e->anim.playing)
+      else if (e->kind == EK_SHADE) shade_update(e);
+    } else if (e->kind == EK_SHADE)
+      shade_update(e);
+    else if (e->st == CS_DEATH_ANIM && !e->anim.playing)
       e->mode = EM_OFF;
   }
 }
@@ -522,9 +894,20 @@ void enemies_draw(void) {
     const Enemy *e = &en[i];
     if (e->mode == EM_OFF) continue;
     Inst in;
-    const Ent *d = ent_at(e->ent);
-    float z = e->mode == EM_CORPSE ? 0.0085f : d->x1;
-    sprite_inst(e->anim.sprite, e->body.x, e->body.y, z, e->sx, 1, flash_tint(e, 2 + i % 5), &in);
+    float z = e->mode == EM_CORPSE && e->kind != EK_SHADE ? 0.0085f : e->z;
+    if (e->kind == EK_SHADE && e->st == SH_DISSIPATE) continue;   /* (its renderer off) */
+    sprite_inst(e->anim.sprite, e->body.x + e->jx, e->body.y + e->jy, z, e->sx, 1, flash_tint(e, 2 + i % 5), &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+    if (e->kind == EK_SHADE && sh.slash_on) {
+      sprite_inst(sh.slash.sprite, e->body.x - 0.0486f * e->sx, e->body.y - 0.0117f, z - 0.001f, 1.27f * e->sx, 1, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
+  }
+  for (int i = 0; i < MAX_BALLS; i++) {
+    const Ball *b = &balls[i];
+    if (!b->on) continue;
+    Inst in;
+    sprite_inst(b->anim.sprite, b->x, b->y, -0.1f, b->vx < 0 ? -1.0f : 1.0f, 1, 0, &in);
     gfx_actor(&in, SORT_KEY(0, 0));
   }
   for (int i = 0; i < MAX_GEO; i++) {
@@ -544,7 +927,7 @@ int enemies_nail(const float *pts, int npts, float direction, int damage) {
   int out = 0;
   for (int i = 0; i < MAX_ENEMIES; i++) {
     Enemy *e = &en[i];
-    if (e->mode != EM_ALIVE) continue;
+    if (e->mode != EM_ALIVE || (e->flags & 1)) continue;
     float x0, y0, x1, y1;
     enemy_box(e, &x0, &y0, &x1, &y1);
     if (!box_meets_shape(x0, y0, x1, y1, pts, npts)) continue;
@@ -560,14 +943,31 @@ int enemies_nail(const float *pts, int npts, float direction, int damage) {
 int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side) {
   for (int i = 0; i < MAX_ENEMIES; i++) {
     const Enemy *e = &en[i];
-    if (e->mode != EM_ALIVE) continue;
-    const Ent *d = ent_at(e->ent);
-    if (d->p1 <= 0) continue;
+    if (e->mode != EM_ALIVE || e->damage <= 0 || (e->flags & 1)) continue;
     float a0, b0, a1, b1;
     enemy_box(e, &a0, &b0, &a1, &b1);
     if (x1 > a0 && x0 < a1 && y1 > b0 && y0 < b1) {
       *side = e->body.x > g_hero.body.x ? SIDE_RIGHT : SIDE_LEFT;
-      return (int)d->p1;
+      return e->damage;
+    }
+    if (e->kind == EK_SHADE && sh.slash_on) {
+      /* its Slash's polygon */
+      float pts[10];
+      for (int k = 0; k < 5; k++)
+        pts[2 * k] = e->body.x + (-0.0486f + shade_slash_pts[k][0] * 1.27f) * e->sx, pts[2 * k + 1] = e->body.y - 0.0117f + shade_slash_pts[k][1];
+      if (box_meets_shape(x0, y0, x1, y1, pts, 5)) {
+        *side = e->body.x > g_hero.body.x ? SIDE_RIGHT : SIDE_LEFT;
+        return 1;
+      }
+    }
+  }
+  for (int i = 0; i < MAX_BALLS; i++) {
+    const Ball *b = &balls[i];
+    if (!b->on || b->ending) continue;
+    float k = b->vx < 0 ? -1.0f : 1.0f, cx = b->x + 0.26f * k, cy = b->y - 0.0496f;
+    if (x1 > cx - 0.99f && x0 < cx + 0.99f && y1 > cy - 0.6204f && y0 < cy + 0.6204f) {
+      *side = b->x > g_hero.body.x ? SIDE_RIGHT : SIDE_LEFT;
+      return 1;
     }
   }
   return 0;

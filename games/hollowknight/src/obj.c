@@ -308,13 +308,14 @@ void obj_enter(void) {
   nobjs = 0;
   phys_colliders_reset();
   enemies_enter();
+  benches_enter();
   memset(pieces, 0, sizeof pieces);
   memset(swing_hit, 0, sizeof swing_hit);
   int n;
   const Ent *es = room_ents(&n);
   for (int i = 0; i < n && nobjs < MAX_OBJS; i++) {
     if (es[i].type != ENT_OBJ) continue;
-    if (es[i].flags == OK_ENEMY) continue;   /* (enemy.c's) */
+    if (es[i].flags == OK_ENEMY || es[i].flags == OK_BENCH) continue;   /* (enemy.c's, npc.c's) */
     Obj *o = &objs[nobjs++];
     memset(o, 0, sizeof *o);
     o->kind = es[i].flags, o->ent = (uint16_t)i;

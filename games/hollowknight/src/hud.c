@@ -22,7 +22,8 @@
 static struct {
   Anim mask[MAX_MASKS];
   int8_t shown_health;   /* what the masks show */
-  Anim frame, liquid, coin;
+  Anim frame, liquid, coin, burst;
+  bool burst_on;
   float liquid_grey;     /* (Liquid Control: grey while it cannot heal) */
   bool started;
   /* Slide Out: the canvas shrinks about its corner (iTweenScaleTo, 0.15 s), then goes off the screen */
@@ -38,11 +39,18 @@ void hud_slide(bool out) {
   hd.scale_from = hd.scale, hd.scale_t = 0;
 }
 
+/* the soul orb's HUD_frame (Load Animation): cracked while the soul is limited; Limiter Burst (Animate) */
+void hud_soul_limiter(bool up) {
+  anim_play_from_frame(&hd.frame, up ? CLIP_HUD_HUD_FRAME_CRACKAPPEAR : CLIP_HUD_HUD_FRAME_IDLE, 0);
+  anim_play_from_frame(&hd.burst, CLIP_HUD_SOUL_BURST, 0);
+  hd.burst_on = true;
+}
+
 void hud_reset(void) {
   memset(&hd, 0, sizeof hd);
   hd.shown_health = -1;
   hd.scale = 1, hd.scale_t = SCALE_TIME;
-  anim_play(&hd.frame, CLIP_HUD_HUD_FRAME_IDLE);
+  anim_play(&hd.frame, g_pd.soul_limited ? CLIP_HUD_HUD_FRAME_CRACKED : CLIP_HUD_HUD_FRAME_IDLE);
   anim_play(&hd.liquid, CLIP_LIQUID_IDLE);
   anim_play(&hd.coin, CLIP_HUD_COIN_IDLE);
 }
@@ -63,7 +71,14 @@ void hud_tick(void) {
     anim_update(a, DT);
     if (a->events & ANIM_DONE) anim_play(a, a->clip == CLIP_HUD_HEALTH_BREAK ? CLIP_HUD_HEALTH_EMPTY : CLIP_HUD_HEALTH_IDLE);
   }
+  hd.frame.events = 0;
   anim_update(&hd.frame, DT);
+  if ((hd.frame.events & ANIM_DONE) && hd.frame.clip == CLIP_HUD_HUD_FRAME_CRACKAPPEAR) anim_play(&hd.frame, CLIP_HUD_HUD_FRAME_CRACKED);
+  if (hd.burst_on) {
+    hd.burst.events = 0;
+    anim_update(&hd.burst, DT);
+    if (hd.burst.events & ANIM_DONE) hd.burst_on = false;
+  }
   anim_update(&hd.liquid, DT);
   anim_update(&hd.coin, DT);
   if (hd.scale_t < SCALE_TIME) {
@@ -98,6 +113,7 @@ void hud_draw(void) {
     hud_sprite(hd.liquid.sprite, FILL_X - 2.23f, y, 1, gfx_dyn_tint(9, g, g, g, 255), 1);
   }
   hud_sprite(hd.frame.sprite, ORB_X + 0.12f, ORB_Y + 0.92f, 1, white, 0);
+  if (hd.burst_on) hud_sprite(hd.burst.sprite, ORB_X - 0.715f, ORB_Y + 0.4318f, 1, white, 0);
   /* the masks */
   int max = g_pd.max_health > MAX_MASKS ? MAX_MASKS : g_pd.max_health;
   for (int i = 0; i < max; i++) hud_sprite(hd.mask[i].sprite, HEALTH_X - 10.32f + 0.94f * i, HEALTH_Y + 7.7f, 1, white, 0);

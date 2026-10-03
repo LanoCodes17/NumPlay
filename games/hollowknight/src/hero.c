@@ -827,10 +827,22 @@ void hero_draw(void) {
   slash_draw();
 }
 
-/* (the Knight dying: for now, as a hazard) */
+/* HeroController.Die: the Knight still and unseen, his Hero Death object in his place (death.c) */
 void hero_die(void) {
-  g_pd.health = g_pd.max_health;
-  die_from_hazard();
+  Hero *h = &g_hero;
+  if (h->cs.dead) return;
+  g_pd.disable_pause = true;
+  h->body.vx = h->body.vy = 0;
+  cancel_recoil_horizontal();
+  affected_by_gravity(false);
+  set_state(HS_NO_INPUT);
+  h->cs.dead = true;
+  reset_motion();
+  h->hard_landing_timer = 0;
+  h->hidden = true;
+  spell_cancel();
+  slash_cancel();
+  death_start(h->body.x, h->body.y, h->cs.facing_right);
 }
 
 /* ---------------------------------------------------------------- NailSlash: the slash effect, a child of the Knight */
@@ -1282,8 +1294,37 @@ void hero_hazard_respawn(void) {
   cam_snap_to_hero();
 }
 
+/* HeroController.Respawn's end, the Knight not on a bench: he wakes up on the ground (Wake Up Ground), then has control */
+void hero_wake_up_ground(void) {
+  Hero *h = &g_hero;
+  anim_play_from_frame(&h->anim, CLIP_KNIGHT_WAKE_UP_GROUND, 0);
+  h->anim_control = false;
+  h->control_relinquished = true;
+  h->wake_timer = clip_duration(CLIP_KNIGHT_WAKE_UP_GROUND);
+}
+
+void hero_face(bool right) {
+  if (right) face_right();
+  else face_left();
+}
+void hero_gravity(bool on) { affected_by_gravity(on); }
+void hero_max_health(void) { g_pd.health = g_pd.max_health; }
+
+/* FindGroundPoint: where the Knight stands on the ground below (x, y) (no ground: there) */
+float hero_ground_y(float x, float y) {
+  PhysHit hit;
+  if (!phys_ray(x, y, 0, -1, 10, CF_TERRAIN, &hit)) return y;
+  return hit.y + g_hero.body.hy - g_hero.body.oy + 0.01f;
+}
+
 static void respawn_tick(void) {
   Hero *h = &g_hero;
+  if (h->wake_timer > 0 && (h->wake_timer -= DT) <= 0) {
+    h->anim_control = true;
+    h->anim_state = h->state;
+    h->control_relinquished = false;
+    hero_finished_entering_scene(true);
+  }
   if (!h->respawning) return;
   h->respawn_timer -= DT;
   if (h->respawn_timer > 0) return;

@@ -13,8 +13,12 @@ void game_new(void) {
   g_pd.max_mp = 99;
   g_pd.nail_damage = 5;
   g_pd.can_dash = false;
+  g_pd.charm_slots = 3;
+  strcpy(g_pd.respawn_scene, "Tutorial_01");
+  strcpy(g_pd.respawn_marker, "Death Respawn Marker");
   dialogue_reset();
   prompts_reset();
+  death_reset();
 }
 
 bool game_enter(int room, float x, float y, bool facing_right) {
@@ -26,6 +30,45 @@ bool game_enter(int room, float x, float y, bool facing_right) {
   cam_init();
   world_hero_in_position();
   g_game.hazard_x = x, g_game.hazard_y = y, g_game.hazard_facing_right = facing_right;
+  return true;
+}
+
+/* HeroController.Respawn, as GameManager starts it: the respawn scene, the Knight at its marker (on the ground below),
+ * health back, soul gone; on a bench he wakes on it, else on the ground */
+bool game_respawn(void) {
+  int room = -1;
+  for (int i = 0; i < NUM_ROOMS && room < 0; i++)
+    if (!strcmp(room_name(i), g_pd.respawn_scene)) room = i;
+  if (room < 0 || !room_load(room)) return false;
+  memset(inside, 0, sizeof inside);
+  prompts_reset();
+  world_enter();
+  float x = g_room.h->w / 2, y = g_room.h->h / 2;
+  bool right = g_pd.respawn_facing_right;
+  int n;
+  const Ent *es = room_ents(&n);
+  for (int i = 0; i < n; i++)
+    if (es[i].type == ENT_RESPAWN && !strcmp(str_at(es[i].s0), g_pd.respawn_marker)) {
+      x = es[i].x0, y = es[i].y0;
+      if (g_pd.respawn_type != 1) right = es[i].flags & FACING_RIGHT;
+      break;
+    }
+  hero_init(x, y, right);
+  g_hero.body.y = hero_ground_y(x, y);
+  g_pd.health = g_pd.max_health;
+  g_pd.mp = 0;   /* (ClearMP) */
+  g_game.hazard_x = g_hero.body.x, g_game.hazard_y = g_hero.body.y, g_game.hazard_facing_right = right;
+  world_hero_in_position();
+  if (g_pd.respawn_type == 1) {
+    /* (FinishedEnteringScene, then the bench's RESPAWN) */
+    hero_finished_entering_scene(true);
+    if (!bench_respawn(g_pd.respawn_marker)) hero_wake_up_ground();
+  } else
+    hero_wake_up_ground();
+  cam_init();
+  /* (the camera's RESPAWN: from black) */
+  g_game.fade = 1, g_screen_fade = 255;
+  game_fade(0, 0.5f, 0.1f);
   return true;
 }
 
@@ -244,7 +287,9 @@ static void step(uint32_t keys) {
   triggers_tick();
   hero_check_damage();
   hero_update();
+  death_tick();
   world_tick();
+  benches_tick();
   prompts_tick();
   dialogue_tick();
   hazard_tick();
@@ -272,5 +317,6 @@ void game_draw(void) {
   prompts_draw();
   obj_draw();
   hero_draw();
+  death_draw();
   gfx_frame();
 }

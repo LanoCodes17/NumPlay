@@ -17,7 +17,7 @@ KNIGHT = ("resources.assets", 20600, [
     "Map Away", "Map Update", "Enter", "Exit", "Exit Door To Idle", "TurnToBG", "TurnFromBG", "Roar Lock",
     "Prostrate", "Prostrate Rise", "Wake Up Ground", "Collect Normal 1", "Collect Normal 2", "Collect Normal 3",
     "Collect Magical 1", "Collect Magical 2", "Collect Magical 3", "Collect Magical Fall", "Collect Magical Land",
-    "Collect Heart Piece", "Collect Heart Piece End", "Collect StandToIdle", "GetUpToIdle",
+    "Collect Heart Piece", "Collect Heart Piece End", "Collect StandToIdle", "GetUpToIdle", "Death Head Cracked",
 ])
 
 # enemies: their libraries (all their clips)
@@ -29,13 +29,19 @@ ACTORS = {"knight": KNIGHT,
           # the HUD: drawn by its own camera, 11.48 pixels a unit (scenes: K0), masks at 0.7135
           "hud": ("resources.assets", 20665, ["Health Empty", "Health Idle", "Health Break", "Health Refill", "Health Appear",
                                               "Blue Appear", "Blue Idle", "Blue Break", "HUD Frame", "HUD Frame Idle",
-                                              "Coin Appear", "Coin Idle", "Coin Get", "Soul Burst"]),
+                                              "HUD Frame CrackAppear", "HUD Frame Cracked", "Coin Appear", "Coin Idle",
+                                              "Coin Get", "Soul Burst"]),
           "liquid": ("resources.assets", 20843, None),
           "geo": ("resources.assets", 23266, ["Small Idle", "Small Air", "Med Idle", "Med Air", "Large Idle", "Large Air"]),
           # the dialogue box (on the HUD, a third bigger with its text) and the prompt markers
           "dialogue": ("resources.assets", 20724, ["Arrow Up", "Arrow Down", "Stop Up", "Stop Down", "Fleur Top Up",
                                                    "Fleur Top Down", "Fleur Bot Up", "Fleur Bot Down"]),
-          "prompt": ("resources.assets", 23333, ["Up", "Down", "Blank"])}
+          "prompt": ("resources.assets", 23333, ["Up", "Down", "Blank"]),
+          # the shade (Hollow Shade, and the Hero Death's rising one)
+          "shade": ("resources.assets", 22801, ["Idle", "Startle", "Fly", "TurnToFly", "TurnToIdle", "Slash Antic", "Slash",
+                                                 "Slash CD", "Slash Effect", "Cast Antic", "Cast Charge", "Cast",
+                                                 "Retreat Start", "Retreat End", "Death Start", "Death", "Depart",
+                                                 "Appear", "Fireball", "Fireball End", "Cast Ring"])}
 
 # sprites of prefab objects the game draws itself: name -> (file, prefab, object, resolution)
 NAMED = {
@@ -43,6 +49,7 @@ NAMED = {
     # (these at a scale of their own: the box's, with its text's; the shadow's x)
     "DIALOGUE_BACKBOARD": ("resources.assets", 4446, "DialogueManager/DialogueBox/backboard", "hud", 2.325 * text.TEXT_K),
     "PROMPT_SHADOW": ("resources.assets", 8342, "Arrow Prompt New/Shadow", 1.0, 0.8),
+    "CORPSE_NAIL": ("resources.assets", 6648, "Corpse Nail Hero", 1.0),
 }
 
 

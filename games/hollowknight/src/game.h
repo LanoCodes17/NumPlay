@@ -4,22 +4,53 @@
 
 /* ---------------------------------------------------------------- PlayerData (what a save keeps) */
 #define MAX_PERSIST 1024
+#define SCENE_NAME 32
+/* the game's many bools (PlayerData's), by number: new ones only ever added at the end (saves keep them) */
+enum {
+  PDF_AT_BENCH, PDF_HAS_MAP, PDF_HAS_QUILL, PDF_HAS_CHARM, PDF_CHARM_BENCH_MSG, PDF_MET_ELDERBUG, PDF_VISITED_CROSSROADS,
+  PDF_COUNT
+};
 typedef struct {
-  uint8_t persist[MAX_PERSIST / 8];   /* the objects' states (PersistentBoolItem) */
-  int8_t health, max_health, health_blue;
+  /* (saved: the layout only ever grows into reserved) */
+  int8_t health, max_health, health_blue, nail_damage;
   int16_t mp, mp_reserve, max_mp, mp_reserve_max;
   int32_t geo;
-  int8_t nail_damage;
-  bool can_dash, has_spell, has_dash;
-  uint8_t fireball_level;
+  uint8_t fireball_level, charm_slots, respawn_type;
+  bool can_dash, has_dash, has_spell, respawn_facing_right, soul_limited;
+  char respawn_scene[SCENE_NAME], respawn_marker[SCENE_NAME];
+  /* the shade: where the Knight died, what it keeps */
+  char shade_scene[SCENE_NAME];
+  float shade_x, shade_y;
+  int8_t shade_health, shade_fireball_level;
+  int16_t shade_mp;
+  int32_t geo_pool;
+  float play_time;
+  uint8_t flags[32];      /* PDF_* */
+  uint8_t reserved[64];
+  /* (saved apart, by the objects' names: their states) */
+  uint8_t persist[MAX_PERSIST / 8];
+  /* (not saved) */
   bool disable_pause;
 } PlayerData;
+#define PD_SAVED offsetof(PlayerData, persist)
 extern PlayerData g_pd;
+static inline bool pd_flag(int f) { return g_pd.flags[f >> 3] >> (f & 7) & 1; }
+static inline void pd_set_flag(int f, bool on) {
+  if (on) g_pd.flags[f >> 3] |= (uint8_t)(1 << (f & 7));
+  else g_pd.flags[f >> 3] &= (uint8_t)~(1 << (f & 7));
+}
+/* the saves (save.c): GameManager.SaveGame, LoadGame; a slot's file */
+#define SAVE_SLOTS 4
+bool save_game(void);
+bool save_load(int slot);
+bool save_exists(int slot);
+void save_select(int slot);
+void save_set_respawn(const char *marker, bool facing_right);   /* (Bench Control's Rest Burst) */
 
 /* ---------------------------------------------------------------- the room's game objects (tools/ents.py) */
 enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE,
-       ENT_BOX, ENT_OBJ, ENT_PIECE };   /* (shape, box, piece: more of the record before) */
-enum { OK_BREAKABLE = 1, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST };   /* objects (ENT_OBJ's flags) */
+       ENT_BOX, ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER };   /* (shape, box, piece: more of the record before) */
+enum { OK_BREAKABLE = 1, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH };   /* objects (ENT_OBJ's flags) */
 enum { HB_BOUNCE = 1, HB_RECOIL = 2 };    /* a hit box (ENT_BOX's flags): a down slash bounces off it, a slash recoils */
 enum { HAZ_NONE, HAZ_NORMAL, HAZ_SPIKES, HAZ_ACID, HAZ_LAVA, HAZ_PIT };   /* DamageHero.hazardType */
 enum { MK_SECRET = 1, MK_REMASK = 2, MK_SIMPLE = 4 };   /* masks: the unmasker, remasker and inverse FSMs */
@@ -63,6 +94,7 @@ void enemies_draw(void);
 void enemies_swing_start(void);
 int enemies_nail(const float *pts, int npts, float direction, int damage);
 int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side);   /* -> its damage, 0: none */
+void enemies_hero_leave(void);   /* HERO LEAVE (the Knight dead): the shade departs */
 /* geo of a size (0 small, 1 medium, 2 large) flung from (x, y), each from a little about it (FlingUtils) */
 void geo_fling_at(int type, int n, float x, float y, float smin, float smax, float amin, float amax, float spread);
 int cardinal(float degrees);            /* DirectionUtils.GetCardinalDirection */
@@ -139,7 +171,7 @@ typedef struct {
   bool hidden, hit_buffered, enter_without_input;
   int16_t entry_gate;   /* the record of the gate it came in by (-1: none) */
   int8_t buffered_side, buffered_damage, buffered_hazard;
-  float invuln_freeze, invuln_time, pulse_t, recoil_timer2, respawn_timer;
+  float invuln_freeze, invuln_time, pulse_t, recoil_timer2, respawn_timer, wake_timer;
   bool invuln_routine, pulsing, pulse_reverse, respawning;
   int8_t thunk_dir;
   bool thunk_hit;
@@ -177,6 +209,23 @@ void hero_stop_anim_control(void);     /* StopAnimationControl, StartAnimationCo
 void hero_start_anim_control(void);
 bool hero_can_focus(void);
 bool hero_can_cast(void);
+void hero_face(bool right);           /* FaceRight, FaceLeft */
+void hero_gravity(bool on);           /* AffectedByGravity */
+void hero_max_health(void);           /* MaxHealth */
+float hero_ground_y(float x, float y);   /* FindGroundPoint */
+void hero_wake_up_ground(void);
+
+/* the Knight's death (death.c): his Hero Death object, GameManager.PlayerDead, then the respawn */
+void death_start(float x, float y, bool facing_right);
+void death_reset(void);
+void death_tick(void);
+void death_draw(void);
+void shade_spawn_check(void);   /* (SceneManager: the shade where the Knight died, if this is that room) */
+
+/* benches (npc.c) */
+void benches_enter(void);
+void benches_tick(void);
+bool bench_respawn(const char *name);   /* RESPAWN: the Knight asleep on the bench so named */
 
 /* the Spell Control FSM (spell.c): focus, spells */
 void spell_reset(void);
@@ -197,6 +246,7 @@ void fx_dash_burst(float x, float y, bool facing_right, bool on_ground);
 
 void game_new(void);
 bool game_enter(int room, float x, float y, bool facing_right);
+bool game_respawn(void);   /* the Knight at the save's respawn point (a loaded game, after dying) */
 void game_tick(uint32_t keys);   /* 1/50 s */
 void game_draw(void);
 
@@ -226,6 +276,7 @@ void prompts_draw(void);
 /* ---------------------------------------------------------------- the HUD (hud.c) */
 void hud_reset(void);
 void hud_slide(bool out);   /* the Hud Canvas's Slide Out FSM: OUT, IN */
+void hud_soul_limiter(bool up);   /* SOUL LIMITER UP, DOWN: the soul orb cracked or whole */
 void hud_tick(void);
 void hud_draw(void);
 

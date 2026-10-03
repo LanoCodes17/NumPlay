@@ -6,9 +6,9 @@ import numpy as np
 
 # record types (src/game.h: ENT_*)
 ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE, ENT_BOX, \
-    ENT_OBJ, ENT_PIECE = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+    ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
 # objects (ENT_OBJ's flags: src/obj.c)
-OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST = 1, 2, 3, 4, 5
+OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH = 1, 2, 3, 4, 5, 6
 # enemies (an OK_ENEMY's a: src/enemy.c), by their FSM and animation library
 EK_CRAWLER, EK_BUZZER = 1, 2
 ENEMIES = {("Crawler", 1113): EK_CRAWLER, ("chaser", 1150): EK_BUZZER}
@@ -29,14 +29,27 @@ NO_PERSIST = 0xFFFF
 class Persist:
     """The objects whose state a save keeps (PersistentBoolItem): one bit each (or a few: a number)."""
     def __init__(self):
-        self.keys, self.n = {}, 0
+        self.keys, self.n, self.bits = {}, 0, []
 
     def id(self, room, path, bits=1):
         if (room, path) not in self.keys:
             self.keys[(room, path)] = self.n
+            self.bits.append(bits)
             self.n += bits
             assert self.n <= 1024, self.n   # (src/game.h: MAX_PERSIST)
         return self.keys[(room, path)]
+
+    def blob(self):
+        """PHASH: each bit's name (a CRC of its room, object and bit), as saves keep them: the same objects across
+        versions of the game's data"""
+        import zlib
+        out = [0] * self.n
+        for (room, path), first in self.keys.items():
+            n = self.bits[list(self.keys).index((room, path))]
+            for k in range(n):
+                out[first + k] = zlib.crc32(("%s|%s|%d" % (room, path, k)).encode()) or 1
+        assert len(set(out)) == len(out)
+        return struct.pack("<I%dI" % len(out), len(out), *out)
 
 
 class Strings:
@@ -416,6 +429,12 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
                 x, y = o["pos"][:2]
                 recs.append(rec(ENT_RESPAWN, FACING_RIGHT if v.get("respawnFacingRight") else 0, (x, y, x, y),
                                 s0=strings.id(o["name"])))
+        f = _fsm(o, ("Spawn Offset",))
+        if f:
+            # (where a shade goes when the Knight dies near: the marker and its offset; its special type)
+            var = lambda k, dflt: (f.get("vars", {}).get(k) or [0, dflt])[1]
+            x, y = o["pos"][0] + var("X", 0), o["pos"][1] + var("Y", 0)
+            recs.append(rec(ENT_SHADE_MARKER, box=(x, y, o["pos"][0], o["pos"][1]), a=var("Special Type", 0)))
     for o in objs:
         f = _fsm(o, ("unmasker", "remasker", "remasker_inverse"))
         if f:
@@ -431,6 +450,23 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
                                 persist=persist.id(name, o["path"]) if persistent else NO_PERSIST))
                 recs += _more_boxes(o)
         classes = {c.get("class") for c in o["c"]}
+        f = _fsm(o, ("Bench Control",))
+        if f:
+            # a bench: its place, the Knight's offset sitting, its prompt's place; its Lit and Light sprites' groups
+            # (they glow with the Knight near); then its own trigger (Rest) and its Detect Range's
+            var = lambda k, dflt: (f.get("vars", {}).get(k) or [0, dflt])[1]
+            adj = var("Adjust Vector", [0, 0, 0])
+            kids = {by_id[c]["name"]: by_id[c] for c in o.get("children", [])}
+            pm = kids.get("Prompt Marker")
+            g_lit = new_group(kids["Lit"]["id"]) if "Lit" in kids else 0
+            g_light = new_group(kids["Light"]["id"]) if "Light" in kids else 0
+            box = _trigger(o) or (0, 0, 0, 0)
+            dr = _trigger(kids["Detect Range"]) if "Detect Range" in kids else None
+            recs.append(rec(ENT_OBJ, OK_BENCH, (o["pos"][0], o["pos"][1], adj[0], adj[1]),
+                            (pm["pos"][0] if pm else o["pos"][0], pm["pos"][1] if pm else o["pos"][1] + 3, 0, 0),
+                            group=g_lit, group2=g_light, s0=strings.id(o["name"])))
+            recs.append(rec(ENT_BOX, 0, box))
+            recs.append(rec(ENT_BOX, 0, dr or box))
         en = _enemy(o, by_id, persist, name) or _props(d, o, by_id, rooms, strings, persist, sprites, owners, name)
         if en:
             recs += en

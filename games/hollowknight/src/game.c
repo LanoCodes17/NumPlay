@@ -245,6 +245,7 @@ static void step(uint32_t keys) {
   fade_tick();
   hero_late_update();
   cam_tick();
+  hud_tick();
 }
 
 void game_tick(uint32_t keys) {
@@ -260,6 +261,7 @@ void game_tick(uint32_t keys) {
 }
 
 void game_draw(void) {
+  hud_draw();
   obj_draw();
   hero_draw();
   gfx_frame();

@@ -96,8 +96,8 @@ def sprite_image(path, col, sid):
     y0, y1 = round((1 - max(vs)) * H), round((1 - min(vs)) * H)
     crop = img.crop((x0, y0, x1, y1))
     if d["flipped"]:
-        # tk2d stores some sprites turned in the atlas
-        crop = crop.transpose(Image.Transpose.ROTATE_90).transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+        # tk2d stores some sprites turned in the atlas: their x along its v, their y along its u
+        crop = crop.transpose(Image.Transpose.TRANSVERSE)
     pos = d["positions"]
     px = [p["x"] for p in pos]
     py = [p["y"] for p in pos]

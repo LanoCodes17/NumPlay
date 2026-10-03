@@ -186,6 +186,11 @@ bool game_enter(int room, float x, float y, bool facing_right);
 void game_tick(uint32_t keys);   /* 1/50 s */
 void game_draw(void);
 
+/* ---------------------------------------------------------------- the HUD (hud.c) */
+void hud_reset(void);
+void hud_tick(void);
+void hud_draw(void);
+
 /* ---------------------------------------------------------------- the camera (camera.c) */
 void cam_init(void);
 void cam_tick(void);

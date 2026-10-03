@@ -194,6 +194,10 @@ void gfx_frame(void);            /* draws the room at the camera into the screen
 /* a sprite of the Knight, an enemy, an effect... for the next frame, among the room's by its sorting layer and order
  * (SORT_KEY), then depth */
 bool gfx_actor(const Inst *in, uint32_t group);
+/* the HUD: a sprite in front of all, placed in HUD units from the screen's center (its camera's: 8.7107 units half
+ * height), not graded nor faded with the room (tints from HUD_TINT); clip: 0, or 1 + a circle it is drawn in */
+bool gfx_hud(const Inst *in, int clip);
+void gfx_hud_clip(int clip, float x, float y, float r);
 uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a);   /* a tint (for Inst.tint) of that color */
 /* the same, flashing: its colors towards (fr, fg, fb) by amount (SpriteFlash) */
 uint8_t gfx_dyn_flash(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a, uint8_t fr, uint8_t fg, uint8_t fb, uint8_t amount);

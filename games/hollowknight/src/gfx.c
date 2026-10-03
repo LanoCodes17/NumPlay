@@ -40,8 +40,16 @@ typedef struct {
   uint8_t y0, y1;
   uint8_t pal;
   int8_t cty;        /* the tile row whose slots the arena holds */
+  uint8_t clip;      /* (HUD: 1 + its clip circle) */
   uint16_t ar;       /* its tiles (a row of them, or all if turned), in the arena */
 } Item;
+
+/* the HUD's clip circles */
+typedef struct {
+  float cx, cy, r;   /* screen pixels */
+} HudClip;
+#define MAX_HUD_CLIPS 4
+static HudClip hud_clips[MAX_HUD_CLIPS];
 #ifndef ARENA
 #define ARENA 2048
 #endif
@@ -84,15 +92,21 @@ static void make_luts(void) {
   for (int i = 0; i < NPAL; i++) pals[i].key = 0xFFFFFFFF;
 }
 
+static bool grade_off;   /* (the HUD's tints: the room's grading not for them) */
+#define HUD_TINT 248      /* (dynamic tints from here on are the HUD's) */
+
 static uint32_t grade(float r, float g, float b, float a) {
   /* r g b a: 0..1 straight */
   int ri = (int)(r * 255 + 0.5f), gi = (int)(g * 255 + 0.5f), bi = (int)(b * 255 + 0.5f);
   if (ri > 255) ri = 255;
   if (gi > 255) gi = 255;
   if (bi > 255) bi = 255;
-  float R = lut3[0][ri], G = lut3[1][gi], B = lut3[2][bi];
-  float L = 0.2126f * R + 0.7152f * G + 0.0722f * B;
-  R = L + (R - L) * room_sat, G = L + (G - L) * room_sat, B = L + (B - L) * room_sat;
+  float R = ri, G = gi, B = bi;
+  if (!grade_off) {
+    R = lut3[0][ri], G = lut3[1][gi], B = lut3[2][bi];
+    float L = 0.2126f * R + 0.7152f * G + 0.0722f * B;
+    R = L + (R - L) * room_sat, G = L + (G - L) * room_sat, B = L + (B - L) * room_sat;
+  }
   R = R < 0 ? 0 : R > 255 ? 255 : R;
   G = G < 0 ? 0 : G > 255 ? 255 : G;
   B = B < 0 ? 0 : B > 255 ? 255 : B;
@@ -155,6 +169,7 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
   Pal *p = &pals[s];
   p->key = key, p->frame = pal_frame;
   const uint8_t *t = tint_rgba(tint);
+  grade_off = tint >= HUD_TINT;
   p->solid = alpha == 255;
   float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f, ta = alpha / 255.0f;
   if (flags & F_LIT) {
@@ -244,6 +259,7 @@ static const uint32_t *soft_get(uint16_t tex, uint8_t tint, uint8_t flags, uint3
     const float *am = g_room.h->ambient;
     tr *= am[0], tg *= am[1], tb *= am[2];
   }
+  grade_off = tint >= HUD_TINT;
   for (int i = 0; i < n; i++) {
     const uint8_t *c = (const uint8_t *)&px[i];   /* premultiplied r g b a bytes */
     int a = c[3];
@@ -765,6 +781,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
         float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f;
         if (in->flags & F_LIT) tr *= g_room.h->ambient[0], tg *= g_room.h->ambient[1], tb *= g_room.h->ambient[2];
         uint32_t base = c.r->map_off;
+        grade_off = in->tint >= HUD_TINT;
         uint32_t col = grade((base & 255) / 255.0f * tr, (base >> 8 & 255) / 255.0f * tg, (base >> 16 & 255) / 255.0f * tb, 1);
         crb = col & 0xFF00FF, cg = col & 0xFF00, ta = inst_alpha(in) + 1u;
       }
@@ -806,8 +823,19 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
         for (int i = 0; i < c.r->tw; i++) tp[i] = UNRES_SLOT;
       }
     }
-    while (x < it->x1) {
-      int e = closed_from(cv, x, it->x1);
+    int xe = it->x1;
+    if (it->clip) {
+      /* (a circle: this row's span of it) */
+      const HudClip *k = &hud_clips[it->clip - 1];
+      float dy = y + 0.5f - k->cy, w2 = k->r * k->r - dy * dy;
+      if (w2 <= 0) continue;
+      float w = sqrtf(w2);
+      int ca = (int)(k->cx - w + 0.5f), cb = (int)(k->cx + w + 0.5f);
+      if (cb < xe) xe = cb;
+      if (ca > x) x = open_from(cv, ca, it->x1);
+    }
+    while (x < xe) {
+      int e = closed_from(cv, x, xe);
       COUNT_PX(kind, e - x);
 #ifdef HOST
       if (kind == 3) COUNT_PX(5, (e - x) * (c.r->fmt == FMT_SOFTA ? 1 : 0) * (m.rot ? 1 : 0));
@@ -819,7 +847,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
         case 3: run_soft(&c, y, x, e, soft, crb, cg, ta); break;
         default: run_bilinear(&c, y, x, e, &bt); break;
       }
-      x = open_from(cv, e, it->x1);
+      x = open_from(cv, e, xe);
     }
   }
 }
@@ -864,6 +892,7 @@ static void draw_bg_item(Item *it) {
       float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f;
       if (in->flags & F_LIT) tr *= g_room.h->ambient[0], tg *= g_room.h->ambient[1], tb *= g_room.h->ambient[2];
       uint32_t base = r->map_off;
+      grade_off = in->tint >= HUD_TINT;
       uint32_t c = grade((base & 255) / 255.0f * tr, (base >> 8 & 255) / 255.0f * tg, (base >> 16 & 255) / 255.0f * tb, 1);
       crb = c & 0xFF00FF, cg = c & 0xFF00, ta = inst_alpha(in) + 1u;
     }
@@ -959,16 +988,6 @@ __attribute__((noinline)) static void finish_strip(int sy0, int rows) {
   }
 #endif
   uint16_t *out = (uint16_t *)(void *)arb;   /* in place: each 16-bit pixel goes where its 32-bit one was read */
-  if (g_screen_fade) {
-    /* (the camera fading to black: the light, and the background, dimmed) */
-    uint32_t k = 255u - g_screen_fade;
-    for (int p = 0; p < NPX; p++) {
-      uint32_t rb = arb[p];
-      arb[p] = ((rb >> 16) * k / 255) << 16 | ((rb & 0xFFFF) * k / 255);
-      ag[p] = (uint16_t)(ag[p] * k / 255);
-      trans[p] = (uint8_t)(trans[p] * k / 255);
-    }
-  }
   for (int y = 0; y < rows; y++) {
     int sy = sy0 + y;
     if (bg_on) {
@@ -1053,6 +1072,26 @@ typedef struct {
 static Actor actors[MAX_ACTORS];
 static int nactors;
 
+/* the HUD: in front of all, its own camera's (not graded with the room, not faded) */
+#define MAX_HUD 48
+static Inst hud[MAX_HUD];
+static uint8_t hud_clip_of[MAX_HUD];
+static int nhud;
+#define HUD_Z (-1.342f)   /* (where the room's camera sees as much as the HUD's, 8.7107 units half height) */
+
+bool gfx_hud(const Inst *in, int clip) {
+  if (nhud >= MAX_HUD) return false;
+  hud_clip_of[nhud] = (uint8_t)clip;
+  hud[nhud++] = *in;
+  return true;
+}
+
+void gfx_hud_clip(int clip, float x, float y, float r) {
+  /* (HUD units, from the screen's center, to pixels) */
+  float k = FOCAL / (HUD_Z - CAM_Z);
+  hud_clips[clip - 1] = (HudClip){VIEW_W / 2 + x * k, VIEW_H / 2 - y * k, r * k};
+}
+
 bool gfx_actor(const Inst *in, uint32_t group) {
   if (nactors >= MAX_ACTORS) return false;
   /* kept in draw order: sorting layer and order, then far first */
@@ -1063,25 +1102,27 @@ bool gfx_actor(const Inst *in, uint32_t group) {
   return true;
 }
 
-static void add_item(const Inst *in, float blur_z) {
+static bool add_item(const Inst *in, float blur_z) {
   Item cur;
   cur.in = *in;
+  cur.clip = 0;
   uint32_t alpha = inst_alpha(in);
-  if (!alpha) return;   /* (a hidden group, or a clear tint) */
-  if (!item_box(&cur.in, &cur)) return;
+  if (!alpha) return false;   /* (a hidden group, or a clear tint) */
+  if (!item_box(&cur.in, &cur)) return false;
   cur.pal = (uint8_t)pal_get(cur.in.flags & F_SOLID ? TEX_NONE : cur.in.tex, cur.in.tint, cur.in.flags, alpha);
   if (cur.in.z * (1.0f / 128) > blur_z) {
     arena_take(&cur, false);
     if (!bg_on) memset(bgbuf, 0, sizeof bgbuf), bg_on = true;
     draw_bg_item(&cur);
-    return;
+    return false;
   }
   if (nitems >= MAX_ITEMS) {
     g_gfx_dropped++;   /* (never in the game's rooms: checked by tests) */
-    return;
+    return false;
   }
   arena_take(&cur, true);
   items[nitems++] = cur;
+  return true;
 }
 
 void gfx_frame(void) {
@@ -1108,6 +1149,15 @@ void gfx_frame(void) {
   }
   while (na < nactors) add_item(&actors[na++].in, blur_z);
   nactors = 0;
+  /* the HUD's, in front (HUD units from the screen's center: where the camera is) */
+  int nscene = nitems;
+  for (int i = 0; i < nhud; i++) {
+    Inst in = hud[i];
+    in.ax = (int16_t)(in.ax + (int)lrintf(g_cam_x * 64)), in.ay = (int16_t)(in.ay + (int)lrintf(g_cam_y * 64));
+    in.z = (int16_t)lrintf(HUD_Z * 128);
+    if (add_item(&in, 1e9f)) items[nitems - 1].clip = hud_clip_of[i];
+  }
+  nhud = 0;
   g_gfx_items = (uint32_t)nitems;
   if (!strip_ready) {
     memset(arb, 0, sizeof arb), memset(ag, 0, sizeof ag), memset(trans, 255, sizeof trans);
@@ -1129,8 +1179,20 @@ void gfx_frame(void) {
   for (int sy0 = 0; sy0 < VIEW_H; sy0 += STRIP_H) {
     int sy1 = sy0 + STRIP_H;
     memset(cov, 0, sizeof cov);
-    for (int i = nitems - 1; i >= 0; i--)
+    for (int i = nitems - 1; i >= nscene; i--)
       if (items[i].y0 < sy1 && items[i].y1 > sy0) draw_item(i, &items[i], sy0, sy1);
+    if (g_screen_fade) {
+      /* (the camera fading to black: a black layer between the HUD and the room) */
+      uint32_t k = 255u - g_screen_fade;
+      for (int p = 0; p < NPX; p++) {
+        uint32_t t = trans[p] * k / 255;
+        if (t < 2 && trans[p] >= 2) t = 0, cover(p / VIEW_W, p % VIEW_W);
+        trans[p] = (uint8_t)t;
+      }
+    }
+    if (g_screen_fade < 255)
+      for (int i = nscene - 1; i >= 0; i--)
+        if (items[i].y0 < sy1 && items[i].y1 > sy0) draw_item(i, &items[i], sy0, sy1);
     finish_strip(sy0, STRIP_H);
   }
 #ifdef HOST

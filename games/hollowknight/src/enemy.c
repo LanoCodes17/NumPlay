@@ -524,7 +524,7 @@ void enemies_draw(void) {
     Inst in;
     const Ent *d = ent_at(e->ent);
     float z = e->mode == EM_CORPSE ? 0.0085f : d->x1;
-    sprite_inst(e->anim.sprite, e->body.x, e->body.y, z, e->sx, 1, flash_tint(e, 2 + i % 8), &in);
+    sprite_inst(e->anim.sprite, e->body.x, e->body.y, z, e->sx, 1, flash_tint(e, 2 + i % 6), &in);
     gfx_actor(&in, SORT_KEY(0, 0));
   }
   for (int i = 0; i < MAX_GEO; i++) {

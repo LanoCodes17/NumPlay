@@ -26,6 +26,11 @@ ACTORS = {"knight": KNIGHT,
           "buzzer": ("sharedassets6.assets", 1150, None),
           "georock": ("sharedassets6.assets", 1149, None),
           "chest": ("sharedassets6.assets", 1148, None),
+          # the HUD: drawn by its own camera, 11.48 pixels a unit (scenes: K0), masks at 0.7135
+          "hud": ("resources.assets", 20665, ["Health Empty", "Health Idle", "Health Break", "Health Refill", "Health Appear",
+                                              "Blue Appear", "Blue Idle", "Blue Break", "HUD Frame", "HUD Frame Idle",
+                                              "Coin Appear", "Coin Idle", "Coin Get", "Soul Burst"]),
+          "liquid": ("resources.assets", 20843, None),
           "geo": ("resources.assets", 23266, ["Small Idle", "Small Air", "Med Idle", "Med Air", "Large Idle", "Large Air"])}
 
 # sprites of prefab objects the game draws itself: name -> (file, prefab, object, resolution)
@@ -48,6 +53,10 @@ def named_sprites(sprites):
 DRAWN_SCALE = {"SlashEffect": 1.645, "SlashEffectAlt": 1.422, "UpSlashEffect": 1.4, "DownSlashEffect": 1.28,
                "Small Idle": 1.5, "Small Air": 1.5, "Med Idle": 1.5, "Med Air": 1.5, "Large Idle": 1.5, "Large Air": 1.5}
 K0 = scene.FOCAL / (0.004 - scene.CAMZ)   # screen pixels a unit, where actors are (z near 0)
+HUD_K = (scene.VIEW_H / 2) / 8.7107        # the HUD's (its orthographic camera)
+# (actor, clip): drawn bigger or smaller than their sprites
+ACTOR_SCALE = {"hud": HUD_K / K0, "liquid": 1.4 * HUD_K / K0}
+HUD_MASK = 0.7135
 
 
 def clip_id(actor, name):
@@ -66,11 +75,13 @@ def build():
             frames = []
             for f in c["frames"]:
                 cpath, cpid = tk2d.ref_file(path, f["spriteCollection"])
-                key = (cpath, cpid, f["spriteId"])
+                key = (cpath, cpid, f["spriteId"], actor, name.startswith("Health") or name.startswith("Blue"))
                 if key not in index:
                     col = tk2d.collection(cpath, cpid)
                     img, lx, ty, upp, (wu, hu) = tk2d.sprite_image(cpath, col, f["spriteId"])
-                    k = K0 * DRAWN_SCALE.get(name, 1.0)
+                    k = K0 * DRAWN_SCALE.get(name, 1.0) * ACTOR_SCALE.get(actor, 1.0)
+                    if actor == "hud" and (name.startswith("Health") or name.startswith("Blue")):
+                        k *= HUD_MASK
                     w = max(1, round(img.width * upp * k))
                     h = max(1, round(img.height * upp * k))
                     small = img.resize((w, h), Image.BOX)

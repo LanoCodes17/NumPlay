@@ -4,7 +4,7 @@ import os, sys, struct, math, lzma, time, multiprocessing as mp
 import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import unity, scene, visible, art, actors, coll, ents
+import unity, scene, visible, art, actors, coll, ents, font
 
 SRC = os.path.join(HERE, "..", "src")
 ROOMS = [l.strip() for l in open(os.path.join(HERE, "rooms.txt")) if l.strip() and not l.startswith("#")]
@@ -294,6 +294,10 @@ def main():
     for r in ROOMS:
         room_data(r)
     sprites += actors.unity_sprites(SPRITES.list)
+    # the HUD's geo count: TrajanPro-Bold digits (TextMesh: size 45, character size 1, scale 0.1527)
+    digit_base = len(sprites)
+    digits, digit_adv = font.glyphs("TrajanPro-Bold", "0123456789", 45 * 0.1 * 0.1527 * actors.HUD_K, 1 / actors.HUD_K)
+    sprites += digits
     print("actor frames", len(sprites), "clips", len(clips), "%.0fs" % (time.time() - t0), flush=True)
     jobs += [sp["job"] for sp in sprites]
     with mp.get_context("spawn").Pool(min(4, os.cpu_count() or 1)) as pool:
@@ -406,6 +410,8 @@ def main():
             f.write("#define %s %d\n" % (c["id"], i))
         for k, v in named.items():
             f.write("#define SPRITE_%s %d\n" % (k, v))
+        f.write("#define SPRITE_DIGIT0 %d\n" % digit_base)
+        f.write("#define DIGIT_ADV {%s}\n" % ", ".join("%.4ff" % a for a in digit_adv))
 
 
 if __name__ == "__main__":

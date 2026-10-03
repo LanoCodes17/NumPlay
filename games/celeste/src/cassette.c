@@ -120,6 +120,11 @@ static uint16_t block_disabled_color(const Block *b) {   /* 667da5 times the col
   int r = (int)(c >> 16) * 0x66 / 255, g = (int)(c >> 8 & 255) * 0x7d / 255, bl = (int)(c & 255) * 0xa5 / 255;
   return rgb((uint32_t)(r << 16 | g << 8 | bl));
 }
+/* a cassette block's color for what it carries: enabled or disabled (none: white) */
+uint16_t cassette_tint(const Ent *blk, bool on) {
+  if (!blk || !blk->cls || strcmp(blk->cls->name, "cassetteBlock")) return 0xFFFF;
+  return on ? block_color(ST(blk, Block)) : block_disabled_color(ST(blk, Block));
+}
 static Ent *block_leader(const Ent *e) { return &g_ents[ST(e, Block)->leader]; }
 
 static void block_shift(Ent *e, int amount) {   /* ShiftSize */
@@ -295,7 +300,7 @@ static void block_awake(Ent *e) {
   /* the spikes on it: its colors, seen while disabled, scaled with the group */
   for (Ent *m = g_ents; m < g_ents + g_nents; m++)
     if (m->cls && ent_platform(m) == e && (m->kind & KIND_SPIKES))
-      spikes_set_cassette(m, block_color(b), block_disabled_color(b), v2(e->x + b->lox, e->y + b->loy));
+      spikes_set_cassette(m, v2(e->x + b->lox, e->y + b->loy));
   /* the sheet's tiles: corners, edges, inner corners */
   for (int cy = 0; cy < b->ncy; cy++)
     for (int cx = 0; cx < b->ncx; cx++) {

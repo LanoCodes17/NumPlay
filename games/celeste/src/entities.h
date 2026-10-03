@@ -91,7 +91,8 @@ void spinners_each(const Room *rm, float x0, float y0, float x1, float y1,
 void cassette_level_start(bool transition);                       /* the end of LoadLevel; OnOutBegin */
 bool cassette_block_scale(const Ent *block, V2 *origin, V2 *scale);
 void cassette_blocks_finish(void);
-void spikes_set_cassette(Ent *spikes, uint16_t on, uint16_t off, V2 origin);
+void spikes_set_cassette(Ent *spikes, V2 origin);
+uint16_t cassette_tint(const Ent *blk, bool on);   /* (cassette.c) its color for what it carries */
 typedef struct { V2 a, b, c; float lerp; } CassetteFly;           /* Player.cassetteFlyCurve, cassetteFlyLerp */
 CassetteFly *cassette_fly(void);
 Ent *absorb_orb_new(V2 at, Ent *into);                            /* AbsorbOrb: into the player when NULL */

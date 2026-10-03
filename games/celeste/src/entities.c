@@ -193,8 +193,8 @@ static void new_jumpthru(const EData *d) {
 /* ---------------------------------------------------------------- Spikes */
 enum { DIR_UP, DIR_DOWN, DIR_LEFT, DIR_RIGHT };
 typedef struct {
-  uint8_t dir, n, cassette, on;
-  uint16_t tex, tint, tint_off;   /* on a cassette block: its colors (enabled, disabled) */
+  uint8_t dir, n, cassette, on;   /* cassette: on a cassette block (its colors, enabled or disabled: cassette_tint) */
+  uint16_t tex;
   int16_t gox, goy;               /* and its group's origin (SetOrigins), from the spikes */
 } Spikes;
 static void spikes_on_player(Ent *e, Player *p) {
@@ -234,7 +234,7 @@ static void spikes_render(Ent *e) {
       V2 o, k;
       if (!cassette_block_scale(ent_platform(e), &o, &k)) k = v2(1, 1);
       float gx = e->x + s->gox, gy = e->y + s->goy;
-      gfx_tex_ex(s->tex, gx + e->shakex, gy + e->shakey, ox + gx - x, oy + gy - y, k.x, k.y, 0, s->on ? s->tint : s->tint_off,
+      gfx_tex_ex(s->tex, gx + e->shakex, gy + e->shakey, ox + gx - x, oy + gy - y, k.x, k.y, 0, cassette_tint(ent_platform(e), s->on),
                  255, 0);
     } else
       gfx_tex_ex(s->tex, x + e->shakex, y + e->shakey, ox, oy, 1, 1, 0, 0xFFFF, 255, 0);
@@ -248,10 +248,9 @@ static void spikes_sm_enable(Ent *e, bool on) {
   else if (!s->cassette) e->visible = 0;
   s->on = on;   /* the color: enabled or disabled */
 }
-void spikes_set_cassette(Ent *e, uint16_t on, uint16_t off, V2 origin) {
+void spikes_set_cassette(Ent *e, V2 origin) {
   Spikes *s = ST(e, Spikes);
   s->cassette = 1;
-  s->tint = on, s->tint_off = off;
   s->on = e->collidable;
   s->gox = (int16_t)(origin.x - e->x), s->goy = (int16_t)(origin.y - e->y);
 }
@@ -373,8 +372,10 @@ typedef struct {
   int frame, flash_frame;
   SineWave sine;
   Wiggler wig;
-  uint16_t idle[5], flash[6], outline_tex;
 } Refill;
+/* its sprite's frames (idle: all of them, 5 or 13; flash: 6) */
+#define REFILL_IDLE(r) ((r)->two ? T_objects_refillTwo_idle00 : T_objects_refill_idle00)
+#define REFILL_FLASH(r) ((r)->two ? T_objects_refillTwo_flash00 : T_objects_refill_flash00)
 
 static void refill_on_player(Ent *e, Player *p) {
   Refill *r = ST(e, Refill);
@@ -424,7 +425,7 @@ static void refill_update(Ent *e) {
   sine_update(&r->sine);
   wiggler_update(&r->wig);
   r->frame_t += DT;
-  if (r->frame_t >= 0.1f) r->frame_t -= 0.1f, r->frame = (r->frame + 1) % 5;
+  if (r->frame_t >= 0.1f) r->frame_t -= 0.1f, r->frame = (r->frame + 1) % (r->two ? 13 : 5);
   if (r->flash_on) {
     r->flash_t += DT;
     if (r->flash_t >= 0.05f) {
@@ -437,9 +438,9 @@ static void refill_update(Ent *e) {
 static void refill_render(Ent *e) {
   Refill *r = ST(e, Refill);
   float y = e->y + r->sine.value * 2, s = 1 + r->wig.value * 0.2f;
-  if (r->outline) gfx_tex_ex(r->outline_tex, e->x, e->y, 8, 8, 1, 1, 0, 0xFFFF, 255, 0);
-  if (r->visible) gfx_tex_ex(r->idle[r->frame], e->x, y, 8, 8, s, s, 0, 0xFFFF, 255, 0);
-  if (r->visible && r->flash_on) gfx_tex_ex(r->flash[r->flash_frame], e->x, y, 8, 8, s, s, 0, 0xFFFF, 255, 0);
+  if (r->outline) gfx_tex_ex(r->two ? T_objects_refillTwo_outline : T_objects_refill_outline, e->x, e->y, 8, 8, 1, 1, 0, 0xFFFF, 255, 0);
+  if (r->visible) gfx_tex_ex((uint16_t)(REFILL_IDLE(r) + r->frame), e->x, y, 8, 8, s, s, 0, 0xFFFF, 255, 0);
+  if (r->visible && r->flash_on) gfx_tex_ex((uint16_t)(REFILL_FLASH(r) + r->flash_frame), e->x, y, 8, 8, s, s, 0, 0xFFFF, 255, 0);
 }
 static const EntClass REFILL = {.size = sizeof(Refill), .name = "refill", .update = refill_update, .render = refill_render,
                                 .on_player = refill_on_player, .kind = KIND_PCOLLIDE};
@@ -454,12 +455,6 @@ static void new_refill(const EData *d) {
   r->visible = 1;
   r->sine.freq = 0.6f;
   sine_randomize(&r->sine);
-  const char *base = r->two ? "objects/refillTwo/" : "objects/refill/";
-  char p[48];
-  for (int i = 0; i < 5; i++) path2(p, base, "idle", i), r->idle[i] = tex_by_name(p);
-  for (int i = 0; i < 6; i++) path2(p, base, "flash", i), r->flash[i] = tex_by_name(p);
-  path2(p, base, "outline", -1);
-  r->outline_tex = tex_by_name(p);
 }
 
 /* ---------------------------------------------------------------- level-wide entities */
@@ -1174,7 +1169,9 @@ static void beam_render(Ent *e) {
 static const EntClass BEAM = {.size = sizeof(Beam), .name = "lightbeam", .update = beam_update, .render = beam_render};
 
 /* ---------------------------------------------------------------- triggers */
-typedef struct { V2 a; float b; int mode; bool xonly, yonly; char kind; } Trig;
+/* (small: a room can have dozens, and two rooms are alive during a transition) */
+typedef struct { V2 a; } Trig;   /* CameraOffsetTrigger's offset; ChangeRespawnTrigger's target */
+typedef struct { V2 a; float b; uint8_t mode; bool xonly, yonly; } TrigTarget;
 static void camoff_enter(Ent *e, Player *p) {
   (void)p;
   Trig *t = ST(e, Trig);
@@ -1196,7 +1193,7 @@ static float pos_lerp(Ent *e, Player *p, int mode) {
 #undef CMAP
 }
 static void camtarget_stay(Ent *e, Player *p) {
-  Trig *t = ST(e, Trig);
+  TrigTarget *t = ST(e, TrigTarget);
   p->cam_anchor = v2sub(t->a, v2(160, 90));
   float l = clampf(t->b * pos_lerp(e, p, t->mode), 0, 1);
   p->cam_anchor_lerp = v2(l, l);
@@ -1223,7 +1220,7 @@ static void respawn_enter(Ent *e, Player *p) {
 }
 static const EntClass CAMOFF = {.size = sizeof(Trig), .name = "cameraOffsetTrigger", .kind = KIND_TRIGGER,
                                 .more = &(const EntMore){.on_enter = camoff_enter}};
-static const EntClass CAMTARGET = {.size = sizeof(Trig), .name = "cameraTargetTrigger", .kind = KIND_TRIGGER,
+static const EntClass CAMTARGET = {.size = sizeof(TrigTarget), .name = "cameraTargetTrigger", .kind = KIND_TRIGGER,
                                    .more = &(const EntMore){.on_stay = camtarget_stay, .on_leave = camtarget_leave}};
 static const EntClass RESPAWN = {.size = sizeof(Trig), .name = "changeRespawnTrigger", .kind = KIND_TRIGGER,
                                  .more = &(const EntMore){.on_enter = respawn_enter}};
@@ -1257,14 +1254,14 @@ bool trig_create(const EData *d) {
     case TT_cameraTargetTrigger: {
       e = new_trigger(&CAMTARGET, d, EA(d, cameraTargetTrigger, width), EA(d, cameraTargetTrigger, height));
       if (!e) return true;
-      Trig *t = ST(e, Trig);
+      TrigTarget *t = ST(e, TrigTarget);
       t->a = ed_node(d, 0);
       t->b = EA(d, cameraTargetTrigger, lerpStrength);
       const char *m = EAS(d, cameraTargetTrigger, positionMode);
       static const char *modes[] = {"NoEffect", "LeftToRight", "RightToLeft", "TopToBottom", "BottomToTop", "HorizontalCenter", "VerticalCenter"};
       t->mode = 0;
       for (int i = 0; i < 7; i++)
-        if (!strcmp(m, modes[i])) t->mode = i;
+        if (!strcmp(m, modes[i])) t->mode = (uint8_t)i;
       t->xonly = EAB(d, cameraTargetTrigger, xOnly);
       t->yonly = EAB(d, cameraTargetTrigger, yOnly);
       return true;

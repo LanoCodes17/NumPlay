@@ -65,21 +65,36 @@ TEXT_K = 4 / 3   # text a third bigger than the game's (its sizes at this screen
 BR, PAGE = 10, 12
 PHASES = 4       # glyphs drawn a quarter pixel apart
 
-# the styles: (font, em in pixels, line advance in pixels, ascender, descender in pixels)
-#   TextMeshPro: an em is font size / 10 units; a line is (the font's line height + line spacing) / point size ems
+# the styles: (font, em in pixels, line advance in pixels, ascender, descender in pixels, spacing after each glyph in
+# pixels, phases kept: 1 for big text)
+#   TextMeshPro: an em is font size / 10 units; a line is (the font's line height + line spacing) / point size ems;
+#   character spacing is in hundredths of an em
 HUD_PX = 100 / 8.7107        # (the HUD camera's: pixels a unit)
 WORLD_PX = 421.94 / 38.1     # (the room's camera, at z = 0)
 
 
-def _style(font, size, px, line_height, line_spacing, point, asc, desc):
-    em = size * 0.1 * px * TEXT_K
-    return (font, em, (line_height + line_spacing) / point * em, asc / point * em, -desc / point * em)
+def _style(font, size, px, line_height, line_spacing, point, asc, desc, k=TEXT_K, spacing=0.0, phases=PHASES):
+    em = size * 0.1 * px * k
+    return (font, em, (line_height + line_spacing) / point * em, asc / point * em, -desc / point * em, spacing / 100 * em,
+            phases)
 
 
+# (Trajan Pro's metrics: trajan_bold_tmpro's point size, line height, ascender, descender)
+TRAJAN = (84, 0, 70, 52.5, -17.5)
 STYLES = {
     "DIALOGUE": _style("Perpetua", 7.2, HUD_PX, 134.0625, 24.6, 117, 95.9375, -38.1875),
-    "PROMPT": _style("TrajanPro-Bold", 6.67, WORLD_PX, 84, 0, 70, 52.5, -17.5),
+    "PROMPT": _style("TrajanPro-Bold", 6.67, WORLD_PX, *TRAJAN),
+    # the area titles (Area Title: TextMeshPro, size 36): the large one's main line, the small one's, and the lines
+    # above and below them (the large title's at their own size; the small one's, a third bigger, the same)
+    "TITLE_L": _style("TrajanPro-Bold", 36 * 0.4902, HUD_PX, *TRAJAN, k=1, spacing=4.69, phases=1),
+    "TITLE_S": _style("TrajanPro-Bold", 36 * 0.3493, HUD_PX, *TRAJAN, k=1, spacing=4.69, phases=1),
+    "TITLE_SUB": _style("TrajanPro-Bold", 36 * 0.1942, HUD_PX, *TRAJAN, k=1, spacing=21.06),
 }
+
+# the titles the game shows (the Titles sheet's X_MAIN, X_SUB, X_SUPER): the areas', bosses' and characters'
+TITLES = ["KINGSPASS", "DIRTMOUTH", "CROSSROADS", "EGGTEMPLE", "SHAMANTEMPLE", "GREENPATH", "BIGFLY", "FALSE_KNIGHT",
+          "HORNET", "ELDERBUG", "SLY", "ISELDA", "CORNIFER", "QUIRREL", "SHAMAN", "STAG", "STAG2", "TISO_C", "TISO_NC",
+          "CHARM_SLUG"]
 
 
 def clean(s):
@@ -123,25 +138,29 @@ class Texts:
         return struct.pack("<I", len(self.list)) + b"".join(struct.pack("<I", o) for o in offs) + bytes(body)
 
     def fonts(self):
-        """FONT: per style (as STYLES' order) its offset; a style: em, line advance, ascender, descender (floats),
-        256 x PHASES glyph offsets (u16, from the style, 0 none: a code's glyph with the pen 0, 1/4... of a pixel right
-        of a whole pixel), then the glyphs: width, height, left, top (from the pen's pixel on the baseline, pixels),
-        advance (1/64 pixels, u16), then rows of 4-bit alpha (low nibble first)."""
+        """FONT: per style (as STYLES' order) its offset; a style: em, line advance, ascender, descender (floats), the
+        first code it has and how many (u8 each, then 2 bytes), PHASES glyph offsets for each of those codes (u16, from the
+        style, 0 none: the code's glyph with the pen 0, 1/4... of a pixel right of a whole pixel), then the glyphs: width,
+        height, left, top (from the pen's pixel on the baseline, pixels), advance (1/64 pixels, u16), then rows of 4-bit
+        alpha (low nibble first)."""
         import font
         cp = self.code_page()
         blocks = []
-        for name, (fname, em, line, asc, desc) in STYLES.items():
+        for name, (fname, em, line, asc, desc, spacing, phases) in STYLES.items():
             chars = sorted({c for s, st in self.list if st == name for c in s if c not in "\n\f"} | {" ", "-"})
-            head = bytearray(struct.pack("<ffff", em, line, asc, desc))
-            offs = [0] * (256 * PHASES)
+            lo = min(cp[c] for c in chars)
+            ncodes = max(cp[c] for c in chars) - lo + 1
+            head = bytearray(struct.pack("<ffffBBH", em, line, asc, desc, lo, ncodes, 0))
+            offs = [0] * (ncodes * PHASES)
             body = bytearray()
             base = len(head) + 2 * len(offs)
-            for ph in range(PHASES):
+            for ph in range(phases):
                 for ch, g in zip(chars, font.bitmaps(fname, chars, em, ph / PHASES)):
                     a, left, top, adv = g
                     h, w = a.shape
-                    offs[cp[ch] * PHASES + ph] = base + len(body)
-                    body += struct.pack("<BBbbH", w, h, left, top, min(65535, round(adv * 64)))
+                    for q in range(ph, PHASES, phases):   # (big text: one phase for all)
+                        offs[(cp[ch] - lo) * PHASES + q] = base + len(body)
+                    body += struct.pack("<BBbbH", w, h, left, top, min(65535, round((adv + spacing) * 64)))
                     q = (a.astype(np.uint16) * 15 + 127) // 255
                     for row in q:
                         r = list(row) + [0] * (w & 1)

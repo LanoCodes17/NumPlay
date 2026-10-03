@@ -47,6 +47,8 @@ typedef struct {
 /* the HUD's clip circles */
 typedef struct {
   float cx, cy, r;   /* screen pixels */
+  float x0, y0, x1, y1;
+  bool box;          /* (else a circle) */
 } HudClip;
 #define MAX_HUD_CLIPS 4
 static HudClip hud_clips[MAX_HUD_CLIPS];
@@ -93,7 +95,7 @@ static void make_luts(void) {
 }
 
 static bool grade_off;   /* (the HUD's tints: the room's grading not for them) */
-#define HUD_TINT 248      /* (dynamic tints from here on are the HUD's) */
+#define HUD_TINT 240      /* (dynamic tints from slot 16 on are the HUD's) */
 
 static uint32_t grade(float r, float g, float b, float a) {
   /* r g b a: 0..1 straight */
@@ -119,20 +121,20 @@ uint8_t g_group_alpha[MAX_GROUPS];
 uint8_t g_screen_fade;   /* how black the screen is (the camera's fade) */
 
 /* tints: the room's, then colors the game sets (gfx_dyn_tint): a color, and a flash color and amount (SpriteFlash) */
-#define DYN_TINT 240
+#define DYN_TINT 224
 static uint8_t dyn_tints[256 - DYN_TINT][8];
 static inline const uint8_t *tint_rgba(int tint) { return tint >= DYN_TINT ? dyn_tints[tint - DYN_TINT] : g_room.tints + 4 * tint; }
 static void pals_forget_tint(int tint);
 
 uint8_t gfx_dyn_flash(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a, uint8_t fr, uint8_t fg, uint8_t fb, uint8_t amount) {
-  uint8_t *t = dyn_tints[slot & 15];
+  uint8_t *t = dyn_tints[slot & 31];
   uint8_t v[8] = {r, g, b, a, fr, fg, fb, amount};
   if (memcmp(t, v, 8)) {
     /* (the colors made with its old values are stale) */
     memcpy(t, v, 8);
-    pals_forget_tint(DYN_TINT + (slot & 15));
+    pals_forget_tint(DYN_TINT + (slot & 31));
   }
-  return (uint8_t)(DYN_TINT + (slot & 15));
+  return (uint8_t)(DYN_TINT + (slot & 31));
 }
 
 uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a) { return gfx_dyn_flash(slot, r, g, b, a, 0, 0, 0, 0); }
@@ -828,12 +830,18 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
     }
     int xe = it->x1;
     if (it->clip) {
-      /* (a circle: this row's span of it) */
+      /* (a circle or a box: this row's span of it) */
       const HudClip *k = &hud_clips[it->clip - 1];
-      float dy = y + 0.5f - k->cy, w2 = k->r * k->r - dy * dy;
-      if (w2 <= 0) continue;
-      float w = sqrtf(w2);
-      int ca = (int)(k->cx - w + 0.5f), cb = (int)(k->cx + w + 0.5f);
+      int ca, cb;
+      if (k->box) {
+        if (y + 0.5f < k->y0 || y + 0.5f >= k->y1) continue;
+        ca = (int)(k->x0 + 0.5f), cb = (int)(k->x1 + 0.5f);
+      } else {
+        float dy = y + 0.5f - k->cy, w2 = k->r * k->r - dy * dy;
+        if (w2 <= 0) continue;
+        float w = sqrtf(w2);
+        ca = (int)(k->cx - w + 0.5f), cb = (int)(k->cx + w + 0.5f);
+      }
       if (cb < xe) xe = cb;
       if (ca > x) x = open_from(cv, ca, it->x1);
     }
@@ -1092,7 +1100,12 @@ bool gfx_hud(const Inst *in, int clip) {
 void gfx_hud_clip(int clip, float x, float y, float r) {
   /* (HUD units, from the screen's center, to pixels) */
   float k = FOCAL / (HUD_Z - CAM_Z);
-  hud_clips[clip - 1] = (HudClip){VIEW_W / 2 + x * k, VIEW_H / 2 - y * k, r * k};
+  hud_clips[clip - 1] = (HudClip){VIEW_W / 2 + x * k, VIEW_H / 2 - y * k, r * k, 0, 0, 0, 0, false};
+}
+
+void gfx_hud_rect(int clip, float x0, float y0, float x1, float y1) {
+  float k = FOCAL / (HUD_Z - CAM_Z);
+  hud_clips[clip - 1] = (HudClip){0, 0, 0, VIEW_W / 2 + x0 * k, VIEW_H / 2 - y1 * k, VIEW_W / 2 + x1 * k, VIEW_H / 2 - y0 * k, true};
 }
 
 /* text: lines of glyphs (4-bit alpha), drawn in front of what is behind them in their layer */

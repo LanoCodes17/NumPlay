@@ -2265,7 +2265,8 @@ static void fk_update(Enemy *e) {
       if (done) {
         if (fk.first_jump) fk_idle(e);
         else {
-          /* Music: (its title shown), First Idle */
+          /* Music: its title (on the right), First Idle */
+          title_show(TITLE_FALSE_KNIGHT, TF_VISITED | TF_RIGHT);
           e->body.gravity_scale = 0.39f;
           anim_play(&e->anim, CLIP_FK_IDLE);
           fk_hitter(e, -1);
@@ -3611,7 +3612,8 @@ static void gfly_update(Enemy *e) {
       break;
     case GF_SLEEP:
       if (hit) {
-        /* Wake: the arena's fight starts */
+        /* Wake: her title, the arena's fight starts */
+        title_show(TITLE_BIGFLY, TF_VISITED);
         cam_shake(SHAKE_AVERAGE);
         arena_start();
         anim_play_from_frame(&e->anim, CLIP_GFLY_WAKE, 0);

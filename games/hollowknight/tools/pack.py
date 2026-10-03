@@ -250,6 +250,7 @@ def room_blobs(name, keep, st, tex_id, variant=0):
         table += struct.pack("<IIHHff", 0, 0, len(recs), 0, va, vb)   # (offsets filled in by main)
     HDR = 84 + 192
     gw, gh, cells = coll.grid(segs, w, h)
+    assert len(tints) <= 224, (name, len(tints))   # (src/gfx.c: DYN_TINT, the colors the game sets after)
     hdr = struct.pack("<4H4f4f4fff6HII", 6, len(order), len(tints), axis, w, h, bz, sat, *st["ambient"], 0.0,
                       *st["hero_light"], lo, hi, len(keep), len(segs), len(cols), gw, gh, len(erecs), 0, 0) + lut
     assert len(hdr) == HDR, len(hdr)
@@ -342,6 +343,15 @@ def main():
     named = actors.named_sprites(SPRITES)
     prompt_ids = {p: TEXTS.id("Prompts", p.upper(), "PROMPT") for p in PROMPTS}
     TEXTS.id("Elderbug", "ELDERBUG_INTRO_MAIN")   # (until the NPCs: a conversation to try)
+    # the titles (Area Title): each one's main line as the large and the small title show it, its lines below and above
+    titles = []
+    for t in text.TITLES:
+        row = []
+        for key, style in (("_MAIN", "TITLE_L"), ("_MAIN", "TITLE_S"), ("_SUB", "TITLE_SUB"), ("_SUPER", "TITLE_SUB")):
+            line = text.clean(text.sheets()["Titles"].get(t + key) or "")
+            row.append(TEXTS.add(line, style) if line else -1)
+        titles.append("{%s}" % ", ".join(str(i) for i in row))
+    fleurs = actors.title_fleurs(SPRITES)
     for r in ROOMS:
         room_data(r)
         if r in VARIANT_ROOMS:
@@ -526,6 +536,11 @@ def main():
             f.write("#define TXT_PROMPT_%s %d\n" % (k.upper(), v))
         f.write("#define PROMPT_SORT %du\n" % ((scene.layer_index(-349214895) << 16) | (1 + 32768)))
         f.write("#define DIGIT_ADV {%s}\n" % ", ".join("%.4ff" % a for a in digit_adv))
+        for i, t in enumerate(text.TITLES):
+            f.write("#define TITLE_%s %d\n" % (t, i))
+        f.write("#define NUM_TITLES %d\n#define TITLE_TABLE {%s}\n" % (len(titles), ", ".join(titles)))
+        for k, v in fleurs.items():
+            f.write("#define %s %s\n" % (k, v))
 
 
 if __name__ == "__main__":

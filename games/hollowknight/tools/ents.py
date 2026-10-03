@@ -9,7 +9,15 @@ ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_M
     ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
 # objects (ENT_OBJ's flags: src/obj.c)
 OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR, OK_BGATE, OK_ARENA, \
-    OK_EVENT, OK_SUMMON, OK_COND, OK_PROP, OK_DRIP, OK_COCOON = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16
+    OK_EVENT, OK_SUMMON, OK_COND, OK_PROP, OK_DRIP, OK_COCOON, OK_AREA = \
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+# area titles (AreaTitleController: OK_AREA's p3): wait for its trigger, only on a revisit, shown on the right, only
+# when the Knight came in by a gate (s0), a sub area (always the small title), only once the Crossroads were visited
+AF_TRIGGER, AF_REVISIT, AF_RIGHT, AF_DOOR, AF_SUB, AF_AFTER_CROSSROADS = 1, 2, 4, 8, 16, 32
+# (its area list: identifier -> area number, sub area, the PlayerData bool it sets on a first visit)
+AREAS = {"KINGSPASS": (0, True, None), "DIRTMOUTH": (1, False, "visitedDirtmouth"),
+         "CROSSROADS": (2, False, "visitedCrossroads"), "EGGTEMPLE": (0, True, None),
+         "SHAMANTEMPLE": (0, True, None), "GREENPATH": (3, False, "visitedGreenpath")}
 # the battle gates' events (src/game.h: BG_*)
 BG_EVENTS = ["BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY"]
 # battle gates (BG Control: OK_BGATE's s0): closed at first, the bone ones' clips, gone once a PlayerData bool is set
@@ -105,9 +113,9 @@ class Sprites:
         """(res: its texture's resolution, as a part of the screen's: smooth sprites can be stretched)"""
         return self._add((d["level"], tuple(d["externals"]), ref[0], ref[1], round(scale, 3), res))
 
-    def tk2d(self, path, col, name, scale=1.0):
+    def tk2d(self, path, col, name, scale=1.0, res=1.0):
         """A 2D Toolkit sprite of a collection (file, path id), by name."""
-        return self._add(("tk2d", path, col, name, round(scale, 3), 1.0))
+        return self._add(("tk2d", path, col, name, round(scale, 3), res))
 
     def _add(self, key):
         if key not in self.index:
@@ -891,6 +899,21 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
             recs.append(rec(ENT_BOX, 0, (splat["lpos"][0] if splat else 0, splat["lpos"][1] if splat else 0,
                                          splat["pos"][2] if splat else 0, 0),
                             (sprites.tk2d(*sp) if sp else -1, eclip, layer, order)))
+        f = _fsm(o, ("Area Title Controller",))
+        if f and any(c.get("class") == "AreaTitleController" for c in o["c"]):
+            # an area's title: its trigger (if it waits for one), its pauses, its area, its flags; the title; the bool
+            # its first visit sets
+            import text
+            v = {k: x[1] for k, x in f["vars"].items()}
+            ident = v.get("Area Event", "")
+            num, sub, vis = AREAS[ident]
+            fl = (AF_TRIGGER if v.get("Wait for Trigger") else 0) | (AF_REVISIT if v.get("Only On Revisit") else 0) | \
+                 (AF_RIGHT if v.get("Display Right") else 0) | (AF_DOOR if v.get("Door Trigger") else 0) | \
+                 (AF_SUB if sub else 0) | (AF_AFTER_CROSSROADS if ident == "KINGSPASS" else 0)
+            box = _trigger(o) if fl & AF_TRIGGER else None
+            recs.append(rec(ENT_OBJ, OK_AREA, box or (0, 0, 0, 0), (v.get("Unvisited Pause", 2), v.get("Visited Pause", 2), num, fl),
+                            a=text.TITLES.index(ident), group=pdf[vis] if vis else 255,
+                            s0=strings.id(v["Door Trigger"]) if v.get("Door Trigger") else 0))
         dv = next((c.get("v") for c in o["c"] if c.get("class") == "WaterDrip" and c.get("v")), None)
         if dv is not None:
             # a water drip: its place, its idle times, fall speed and how far it sinks as it hits

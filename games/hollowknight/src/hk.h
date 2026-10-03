@@ -203,6 +203,7 @@ bool gfx_actor(const Inst *in, uint32_t group);
 /* the HUD: a sprite in front of all, placed in HUD units from the screen's center (its camera's: 8.7107 units half
  * height), not graded nor faded with the room (tints from HUD_TINT); clip: 0, or 1 + a circle it is drawn in */
 bool gfx_hud(const Inst *in, int clip);
+void gfx_hud_rect(int clip, float x0, float y0, float x1, float y1);   /* (a clip that is a box, HUD units) */
 void gfx_hud_clip(int clip, float x, float y, float r);
 uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a);   /* a tint (for Inst.tint) of that color */
 /* the same, flashing: its colors towards (fr, fg, fb) by amount (SpriteFlash) */
@@ -230,7 +231,9 @@ static inline float font_f(const uint8_t *st, int i) {
 #define font_desc(st) font_f(st, 3)
 /* a code's glyph, the pen phase (0 .. FONT_PHASES - 1) parts of a pixel right of a whole pixel */
 static inline const Glyph *font_glyph(const uint8_t *st, uint8_t c, int phase) {
-  uint16_t o = rd16(st + 16 + 2 * (c * FONT_PHASES + phase));
+  /* (the codes it has: from st[16], st[17] of them) */
+  if ((uint8_t)(c - st[16]) >= st[17]) return NULL;
+  uint16_t o = rd16(st + 20 + 2 * ((c - st[16]) * FONT_PHASES + phase));
   return o ? (const Glyph *)(const void *)(st + o) : NULL;
 }
 extern uint32_t g_gfx_items, g_gfx_pixels;

@@ -128,6 +128,7 @@ void world_enter(void) {
     if (e[i].group2) group_fade(e[i].group2, 0, 0);   /* (Pause: the inverse mask hidden) */
   }
   obj_enter();
+  titles_enter();
 }
 
 /* (Pause's WaitForHeroInPosition: the masks start as the Knight is placed; its Wait only counts when it was placed
@@ -139,6 +140,7 @@ void world_hero_in_position(void) {
   const Ent *e = room_ents(&n);
   for (int i = 0; i < n && i < MAX_ENTS; i++)
     if (e[i].type == ENT_MASK && es[i].state == M_PAUSE) mask_idle(&e[i], &es[i]);
+  titles_hero_in_position();
 }
 
 /* an object's FSM sent HIT to another (a breakable's hitEventReciever) */

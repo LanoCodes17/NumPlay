@@ -394,9 +394,12 @@
 #define SPRITE_CORPSE_NAIL 1363
 #define SPRITE_FK_BARREL 1364
 #define SPRITE_FK_STAFF 1365
-#define SPRITE_DIGIT0 1553
+#define SPRITE_DIGIT0 1555
 #define STYLE_DIALOGUE 0
 #define STYLE_PROMPT 1
+#define STYLE_TITLE_L 2
+#define STYLE_TITLE_S 3
+#define STYLE_TITLE_SUB 4
 #define TEXT_K 1.333333f
 #define FONT_PHASES 4
 #define EK_CRAWLER 1
@@ -437,3 +440,31 @@
 #define TXT_PROMPT_CHALLENGE 13
 #define PROMPT_SORT 884737u
 #define DIGIT_ADV {0.4182f, 0.4182f, 0.4182f, 0.4182f, 0.4182f, 0.4182f, 0.4182f, 0.4182f, 0.4182f, 0.4182f}
+#define TITLE_KINGSPASS 0
+#define TITLE_DIRTMOUTH 1
+#define TITLE_CROSSROADS 2
+#define TITLE_EGGTEMPLE 3
+#define TITLE_SHAMANTEMPLE 4
+#define TITLE_GREENPATH 5
+#define TITLE_BIGFLY 6
+#define TITLE_FALSE_KNIGHT 7
+#define TITLE_HORNET 8
+#define TITLE_ELDERBUG 9
+#define TITLE_SLY 10
+#define TITLE_ISELDA 11
+#define TITLE_CORNIFER 12
+#define TITLE_QUIRREL 13
+#define TITLE_SHAMAN 14
+#define TITLE_STAG 15
+#define TITLE_STAG2 16
+#define TITLE_TISO_C 17
+#define TITLE_TISO_NC 18
+#define TITLE_CHARM_SLUG 19
+#define NUM_TITLES 20
+#define TITLE_TABLE {{15, 16, -1, -1}, {17, 18, 19, -1}, {20, 21, -1, 22}, {23, 24, -1, 25}, {26, 27, -1, 28}, {29, 30, -1, -1}, {31, 32, 33, -1}, {34, 35, -1, -1}, {36, 37, -1, -1}, {38, 39, -1, -1}, {40, 41, -1, -1}, {42, 43, -1, -1}, {44, 45, -1, -1}, {46, 47, -1, -1}, {48, 49, -1, 50}, {51, 52, -1, 53}, {51, 52, -1, 54}, {55, 56, 57, -1}, {55, 56, -1, -1}, {58, 59, -1, 60}}
+#define SPRITE_FLEUR_TOP 1366
+#define FLEUR_TOP_RECTS {{0.781f, -0.844f, 0.953f, -0.688f}, {-1.078f, -0.984f, 1.141f, -0.531f}, {-1.281f, -1.016f, 1.313f, -0.484f}, {-1.359f, -1.016f, 1.969f, -0.141f}, {-2.141f, -1.031f, 2.531f, 0.047f}, {-2.250f, -1.078f, 2.766f, 0.266f}, {-2.797f, -1.203f, 3.094f, 0.578f}, {-2.938f, -1.219f, 3.219f, 0.859f}, {-3.203f, -1.234f, 3.469f, 1.141f}, {-3.312f, -1.234f, 3.766f, 1.281f}, {-3.547f, -1.250f, 4.000f, 1.328f}, {-3.844f, -1.250f, 4.016f, 1.328f}, {-4.016f, -1.250f, 4.031f, 1.344f}, {-4.031f, -1.250f, 4.031f, 1.344f}, {-4.047f, -1.250f, 4.031f, 1.359f}, {-4.047f, -1.250f, 4.031f, 1.359f}, {-4.047f, -1.266f, 4.031f, 1.359f}, {-4.047f, -1.266f, 4.031f, 1.359f}, {-4.062f, -1.266f, 4.047f, 1.375f}, {-4.062f, -1.266f, 4.047f, 1.375f}, {-4.062f, -1.266f, 4.047f, 1.375f}, {-4.062f, -1.266f, 4.047f, 1.375f}}
+#define FLEUR_FRAMES 22
+#define FLEUR_FPS 15.0f
+#define SPRITE_FLEUR_BOT 1367
+#define FLEUR_BOT_RECTS {{0.000f, 0.000f, 0.016f, 0.016f}, {0.000f, 0.000f, 0.016f, 0.016f}, {0.391f, 0.406f, 0.828f, 0.844f}, {-1.063f, 0.281f, 1.516f, 1.016f}, {-1.594f, -0.047f, 2.109f, 1.031f}, {-1.984f, -0.156f, 2.375f, 1.047f}, {-2.531f, -0.438f, 2.719f, 1.172f}, {-2.688f, -0.594f, 2.766f, 1.188f}, {-2.797f, -0.797f, 3.156f, 1.219f}, {-3.078f, -0.938f, 3.219f, 1.219f}, {-3.250f, -1.156f, 3.438f, 1.219f}, {-3.250f, -1.172f, 3.828f, 1.219f}, {-3.781f, -1.188f, 4.203f, 1.234f}, {-3.984f, -1.188f, 4.344f, 1.234f}, {-4.281f, -1.203f, 4.562f, 1.234f}, {-4.406f, -1.203f, 4.641f, 1.234f}, {-4.578f, -1.219f, 4.719f, 1.234f}, {-4.656f, -1.219f, 4.719f, 1.234f}, {-4.734f, -1.219f, 4.734f, 1.234f}, {-4.750f, -1.234f, 4.734f, 1.234f}, {-4.766f, -1.234f, 4.734f, 1.250f}, {-4.766f, -1.234f, 4.734f, 1.250f}}

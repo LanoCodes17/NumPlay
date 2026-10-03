@@ -252,7 +252,7 @@ def unity_sprites(keys):
             c = tk2d.collection(path, col)
             sid = next(i for i, dd in enumerate(c["spriteDefinitions"]) if unity.S(dd["name"]) == name)
             img, lx, ty, upp, (wu, hu) = tk2d.sprite_image(path, c, sid)
-            w, h = max(1, round(img.width * upp * K0 * scale)), max(1, round(img.height * upp * K0 * scale))
+            w, h = max(1, round(img.width * upp * K0 * scale * res)), max(1, round(img.height * upp * K0 * scale * res))
             arr = np.asarray(img.resize((w, h), Image.BOX)).copy()
             out.append({"key": (path, col, sid), "job": art.ImageJob(arr, "tk2d/%s" % name), "lx": lx * scale,
                         "ty": ty * scale, "tu": wu * scale / w, "tv": hu * scale / h})
@@ -264,4 +264,27 @@ def unity_sprites(keys):
         arr = np.asarray(img.resize((w, h), Image.BOX)).copy()
         out.append({"key": (level, fid, pid), "job": art.ImageJob(arr, "piece/%s" % s.name),
                     "lx": -s.px * wu, "ty": (1 - s.py) * hu, "tu": wu / w, "tv": hu / h})
+    return out
+
+
+def title_fleurs(sprites):
+    """The large area title's fleurs (Fleur Top, Fleur Bot: their Appear clips): their last frames as HUD sprites, and
+    each frame's bounds (HUD units, from the fleur's place: what of the last frame it shows) -> {name: value}"""
+    lib = tk2d.animation("resources.assets", 23444)
+    byname = {unity.S(c["name"]): c for c in lib["clips"]}
+    out = {}
+    for name, clip in (("TOP", "Top Appear"), ("BOT", "Bottom Appear")):
+        frames = byname[clip]["frames"]
+        cpath, cpid = tk2d.ref_file("resources.assets", frames[-1]["spriteCollection"])
+        col = tk2d.collection(cpath, cpid)
+        last = frames[-1]["spriteId"]
+        out["SPRITE_FLEUR_" + name] = sprites.tk2d(cpath, cpid, unity.S(col["spriteDefinitions"][last]["name"]), 1.0,
+                                                    HUD_K / K0)
+        rects = []
+        for f in frames:
+            img, lx, ty, upp, (wu, hu) = tk2d.sprite_image(cpath, col, f["spriteId"])
+            rects.append("{%.3ff, %.3ff, %.3ff, %.3ff}" % (lx, ty - hu, lx + wu, ty))
+        out["FLEUR_%s_RECTS" % name] = "{%s}" % ", ".join(rects)
+        out["FLEUR_FRAMES"] = len(frames)
+        out["FLEUR_FPS"] = "%.1ff" % byname[clip]["fps"]
     return out

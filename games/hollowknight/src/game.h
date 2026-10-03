@@ -9,7 +9,7 @@
 enum {
   PDF_AT_BENCH, PDF_HAS_MAP, PDF_HAS_QUILL, PDF_HAS_CHARM, PDF_CHARM_BENCH_MSG, PDF_MET_ELDERBUG, PDF_VISITED_CROSSROADS,
   PDF_FALSE_KNIGHT_DEFEATED, PDF_FK_FIRST_PLOP, PDF_MAPPER_SHOP, PDF_CORN_CROSSROADS_LEFT, PDF_HORNET1_DEFEATED,
-  PDF_VISITED_DIRTMOUTH, PDF_TISO_ENCOUNTERED_TOWN, PDF_HAS_DASH, PDF_SHAMAN_PILLAR,
+  PDF_VISITED_DIRTMOUTH, PDF_TISO_ENCOUNTERED_TOWN, PDF_HAS_DASH, PDF_SHAMAN_PILLAR, PDF_VISITED_GREENPATH,
   PDF_COUNT
 };
 typedef struct {
@@ -29,7 +29,8 @@ typedef struct {
   float play_time;
   uint8_t flags[32];      /* PDF_* */
   uint8_t shaman;         /* (the Snail Shaman's state) */
-  uint8_t reserved[63];
+  uint8_t current_area;   /* (the area whose title showed last: AreaTitleController) */
+  uint8_t reserved[62];
   /* (saved apart, by the objects' names: their states) */
   uint8_t persist[MAX_PERSIST / 8];
   /* (not saved) */
@@ -54,7 +55,7 @@ void save_set_respawn(const char *marker, bool facing_right);   /* (Bench Contro
 enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE,
        ENT_BOX, ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER };   /* (shape, box, piece: more of the record before) */
 enum { OK_BREAKABLE = 1, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR, OK_BGATE,
-       OK_ARENA, OK_EVENT, OK_SUMMON, OK_COND, OK_PROP, OK_DRIP, OK_COCOON };   /* objects (ENT_OBJ's flags) */
+       OK_ARENA, OK_EVENT, OK_SUMMON, OK_COND, OK_PROP, OK_DRIP, OK_COCOON, OK_AREA };   /* objects (ENT_OBJ's flags) */
 /* an enemy record's s1: starts alert (or first); startles; one of an arena's Pre Battle Enemies; its death counts for its arena; gone once its arena's
  * fight is over; spawned by its mother's burster; there only once its arena's fight is over; its FSMs off till near
  * the camera (FSMActivator); then its death's effects
@@ -248,6 +249,18 @@ void shade_spawn_check(void);   /* (SceneManager: the shade where the Knight die
 /* benches (npc.c) */
 void benches_enter(void);
 void benches_tick(void);
+/* the titles (title.c): an area's, a boss's or a character's (TITLE_*), as Area Title's FSM variables are set:
+ * Visited (the small title), NPC Title (small, till NPC TITLE DOWN or NPC CONVO START), Display Right */
+enum { TF_VISITED = 1, TF_NPC = 2, TF_RIGHT = 4 };
+/* (AreaTitleController: OK_AREA's p3, tools/ents.py) */
+enum { AF_TRIGGER = 1, AF_REVISIT = 2, AF_RIGHT = 4, AF_DOOR = 8, AF_SUB = 16, AF_AFTER_CROSSROADS = 32 };
+void title_show(int title, int flags);
+void title_npc_convo_start(void);
+void title_npc_down(void);
+void titles_enter(void);
+void titles_hero_in_position(void);
+void titles_tick(void);
+void titles_draw(void);
 bool bench_respawn(const char *name);   /* RESPAWN: the Knight asleep on the bench so named */
 
 /* the Spell Control FSM (spell.c): focus, spells */

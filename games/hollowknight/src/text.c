@@ -256,14 +256,14 @@ void dialogue_draw(void) {
   if (dl.alpha > 0 || dl.fleurs_on) {
     /* the backboard (0.6 of its color's alpha), the fleurs */
     uint8_t a = (uint8_t)(dl.alpha * 0.6f * 0.616f * 255);
-    if (a) box_sprite(SPRITE_DIALOGUE_BACKBOARD, 0, 4.51f - 0.09f, 1, 1.2527f / 2.325f, gfx_dyn_tint(12, 255, 255, 255, a));
-    uint8_t white = gfx_dyn_tint(13, 255, 255, 255, 255);
+    if (a) box_sprite(SPRITE_DIALOGUE_BACKBOARD, 0, 4.51f - 0.09f, 1, 1.2527f / 2.325f, gfx_dyn_tint(18, 255, 255, 255, a));
+    uint8_t white = gfx_dyn_tint(19, 255, 255, 255, 255);
     if (dl.fleurs_on) {
       box_sprite(dl.fleur_top.sprite, 0, 4.51f + 2.85f, TEXT_K, TEXT_K, white);
       box_sprite(dl.fleur_bot.sprite, 0, 4.51f - 2.73f, TEXT_K, TEXT_K, white);
     }
   }
-  uint8_t white = gfx_dyn_tint(14, 255, 255, 255, 255);
+  uint8_t white = gfx_dyn_tint(20, 255, 255, 255, 255);
   if (dl.arrow_on && dl.arrow.sprite >= 0) box_sprite(dl.arrow.sprite, 0.0069f, 1.695f, MARKER_K, MARKER_K, white);
   if (dl.stop_on && dl.stop.sprite >= 0) box_sprite(dl.stop.sprite, -0.0231f, 1.695f, MARKER_K, MARKER_K, white);
   if (!dl.text) return;

@@ -9,7 +9,7 @@ CC = arm-none-eabi-gcc
 NWLINK ?= npx --yes -- nwlink@1.0.0
 STRIP ?= arm-none-eabi-strip --strip-unneeded
 BUILD_DIR = output
-GAME = src/res.c src/tex.c src/room.c src/gfx.c src/phys.c src/anim.c src/hero.c src/camera.c src/game.c src/world.c src/obj.c src/enemy.c src/hud.c src/spell.c src/text.c src/npc.c src/save.c src/death.c src/lzma/LzmaDec.c
+GAME = src/res.c src/tex.c src/room.c src/gfx.c src/phys.c src/anim.c src/hero.c src/camera.c src/game.c src/world.c src/obj.c src/enemy.c src/hud.c src/spell.c src/text.c src/npc.c src/title.c src/save.c src/death.c src/lzma/LzmaDec.c
 SRC = $(GAME) src/plat_eadk.c src/main.c
 HEADERS = $(wildcard src/*.h) ../common/epsilon_app.h ../common/epsilon_files.h
 

@@ -188,10 +188,14 @@ void ents_clear(bool keep_persistent) {
   arena_compact();
 }
 
-void ents_remove_room(int room) {
+void ents_remove_room(int room) { ents_remove_room_kind(room, 0); }
+/* kind 0: all of the room's (but the persistent and global ones); else only those of that kind that do nothing between
+ * rooms (not TransitionUpdate) */
+void ents_remove_room_kind(int room, uint16_t kind) {
+  uint16_t keep = TAG_PERSISTENT | TAG_GLOBAL | (kind ? TAG_TRANSITION_UPDATE : 0);
   for (int i = 0; i < g_nents; i++) {
     Ent *e = &g_ents[i];
-    if (e->cls && e->room == room && !(e->tags & (TAG_PERSISTENT | TAG_GLOBAL))) {
+    if (e->cls && e->room == room && (!kind || (e->kind & kind)) && !(e->tags & keep)) {
       if (e->cls->removed) e->cls->removed(e);
       e->cls = NULL;
     }

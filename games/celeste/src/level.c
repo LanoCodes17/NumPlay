@@ -571,6 +571,15 @@ void level_reload(void) {
 static void transition_to(int index, V2 dir) {
   int slot = g_level.room_slot ^ 1;
   ents_remove_room(slot);
+  /* Player.CleanUpTriggers: the triggers the player is in are left; the room's triggers do nothing more (they go at the
+   * transition's end in the game): they go now, which leaves their entity slots to the next room's (7A g-01 needs them) */
+  for (int i = 0; i < g_nents; i++) {
+    Ent *t = &g_ents[i];
+    if (!t->cls || !(t->kind & KIND_TRIGGER) || !t->triggered) continue;
+    t->triggered = 0;
+    if (MORE(t->cls)->on_leave) MORE(t->cls)->on_leave(t, &g_player);
+  }
+  ents_remove_room_kind(g_level.room_slot, KIND_TRIGGER);
   uint8_t first = g_session.first_level;
   uint32_t deaths = g_session.deaths_in_current_level;
   g_session.first_level = 0;

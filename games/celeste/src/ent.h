@@ -118,6 +118,7 @@ void ents_flush_removed(void);
 void ents_awake_new(void);
 void ents_clear(bool keep_persistent);
 void ents_remove_room(int room);
+void ents_remove_room_kind(int room, uint16_t kind);   /* (the room's entities of a kind) */
 void ents_mark_unsorted(void);
 
 /* the collider's bounds (a circle's: its center, radius cw) */

@@ -16,7 +16,7 @@
 /* (data.h: EK_* each kind, KIND_TABLE: the FSM each runs and the clips its roles play) */
 enum {
   EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER, EF_ROLLER, EF_BLOCKER, EF_LEAPER, EF_GUARD,
-  EF_FK, EF_FKHEAD, EF_GFLY, EF_HATCHER, EF_HATCHLING
+  EF_FK, EF_FKHEAD, EF_GFLY, EF_HATCHER, EF_HATCHLING, EF_SLUG
 };
 enum { R_IDLE, R_TURN, R_WALK, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, R_A7, R_A8, R_DEATH_AIR, R_DEATH_LAND, NUM_ROLES };
 typedef struct {
@@ -3371,6 +3371,75 @@ static void hatchling_reset(Enemy *e) {
   hatchling_start(e);
 }
 
+/* ---------------------------------------------------------------- maggots (Prayer Slug: Control): praying, then off
+ * away from the Knight as he comes near (its Wake Region) */
+enum { SL_IDLE_UP, SL_TO_DOWN, SL_TO_UP, SL_STARTLE, SL_RUN_R, SL_RUN_L, SL_BUMP_R, SL_BUMP_L };
+#define SL_ACCEL (0.3f * 1.2f)   /* (0.3 a frame of the game's 60 a second) */
+
+static void slug_pray(Enemy *e, int st) {
+  static const float wait[3][2] = {{0, 2}, {1.5f, 3}, {1.5f, 3}};
+  anim_play(&e->anim, st == SL_IDLE_UP ? CLIP(e, R_IDLE) : st == SL_TO_DOWN ? CLIP(e, R_A1) : CLIP(e, R_A2));
+  e->t0 = rand_range(wait[st][0], wait[st][1]);
+  e->st = (uint8_t)st;
+}
+
+static void slug_start(Enemy *e) {
+  slug_pray(e, SL_IDLE_UP);
+  e->b0 = false;
+}
+
+static void slug_run(Enemy *e, bool right) {
+  set_scale_x(e, right ? 1 : -1);
+  if (right) e->qx = rand_range(3.5f, 5.5f);   /* (Max Speed R) */
+  else e->qy = rand_range(-5.5f, -3.5f);       /* (Max Speed L) */
+  anim_play(&e->anim, CLIP(e, R_A4));
+  e->st = right ? SL_RUN_R : SL_RUN_L;
+}
+
+static void slug_update(Enemy *e) {
+  /* (its Wake Region: WAKE as the Knight comes in) */
+  const Ent *r = enemy_rec(e, ET_RANGE);
+  bool in = r && hero_in_box(e, r->x0, r->y0, r->x1, r->y1), wake = in && !e->b0;
+  e->b0 = in;
+  bool done = (e->anim.events & ANIM_DONE) != 0;
+  switch (e->st) {
+    case SL_IDLE_UP:
+    case SL_TO_DOWN:
+    case SL_TO_UP:
+      if (wake) {
+        anim_play_from_frame(&e->anim, CLIP(e, R_A3), 0);
+        set_scale_x(e, hero_x() > e->body.x ? 1 : -1);   /* (FaceObject, sprite facing right) */
+        e->st = SL_STARTLE;
+      } else if ((e->t0 -= DT) <= 0)
+        slug_pray(e, e->st == SL_TO_DOWN ? SL_TO_UP : SL_TO_DOWN);
+      break;
+    case SL_STARTLE:
+      if (done) e->qx = 4.5f, e->qy = -4.5f, slug_run(e, hero_x() <= e->body.x);   /* (Direction: away) */
+      break;
+    case SL_BUMP_R:
+    case SL_BUMP_L:
+      if (done) slug_run(e, e->st == SL_BUMP_R);
+      break;
+  }
+}
+
+static void slug_fixed(Enemy *e) {
+  if (e->st != SL_RUN_R && e->st != SL_RUN_L) return;
+  bool right = e->st == SL_RUN_R;
+  float v = e->body.vx + (right ? SL_ACCEL : -SL_ACCEL);
+  e->body.vx = v < e->qy ? e->qy : v > e->qx ? e->qx : v;
+  if (right ? hero_x() > e->body.x : hero_x() < e->body.x) {
+    slug_run(e, !right);   /* (the Knight that way: the other) */
+    return;
+  }
+  if (e->body.ncontacts && side_hit(e, right ? 0 : 2)) {
+    /* Bump: up and back off the wall */
+    e->body.vx = right ? rand_range(-5, -2.5f) : rand_range(2.5f, 5), e->body.vy = 10;
+    anim_play_from_frame(&e->anim, CLIP(e, R_A5), 0);
+    e->st = right ? SL_BUMP_R : SL_BUMP_L;
+  }
+}
+
 /* ---------------------------------------------------------------- Gruz Mother: Big Fly Control (with her bouncer_control);
  * her corpse (corpse) and its burster (burster), which brings out her young */
 enum { GF_INVINCIBLE, GF_SLEEP, GF_WAKE, GF_FLY, GF_BUZZ, GF_CHARGE_ANTIC, GF_CHARGE, GF_CHARGE_RECOVER, GF_SUPER_END,
@@ -3793,6 +3862,7 @@ static void enemy_fsm_start(Enemy *e, const Ent *d) {
   else if (FSM(e) == EF_GFLY) gfly_start(e);
   else if (FSM(e) == EF_HATCHER) hatcher_start(e, d);
   else if (FSM(e) == EF_HATCHLING) hatchling_start(e);
+  else if (FSM(e) == EF_SLUG) slug_start(e);
 }
 
 /* ActiveRegion (a 50 by 35 box round the camera) meets its collider: FSMActivator turns its FSMs on */
@@ -3978,6 +4048,7 @@ void enemies_fixed(void) {
       else if (FSM(e) == EF_GFLY) gfly_fixed(e);
       else if (FSM(e) == EF_HATCHER) hatcher_fixed(e);
       else if (FSM(e) == EF_HATCHLING) hatchling_fixed(e);
+      else if (FSM(e) == EF_SLUG) slug_fixed(e);
       recoil_fixed(e);
       body_step(&e->body, DT);
     } else if (FSM(e) != EF_BLOCKER) {
@@ -4046,6 +4117,7 @@ void enemies_update(void) {
       else if (FSM(e) == EF_GFLY) gfly_update(e);
       else if (FSM(e) == EF_HATCHER) hatcher_update(e);
       else if (FSM(e) == EF_HATCHLING) hatchling_update(e);
+      else if (FSM(e) == EF_SLUG) slug_update(e);
       if (FSM(e) == EF_FK) {
         /* (its Hitter: on till its FSM turns it off) */
         e->sub.events = 0;

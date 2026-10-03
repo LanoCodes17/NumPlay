@@ -57,6 +57,8 @@ ENEMY_KINDS = [
     # (Aspid Mother and her young)
     ("hatcher", "Hatcher", ("sharedassets57.assets", 79), "HATCHER", {"A1": "Fly", "A2": "Fire"}),
     ("hatchling", "Control", ("resources.assets", 20637), "HATCHLING", {"A1": "Fly"}),
+    ("slug", "Control", ("sharedassets46.assets", 58), "SLUG",
+     {"IDLE": "Idle Up", "A1": "Idle ToDown", "A2": "Idle ToUp", "A3": "Startle", "A4": "Run", "A5": "Bounce"}),
     # (Gruz Mother; her corpse's and its burster's clips are hers too)
     ("gfly", "Big Fly Control", ("sharedassets32.assets", 765), "GFLY", {"IDLE": "Sleep"},
      ["Wake", "Fly", "Charge Antic", "Charge", "Charge Recover", "Slam Down", "Slam Up", "Slam End", "Death", "Fall",

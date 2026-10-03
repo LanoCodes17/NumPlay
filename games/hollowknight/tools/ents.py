@@ -394,7 +394,8 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
     # its alert ranges (children with AlertRange): "Alert Range New" the main one, others by name
     for ch in o.get("children", []):
         q = by_id[ch]
-        if not any(c.get("class") == "AlertRange" for c in q["c"]) and q["name"] not in ("Alert Range New", "Unalert Range"):
+        if not any(c.get("class") == "AlertRange" for c in q["c"]) and \
+                q["name"] not in ("Alert Range New", "Unalert Range", "Wake Region"):
             continue
         r = _alert_range(q)
         if r is None:

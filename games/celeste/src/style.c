@@ -1,3 +1,6 @@
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC optimize("Os")   /* not drawn every frame: smaller over faster */
+#endif
 /* Stylegrounds: the chapter's parallax backgrounds and effects (Celeste's
  * Backdrop, Parallax, Snow, ...), drawn in screen space behind and in front of
  * the level. */

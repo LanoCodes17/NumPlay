@@ -1,3 +1,6 @@
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC optimize("Os")   /* not drawn every frame: smaller over faster */
+#endif
 /* Screen wipes (ScreenWipe and the chapters' own): black shapes over the
  * screen, drawn like the game does, as triangles in its 1920x1080 interface. */
 #include "wipe.h"

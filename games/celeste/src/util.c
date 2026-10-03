@@ -1,3 +1,6 @@
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC optimize("Os")   /* not drawn every frame: smaller over faster */
+#endif
 /* Calc.Random (.NET's System.Random), Monocle's eases, the input buttons,
  * and sprite animation (Monocle.Sprite). */
 #include "celeste.h"

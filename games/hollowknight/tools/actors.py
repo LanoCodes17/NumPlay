@@ -136,6 +136,12 @@ ACTORS = {"knight": KNIGHT,
                                               "Coin Get", "Soul Burst"]),
           "liquid": ("resources.assets", 20843, None),
           "geo": ("resources.assets", 23266, ["Small Idle", "Small Air", "Med Idle", "Med Air", "Large Idle", "Large Air"]),
+          # the shops' menu: its borders and the shopkeepers' figureheads, unrolled up and down (on the HUD)
+          "shopui": ("sharedassets10.assets", 616, ["Shop_Menu_Top Up", "Shop_Menu_Top Down", "Shop_Menu_Bottom Up",
+                                                    "Shop_Menu_Bottom Down", "Shop_Figurehead_Sly Up",
+                                                    "Shop_Figurehead_Sly Down", "Shop_Figurehead_Mapperwife Up",
+                                                    "Shop_Figurehead_Mapperwife Down", "Shop_Figurehead_Slug Up",
+                                                    "Shop_Figurehead_Slug Down"]),
           # (Gathering Swarm: the bug that brings geo, a child of each)
           "geobug": ("resources.assets", 22564, ["Lamp_Bug_idle"]),
           # the dialogue box (on the HUD, a third bigger with its text) and the prompt markers
@@ -215,12 +221,13 @@ def named_sprites(sprites):
 DRAWN_SCALE = {"Arrow Up": 1.3, "Arrow Down": 1.3, "Stop Up": 1.3, "Stop Down": 1.3, "Dream Up": 1.0745, "Dream Down": 1.0745, "SlashEffect": 1.645, "SlashEffectAlt": 1.422, "UpSlashEffect": 1.4, "DownSlashEffect": 1.28,
                "SlashEffect F": 1.645, "SlashEffectAlt F": 1.422, "UpSlashEffect F": 1.4, "DownSlashEffect F": 1.28,
                "Blast": 1.4, "Ball": 1.45, "Ball End": 1.45, "Fireball Wall Impact": 2.0,
-               "Lamp_Bug_idle": 1.5 * 1.4838, "Small Idle": 1.5, "Small Air": 1.5, "Med Idle": 1.5, "Med Air": 1.5, "Large Idle": 1.5, "Large Air": 1.5}
+               "Lamp_Bug_idle": 1.5 * 1.4838, "Shop_Menu_Top Up": 1.124, "Shop_Menu_Top Down": 1.124,
+               "Shop_Menu_Bottom Up": 1.134, "Shop_Menu_Bottom Down": 1.134, "Small Idle": 1.5, "Small Air": 1.5, "Med Idle": 1.5, "Med Air": 1.5, "Large Idle": 1.5, "Large Air": 1.5}
 K0 = scene.FOCAL / (0.004 - scene.CAMZ)   # screen pixels a unit, where actors are (z near 0)
 HUD_K = (scene.VIEW_H / 2) / 8.7107        # the HUD's (its orthographic camera)
 # (actor, clip): drawn bigger or smaller than their sprites
 ACTOR_RES = float(os.environ.get("HK_ACTOR_RES", "1"))
-ACTOR_SCALE = {"hud": HUD_K / K0, "liquid": 1.4 * HUD_K / K0, "dialogue": text.TEXT_K * HUD_K / K0}
+ACTOR_SCALE = {"hud": HUD_K / K0, "shopui": HUD_K / K0, "liquid": 1.4 * HUD_K / K0, "dialogue": text.TEXT_K * HUD_K / K0}
 HUD_MASK = 0.7135
 
 
@@ -277,7 +284,7 @@ def build():
                     col = tk2d.collection(cpath, cpid)
                     img, lx, ty, upp, (wu, hu) = tk2d.sprite_image(cpath, col, f["spriteId"])
                     k = K0 * DRAWN_SCALE.get(name, 1.0) * ACTOR_SCALE.get(actor, 1.0)
-                    if actor not in ("knight", "hud", "dialogue", "liquid"):
+                    if actor not in ("knight", "hud", "dialogue", "liquid", "shopui"):
                         k *= ACTOR_RES   # (the others' frames: a little less fine, to fit)
                     if actor == "hud" and (name.startswith("Health") or name.startswith("Blue")):
                         k *= HUD_MASK

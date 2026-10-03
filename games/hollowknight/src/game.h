@@ -32,6 +32,12 @@ enum {
   PDF_EQUIPPED_CHARM_31, PDF_EQUIPPED_CHARM_32, PDF_EQUIPPED_CHARM_33, PDF_EQUIPPED_CHARM_34, PDF_EQUIPPED_CHARM_35,
   PDF_EQUIPPED_CHARM_36, PDF_EQUIPPED_CHARM_37, PDF_EQUIPPED_CHARM_38, PDF_EQUIPPED_CHARM_39, PDF_EQUIPPED_CHARM_40,
   PDF_OVERCHARMED, PDF_CAN_OVERCHARM, PDF_HAS_LANTERN, PDF_HEART_PIECE_COLLECTED, PDF_VESSEL_FRAGMENT_COLLECTED,
+  PDF_MET_SLY_SHOP, PDF_MET_ISELDA, PDF_MET_CHARM_SLUG, PDF_SLY_SHELL_FRAG1, PDF_SLY_SHELL_FRAG2, PDF_SLY_VESSEL_FRAG1,
+  PDF_SLY_SIMPLE_KEY, PDF_SLY_RANCID_EGG, PDF_MAP_CROSSROADS, PDF_MAP_GREENPATH, PDF_HAS_PIN, PDF_HAS_PIN_BENCH,
+  PDF_HAS_PIN_COCOON, PDF_HAS_PIN_SHOP, PDF_HAS_PIN_SPA, PDF_HAS_PIN_STAG, PDF_HAS_MARKER, PDF_HAS_MARKER_B,
+  PDF_HAS_MARKER_R, PDF_HAS_MARKER_Y, PDF_HAS_MARKER_W, PDF_SALUBRA_NOTCH1, PDF_SALUBRA_NOTCH2, PDF_SALUBRA_NOTCH3,
+  PDF_SALUBRA_NOTCH4, PDF_MET_STAG, PDF_CORNIFER_AT_HOME, PDF_ISELDA_CONVO1, PDF_ISELDA_CORNIFER_HOME_CONVO,
+  PDF_SALUBRA_CONVO_COMBO, PDF_SALUBRA_CONVO_OVERCHARM, PDF_SALUBRA_CONVO_TRUTH, PDF_SLY_CONVO_MAPPER,
   PDF_COUNT
 };
 typedef struct {
@@ -383,6 +389,24 @@ void menu_start(void);
 bool menu_tick(uint32_t keys);   /* -> the game kept from ticking (a menu is up) */
 void menu_draw(void);
 bool menu_in_game(void);
+/* the menus' pieces (inv.c): a sprite at its place and scale, a text's place (x its left, center or right as it is
+ * aligned); drawn over all (gfx_overlay), in HUD units from (ox, oy) */
+typedef struct {
+  int16_t sprite;
+  float x, y, kx, ky;
+} UiPiece;
+typedef struct {
+  float x, top, w;
+} UiText;
+void ui_piece(const UiPiece *p, float ox, float oy, float k, uint8_t tint);
+void ui_sprite_at(int sprite, float x, float y, float k, uint8_t tint);
+void ui_text_at(int text, int style, const UiText *t, float ox, float oy, int align, float a);   /* (0 left, 1 center, 2 right) */
+void ui_number_at(int v, int style, float x, float top, int align, float a);
+/* the shops' menu (shop.c): SHOP UP from its region's script; what it does the game goes on behind it */
+void shop_reset(void);
+void shop_event(int ev);
+uint32_t shop_tick(uint32_t keys);   /* -> the keys the game has (none while it is open) */
+bool shop_open(void);
 /* the inventory (inv.c): opened with its key; the world goes on behind it */
 void inv_reset(void);
 uint32_t inv_tick(uint32_t keys);   /* -> the keys the game has (none while it is open) */

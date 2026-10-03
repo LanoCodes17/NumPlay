@@ -175,8 +175,8 @@ typedef struct {
   uint8_t type;   /* 0 small (1), 1 medium (5), 2 large (25) */
   uint8_t ncontacts, ccol[GEO_CONTACTS];
   uint8_t getter;   /* (Gathering Swarm: its bug's chances, 1 + a number; 0: none) */
+  int8_t cnx[GEO_CONTACTS], cny[GEO_CONTACTS];   /* (the contacts' normals, in 127ths) */
   float x, y, vx, vy;
-  float cnx[GEO_CONTACTS], cny[GEO_CONTACTS];
   Anim anim;
   float age;      /* (since it was flung: picked up after 0.25 s) */
 } Geo;
@@ -263,7 +263,7 @@ static void geo_tick(void) {
       b.ox = ox, b.oy = oy, b.hx = bhx, b.hy = bhy;
       b.gravity_scale = geo_kinds[g->type].gravity, b.friction = 0.2f, b.mask = CF_TERRAIN;
       b.ncontacts = g->ncontacts;
-      for (int c = 0; c < g->ncontacts; c++) b.ccol[c] = g->ccol[c], b.cnx[c] = g->cnx[c], b.cny[c] = g->cny[c];
+      for (int c = 0; c < g->ncontacts; c++) b.ccol[c] = g->ccol[c], b.cnx[c] = g->cnx[c] / 127.0f, b.cny[c] = g->cny[c] / 127.0f;
       float pvx = b.vx, pvy = b.vy;
       int had = b.ncontacts;
       body_step(&b, DT);
@@ -271,7 +271,8 @@ static void geo_tick(void) {
       if (hit) body_bounce(&b, pvx, pvy, had, geo_kinds[g->type].bounce);
       g->x = b.x, g->y = b.y, g->vx = b.vx, g->vy = b.vy;
       g->ncontacts = (uint8_t)(b.ncontacts < GEO_CONTACTS ? b.ncontacts : GEO_CONTACTS);
-      for (int c = 0; c < g->ncontacts; c++) g->ccol[c] = b.ccol[c], g->cnx[c] = b.cnx[c], g->cny[c] = b.cny[c];
+      for (int c = 0; c < g->ncontacts; c++)
+        g->ccol[c] = b.ccol[c], g->cnx[c] = (int8_t)lrintf(b.cnx[c] * 127), g->cny[c] = (int8_t)lrintf(b.cny[c] * 127);
       if (hit) {
         /* (OnCollisionEnter2D: the idle animation from a random frame) */
         anim_play_from_frame(&g->anim, geo_kinds[g->type].idle, (int)rand_range(0, (float)clip_frames_count(geo_kinds[g->type].idle) - 0.001f));

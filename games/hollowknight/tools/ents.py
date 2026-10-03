@@ -225,14 +225,15 @@ def rec(type_, flags=0, box=(0, 0, 0, 0), p=(0, 0, 0, 0), a=0, group=0, group2=0
 
 
 # PlayerData bools whose names are not camel case
-PD_RAW_NAMES = {"PDF_HORNET_F19": "hornet_f19"}
+PD_RAW_NAMES = {"PDF_HORNET_F19": "hornet_f19", "PDF_HAS_MARKER_B": "hasMarker_b", "PDF_HAS_MARKER_R": "hasMarker_r",
+                "PDF_HAS_MARKER_Y": "hasMarker_y", "PDF_HAS_MARKER_W": "hasMarker_w"}
 
 
 def pd_flags():
     """PlayerData's bools as the game numbers them (src/game.h: PDF_*), by their names in the game ("falseKnightDefeated")"""
     import os, re
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "game.h")).read()
-    names = re.search(r"enum \{\s*(PDF_AT_BENCH[^}]*)\}", src).group(1)
+    names = re.sub(r"/\*.*?\*/", "", re.search(r"enum \{\s*(PDF_AT_BENCH[^}]*)\}", src).group(1), flags=re.S)
     ids = [n.strip() for n in names.replace("\n", " ").split(",") if n.strip() and n.strip() != "PDF_COUNT"]
     camel = lambda n: "".join(w.capitalize() for w in n.lower().split("_"))
     out = {}

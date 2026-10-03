@@ -23,6 +23,10 @@ ROOMS = {
     "Tutorial_01": ["_Props/Chest/Item"],   # (its chest: src/obj.c, which turns on what is in it)
     "Fungus1_22": ["Shiny Item"],
     "Crossroads_10": ["Key Giver"],
+    # the shops: their keepers, their regions (the menu: src/shop.c)
+    "Room_shop": ["Basement Closed"],
+    "Room_mapper": ["Iselda", "Shop Region"],
+    "Room_Charm_Shop": ["Charm Slug", "Shop Region"],
     # the grubs in their jars; the Grubfather, his rewards, the grubs back home
     "Crossroads_03": ["_Props/Grub Bottle"],
     "Fungus1_21": ["Grub Bottle"],
@@ -109,6 +113,8 @@ INT_STRINGS = range(0, GRUBS + 1)
 SPECIAL = {"Hero": 0xFF00, "HeroLight": 0xFF01, "DialogueManager": 0xFF02, "DialogueText": 0xFF03, "AreaTitle": 0xFF04,
            "CameraParent": 0xFF05, "MainCamera": 0xFF06, "GameManager": 0xFF07, "HUD Blanker": 0xFF08,
            "DialogueTextYN": 0xFF09, "UIManager": 0xFF0A, "Enemy Dream Msg": 0xFF0B, "HUD Blanker White": 0xFF0D}
+# objects scripts find by their tags: the Knight; a shop's menu (src/shop.c)
+TAGGED = {"Player": 0xFF00, "Shop Window": 0xFF10}   # (src/vm.c: O_SHOP)
 O_NONE = 0xFFFF
 # PlayerData ints (src/vm.c: pd_int)
 PD_INTS = ["MPCharge", "health", "maxHealth", "geo", "fireballLevel", "quakeLevel", "screamLevel", "shaman", "elderbug",
@@ -117,7 +123,13 @@ PD_INTS = ["MPCharge", "health", "maxHealth", "geo", "fireballLevel", "quakeLeve
 # PlayerData bools kept elsewhere (src/vm.c)
 PD_SPECIAL = {"disablePause": 0xFFF0, "hasSpell": 0xFFF1, "canDash": 0xFFF2}
 # PlayerData bools that keep their new game value all through this part of the game
-PD_CONST = {"backerCredits": False, "finalGrubRewardCollected": False, "equippedCharm_10": False, "elderbugGaveFlower": False, "elderbugRequestedFlower": False,
+PD_CONST = {"gotSlyCharm": False, "hasAllNailArts": False, "hasNailArt": False, "honedNail": False,
+            "iseldaConvoGrimm": False, "iseldaNymmConvo": False, "slyConvoGrimm": False, "slyNymmConvo": False,
+            "slyConvoNailArt": False, "slyConvoNailHoned": False, "backerCredits": False, "finalGrubRewardCollected": False, "gaveSlykey": False, "hasSlykey": False,
+            "corn_fogCanyonLeft": False, "corn_fungalWastesLeft": False, "corn_cityLeft": False,
+            "corn_waterwaysLeft": False, "corn_minesLeft": False, "corn_cliffsLeft": False, "corn_deepnestLeft": False,
+            "corn_outskirtsLeft": False, "corn_royalGardensLeft": False, "corn_abyssLeft": False,
+            "visitedRestingGrounds": False, "hasTramPass": False, "equippedCharm_10": False, "elderbugGaveFlower": False, "elderbugRequestedFlower": False,
             "xunFlowerBroken": False, "hasXunFlower": False, "openedBlackEggDoor": False,
             "visitedCrossroadsInfected": False, "defeatedNightmareGrimm": False, "jijiDoorUnlocked": False,
             "visitedCliffs": False, "mineLiftOpened": False, "brettaRescued": False, "elderbugHistory2": False,
@@ -148,7 +160,8 @@ EVENTS = Strings()
 for e in ("FINISHED", "CONVO_FINISH", "CONVO START", "CONVO END", "BIG TITLE START", "BIG TITLE END", "HERO DAMAGED",
           "NPC TITLE DOWN", "NPC CONVO START", "BOX UP", "BOX DOWN", "LEAVING SCENE", "TAKE DAMAGE", "GET ITEM MSG END",
           "HORNET LEAVE", "BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY", "WAKE", "BOX UP DREAM",
-          "BOX DOWN DREAM", "FADE IN", "FADE OUT", "FSM CANCEL", "CLOSE", "FK DEATH"):
+          "BOX DOWN DREAM", "FADE IN", "FADE OUT", "FSM CANCEL", "CLOSE", "FK DEATH", "SHOP UP", "SHOP CLOSED",
+          "SHOP CLOSED QUICK", "SHOP WINDOW UP", "RESET SHOP WINDOW", "CLOSE SHOP WINDOW"):
     EVENTS.id(e)
 FIXED_EVENTS = len(EVENTS.list)   # (src/data.h: VMEV_*)
 
@@ -298,7 +311,10 @@ op("FlingPiece", ("gameObject", "o"), ("hide", "n"), ("snap", "n"), ("sprite", "
 HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "StartAnimationControl", "FaceLeft",
                 "FaceRight", "CanTalk", "PreventCastByDialogueEnd", "SetBackOnGround", "AddMPCharge",
                 "FindGroundPoint", "SetBenchRespawn", "SetHazardRespawn", "RelinquishControlNotVelocity",
-                "SetCState", "SaveGame", "AffectedByGravity", "ResetHardLandingTimer", "StopPlayingAudio", "CanInspect"]
+                "SetCState", "SaveGame", "AffectedByGravity", "ResetHardLandingTimer", "StopPlayingAudio", "CanInspect",
+                "CanInput", "GetState"]
+# (GetState's states, by name: its argument)
+HERO_STATES = ["onGround", "attacking", "upAttacking", "downAttacking", "dashing", "backDashing"]
 # the geo prefabs (Geo Small, Med, Large): GeoControl's types
 GEO_PREFABS = {("resources.assets", 5736): 0, ("resources.assets", 6395): 1, ("resources.assets", 6376): 2}
 # the prompt marker the pool gives (Arrow Prompt New): a script's own, shown and hidden as ShowPromptMarker's
@@ -706,17 +722,19 @@ class Compiler:
         return 0xFFFE
 
     def target(self, v):
-        """an event target -> bytes: kind (0 self, 1 an object's FSMs, 2 all, 3 one FSM of an object), object, FSM name"""
+        """an event target -> bytes: kind (0 self, 1 an object's FSMs, 2 all, 3 one FSM of an object; +16 its
+        children's too, +32 not the sender's), object, FSM name"""
         if v == "Self" or v is None:
             return bytes([0]) + struct.pack("<HH", 0xFFFF, 0xFFFF)
         t = v.get("target")
+        x = (16 if v.get("children") and t != "BroadcastAll" else 0) | (32 if v.get("excludeSelf") else 0)
         if t == "BroadcastAll":
-            return bytes([2]) + struct.pack("<HH", 0xFFFF, 0xFFFF)
+            return bytes([2 | x]) + struct.pack("<HH", 0xFFFF, 0xFFFF)
         go = self.value(v.get("go"), "o")
         if t == "GameObject":
-            return bytes([1]) + struct.pack("<HH", go, 0xFFFF)
+            return bytes([1 | x]) + struct.pack("<HH", go, 0xFFFF)
         if t == "GameObjectFSM":
-            return bytes([3]) + struct.pack("<HH", go, STR.id(v.get("fsm") or ""))
+            return bytes([3 | x]) + struct.pack("<HH", go, STR.id(v.get("fsm") or ""))
         self.problem("event target %r" % (v,))
         return bytes([0]) + struct.pack("<HH", 0xFFFF, 0xFFFF)
 
@@ -899,6 +917,9 @@ class Compiler:
                                                    "gameObject": ("objindex", GAME_OBJECTS[P.get("objectName")])})
             if P.get("objectName"):
                 return self.emit("FindGameObject", P)
+            if P.get("withTag") in TAGGED:
+                return self.emit("SetGameObject", {"variable": P.get("store"),
+                                                   "gameObject": ("objindex", TAGGED[P.get("withTag")])})
             return None   # (by tag: the main camera)
         if n == "FlingObjects":
             c = self.static_child(P.get("containerObject"))
@@ -981,20 +1002,23 @@ class Compiler:
                 import text
                 rows = [(k, sh) for k in keys for sh in sheets if k in text.sheets().get(sh, {})]
                 if not rows:
+                    # (none the game has: it ends as it starts)
                     self.problem("conversation %s %s" % (keys, sheets))
-                    return None
+                    return self.emit("SendEvent", {"eventTarget": "Self", "sendEvent": ["event", "CONVO_FINISH"], "delay": 0})
                 if len(keys) == 1 and len(sheets) == 1:
-                    return self.emit("StartConversation", {"text": self.rm.texts.id(sheet, key)})
+                    return self.emit("StartConversation", {"text": self.rm.texts.id(sheets[0], keys[0])})
                 # (by what its variables hold: each conversation they can name)
                 body = struct.pack("<HHB", self.value(key, "s"), self.value(sheet, "s"), len(rows))
                 for k, sh in rows:
                     body += struct.pack("<HHH", STR.id(k), STR.id(sh), self.rm.texts.id(sh, k))
                 assert len(body) < 256, rows
                 return bytes([OPS["StartConversationOf"][0], len(body)]) + body
-            if beh == "GameManager" and m == "CheckCharmAchievements":
+            if beh == "GameManager" and m in ("CheckCharmAchievements", "AwardAchievement"):
                 return None
             if beh == "HeroController" and m in HERO_METHODS:
                 a0 = args[0]["f"] if args and args[0].get("type") in (5, 0) else 0
+                if m == "GetState":
+                    a0 = HERO_STATES.index(args[0]["s"])
                 return self.emit("HeroCall", {"method": HERO_METHODS.index(m), "store": P.get("storeResult"), "a": a0})
             self.problem("CallMethodProper %s.%s" % (beh, m))
             return None
@@ -1005,7 +1029,8 @@ class Compiler:
                 return self.emit("HeroCall", {"method": HERO_METHODS.index(fn), "store": None,
                                               "a": float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0})
             if fn in ("advanceTypewriter", "TimePasses", "StoryRecord_acquired", "StoryRecord_visited", "SetActionString",
-                      "RefreshButtonIcon", "StopBounce", "CheckGrubAchievements", "AddToGrubList"):
+                      "RefreshButtonIcon", "StopBounce", "CheckGrubAchievements", "AddToGrubList", "CountCharms",
+                      "TriggerStartVideo"):
                 return None
             self.problem("SendMessage %s" % fn)
             return None

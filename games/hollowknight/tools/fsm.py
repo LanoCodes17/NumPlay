@@ -172,8 +172,12 @@ def decode_params(ad, data_version, names_of=None):
                 return "Self"
             go = d["gameObject"]
             fsmname = d["fsmName"]
-            return {"target": tgt, "go": "Owner" if go["ownerOption"] == 0 else named(go["gameObject"], lambda d: ref(d["value"])),
-                    "fsm": named(fsmname, lambda d: S(d["value"]))}
+            out = {"target": tgt, "go": "Owner" if go["ownerOption"] == 0 else named(go["gameObject"], lambda d: ref(d["value"])),
+                   "fsm": named(fsmname, lambda d: S(d["value"]))}
+            for k, n in (("sendToChildren", "children"), ("excludeSelf", "excludeSelf")):
+                if (d.get(k) or {}).get("value"):
+                    out[n] = 1
+            return out
         if t == "FsmProperty":
             d = ad["fsmPropertyParams"][p]
             return {"prop": S(d.get("PropertyName", b"")), "target": named(d.get("TargetObject"), lambda d: ref(d["value"]))}

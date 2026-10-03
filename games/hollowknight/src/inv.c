@@ -19,17 +19,12 @@
 #define REPEAT 0.1f
 #define RESERVE 140        /* (the frame's instances kept for it) */
 
-typedef struct {
-  int16_t sprite;
-  float x, y, kx, ky;
-} Piece;
+typedef UiPiece Piece;
 typedef struct {
   int16_t sprite;
   float x, y, kx, ky, deg;
 } TurnedPiece;
-typedef struct {
-  float x, top, w;   /* (a text: x its left, center or right as it is aligned) */
-} TextAt;
+typedef UiText TextAt;
 typedef struct {
   float w, h, ox, oy;   /* (a collider: its size and offset, as the world has them) */
 } Box;
@@ -537,14 +532,14 @@ uint32_t inv_tick(uint32_t keys) {
 }
 
 /* ---------------------------------------------------------------- drawing */
-static void piece(const Piece *p, float ox, float oy, float k, uint8_t tint) {
+void ui_piece(const Piece *p, float ox, float oy, float k, uint8_t tint) {
   if (p->sprite < 0) return;
   Inst in;
   sprite_inst(p->sprite, ox + p->x, oy + p->y, 0, p->kx * k, p->ky * k, tint, &in);
   gfx_overlay(&in);
 }
 
-static void sprite_at(int sprite, float x, float y, float k, uint8_t tint) {
+void ui_sprite_at(int sprite, float x, float y, float k, uint8_t tint) {
   if (sprite < 0) return;
   Inst in;
   sprite_inst(sprite, x, y, 0, k, k, tint, &in);
@@ -552,7 +547,7 @@ static void sprite_at(int sprite, float x, float y, float k, uint8_t tint) {
 }
 
 /* a text's lines (each top aligned at its place: 0 left, 1 center, 2 right) */
-static void text_at(int text, int style, const TextAt *t, float ox, float oy, int align, float a) {
+void ui_text_at(int text, int style, const TextAt *t, float ox, float oy, int align, float a) {
   text_box(text, style, ox + t->x, oy + t->top, 1e3f, align, a);
 }
 
@@ -566,7 +561,7 @@ static void digits(char *out, int v) {
   out[n] = 0;
 }
 
-static void number_at(int v, int style, float x, float top, int align, float a) {
+void ui_number_at(int v, int style, float x, float top, int align, float a) {
   /* (kept until the frame is drawn: the text runs point at them) */
   static char pool[8][12];
   static int next;
@@ -610,11 +605,11 @@ static void charms_draw(float ox, float oy, float a, uint8_t white) {
   /* the collection: the backboards, the charms the Knight has (glowing; not those equipped, nor the one moving) */
   for (int i = 0; i < 40; i++) {
     float x = ox + ch_bb_pos[i][0], y = oy + ch_bb_pos[i][1];
-    sprite_at(ch_bb.sprite, x, y, ch_bb.kx, white);
+    ui_sprite_at(ch_bb.sprite, x, y, ch_bb.kx, white);
     int id = ch_bb_charm[i];
     if (!charm_got(id) || charm_equipped(id) || (iv.tween != TW_NONE && iv.tw_charm == id)) continue;
-    piece(&ch_glow, x, y, 1, glow);
-    sprite_at(ch_icons[id], x, y, 1 / CHARM_ICON_K, white);
+    ui_piece(&ch_glow, x, y, 1, glow);
+    ui_sprite_at(ch_icons[id], x, y, 1 / CHARM_ICON_K, white);
   }
   /* the equipped row, the next dot */
   int n = equipped_count();
@@ -622,45 +617,45 @@ static void charms_draw(float ox, float oy, float a, uint8_t white) {
     float x, y;
     eq_pos(i, &x, &y);
     if (!(iv.tween == TW_FAIL_BACK && g_pd.equipped[i - 1] == iv.tw_charm))
-      sprite_at(ch_icons[g_pd.equipped[i - 1]], ox + x, oy + y, EQ_SCALE / CHARM_ICON_K, white);
+      ui_sprite_at(ch_icons[g_pd.equipped[i - 1]], ox + x, oy + y, EQ_SCALE / CHARM_ICON_K, white);
   }
   if (g_pd.charm_slots_filled < g_pd.charm_slots && !(iv.tween == TW_UP || iv.tween == TW_FAIL)) {
     float x, y;
     eq_pos(n + 1, &x, &y);
-    piece(&ch_next_dot, ox + x, oy + y, 1, white);
+    ui_piece(&ch_next_dot, ox + x, oy + y, 1, white);
   }
   /* the notches: full as the charms take them; over them (overcharmed, or trying), red */
   int slots = g_pd.charm_slots, filled = g_pd.charm_slots_filled;
   for (int i = 0; i < slots || i < filled; i++) {
     float x = ox + CH_NOTCH_X + i * CH_NOTCH_DX, y = oy + CH_NOTCH_Y;
     bool over_on = filled > slots && (pd_flag(PDF_OVERCHARMED) || iv.tween == TW_FAIL);
-    if (i < filled) piece(&ch_notch_full, x, y, 1, over_on ? over : full);
-    else piece(&ch_notch_empty, x, y, 1, white);
+    if (i < filled) ui_piece(&ch_notch_full, x, y, 1, over_on ? over : full);
+    else ui_piece(&ch_notch_empty, x, y, 1, white);
   }
-  text_at(pd_flag(PDF_OVERCHARMED) ? TXT_CHARM_TXT_OVERCHARMED : TXT_CHARM_TXT_EQUIPPED, STYLE_TUTE, &ch_text_equipped,
+  ui_text_at(pd_flag(PDF_OVERCHARMED) ? TXT_CHARM_TXT_OVERCHARMED : TXT_CHARM_TXT_EQUIPPED, STYLE_TUTE, &ch_text_equipped,
           ox, oy, 0, a);
-  text_at(TXT_CHARM_NOTCHES, STYLE_MSG, &ch_text_notches, ox, oy, 0, a);
-  piece(&ch_divider, ox, oy, 1, white);
+  ui_text_at(TXT_CHARM_NOTCHES, STYLE_MSG, &ch_text_notches, ox, oy, 0, a);
+  ui_piece(&ch_divider, ox, oy, 1, white);
   /* the charm moving to its notch or back (shaking as it fails) */
   if (iv.tween != TW_NONE) {
     float q = iv.tween == TW_FAIL ? 1 : iv.tw_t / TWEEN_TIME;
     float e = sinf((q > 1 ? 1 : q) * 1.5707964f);
     float x = iv.tw_from[0] + (iv.tw_to[0] - iv.tw_from[0]) * e, y = iv.tw_from[1] + (iv.tw_to[1] - iv.tw_from[1]) * e;
     if (iv.tween == TW_FAIL) x += rand_range(-0.1f, 0.1f), y += rand_range(-0.1f, 0.1f);   /* (ObjectJitterRealtime) */
-    sprite_at(ch_icons[iv.tw_charm], ox + x, oy + y, EQ_SCALE / CHARM_ICON_K, white);
+    ui_sprite_at(ch_icons[iv.tw_charm], ox + x, oy + y, EQ_SCALE / CHARM_ICON_K, white);
   }
   /* what is selected: its name, cost, picture, description; Equip or Unequip (at a bench) */
   int name, desc, cost, detail;
   charm_select_text(&name, &desc, &cost, &detail);
-  text_at(name, STYLE_DIALOGUE, &ch_name, ox, oy, 1, a);
+  ui_text_at(name, STYLE_DIALOGUE, &ch_name, ox, oy, 1, a);
   if (detail) {
-    text_at(TXT_CHARM_TXT_COST, STYLE_MSG, &ch_cost_text, ox, oy, 2, a);
-    for (int i = 0; i < cost; i++) piece(&ch_cost_pip, ox + CH_COST_X + i * CH_COST_DX, oy + CH_COST_Y, 1, white);
-    sprite_at(ch_icons[detail], ox + CH_DETAIL_X, oy + CH_DETAIL_Y, DETAIL_SCALE / CHARM_ICON_K, white);
+    ui_text_at(TXT_CHARM_TXT_COST, STYLE_MSG, &ch_cost_text, ox, oy, 2, a);
+    for (int i = 0; i < cost; i++) ui_piece(&ch_cost_pip, ox + CH_COST_X + i * CH_COST_DX, oy + CH_COST_Y, 1, white);
+    ui_sprite_at(ch_icons[detail], ox + CH_DETAIL_X, oy + CH_DETAIL_Y, DETAIL_SCALE / CHARM_ICON_K, white);
   }
   text_box(desc, STYLE_MSG, ox + ch_desc.x, oy + ch_desc.top, ch_desc.w, 0, a);
   if (detail && pd_flag(PDF_AT_BENCH)) {
-    text_at(charm_equipped(detail) ? TXT_CTRL_UNEQUIP : TXT_CTRL_EQUIP, STYLE_MSG, &ch_confirm, ox, oy, 2, a);
+    ui_text_at(charm_equipped(detail) ? TXT_CTRL_UNEQUIP : TXT_CTRL_EQUIP, STYLE_MSG, &ch_confirm, ox, oy, 2, a);
     /* (the key: the calculator's, by name; its box widened to the right to fit the name) */
     const uint8_t *st = font_style(STYLE_MSG);
     float w = text_width(STYLE_MSG, text_get(TXT_KEY_OK), 2), bw = w / HUD_PX + 0.3f;
@@ -684,25 +679,25 @@ static void items_draw(float ox, float oy, float a, uint8_t white) {
   }
   bool any_trinket = false;
   for (int i = 0; i < iv.nitems; i++) any_trinket |= iv.items[i] >= K_TRINKET0;
-  if (any_trinket) piece(&inv_trinket_bb, ox, oy, 1, white);
+  if (any_trinket) ui_piece(&inv_trinket_bb, ox, oy, 1, white);
   for (int i = 0; i < iv.nitems; i++) {
     int k = iv.items[i];
     float x = ox + iv.item_xy[i][0], y = oy + iv.item_xy[i][1];
     if (k < NFIXED) {
-      piece(&inv_fixed_bg[k], ox, oy, 1, white);
-      piece(&inv_fixed[k], ox, oy, 1, white);
-      if (k == IT_HEART && g_pd.heart_pieces > 0 && g_pd.heart_pieces <= 4) piece(&inv_heart[g_pd.heart_pieces - 1], ox, oy, 1, white);
-      if (k == IT_VESSEL && g_pd.vessel_fragments > 0) piece(&inv_vessel[g_pd.vessel_fragments >= 3 ? 2 : g_pd.vessel_fragments - 1], ox, oy, 1, white);
-      if (k == IT_GEO) number_at(g_pd.geo, STYLE_MSG, ox + inv_geo_text.x, oy + inv_geo_text.top, 0, a);
+      ui_piece(&inv_fixed_bg[k], ox, oy, 1, white);
+      ui_piece(&inv_fixed[k], ox, oy, 1, white);
+      if (k == IT_HEART && g_pd.heart_pieces > 0 && g_pd.heart_pieces <= 4) ui_piece(&inv_heart[g_pd.heart_pieces - 1], ox, oy, 1, white);
+      if (k == IT_VESSEL && g_pd.vessel_fragments > 0) ui_piece(&inv_vessel[g_pd.vessel_fragments >= 3 ? 2 : g_pd.vessel_fragments - 1], ox, oy, 1, white);
+      if (k == IT_GEO) ui_number_at(g_pd.geo, STYLE_MSG, ox + inv_geo_text.x, oy + inv_geo_text.top, 0, a);
     } else if (k < K_TRINKET0) {
       const Piece *p = &inv_eq[k - K_EQ0];
-      sprite_at(p->sprite, x, y, p->kx, white);
+      ui_sprite_at(p->sprite, x, y, p->kx, white);
       int amount = k == K_EQ0 + EQ_SIMPLE_KEY ? g_pd.simple_keys : k == K_EQ0 + EQ_RANCID_EGG ? g_pd.rancid_eggs : 0;
-      if (amount > 1) number_at(amount, STYLE_MSG, x + inv_trinket_text.x, y + inv_trinket_text.top, 1, a);
+      if (amount > 1) ui_number_at(amount, STYLE_MSG, x + inv_trinket_text.x, y + inv_trinket_text.top, 1, a);
     } else {
       const Piece *p = &inv_trinkets[k - K_TRINKET0];
-      sprite_at(p->sprite, x, y, p->kx, white);
-      number_at(g_pd.trinkets[k - K_TRINKET0], STYLE_MSG, x + inv_trinket_text.x, y + inv_trinket_text.top, 1, a);
+      ui_sprite_at(p->sprite, x, y, p->kx, white);
+      ui_number_at(g_pd.trinkets[k - K_TRINKET0], STYLE_MSG, x + inv_trinket_text.x, y + inv_trinket_text.top, 1, a);
     }
   }
   /* the selected item's name and description */
@@ -725,7 +720,7 @@ static void items_draw(float ox, float oy, float a, uint8_t white) {
         nd = pd_flag(PDF_HAS_MAP) ? (NameDesc){txt_quill[2], txt_quill[3]} : (NameDesc){txt_quill[0], txt_quill[1]};
     } else
       nd = txt_trinkets[k - K_TRINKET0];
-    text_at(nd.name, STYLE_DIALOGUE, &inv_name, ox, oy, 1, a);
+    ui_text_at(nd.name, STYLE_DIALOGUE, &inv_name, ox, oy, 1, a);
     text_box(nd.desc, STYLE_MSG, ox + inv_desc.x, oy + inv_desc.top, inv_desc.w, 0, a);
   }
   if (iv.cursor_set) cursor_draw(ox, oy, white);
@@ -743,14 +738,14 @@ void inv_draw(void) {
   /* the world behind, darkened; the dark frame about it; the border; the arrows; the panes' names */
   gfx_overlay_fill(-20, -12, 20, 12, gfx_dyn_tint(29, 0, 0, 0, (uint8_t)(ba * DIM * 255 + 0.5f)));
   uint8_t bw = gfx_dyn_tint(30, 255, 255, 255, (uint8_t)(ba * 255 + 0.5f));
-  piece(&frame, INV_X, INV_Y, 1, bw);
-  for (int i = 0; i < INV_NBORDER; i++) piece(&border[i], INV_X, INV_Y, 1, bw);
+  ui_piece(&frame, INV_X, INV_Y, 1, bw);
+  for (int i = 0; i < INV_NBORDER; i++) ui_piece(&border[i], INV_X, INV_Y, 1, bw);
   int l = neighbor_pane(-1), r = neighbor_pane(1);
-  if (l >= 0) piece(&arrow_l, INV_X, INV_Y, 1, bw), piece(&pane_arrow_l, INV_X, INV_Y, 1, bw);
-  if (r >= 0) piece(&arrow_r, INV_X, INV_Y, 1, bw), piece(&pane_arrow_r, INV_X, INV_Y, 1, bw);
-  text_at(pane_names[iv.pane], STYLE_TUTE, &pane_name, INV_X, INV_Y, 1, ba);
-  if (l >= 0) text_at(pane_names[l], STYLE_TUTE, &pane_name_l, INV_X, INV_Y, 0, ba);
-  if (r >= 0) text_at(pane_names[r], STYLE_TUTE, &pane_name_r, INV_X, INV_Y, 2, ba);
+  if (l >= 0) ui_piece(&arrow_l, INV_X, INV_Y, 1, bw), ui_piece(&pane_arrow_l, INV_X, INV_Y, 1, bw);
+  if (r >= 0) ui_piece(&arrow_r, INV_X, INV_Y, 1, bw), ui_piece(&pane_arrow_r, INV_X, INV_Y, 1, bw);
+  ui_text_at(pane_names[iv.pane], STYLE_TUTE, &pane_name, INV_X, INV_Y, 1, ba);
+  if (l >= 0) ui_text_at(pane_names[l], STYLE_TUTE, &pane_name_l, INV_X, INV_Y, 0, ba);
+  if (r >= 0) ui_text_at(pane_names[r], STYLE_TUTE, &pane_name_r, INV_X, INV_Y, 2, ba);
   /* the panes (the one going too, as they move) */
   uint8_t pw = gfx_dyn_tint(31, 255, 255, 255, (uint8_t)(pa * 255 + 0.5f));
   if (iv.slide_t >= 0) pane_draw(iv.prev_pane, pa, pw);

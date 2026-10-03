@@ -18,7 +18,7 @@
 #define NONE 0xFFFF
 #define OWNER 0xFF0F
 enum { O_HERO = 0xFF00, O_HERO_LIGHT, O_DIALOGUE_MANAGER, O_DIALOGUE_TEXT, O_AREA_TITLE, O_CAMERA_PARENT, O_MAIN_CAMERA,
-       O_GAME_MANAGER, O_HUD_BLANKER, O_HORNET = 0xFF0C, O_WHITE_BLANKER, O_CHARM_TUTE };
+       O_GAME_MANAGER, O_HUD_BLANKER, O_HORNET = 0xFF0C, O_WHITE_BLANKER, O_CHARM_TUTE, O_SHOP = 0xFF10 };   /* (0xFF0F: OWNER) */
 #define O_GATE 0xFD00   /* (+ k: a battle gate, obj.c's) */
 #define O_ENT 0xF000    /* (+ i: a room record (a camera lock area), the game's) */
 enum { OF_ACTIVE = 1, OF_RENDERER = 2, OF_ANIMATOR = 4, OF_TRIGGER = 8, OF_COLLIDER = 16,
@@ -438,6 +438,10 @@ static void obj_event(int o, int ev, uint16_t fsm_name) {
     if (ev == VMEV_FSM_CANCEL) spell_cancel();   /* (its FSMs' FSM CANCEL: a spell, a focus, stopped) */
     return;
   }
+  if (o == O_SHOP) {
+    shop_event(ev);   /* (the shop's menu: SHOP UP) */
+    return;
+  }
   if (o == O_DIALOGUE_MANAGER) {
     if (ev == VMEV_BOX_UP) dialogue_box_up();
     else if (ev == VMEV_BOX_DOWN) dialogue_box_down();
@@ -456,15 +460,44 @@ static void game_event(int ev) {
   else if (ev == VMEV_NPC_CONVO_START) title_npc_convo_start();
 }
 
+static bool under(int o, int top) {
+  for (int k = 0; k < MAX_VM_OBJS && obj_ok(o); k++, o = vm.rec[o].parent)
+    if (o == top) return true;
+  return false;
+}
+
 static void send(Fsm *f, Rd *r, int ev) {
-  /* an event target: kind (0 itself, 1 an object's FSMs, 2 all, 3 an object's FSM by name), object, FSM name */
+  /* an event target: kind (0 itself, 1 an object's FSMs, 2 all, 3 an object's FSM by name; +16 its children's too,
+   * +32 not the sender's), object, FSM name */
   int kind = rb(r);
   uint16_t go = rv(r), fname = rv(r);
-  switch (kind) {
+  bool kids = kind & 16, excl = kind & 32;
+  switch (kind & 15) {
     case 0: fsm_event(f, ev); break;
-    case 1: obj_event(oval(f, go), ev, NONE); break;
-    case 2: vm_broadcast(ev); break;
-    case 3: obj_event(oval(f, go), ev, fname); break;
+    case 2:
+      if (!excl) {
+        vm_broadcast(ev);
+        break;
+      }
+      for (int i = 0; i < vm.nfsms; i++)
+        if (&vm.fsms[i] != f) fsm_event(&vm.fsms[i], ev);
+      game_event(ev);
+      break;
+    case 1:
+    case 3: {
+      int o = oval(f, go);
+      uint16_t n = (kind & 15) == 3 ? fname : NONE;
+      if ((!kids && !excl) || !obj_ok(o)) {
+        obj_event(o, ev, n);
+        break;
+      }
+      for (int i = 0; i < vm.nfsms; i++) {
+        Fsm *g = &vm.fsms[i];
+        if ((g->owner == o || (kids && under(g->owner, o))) && (n == NONE || g->name == n) && !(excl && g == f))
+          fsm_event(g, ev);
+      }
+      break;
+    }
   }
 }
 
@@ -775,8 +808,14 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       int type = rb(&r), n = rb(&r), o = oval(f, rv(&r));
       float smin = fval(f, rv(&r)), smax = fval(f, rv(&r)), amin = fval(f, rv(&r)), amax = fval(f, rv(&r));
       float x, y;
+#ifdef HOST
+      if (getenv("VMDEBUG")) printf("   fling geo obj %d ok %d\n", o, obj_ok(o));
+#endif
       if (!obj_ok(o)) return true;
       obj_pos(o, &x, &y);
+#ifdef HOST
+      if (getenv("VMDEBUG")) printf("   fling geo %d x%d at %.2f,%.2f %.1f-%.1f %.0f-%.0f\n", type, n, x, y, smin, smax, amin, amax);
+#endif
       geo_fling_at(type, n, x, y, smin, smax, amin, amax, 0);
       return true;
     }
@@ -1092,6 +1131,14 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
         case 13: hero_relinquish_control_not_velocity(); break;
         case 16: hero_gravity(a0 != 0); break;
         case 19: set_var(f, store, hero_can_talk()); break;   /* (CanInspect: as CanTalk) */
+        case 20: set_var(f, store, h->accepting_input); break;   /* (CanInput) */
+        case 21: {
+          /* (GetState: tools/vm.py's HERO_STATES) */
+          int k = (int)a0;
+          set_var(f, store, k == 0 ? h->cs.on_ground : k == 1 ? h->cs.attacking : k == 2 ? h->cs.up_attacking
+                            : k == 3 ? h->cs.down_attacking : k == 4 ? h->cs.dashing : 0);
+          break;
+        }
       }
       return true;
     }
@@ -1311,6 +1358,9 @@ void vm_spell(float x0, float y0, float x1, float y1) {
 /* ---------------------------------------------------------------- states */
 static void enter_state(Fsm *f, int s) {
   const uint8_t *st = d_state(f->def, s);
+#ifdef HOST
+  if (getenv("VMSTATES")) printf("   fsm %d -> %d\n", (int)(f - vm.fsms), s);
+#endif
   f->state = (uint8_t)s, f->epoch++, f->t = 0, f->done = 0, f->finished = false;
   uint8_t epoch = f->epoch;
   const uint8_t *a = st + 2 + 2 * st[0];

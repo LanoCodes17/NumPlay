@@ -521,9 +521,10 @@ def main():
     for key, style in (("CHARM_TUTE_TITLE", "TUTE_TITLE"), ("CHARM_TUTE_SUB", "TUTE"), ("CHARM_REMINDER", "TUTE")):
         fleurs["TXT_" + key] = TEXTS.add(text.clean(text.sheets()["Prompts"][key]), style)
     # the title screen, the save profiles, the pause menu; each room's map zone (the save slots' area)
-    import menu, inv
+    import menu, inv, shop
     fleurs.update(menu.build(SPRITES, TEXTS))
     fleurs.update(inv.build(SPRITES, TEXTS, hud_res, vm.CHARMS, charm_icon))
+    fleurs.update(shop.build(SPRITES, TEXTS, hud_res, actors.clip_id, vm.CHARMS))
     fleurs["ROOM_ZONES"] = "{%s}" % ", ".join(str(scene.settings(unity.scene(r)).get("map_zone") or 0) for r in ROOMS)
     for i, item in enumerate(text.MSGS):
         fleurs["MSG_" + item] = i
@@ -654,6 +655,22 @@ def main():
         base, variant = (r[:-2], 1) if r.endswith("@1") else (r, 0)
         keep, st = per_room[base]
         made[r] = room_blobs(base, keep, st, tex_id, variant)
+    if os.environ.get("RECSTATS"):
+        import collections
+        rs = struct.calcsize(ents.REC)
+        nt, fl = collections.Counter(), collections.Counter()
+        for r in ROOMS:
+            recs = made[r][4]
+            for i in range(0, len(recs), rs):
+                nt[recs[i]] += 1
+                if recs[i] == ents.ENT_OBJ:
+                    fl[recs[i + 1]] += 1
+        print("RECS", rs, sorted(nt.items()), "objs", sorted(fl.items()))
+        for r in ROOMS:
+            recs = made[r][4]
+            ne = sum(1 for i in range(0, len(recs), rs) if recs[i] == ents.ENT_OBJ and recs[i + 1] == ents.OK_ENEMY)
+            no = sum(1 for i in range(0, len(recs), rs) if recs[i] == ents.ENT_OBJ)
+            print("ROOMRECS", r, "enemies", ne, "objs", no)
     # the instances' heads: the most common of all the rooms' (a variant's sectors are its room's)
     table, heads = head_table([s for r in ROOMS for s, n in made[r][2]])
     secs["HEADS"].b += table

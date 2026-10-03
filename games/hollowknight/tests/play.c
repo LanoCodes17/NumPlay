@@ -119,7 +119,7 @@ int main(int argc, char **argv) {
         }
         if (getenv("HKPROMPT") && atoi(getenv("HKPROMPT")) == tick)
           prompt_show(-1, TXT_PROMPT_LISTEN, g_hero.body.x, g_hero.body.y + 1.5f);
-        if (!menu || !menu_tick(keys)) game_tick(inv_tick(keys));
+        if (!menu || !menu_tick(keys)) game_tick(shop_tick(inv_tick(keys)));
         if (trace && menu) printf("   menu in game %d\n", menu_in_game());
         if (trace)
           printf("%4d keys %02x pos %.3f,%.3f v %.3f,%.3f state %d ground %d jump %d fall %d clip %d frame %d cam %.2f,%.2f\n", tick,

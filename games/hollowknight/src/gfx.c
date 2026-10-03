@@ -1157,7 +1157,7 @@ typedef struct {
   uint8_t n, layer;
   uint32_t rgb;       /* (premultiplied by its alpha: 0xAARRGGBB) */
 } TextRun;
-#define MAX_RUNS 20
+#define MAX_RUNS 32   /* (a shop's list, its description, its keys) */
 static TextRun runs[MAX_RUNS];
 static int nruns;
 

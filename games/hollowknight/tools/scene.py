@@ -185,6 +185,8 @@ def _instances(name):
                 continue
             mats = v.get("m_Materials") or []
             mat = unity.material(unity.ref_path(d, mats[0][0]), mats[0][1]) if mats and mats[0] else ("?", "?")
+            if mat[0] == "Sprites-Darkness-Cutout":
+                continue        # the ultrawide cutouts by the gates: only for screens wider than 16:9
             col = v["m_Color"]
             it = Inst()
             it.scene, it.which = name, 0
@@ -200,7 +202,8 @@ def _instances(name):
             it.draw_mode = v.get("m_DrawMode", 0)
             it.size = (v.get("m_Size", {}).get("x", 0), v.get("m_Size", {}).get("y", 0))
             it.dynamic = dyn[o["id"]]
-            it.solid = s.name in SOLIDS
+            # (a turned one is drawn as a texture: the solid fill is a box)
+            it.solid = s.name in SOLIDS and abs(it.m3[1]) < 1e-3 and abs(it.m3[3]) < 1e-3
             it.quad = world_quad(it)
             it.center = sum(it.quad) / 4
             it.z = float(it.center[2])

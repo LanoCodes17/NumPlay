@@ -240,6 +240,23 @@ def decode_fsm(f, v):
             tmb = to.read(check_read=False)
             tv, _, _ = typetree.parse(to, tmb.m_Script.read())
             d = fsmdec.decode({"fsm": tv["fsm"]})
+            if tf is not f:
+                # (the template's references are its file's: the scene's own, as its externals have them)
+                paths = [e.path.split("/")[-1] for e in f.externals]
+                def remap(x):
+                    if isinstance(x, (list, tuple)):
+                        if len(x) == 3 and x[0] == "ref" and isinstance(x[1], int):
+                            p = tf.externals[x[1] - 1].path.split("/")[-1] if x[1] > 0 else \
+                                f.externals[fid - 1].path.split("/")[-1]
+                            if p in paths:
+                                return ("ref", paths.index(p) + 1, x[2])
+                            print("unity: a template's reference to %s, not the scene's" % p)
+                            return x
+                        return type(x)(remap(y) for y in x) if isinstance(x, tuple) else [remap(y) for y in x]
+                    if isinstance(x, dict):
+                        return {k: remap(y) for k, y in x.items()}
+                    return x
+                d = remap(d)
             own = fsmdec.decode(v)
             for k, val in (own.get("vars") or {}).items():
                 if k in d.get("vars", {}):

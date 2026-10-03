@@ -28,6 +28,7 @@ void game_new(void) {
   dialogue_reset();
   prompts_reset();
   inv_reset();
+  shop_reset();
   death_reset();
   white_blanker_reset();
 }

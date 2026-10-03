@@ -73,11 +73,19 @@ static void fade_tick(Fade *f) {
 }
 
 void prompt_blanker(bool up) { fade_start(&pb, up ? 0.6667f : 0, 0.85f, 0); }
+
+/* the first map's lesson (First Map: FIRST MAP UP, DOWN): its parts up in 1 s after half a second, the stop after 2 in
+ * 0.1; down in 1 (the stop 0.1) */
+static Fade fm, fm_stop;
+void first_map_prompt(bool up) {
+  fade_start(&fm, up ? 1 : 0, 1, up ? 0.5f : 0);
+  fade_start(&fm_stop, up ? 1 : 0, 0.1f, up ? 2 : 0);
+}
 void focus_prompt_fade(bool up) { fade_start(&fp, up ? 1 : 0, up ? 1 : 0.15f, up ? 3 : 0); }
 
 void white_blanker_reset(void) {
   wb.on = false, wb.alpha = 0, wb.time = 1;
-  memset(&pb, 0, sizeof pb), memset(&fp, 0, sizeof fp);
+  memset(&pb, 0, sizeof pb), memset(&fp, 0, sizeof fp), memset(&fm, 0, sizeof fm), memset(&fm_stop, 0, sizeof fm_stop);
 }
 
 static void white_blanker_tick(void) {
@@ -90,7 +98,7 @@ static void white_blanker_tick(void) {
 
 void msg_tick(void) {
   white_blanker_tick();
-  fade_tick(&pb), fade_tick(&fp);
+  fade_tick(&pb), fade_tick(&fp), fade_tick(&fm), fade_tick(&fm_stop);
   notices_tick();
   if (m.st == MS_OFF) return;
   uint32_t pressed = g_hero.keys & ~m.prev_keys;
@@ -284,6 +292,28 @@ static void key_box(int text, float x, float y, float a, int slot) {
   line(text, STYLE_PROMPT, kx, y, 0, false, a);
 }
 
+static void first_map_draw(void) {
+  static const struct { int16_t text; float x, top; } rows[4] = FIRSTMAP_TEXTS;
+  static const struct { int16_t sprite; float x, y, kx, ky; } parts[3] = FIRSTMAP_PIECES;
+  static const struct { int16_t text; float x, y; } key = FIRSTMAP_KEY;
+  float a = fm.alpha;
+  if (a <= 0 && fm_stop.alpha <= 0) return;
+  if (a > 0) gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(26, 0, 0, 0, (uint8_t)(FIRSTMAP_BG_A * a * 255 + 0.5f)));
+  for (int i = 0; i < 3; i++) {
+    float pa = i == 2 ? fm_stop.alpha : a;
+    uint8_t al = (uint8_t)(pa * 255 + 0.5f);
+    if (!al) continue;
+    Inst in;
+    sprite_inst(parts[i].sprite, parts[i].x, parts[i].y, 0, parts[i].kx, parts[i].ky, gfx_dyn_tint(29 + i, 255, 255, 255, al), &in);
+    gfx_hud(&in, 0);
+  }
+  static const int styles[4] = {STYLE_MSG_NAME, STYLE_MSG, STYLE_MSG, STYLE_MSG};
+  for (int i = 0; i < 4; i++) line(rows[i].text, styles[i], rows[i].x, rows[i].top, 0, true, a);
+  /* (the key: its box about its place) */
+  float w = line(key.text, STYLE_PROMPT, 0, key.y, 0, false, 0) / HUD_PX + 0.5f;
+  key_box(key.text, key.x - w / 2, key.y, a, 25);
+}
+
 static void focus_prompt_draw(void) {
   static const struct { int16_t sprite; float x, y, kx, ky; } bg = FOCUS_PROMPT_BG;
   static const struct { int16_t text; float x, top; int8_t align; } rows[4] = FOCUS_PROMPT_TEXTS;
@@ -304,6 +334,7 @@ void msg_draw(void) {
   float ba = 1 - (1 - (blank_on && blank_alpha > 0 ? blank_alpha : 0)) * (1 - pb.alpha);
   if (ba > 0) gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(27, 0, 0, 0, (uint8_t)(ba * 255 + 0.5f)));
   focus_prompt_draw();   /* (while the menus cannot be up: their tints') */
+  first_map_draw();
   notices_draw();
   if (m.st == MS_OFF) return;
   const int16_t *t = table[m.item];

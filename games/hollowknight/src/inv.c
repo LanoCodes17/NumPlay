@@ -293,6 +293,12 @@ static void close_now(void) {
   if (!pd_flag(PDF_AT_BENCH)) hero_regain_control();
 }
 
+void inv_open_map(void) {
+  if (iv.st != IV_CLOSED || !can_open()) return;
+  g_pd.current_inv_pane = P_MAP;
+  open();
+}
+
 void inv_damage(void) {
   if (iv.st == IV_OPEN) iv.st = IV_CLOSING, iv.t = FADE - 0.05f;   /* (Damage Close: down fast) */
 }

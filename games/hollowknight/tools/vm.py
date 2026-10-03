@@ -55,7 +55,7 @@ ROOMS = {
     "Crossroads_21": ["Breakable Wall", "Polygon_Collider_Cross_21 1/Roof Collider (1)", "Collapser Small"],
     "Crossroads_07": ["Breakable Wall_Silhouette"],
     "Crossroads_30": ["Spa Region"],
-    "Crossroads_33": ["_Props/full_wall_left"],
+    "Crossroads_33": ["_Props/full_wall_left", "Cornifer", "Cornifer Card"],
     "Fungus1_32": ["Breakable Wall", "Inspect Region"],
     "Crossroads_11_alt": ["Inspect Region"],
 }
@@ -174,6 +174,9 @@ PD_CONST = {"openedTown": True, "kingsStationNonDisplay": False, "queensStationN
             "gotSlyCharm": False, "hasAllNailArts": False, "hasNailArt": False, "honedNail": False,
             "iseldaConvoGrimm": False, "iseldaNymmConvo": False, "slyConvoGrimm": False, "slyNymmConvo": False,
             "slyConvoNailArt": False, "slyConvoNailHoned": False, "backerCredits": False, "finalGrubRewardCollected": False, "gaveSlykey": False, "hasSlykey": False,
+            "corn_greenpathEncountered": False, "corn_fogCanyonEncountered": False,
+            "corn_fungalWastesEncountered": False, "corn_cityEncountered": False, "corn_waterwaysEncountered": False,
+            "corn_minesEncountered": False, "corn_deepnestEncountered": False, "corn_cliffsEncountered": False,
             "corn_fogCanyonLeft": False, "corn_fungalWastesLeft": False, "corn_cityLeft": False,
             "corn_waterwaysLeft": False, "corn_minesLeft": False, "corn_cliffsLeft": False, "corn_deepnestLeft": False,
             "corn_outskirtsLeft": False, "corn_royalGardensLeft": False, "corn_abyssLeft": False,
@@ -215,7 +218,7 @@ for e in ("FINISHED", "CONVO_FINISH", "CONVO START", "CONVO END", "BIG TITLE STA
           "HORNET LEAVE", "BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY", "WAKE", "BOX UP DREAM",
           "BOX DOWN DREAM", "FADE IN", "FADE OUT", "FSM CANCEL", "CLOSE", "FK DEATH", "SHOP UP", "SHOP CLOSED",
           "SHOP CLOSED QUICK", "SHOP WINDOW UP", "RESET SHOP WINDOW", "CLOSE SHOP WINDOW", "BOX UP YN", "BOX DOWN YN",
-          "YES", "NO", "CONTINUE", "RESET", "HIT", "UNCOVER", "UP", "DOWN"):
+          "YES", "NO", "CONTINUE", "RESET", "HIT", "UNCOVER", "UP", "DOWN", "FIRST MAP UP", "FIRST MAP DOWN"):
     EVENTS.id(e)
 FIXED_EVENTS = len(EVENTS.list)   # (src/data.h: VMEV_*)
 
@@ -390,6 +393,12 @@ op("BoolNoneTrue", ("boolVariables", "b*"), ("sendEvent", "e"), ("storeResult", 
 op("DialoguePlace", ("which", "n"), ("y", "f"))
 op("StopPause", ("time", "f"))
 op("GetFsmBool", ("gameObject", "o"), ("fsmName", "s"), ("slot", "n"), ("storeValue", "B"), ("everyFrame", "n"))
+op("ConvertIntToFloat", ("intVariable", "i"), ("floatVariable", "F"), ("everyFrame", "n"))
+op("ConvertFloatToInt", ("floatVariable", "f"), ("intVariable", "I"), ("rounding", "n"), ("everyFrame", "n"))
+op("SendEventByScale", ("gameObject", "o"), ("positiveEvent", "e"), ("negativeEvent", "e"))   # (its x scale's sign)
+op("ListenForQuickMap", ("wasPressed", "e"))
+op("MapUpdateMsg")   # (Map Update Msg: src/map.c's)
+op("UpdateGameMap", ("store", "B"))   # (GameManager.UpdateGameMap: any room newly mapped)
 
 # HeroController's methods the scripts call (HeroCall's method)
 HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "StartAnimationControl", "FaceLeft",
@@ -410,6 +419,8 @@ PREFAB_SPAWNS = {("sharedassets76.assets", 69), ("sharedassets133.assets", 23), 
 # prefabs the pool gives (SpawnObjectFromGlobalPool) that the scripts show (made beforehand, off)
 POOL_SPAWNS = {("resources.assets", 5267)}
 # the notices' prefabs (made by the C code: msg.c): a relic's, a charm's, the charm tutorial
+MAP_GET_MSG = ("sharedassets64.assets", 18)      # (Map Get Msg: a relic's notice, as msg.c shows it)
+MAP_UPDATE_MSG = ("sharedassets7.assets", 539)   # (Map Update Msg: src/map.c's)
 NOTICE_PREFABS = {("resources.assets", 4251): "relic", ("sharedassets6.assets", 446): "charm",
                   ("sharedassets6.assets", 491): "tute"}
 # the icons the scripts set on a notice (SetSpriteRendererSprite): (scene or prefab document, sprite ref), as NoticeIcon
@@ -1004,7 +1015,10 @@ class Compiler:
             # (a price: kept for ConvertStringToInt)
             import text
             keys = self.string_values(P.get("convName"))
-            assert len(keys) == 1 and keys[0] in text.sheets()["Prices"], keys
+            keys = [k for k in keys if k in text.sheets()["Prices"]]   # (a key built from parts: the one it can be)
+            if len(keys) != 1:
+                self.problem("price %r" % keys)
+                return None
             self.prices[P.get("storeValue")] = int(text.sheets()["Prices"][keys[0]])
             return None
         if n == "ConvertStringToInt" and P.get("stringVariable") in self.prices:
@@ -1026,6 +1040,14 @@ class Compiler:
             return None   # (its prompt's label: kept for UP)
         if n == "SpawnObjectFromGlobalPool" and self.prompt and P.get("storeObject") == self.prompt[1]:
             return None
+        if n == "SetFsmString" and P.get("fsmName") == "Map Msg" and P.get("variableName") == "Convo":
+            # (a map's notice: its name, the UI sheet's)
+            import text
+            keys = [k for k in self.string_values(P.get("setValue")) if k in text.sheets()["UI"]]
+            if len(keys) != 1:
+                self.problem("map notice %r" % keys)
+                return None
+            return self.emit("NoticeText", {"text": self.rm.texts.add(text.clean(text.sheets()["UI"][keys[0]]), "NOTICE")})
         if n == "SetFsmString" and P.get("fsmName") == "Msg Control" and P.get("variableName") == "Item":
             if P.get("setValue") not in MSG_ITEMS:
                 self.problem("item message %s" % P.get("setValue"))
@@ -1178,6 +1200,18 @@ class Compiler:
                     obj = self.rm.add_prefab(f, pid, (self.o["id"], self.where, P.get("storeObject")))
                     return self.emit("CreateObject", {"gameObject": ("objindex", obj), "x": pos[0], "y": pos[1],
                                                       "storeObject": P.get("storeObject")})
+                if (f, pid) == MAP_UPDATE_MSG:
+                    return self.emit("MapUpdateMsg", {})
+                if (f, pid) == MAP_GET_MSG:
+                    # (a map's notice, as a relic's: its own icon; its text below, by its Convo)
+                    q = next(z for z in d2["objects"] if z["name"] == "Icon")
+                    ref = next(c["v"]["m_Sprite"] for c in q["c"] if c["type"] == "SpriteRenderer")
+                    key = (d2, (ref[0], ref[1]))
+                    k = next((i for i, (dd, rr) in enumerate(NOTICE_ICONS) if dd is key[0] and rr == key[1]), None)
+                    if k is None:
+                        k = len(NOTICE_ICONS)
+                        NOTICE_ICONS.append(key)
+                    return self.emit("NoticeIcon", {"icon": k})
                 if NOTICE_PREFABS.get((f, pid)) == "tute":
                     # (the charm tutorial: the C code's, as an object the scripts close)
                     return self.emit("CharmTute", {}) + self.emit("SetGameObject", {
@@ -1228,8 +1262,12 @@ class Compiler:
                 assert len(body) < 256, rows
                 return bytes([OPS["StartConversationOf"][0], len(body)]) + body
             if beh == "GameManager" and m in ("CheckCharmAchievements", "AwardAchievement", "CheckStagStationAchievements",
-                                              "SaveLevelState"):
+                                              "SaveLevelState", "CheckMapAchievement"):
                 return None
+            if beh == "GameManager" and m == "UpdateGameMap":
+                return self.emit("UpdateGameMap", {"store": P.get("storeResult")})
+            if beh == "GameMap" and m == "SetupMap":
+                return None   # (the map: drawn as PlayerData has it, src/map.c)
             if beh == "HeroPlatformStick" and m in ("Activate", "Deactivate"):
                 return self.emit("PlatformStick", {"on": 1 if m == "Activate" else 0})
             if beh == "HeroController" and m in HERO_METHODS:
@@ -1252,7 +1290,7 @@ class Compiler:
                 return None
             if fn in ("advanceTypewriter", "TimePasses", "StoryRecord_acquired", "StoryRecord_visited", "SetActionString",
                       "RefreshButtonIcon", "StopBounce", "CheckGrubAchievements", "AddToGrubList", "CountCharms",
-                      "TriggerStartVideo"):
+                      "TriggerStartVideo", "CheckAllMaps"):
                 return None
             self.problem("SendMessage %s" % fn)
             return None
@@ -1360,7 +1398,7 @@ class Compiler:
                 return None
             return self.emit(n, dict(P, perSecond=1 if P.get("perSecond") else 0))
         if n in ("ListenForUp", "ListenForDown", "ListenForLeft", "ListenForRight", "ListenForAttack", "ListenForJump",
-                 "ListenForCast", "ListenForInventory"):
+                 "ListenForCast", "ListenForInventory", "ListenForQuickMap"):
             if P.get("eventTarget") not in (None, "Self"):
                 self.problem("%s to another" % n)
             return self.emit(n, P)
@@ -1969,6 +2007,8 @@ def reachable(f, external=()):
         seen.add(n)
         s = by[n]
         can, sure = _events_of_state(f, s, consts)
+        if any(dict(a["params"]).get("gameObject") == "$DialogueTextYN" for a in s["actions"]):
+            can = set(can) | {"YES", "NO"}   # (the yes or no box's answer, to who asked)
         for e, to in s["transitions"]:
             if e in can or (e not in local and not (sure and e == "FINISHED")):
                 todo.append(to)

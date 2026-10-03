@@ -5,7 +5,7 @@
 #include "game.h"
 
 #define SAVE_MAGIC 0x56534B48u   /* "HKSV" */
-#define SAVE_VERSION 1
+#define SAVE_VERSION 2   /* (1: PlayerData up to PD_SAVED_V1, loaded with the rest cleared) */
 
 typedef struct {
   uint32_t magic, version, size, crc;   /* (size, crc: of what follows the header) */
@@ -62,28 +62,31 @@ bool save_game(void) {
   return plat_save(name, buf, at);
 }
 
-/* a slot's file, checked: its PlayerData part, its states' names */
-static const uint8_t *checked(int slot, uint32_t *count) {
+/* a slot's file, checked: its PlayerData part (*pd_size long: its version's), its states' names */
+static const uint8_t *checked(int slot, uint32_t *count, uint32_t *pd_size) {
   char name[8];
   slot_name(slot, name);
   uint32_t len;
   const uint8_t *p = plat_load(name, &len);
   SaveHead h;
-  if (!p || len < sizeof h + PD_SAVED + 4) return NULL;
+  if (!p || len < sizeof h) return NULL;
   memcpy(&h, p, sizeof h);
-  if (h.magic != SAVE_MAGIC || h.version != SAVE_VERSION || h.size != len - sizeof h || h.crc != crc32(p + sizeof h, h.size))
+  uint32_t pd = h.version == SAVE_VERSION ? PD_SAVED : h.version == 1 ? PD_SAVED_V1 : 0;
+  if (h.magic != SAVE_MAGIC || !pd || len < sizeof h + pd + 4 || h.size != len - sizeof h ||
+      h.crc != crc32(p + sizeof h, h.size))
     return NULL;
-  memcpy(count, p + sizeof h + PD_SAVED, 4);
-  if (sizeof h + PD_SAVED + 4 + 4ull * *count != len) return NULL;
+  memcpy(count, p + sizeof h + pd, 4);
+  if (sizeof h + pd + 4 + 4ull * *count != len) return NULL;
+  *pd_size = pd;
   return p + sizeof h;
 }
 
 int save_stats(int slot, SaveStats *st) {
   char name[8];
   slot_name(slot, name);
-  uint32_t len, count;
+  uint32_t len, count, pd;
   if (!plat_load(name, &len)) return 0;
-  const uint8_t *p = checked(slot, &count);
+  const uint8_t *p = checked(slot, &count, &pd);
   if (!p) return -1;
   /* (its PlayerData's fields, read where they are) */
   memcpy(&st->max_health, p + offsetof(PlayerData, max_health), sizeof st->max_health);
@@ -101,22 +104,25 @@ bool save_clear(int slot) {
 }
 
 bool save_exists(int slot) {
-  uint32_t count;
-  return checked(slot, &count) != NULL;
+  uint32_t count, pd;
+  return checked(slot, &count, &pd) != NULL;
 }
 
 bool save_load(int slot) {
-  uint32_t count;
-  const uint8_t *p = checked(slot, &count);
+  uint32_t count, pd;
+  const uint8_t *p = checked(slot, &count, &pd);
   if (!p) return false;
   save_select(slot);
   memset(&g_pd, 0, sizeof g_pd);
-  memcpy(&g_pd, p, PD_SAVED);
+  memcpy(&g_pd, p, pd);
+  /* (counts kept within their arrays whatever the file says) */
+  for (int c = 0; c < 4; c++)
+    if (g_pd.markers_placed[c] > 6) g_pd.markers_placed[c] = 6;
   /* (names kept within their bounds whatever the file says) */
   g_pd.respawn_scene[SCENE_NAME - 1] = g_pd.respawn_marker[SCENE_NAME - 1] = g_pd.shade_scene[SCENE_NAME - 1] = 0;
   uint32_t nbits;
   const uint8_t *names = phash(&nbits);
-  const uint8_t *q = p + PD_SAVED + 4;
+  const uint8_t *q = p + pd + 4;
   for (uint32_t k = 0; k < count; k++, q += 4) {
     uint32_t want = rd32(q);
     for (uint32_t i = 0; i < nbits && i < MAX_PERSIST; i++)

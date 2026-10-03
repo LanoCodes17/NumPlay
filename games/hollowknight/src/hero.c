@@ -805,6 +805,7 @@ void hero_update(void) {
   respawn_tick();
   entering_tick();
   spell_update();
+  map_tick();
   if (h->anim_control) animation();
   h->anim.events = 0;
   anim_update(&h->anim, DT);
@@ -847,6 +848,7 @@ void hero_die(void) {
   h->hard_landing_timer = 0;
   h->hidden = true;
   spell_cancel();
+  map_cancel();
   slash_cancel();
   death_start(h->body.x, h->body.y, h->cs.facing_right);
 }
@@ -967,6 +969,7 @@ void fx_dash_burst(float x, float y, bool facing_right, bool on_ground) { (void)
 void hero_leave_scene(int gate) {
   Hero *h = &g_hero;
   spell_cancel();   /* (LEAVING SCENE) */
+  map_cancel();
   dialogue_cancel();
   h->accepting_input = false;   /* (IgnoreInputWithoutReset) */
   h->hard_landing_timer = 0;
@@ -1275,6 +1278,7 @@ void hero_take_damage(int side, int damage, int hazard) {
   if (h->parry_t > 0 && hazard == HAZ_NORMAL) return;
   if (can_take_damage()) {
     spell_cancel();   /* (HERO DAMAGED) */
+    map_cancel();
     vm_broadcast(VMEV_HERO_DAMAGED);
     inv_damage();
     if (h->damage_mode == DAMAGE_HAZARD_ONLY && hazard == HAZ_NORMAL) return;
@@ -1510,6 +1514,13 @@ bool hero_can_focus(void) {
   return !g_game.paused && h->state != HS_NO_INPUT && !h->cs.dashing && !(h->cs.attacking && h->attack_time < ATTACK_RECOVERY_TIME) &&
          !h->cs.recoiling && h->cs.on_ground && !h->cs.transitioning && !h->cs.recoil_frozen && !h->cs.hazard_death &&
          !h->cs.hazard_respawning && h->accepting_input;
+}
+
+bool hero_can_quick_map(void) {
+  const Hero *h = &g_hero;
+  return !g_game.paused && !h->control_relinquished && h->state != HS_NO_INPUT && !h->cs.dashing &&
+         !(h->cs.attacking && h->attack_time < ATTACK_RECOVERY_TIME) && !h->cs.recoiling && !h->cs.transitioning &&
+         !h->cs.hazard_death && !h->cs.hazard_respawning && !h->cs.recoil_frozen && h->cs.on_ground && h->accepting_input;
 }
 
 bool hero_can_cast(void) {

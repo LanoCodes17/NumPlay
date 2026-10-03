@@ -149,6 +149,10 @@ ACTORS = {"knight": KNIGHT,
           # the stag's menu: the map's selector, its borders unrolled up and down (on the HUD)
           "stagui": ("resources.assets", 23333, ["Stag_Map_Selection_Cursor", "Stag_Border_Top Up", "Stag_Border_Top Down",
                                                  "Stag_Border_Bottom Up", "Stag_Border_Bottom Down"]),
+          # the map's compass (Compass Icon: the Knight, still and walking with the map)
+          "mapui": ("resources.assets", 23326, ["Idle", "Walk"]),
+          # (Map Update Msg's quill: writing, done)
+          "journalmsg": ("resources.assets", 21779, ["Map Writing", "Map Complete"]),
           # (Gathering Swarm: the bug that brings geo, a child of each)
           "geobug": ("resources.assets", 22564, ["Lamp_Bug_idle"]),
           # the dialogue box (on the HUD, a third bigger with its text) and the prompt markers
@@ -237,7 +241,7 @@ K0 = scene.FOCAL / (0.004 - scene.CAMZ)   # screen pixels a unit, where actors a
 HUD_K = (scene.VIEW_H / 2) / 8.7107        # the HUD's (its orthographic camera)
 # (actor, clip): drawn bigger or smaller than their sprites
 ACTOR_RES = float(os.environ.get("HK_ACTOR_RES", "1"))
-ACTOR_SCALE = {"hud": HUD_K / K0, "shopui": HUD_K / K0, "stagui": HUD_K / K0, "liquid": 1.4 * HUD_K / K0, "dialogue": text.TEXT_K * HUD_K / K0}
+ACTOR_SCALE = {"hud": HUD_K / K0, "shopui": HUD_K / K0, "stagui": HUD_K / K0, "mapui": HUD_K / K0, "journalmsg": 0.7 * HUD_K / K0, "liquid": 1.4 * HUD_K / K0, "dialogue": text.TEXT_K * HUD_K / K0}
 HUD_MASK = 0.7135
 
 

@@ -39,7 +39,7 @@ enum {
   PDF_SALUBRA_NOTCH4, PDF_MET_STAG, PDF_CORNIFER_AT_HOME, PDF_ISELDA_CONVO1, PDF_ISELDA_CORNIFER_HOME_CONVO,
   PDF_SALUBRA_CONVO_COMBO, PDF_SALUBRA_CONVO_OVERCHARM, PDF_SALUBRA_CONVO_TRUTH, PDF_SLY_CONVO_MAPPER,
   PDF_OPENED_CROSSROADS, PDF_OPENED_GREENPATH, PDF_TRAVELLING, PDF_STAG_REMEMBER1, PDF_STAG_CONVO_TISO,
-  PDF_QUIRREL_LEFT_EGG_TEMPLE, PDF_COUNT
+  PDF_QUIRREL_LEFT_EGG_TEMPLE, PDF_MET_CORNIFER, PDF_CORN_CROSSROADS_ENCOUNTERED, PDF_CORNIFER_INTRODUCED, PDF_COUNT
 };
 typedef struct {
   /* (saved: the layout only ever grows into reserved) */
@@ -73,13 +73,19 @@ typedef struct {
   uint8_t current_inv_pane;     /* (currentInvPane) */
   uint8_t stag_position1;       /* (stagPosition + 1: 0 none yet, 1 Dirtmouth, 2 Crossroads, 3 Greenpath) */
   uint8_t stations_opened;      /* (stationsOpened) */
-  uint8_t reserved[30];
+  /* (scenesVisited, scenesMapped (the quill's), scenesEncounteredCocoon (a lifeblood cocoon broken there): by room) */
+  uint8_t rooms_visited[5], rooms_mapped[5], rooms_cocoon[5];
+  uint8_t reserved[15];
+  /* (save version 2 on) the markers placed on the map (placedMarkers_b, _r, _y, _w: their places, 1/100 map units) */
+  uint8_t markers_placed[4];
+  int16_t markers[4][6][2];
   /* (saved apart, by the objects' names: their states) */
   uint8_t persist[MAX_PERSIST / 8];
   /* (not saved) */
   bool disable_pause;
 } PlayerData;
 #define PD_SAVED offsetof(PlayerData, persist)
+#define PD_SAVED_V1 offsetof(PlayerData, markers_placed)   /* (a version 1 save's: no markers) */
 extern PlayerData g_pd;
 static inline bool pd_flag(int f) { return g_pd.flags[f >> 3] >> (f & 7) & 1; }
 /* (equippedCharm_N) */
@@ -304,6 +310,7 @@ void hero_stop_anim_control(void);     /* StopAnimationControl, StartAnimationCo
 void hero_start_anim_control(void);
 bool hero_can_focus(void);
 bool hero_can_cast(void);
+bool hero_can_quick_map(void);         /* CanQuickMap */
 void hero_face(bool right);           /* FaceRight, FaceLeft */
 void hero_gravity(bool on);           /* AffectedByGravity */
 void hero_max_health(void);           /* MaxHealth */
@@ -316,6 +323,19 @@ void death_reset(void);
 void death_tick(void);
 void death_draw(void);
 void shade_spawn_check(void);   /* (SceneManager: the shade where the Knight died, if this is that room) */
+
+/* the map (map.c): the Knight's Map Control, the quick map, the rooms visited and mapped */
+void map_reset(void);
+void map_tick(void);          /* (the Knight's Map Control: with his update) */
+void map_cancel(void);        /* (HERO DAMAGED, LEAVING SCENE, FSM CANCEL) */
+void map_hud_tick(void);
+void map_draw(void);
+bool map_shown(void);
+void map_room_entered(void);  /* (scenesVisited) */
+void map_cocoon_broken(void); /* (AddToCocoonList) */
+bool map_update(void);        /* UpdateGameMap: the quill's -> any room newly mapped */
+void map_quick(bool open);    /* (a bench's: OPEN QUICK MAP, CLOSE QUICK MAP) */
+void map_msg_show(void);      /* (Map Update Msg) */
 
 /* benches (npc.c) */
 void benches_enter(void);
@@ -368,6 +388,7 @@ void white_blanker_time(float t);
 void white_blanker_reset(void);    /* (and the Prompt Blanker, the focus tutorial) */
 void prompt_blanker(bool up);       /* the HUD's Prompt Blanker: UP, DOWN */
 void focus_prompt_fade(bool up);    /* the focus tutorial (Focus_prompt_temp): its ColorFaders' Fade */
+void first_map_prompt(bool up);     /* the first map's lesson (First Map): FIRST MAP UP, DOWN */
 /* the notices (Relic Get Msg, Charm Get Msg) and the charm tutorial (Charm Tutorial Msg) */
 void notice_icon(int k);     /* (the next notice's icon: the scripts' NOTICE_ICONS) */
 void notice_show(int text);  /* a relic's notice: its icon, its name */
@@ -440,6 +461,7 @@ void inv_reset(void);
 uint32_t inv_tick(uint32_t keys);   /* -> the keys the game has (none while it is open) */
 void inv_damage(void);          /* (HERO DAMAGED: it closes) */
 bool inv_open(void);
+void inv_open_map(void);      /* (OPEN INVENTORY MAP: the map tapped twice) */
 float text_box(int text, int style, float x, float y, float w, int align, float a);
 int charm_cost(int id);         /* (charmCost_N) */
 bool charm_equipped(int id);

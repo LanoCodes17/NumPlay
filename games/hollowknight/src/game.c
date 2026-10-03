@@ -37,6 +37,7 @@ void game_new(void) {
   stag_reset();
   death_reset();
   white_blanker_reset();
+  map_reset();
 }
 
 /* a room just loaded: no triggers in yet, gates whose objects a PlayerData bool turns off (a box flagged 2 after the
@@ -420,6 +421,7 @@ static void step(uint32_t keys) {
   hero_late_update();
   cam_tick();
   hud_tick();
+  map_hud_tick();
 }
 
 void game_tick(uint32_t keys) {
@@ -440,6 +442,7 @@ bool game_changing_room(void) { return g_game.scene_phase != SP_NONE; }
 void game_draw_layers(void) {
   collect_draw();
   hud_draw();
+  map_draw();
   msg_draw();
   titles_draw();
   dialogue_draw();

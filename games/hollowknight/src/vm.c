@@ -453,6 +453,9 @@ static void fsm_event(Fsm *f, int ev) {
     fsm_start(f);
   }
   int s = transition(f, ev);
+#ifdef HOST
+  if (getenv("VMACT") && atoi(getenv("VMACT")) == (int)(f - vm.fsms)) printf("   event fsm %d state %d ev %d -> %d\n", (int)(f - vm.fsms), f->state, ev, s);
+#endif
   if (s < 0) return;
   f->next = (uint8_t)s;
   if (vm.executing != f) run_switches(f);   /* (from another: at once) */
@@ -544,6 +547,7 @@ static void game_event(int ev) {
   if (ev >= VMEV_BG_CLOSE && ev <= VMEV_BG_DESTROY) gates_event(ev - VMEV_BG_CLOSE);
   else if (ev == VMEV_NPC_TITLE_DOWN) title_npc_down();
   else if (ev == VMEV_NPC_CONVO_START) title_npc_convo_start();
+  else if (ev == VMEV_FIRST_MAP_UP || ev == VMEV_FIRST_MAP_DOWN) first_map_prompt(ev == VMEV_FIRST_MAP_UP);
 }
 
 /* (an object's alpha to `to` in t seconds, after `wait` steps) */
@@ -798,6 +802,36 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
         if (q[0] >= vm.nobjs || !obj_active(q[0]) || (q[0] != o && !(kids && under(q[0], o)))) continue;
         fade_obj(q[0], up ? q[2] : q[1], (up ? q[4] : q[3]) * DT, up ? q[5] : 0);
       }
+      return true;
+    }
+    case VMOP_MAPUPDATEMSG:
+      map_msg_show();
+      return true;
+    case VMOP_UPDATEGAMEMAP:
+      set_var(f, rb(&r), map_update());
+      return true;
+    case VMOP_CONVERTINTTOFLOAT: {
+      int32_t x = (int32_t)val(f, rv(&r));
+      uint8_t v = rb(&r);
+      bool every = rb(&r);
+      set_f(f, v, (float)x);
+      return !every;
+    }
+    case VMOP_CONVERTFLOATTOINT: {
+      /* (FloatRounding: down, up, the nearest) */
+      float x = fval(f, rv(&r));
+      uint8_t v = rb(&r);
+      int mode = rb(&r);
+      bool every = rb(&r);
+      set_var(f, v, (uint32_t)(int32_t)(mode == 0 ? floorf(x) : mode == 1 ? ceilf(x) : roundf(x)));
+      return !every;
+    }
+    case VMOP_SENDEVENTBYSCALE: {
+      /* (its x scale: positive or negative) */
+      int o = oval(f, rv(&r));
+      int pos = rb(&r), neg = rb(&r);
+      float sx = o == O_HERO ? (g_hero.cs.facing_right ? -1.0f : 1.0f) : obj_ok(o) ? vm.objs[o].sx : 1;
+      fsm_event(f, sx >= 0 ? pos : neg);
       return true;
     }
     case VMOP_DIALOGUEPLACE: {
@@ -1295,12 +1329,13 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
     case VMOP_LISTENFORATTACK:
     case VMOP_LISTENFORJUMP:
     case VMOP_LISTENFORCAST:
+    case VMOP_LISTENFORQUICKMAP:
     case VMOP_LISTENFORINVENTORY: {
       int ev = rb(&r);
       if (mode != M_UPDATE) return false;
       uint32_t k = op == VMOP_LISTENFORUP ? K_UP : op == VMOP_LISTENFORDOWN ? K_DOWN : op == VMOP_LISTENFORLEFT ? K_LEFT
                  : op == VMOP_LISTENFORRIGHT ? K_RIGHT : op == VMOP_LISTENFORATTACK ? K_ATTACK : op == VMOP_LISTENFORJUMP ? K_JUMP
-                 : op == VMOP_LISTENFORINVENTORY ? K_INV : K_SPELL;
+                 : op == VMOP_LISTENFORINVENTORY ? K_INV : op == VMOP_LISTENFORQUICKMAP ? K_MAP : K_SPELL;
       if (pressed_keys() & k) fsm_event(f, ev);
       return false;
     }
@@ -1688,6 +1723,9 @@ static void fsm_step(Fsm *f, int mode) {
   vm.executing = f;
   for (int i = 0; i < st[1]; i++, a += 2 + a[1]) {
     if (f->done >> i & 1) continue;
+#ifdef HOST
+    if (getenv("VMACT") && atoi(getenv("VMACT")) == (int)(f - vm.fsms)) printf("   act fsm %d state %d op %d mode %d\n", (int)(f - vm.fsms), f->state, a[0], mode);
+#endif
     if (act(f, a, mode)) f->done |= (uint64_t)1 << i;
     if (f->epoch != epoch) break;
   }

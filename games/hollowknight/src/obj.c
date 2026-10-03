@@ -685,6 +685,7 @@ static void cocoon_hit(Obj *o, const Ent *e) {
   }
   cam_shake(SHAKE_ENEMY_KILL);
   persist_set(e->persist);
+  map_cocoon_broken();
   cocoon_broken(o, e);
 }
 

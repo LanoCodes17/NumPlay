@@ -141,6 +141,7 @@ void world_enter(void) {
   /* (SceneManager: the room's map zone, PlayerData's) */
   static const uint8_t zones[NUM_ROOMS] = ROOM_ZONES;
   if (g_room.id >= 0 && g_room.id < NUM_ROOMS) g_pd.map_zone = zones[g_room.id];
+  map_room_entered();
 }
 
 /* (Pause's WaitForHeroInPosition: the masks start as the Knight is placed; its Wait only counts when it was placed

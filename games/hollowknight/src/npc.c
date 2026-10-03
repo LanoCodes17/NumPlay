@@ -8,7 +8,8 @@
 
 enum {
   BS_IDLE, BS_IN_RANGE, BS_CANCEL_FRAME, BS_START_REST, BS_SAVE_FRAME, BS_PAUSE, BS_RESTING_INIT, BS_RESTING,
-  BS_WAKE, BS_GET_OFF, BS_IDLE_PAUSE, BS_REGAIN, BS_RESPAWN_ASLEEP, BS_STARTLE
+  BS_WAKE, BS_GET_OFF, BS_IDLE_PAUSE, BS_REGAIN, BS_RESPAWN_ASLEEP, BS_STARTLE, BS_MAP_UPDATE, BS_MAP_OPEN, BS_MAP_IDLE,
+  BS_MAP_CLOSE, BS_INV_MAP
 };
 
 typedef struct {
@@ -144,7 +145,19 @@ void benches_tick(void) {
       case BS_PAUSE:
         if (b->t >= 0.1f) {
           save_game();
-          /* (no map, no charm message yet) Resting Init: 0.5 s */
+          /* Update Map: with the quill and a map, the rooms visited mapped (Map Update, its message); Resting Init */
+          b->t = 0;
+          if (pd_flag(PDF_HAS_QUILL) && pd_flag(PDF_HAS_MAP) && map_update()) {
+            anim_play_from_frame(&h->anim, CLIP_KNIGHT_MAP_UPDATE, 0);
+            map_msg_show();
+            b->state = BS_MAP_UPDATE;
+          } else
+            b->state = BS_RESTING_INIT;
+        }
+        break;
+      case BS_MAP_UPDATE:
+        if ((h->anim.events & ANIM_DONE) || !h->anim.playing) {
+          anim_play(&h->anim, CLIP_KNIGHT_SIT_IDLE);   /* (Sit Idle) */
           b->state = BS_RESTING_INIT, b->t = 0;
         }
         break;
@@ -161,6 +174,12 @@ void benches_tick(void) {
           else hero_face(false);
           b->state = BS_WAKE, b->t = 0;
           if (b->sleeping) anim_play_from_frame(&h->anim, CLIP_KNIGHT_WAKE_TO_SIT, 0);
+        } else if ((p & K_MAP) && pd_flag(PDF_HAS_MAP) && !inv_open()) {
+          /* Open Map: Sit Map Open; tapped again soon, the inventory's map */
+          anim_play_from_frame(&h->anim, CLIP_KNIGHT_SIT_MAP_OPEN, 0);
+          g_pd.disable_pause = true;
+          b->sleeping = false, b->get_off_wake = false;
+          b->state = BS_MAP_OPEN, b->t = 0;
         } else if (b->t >= 10 && !b->sleeping) {
           /* Fall Asleep */
           anim_play(&h->anim, CLIP_KNIGHT_SIT_FALL_ASLEEP);
@@ -190,6 +209,35 @@ void benches_tick(void) {
       case BS_REGAIN:
         if (b->t >= 0.5f) b->state = BS_IDLE;   /* (Reactivate: Idle, in range or not) */
         break;
+      case BS_MAP_OPEN:
+        if (pressed() & K_MAP) {
+          /* Inv Map Open */
+          g_pd.disable_pause = false;
+          inv_open_map();
+          anim_play_from_frame(&h->anim, CLIP_KNIGHT_SIT_MAP_CLOSE, 0);
+          b->state = BS_INV_MAP, b->t = 0;
+        } else if (b->t >= 0.25f) {
+          map_quick(true);   /* (Map Idle: OPEN QUICK MAP) */
+          b->state = BS_MAP_IDLE;
+        }
+        break;
+      case BS_MAP_IDLE:
+        if (!(g_hero.keys & K_MAP) || inv_open()) {
+          /* Close Map: Sit Map Close, a second, then pause again (Re-enable Pause) */
+          map_quick(false);
+          anim_play_from_frame(&h->anim, CLIP_KNIGHT_SIT_MAP_CLOSE, 0);
+          b->state = BS_MAP_CLOSE, b->t = 0;
+        }
+        break;
+      case BS_MAP_CLOSE:
+        if (b->t >= 1) {
+          g_pd.disable_pause = false;
+          b->state = BS_RESTING, b->t = 0;
+        }
+        break;
+      case BS_INV_MAP:
+        if (b->t >= 0.42f) b->state = BS_RESTING, b->t = 0;
+        break;
       case BS_RESPAWN_ASLEEP:
         /* Init Resting 2 (1.2 s), three frames, Kinemetise (up by the adjust vector), Init Resting (1.2 s): asleep,
          * then Startle */
@@ -204,6 +252,8 @@ void benches_tick(void) {
         h->body.vx = h->body.vy = 0;
         if ((h->anim.events & ANIM_DONE) || !h->anim.playing) {
           b->get_off_wake = false, b->sleeping = false;   /* (Startle: Get Off Anim "Get Off") */
+          /* (Update Map Silently: its message, no Map Update) */
+          if (pd_flag(PDF_HAS_QUILL) && pd_flag(PDF_HAS_MAP) && map_update()) map_msg_show();
           b->state = BS_RESTING, b->t = 0;
         }
         break;

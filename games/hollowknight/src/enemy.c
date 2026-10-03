@@ -16,7 +16,8 @@
 /* (data.h: EK_* each kind, KIND_TABLE: the FSM each runs and the clips its roles play) */
 enum {
   EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER, EF_ROLLER, EF_BLOCKER, EF_LEAPER, EF_GUARD,
-  EF_FK, EF_FKHEAD, EF_GFLY, EF_HATCHER, EF_HATCHLING, EF_SLUG, EF_MOSSWALKER, EF_PIGEON, EF_PLANTTRAP, EF_SHAKER
+  EF_FK, EF_FKHEAD, EF_GFLY, EF_HATCHER, EF_HATCHLING, EF_SLUG, EF_MOSSWALKER, EF_PIGEON, EF_PLANTTRAP, EF_SHAKER,
+  EF_MOSQUITO, EF_FATFLY, EF_MOSSCHARGER
 };
 enum { R_IDLE, R_TURN, R_WALK, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, R_A7, R_A8, R_DEATH_AIR, R_DEATH_LAND, NUM_ROLES };
 typedef struct {
@@ -274,6 +275,9 @@ static uint8_t flash_tint(const Enemy *e, int slot) { return flash_tint_at(e->fl
 
 /* ---------------------------------------------------------------- Recoil */
 #define RF_NONE 0x80   /* (no Recoil component) */
+#define RF_HIT 0x40    /* (HIT LEFT / RIGHT / UP / DOWN this frame: rc_dir its direction) */
+#define RF_BLOCKED 0x20   /* (BLOCKED HIT this frame) */
+#define RF_DIR_SHIFT 3    /* (bits 3-4: the last attack's direction, HealthManager.GetAttackDirection) */
 static void climber_stun(Enemy *e);
 static void recoil_by_direction(Enemy *e, int dir, float magnitude) {
   if (e->rc_state != RC_READY || (e->rc_flags & RF_NONE)) return;
@@ -289,6 +293,7 @@ static void recoil_by_direction(Enemy *e, int dir, float magnitude) {
   e->rc_dir = (int8_t)dir;
   e->rc_sweep = true;
   e->rc_time = e->rc_dur;
+  e->rc_flags |= RF_HIT;
   if (dir == 0 || dir == 2) e->flags |= 2;   /* (RECOIL HORIZONTAL to its FSM) */
 }
 
@@ -403,8 +408,10 @@ static void fk_head_stun_end(Enemy *h);
 static void enemy_hit_by(Enemy *e, float direction, int damage, bool nail, float magnitude) {
   if (e->mode != EM_ALIVE || e->evasion > 0 || damage <= 0) return;
   int dir = cardinal(direction);
+  e->rc_flags = (uint8_t)((e->rc_flags & ~(3 << RF_DIR_SHIFT)) | dir << RF_DIR_SHIFT);   /* (directionOfLastAttack) */
   if (e->flags & 4) {
-    /* Invincible: the hit blocked, the Knight recoiling off it (a nail's) */
+    /* Invincible: the hit blocked (BLOCKED HIT), the Knight recoiling off it (a nail's) */
+    e->rc_flags |= RF_BLOCKED;
     if (nail && dir == 0) hero_recoil_left();
     else if (nail && dir == 2) hero_recoil_right();
     FREEZE_MOMENT_1();
@@ -554,8 +561,7 @@ static void buzzer_start(Enemy *e, const Ent *d) {
 }
 
 /* IdleBuzz: drifts about its start, accelerating at random */
-static void idle_buzz(Enemy *e) {
-  const float wmin = 0.75f, wmax = 1, vmax = 1.75f, amax = 15, range = 1;
+static void idle_buzz_p(Enemy *e, float wmin, float wmax, float vmax, float amax, float range) {
   float vx = e->body.vx, vy = e->body.vy, x = e->body.x, y = e->body.y;
   if (y < e->start_y - range) {
     if (vy < 0) e->ay = amax / 2000, vy /= 1.125f, e->wait = rand_range(wmin, wmax);
@@ -576,6 +582,8 @@ static void idle_buzz(Enemy *e) {
   e->body.vx = vx > vmax ? vmax : vx < -vmax ? -vmax : vx;
   e->body.vy = vy > vmax ? vmax : vy < -vmax ? -vmax : vy;
 }
+
+static void idle_buzz(Enemy *e) { idle_buzz_p(e, 0.75f, 1, 1.75f, 15, 1); }
 
 /* ChaseObject: towards the hero, a little faster each step */
 static void chase_object(Enemy *e, float vmax, float accel) {
@@ -4264,6 +4272,550 @@ static void shaker_fixed(Enemy *e) {
   }
 }
 
+/* ---------------------------------------------------------------- Squits: Mozzie (buzzes idle; seen, keeps its distance
+ * from the Knight, then lunges at him; a hit turns its lunge, a wall stops it dead) */
+enum { SQ_IDLE, SQ_STARTLE, SQ_IN_SIGHT, SQ_OUT_OF_SIGHT, SQ_STOP, SQ_ATTACK_PAUSE, SQ_STILL_IN_RANGE, SQ_ATTACK_ANTIC,
+       SQ_ATTACK_AIM, SQ_LUNGING, SQ_PULL_OUT, SQ_RECOVER };
+#define SQ_LUNGE_SPEED 18.0f
+/* (pause0: FaceDirection's; wait: a state's; t0: its attention span; t1: Lunge Wait; qx: Attack Angle; ax, ay: its
+ * velocity as it lunges (X Speed, Y Speed); b0: its TileDetector off; b1: it touched something (OnCollisionEnter2D);
+ * ang: its rotation (FaceAngle)) */
+static void sq_distance_fly(Enemy *e) { distance_fly_at(e, 8, 5.5f, 0.1f, true, 1); }
+
+/* FaceObject (sprite facing left): towards the Knight, with a clip if it turns */
+static void sq_face(Enemy *e, int clip) {
+  float want = e->body.x < hero_x() ? -fabsf(e->sx) : fabsf(e->sx);
+  if (e->sx != want) {
+    set_scale_x(e, want);
+    if (clip >= 0) anim_play_from_frame(&e->anim, clip, 0);
+  }
+}
+
+static void sq_idle(Enemy *e) {
+  e->st = SQ_IDLE, e->ang = 0;
+  anim_play(&e->anim, CLIP(e, R_IDLE));
+  e->start_x = e->body.x, e->start_y = e->body.y, e->wait = 0, e->ax = e->ay = 0;   /* (IdleBuzz) */
+}
+
+static void sq_out_of_sight(Enemy *e);
+/* Chase - In Sight: near enough, it pauses to attack; else on next frame (Out of Sight) */
+static void sq_in_sight(Enemy *e) {
+  e->st = SQ_IN_SIGHT, e->ang = 0;
+  anim_play(&e->anim, CLIP(e, R_IDLE));
+  sq_face(e, CLIP(e, R_A1));
+  sq_distance_fly(e);
+  float dx = hero_x() - e->body.x, dy = hero_y() - e->body.y;
+  if (dx * dx + dy * dy <= 10 * 10) {
+    /* Attack Pause */
+    e->st = SQ_ATTACK_PAUSE, e->wait = rand_range(0.25f, 1);
+    sq_distance_fly(e);
+    sq_face(e, -1);
+  }
+}
+
+/* Chase - Out of Sight: chasing; seen again, In Sight; not for its attention span, Stop */
+static void sq_out_of_sight(Enemy *e) {
+  e->st = SQ_OUT_OF_SIGHT, e->t0 = 8;
+  sq_distance_fly(e);
+  sq_face(e, CLIP(e, R_A1));
+  if (e->can_see && e->in_alert) sq_in_sight(e);
+}
+
+/* a lunge: at an angle, its scale and rotation (Lunge L / R, Hit Left / Right / Up / Down) */
+static void sq_lunge(Enemy *e, float angle, bool right, float wait) {
+  set_scale_x(e, right ? -fabsf(e->sx) : fabsf(e->sx));
+  float a = angle * (float)M_PI / 180;
+  e->body.vx = cosf(a) * SQ_LUNGE_SPEED, e->body.vy = sinf(a) * SQ_LUNGE_SPEED;
+  e->ang = atan2f(e->body.vy, e->body.vx) * 180 / (float)M_PI + (right ? 0 : 180);
+  e->st = SQ_LUNGING, e->t1 = wait, e->b1 = false;
+}
+
+static void mosquito_start(Enemy *e, const Ent *d) {
+  if (d->s1 & EF_START) sq_in_sight(e);   /* (Start Alert) */
+  else sq_idle(e);
+}
+
+static void mosquito_fixed(Enemy *e) {
+  switch (e->st) {
+    case SQ_IDLE: idle_buzz_p(e, 0.75f, 1, 3, 19, 1); break;
+    case SQ_IN_SIGHT: case SQ_OUT_OF_SIGHT: case SQ_ATTACK_PAUSE: sq_distance_fly(e); break;
+    case SQ_STOP: decelerate(e, 0.3f); break;
+    case SQ_ATTACK_AIM: e->body.vx = 0, e->body.vy = 1; break;
+    case SQ_PULL_OUT: decelerate(e, 0.2f); break;
+    case SQ_RECOVER: e->body.vx *= 0.9f, e->body.vy *= 0.9f; break;   /* (DecelerateV2) */
+  }
+}
+
+static void mosquito_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0;
+  /* (the hit's direction, its Recoil's HIT event: in a lunge, it turns it) */
+  if ((e->rc_flags & RF_HIT) && e->st == SQ_LUNGING) {
+    switch (e->rc_dir) {
+      case 0: sq_lunge(e, rand_range(-5, 5), true, 0.5f); break;
+      case 2: sq_lunge(e, rand_range(175, 185), false, 0.5f); break;
+      case 1: sq_lunge(e, rand_range(85, 95), false, 0.5f); break;
+      default: sq_lunge(e, rand_range(265, 275), false, 0.5f); break;
+    }
+    return;
+  }
+  switch (e->st) {
+    case SQ_IDLE:
+      e->ang = 0;
+      face_direction_p(e, &e->pause0, CLIP(e, R_A1), 0.5f);
+      if (e->can_see && e->in_alert) {
+        /* Startle: facing the Knight, till the clip ends */
+        e->st = SQ_STARTLE;
+        anim_play_from_frame(&e->anim, CLIP(e, R_A2), 0);
+        sq_face(e, -1);
+      }
+      break;
+    case SQ_STARTLE:
+      if (done) sq_in_sight(e);
+      break;
+    case SQ_IN_SIGHT:
+      sq_face(e, CLIP(e, R_A1));
+      sq_out_of_sight(e);   /* (NextFrameEvent) */
+      break;
+    case SQ_OUT_OF_SIGHT:
+      sq_face(e, CLIP(e, R_A1));
+      if (e->can_see && e->in_alert) sq_in_sight(e);
+      else if ((e->t0 -= DT) <= 0) {
+        e->st = SQ_STOP, e->wait = 0.75f;
+        anim_play(&e->anim, CLIP(e, R_IDLE));
+        decelerate(e, 0.3f);
+      }
+      break;
+    case SQ_STOP:
+      if ((e->wait -= DT) <= 0) sq_idle(e);
+      break;
+    case SQ_ATTACK_PAUSE:
+      sq_face(e, -1);
+      if ((e->wait -= DT) <= 0) {
+        /* Still In Range?: then Attack Antic: up a little, its TileDetector off */
+        if (!e->in_alert || !e->can_see) sq_in_sight(e);
+        else {
+          e->st = SQ_ATTACK_ANTIC, e->wait = 0.25f, e->b0 = true;
+          e->body.vx = 0, e->body.vy = 1;
+          anim_play_from_frame(&e->anim, CLIP(e, R_A3), 0);
+          sq_face(e, -1);
+        }
+      }
+      break;
+    case SQ_ATTACK_ANTIC:
+      if (done || (e->wait -= DT) <= 0) {
+        /* Attack Aim: at the Knight, a little below; till its antic ends */
+        float dx = hero_x() - e->body.x, dy = hero_y() - 0.5f - e->body.y;
+        e->qx = atan2f(dy, dx) * 180 / (float)M_PI;
+        if (e->qx < 0) e->qx += 360;
+        e->st = SQ_ATTACK_AIM;
+        e->body.vx = 0, e->body.vy = 1;
+      }
+      break;
+    case SQ_ATTACK_AIM:
+      if (!e->anim.playing) {
+        /* Check Dir: no recoil now; Lunge R or L */
+        e->rc_base = 0;
+        anim_play(&e->anim, CLIP(e, R_A4));
+        sq_lunge(e, e->qx, e->qx < 90 || e->qx > 270, 1.25f);
+      }
+      break;
+    case SQ_LUNGING:
+      if (e->b1) {
+        /* HIT WALL: Pull Out, bouncing back */
+        e->st = SQ_PULL_OUT, e->ang = 0;
+        e->rc_base = 20;
+        anim_play_from_frame(&e->anim, CLIP(e, R_DEATH_AIR), 0);
+        e->body.vx = e->ax * -0.3f, e->body.vy = e->ay * -0.3f;
+        decelerate(e, 0.2f);
+        break;
+      }
+      e->ax = e->body.vx, e->ay = e->body.vy;
+      if ((e->t1 -= DT) <= 0) {
+        e->st = SQ_RECOVER, e->wait = 0.5f, e->ang = 0;
+        anim_play(&e->anim, CLIP(e, R_IDLE));
+        e->body.vx *= 0.9f, e->body.vy *= 0.9f;
+      }
+      break;
+    case SQ_PULL_OUT:
+      if (done) {
+        e->st = SQ_RECOVER, e->wait = 0.5f, e->ang = 0;
+        anim_play(&e->anim, CLIP(e, R_IDLE));
+        e->body.vx *= 0.9f, e->body.vy *= 0.9f;
+      }
+      break;
+    case SQ_RECOVER:
+      if ((e->wait -= DT) <= 0) sq_in_sight(e);
+      break;
+  }
+}
+
+/* ---------------------------------------------------------------- Obbles: Fatty Fly Attack and fat fly bounce (it
+ * bounces off the walls at a steady speed; every few seconds, or as it is hit, it stops and spits four shots) */
+enum { FA_SLEEP, FA_WAIT, FA_ANTIC, FA_ANTIC2, FA_ATTACK, FA_CD };
+enum { FB_INIT, FB_FLY, FB_STOPPED };
+#define FB_SPEED 4.0f
+/* (st: Fatty Fly Attack's state; c0: fat fly bounce's; qx: its Angle; b0: Facing Right; b1: it touched something this
+ * step (OnCollisionStay2D), its normal in ax, ay; wait: the attack's timer) */
+
+/* Left or Right?, Face Left / Right, Fly 2 */
+static void fb_fly(Enemy *e) {
+  float a = e->qx;
+  e->b0 = !(a >= 90 && a < 270);
+  set_scale_x(e, e->b0 ? -fabsf(e->sx) : fabsf(e->sx));
+  e->c0 = FB_FLY;
+}
+
+/* Collision Check: off the wall it met, by its normal (else a way at random) */
+static void fb_bounce(Enemy *e) {
+  float nx = e->ax, ny = e->ay;
+  int ev = nx == -1 ? 0 : nx == 1 ? 1 : ny == -1 ? 2 : ny == 1 ? 3 : (int)rand_range(0, 3.999f);
+  bool up = e->qx < 180;
+  switch (ev) {
+    case 0: e->qx = up ? rand_range(140, 170) : rand_range(190, 220); break;   /* (Hit Right) */
+    case 1: e->qx = up ? rand_range(10, 40) : rand_range(320, 350); break;     /* (Hit Left) */
+    case 2: e->qx = e->b0 ? rand_range(320, 350) : rand_range(190, 220); break; /* (Hit Up) */
+    default: e->qx = e->b0 ? rand_range(10, 40) : rand_range(140, 170); break; /* (Hit Down) */
+  }
+  fb_fly(e);
+}
+
+static void fatfly_wait(Enemy *e) {
+  e->st = FA_WAIT, e->wait = rand_range(2, 3);
+  if (e->c0 == FB_STOPPED) fb_fly(e);   /* (WAKE) */
+}
+
+static void fatfly_antic(Enemy *e) {
+  e->st = FA_ANTIC, e->wait = 0.35f;
+  decelerate(e, 0.1f);
+}
+
+static void fatfly_start(Enemy *e) {
+  e->st = FA_SLEEP, e->c0 = FB_INIT;
+  anim_play(&e->anim, CLIP(e, R_IDLE));
+}
+
+static void fatfly_fixed(Enemy *e) {
+  if (e->st == FA_ANTIC || e->st == FA_ANTIC2) decelerate(e, 0.1f);
+}
+
+static void fatfly_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0, trig = (e->anim.events & ANIM_TRIGGER) != 0;
+  /* fat fly bounce */
+  switch (e->c0) {
+    case FB_INIT: {
+      float dx = hero_x() - e->body.x, dy = hero_y() - e->body.y;
+      if (dx * dx + dy * dy < 25 * 25) {
+        /* Aim: wakes its attack, flies at the Knight */
+        if (e->st == FA_SLEEP) fatfly_wait(e);
+        e->qx = atan2f(dy, dx) * 180 / (float)M_PI;
+        if (e->qx < 0) e->qx += 360;
+        fb_fly(e);
+      }
+      break;
+    }
+    case FB_FLY:
+      if (e->b1) fb_bounce(e);
+      break;
+  }
+  e->b1 = false;
+  /* Fatty Fly Attack (TAKE DAMAGE: its attack at once) */
+  if (e->flags & 8) {
+    fatfly_antic(e);
+    return;
+  }
+  switch (e->st) {
+    case FA_WAIT:
+      if ((e->wait -= DT) <= 0) fatfly_antic(e);
+      break;
+    case FA_ANTIC:
+      if ((e->wait -= DT) <= 0) {
+        /* Attack Antic 2: the bouncing stopped (its angle kept from its velocity), its spit coming */
+        e->st = FA_ANTIC2;
+        if (e->c0 == FB_FLY || e->c0 == FB_INIT) {
+          e->qx = atan2f(e->body.vy, e->body.vx) * 180 / (float)M_PI;
+          if (e->qx < 0) e->qx += 360;
+          e->c0 = FB_STOPPED;
+        }
+        anim_play_from_frame(&e->anim, CLIP(e, R_A1), 0);
+        decelerate(e, 0.1f);
+      }
+      break;
+    case FA_ANTIC2:
+      if (trig || done) {
+        /* Attack: four shots, corner-wise */
+        for (int k = 0; k < 4; k++) {
+          float a = (45 + 90 * k) * (float)M_PI / 180;
+          Bullet *b = bullet_new(e->body.x, e->body.y, cosf(a) * 12, sinf(a) * 12, 0.05f);
+          if (b) b->scale *= 0.7f;
+        }
+        e->st = FA_ATTACK, e->wait = 0.5f;
+      }
+      break;
+    case FA_ATTACK:
+      if (!e->anim.playing || (e->wait -= DT) <= 0) {
+        e->st = FA_CD, e->wait = 0.5f;
+        anim_play(&e->anim, CLIP(e, R_IDLE));
+      }
+      break;
+    case FA_CD:
+      if ((e->wait -= DT) <= 0) fatfly_wait(e);
+      break;
+  }
+  /* (Fly 2: its velocity at its angle, every frame) */
+  if (e->c0 == FB_FLY) {
+    float a = e->qx * (float)M_PI / 180;
+    e->body.vx = cosf(a) * FB_SPEED, e->body.vy = sinf(a) * FB_SPEED;
+  }
+}
+
+/* ---------------------------------------------------------------- Moss Chargers: Mossy Control (hidden in the grass;
+ * as the Knight comes into its range it bursts up a way off and charges, invincible, along the ground; struck, it is
+ * thrown out stunned, then runs from the Knight and digs back in) */
+enum { MC_INIT_PAUSE, MC_HIDDEN, MC_EMERGE_PAUSE, MC_EMERGE_SIDE, MC_APPEAR, MC_CHARGE, MC_SUBMERGE, MC_SUBMERGE_GRASS,
+       MC_SUBMERGE_CD, MC_FLY, MC_IN_AIR, MC_GET_UP, MC_RUN, MC_DIG_START, MC_DIG };
+#define MC_CHARGE_SPEED 15.0f
+/* (wait: a state's; start_x, start_y: where it hides; ax, ay: X Min, X Max; qx: Appear X; qy: Current Charge Speed;
+ * b0: hidden (its renderer off); b1: it touched something new this step; c0: the side it emerges (0 right, 1 left);
+ * c1: its charge's rays' frame count) */
+static void mc_collider(Enemy *e, bool on) {
+  if (on) e->flags &= (uint8_t)~1, e->body.mask = CF_SOLID;
+  else e->flags |= 1, e->body.mask = 0;
+}
+
+/* Hero Beyond?, Left or Right?, Emerge Right / Left (a frame later the other way, if beyond its range) */
+static void mc_emerge_side(Enemy *e, int side) {
+  e->st = MC_EMERGE_SIDE, e->c0 = (uint8_t)side;
+  if (side == 0) {
+    e->qx = hero_x() + 14, set_scale_x(e, -fabsf(e->sx)), e->qy = -MC_CHARGE_SPEED;
+    if (e->qx > e->ay) return;   /* (LEFT: Pause, then Emerge Left) */
+  } else {
+    e->qx = hero_x() - 14, set_scale_x(e, fabsf(e->sx)), e->qy = MC_CHARGE_SPEED;
+    if (e->qx < e->ax) return;   /* (RIGHT: Pause 2, then Emerge Right) */
+  }
+  /* Emerge: up out of the grass a little way off the Knight, sliding his way */
+  cam_shake(SHAKE_AVERAGE);
+  e->body.x = e->qx, e->body.y = e->start_y;
+  e->body.vx = e->qy * 0.25f, e->body.vy = 0;
+  mc_collider(e, true);
+  e->b0 = false;
+  anim_play_from_frame(&e->anim, CLIP(e, R_A1), 0);
+  e->st = MC_APPEAR;
+}
+
+/* its two rays as it charges: a wall ahead, no ground ahead: SUBMERGE */
+static bool mc_charge_rays(const Enemy *e) {
+  float dir = e->c0 == 0 ? -1.0f : 1.0f;
+  return phys_ray(e->body.x, e->body.y - 0.5f, dir, 0, 5.5f, CF_TERRAIN, NULL) ||
+         !phys_ray(e->body.x + 6.5f * dir, e->body.y - 0.5f, 0, -1, 3, CF_TERRAIN, NULL);
+}
+
+static void mc_submerge(Enemy *e) {
+  e->st = MC_SUBMERGE;
+  decelerate(e, 0.7f);
+  anim_play_from_frame(&e->anim, CLIP(e, R_A3), 0);
+}
+
+static void mc_submerge_cd(Enemy *e) {
+  e->st = MC_SUBMERGE_CD, e->wait = 0.35f;
+  mc_collider(e, false);
+  e->body.vx = e->body.vy = 0;
+  e->flags |= 4;   /* (invincible) */
+  e->b0 = true;
+  e->body.x = e->start_x, e->body.y = e->start_y;
+}
+
+/* Line Loop, Burst: struck, thrown out stunned, away from the blow */
+static void mc_burst(Enemy *e) {
+  e->body.gravity_scale = 1.5f;
+  cam_shake(SHAKE_ENEMY_KILL);
+  anim_play(&e->anim, CLIP(e, R_A4));
+  float a = 90, speed = 20;
+  switch (e->rc_flags >> RF_DIR_SHIFT & 3) {
+    case 0: a = 70, speed = 18; break;
+    case 2: a = 110, speed = 18; break;
+    case 3: a = 270, speed = 10; break;
+  }
+  a *= (float)M_PI / 180;
+  e->body.vx = cosf(a) * speed, e->body.vy = sinf(a) * speed;
+  e->st = MC_FLY;   /* (a frame later, In Air) */
+}
+
+/* Direction (after Get Up): runs from the Knight */
+static void mc_run(Enemy *e, bool right) {
+  e->st = MC_RUN, e->wait = 1, e->b1 = false;
+  anim_play_from_frame(&e->anim, CLIP(e, R_A6), 0);
+  set_scale_x(e, right ? fabsf(e->sx) : -fabsf(e->sx));
+  e->c0 = right ? 1 : 0;
+}
+
+static void mc_dig_start(Enemy *e) {
+  /* Dig Start: its collider off, no gravity, slowing; falls if nothing is under it */
+  e->st = MC_DIG_START;
+  e->rc_state = RC_READY;   /* (CANCEL RECOIL) */
+  mc_collider(e, false);
+  e->body.gravity_scale = 0;
+  decelerate(e, 0.4f);
+  anim_play_from_frame(&e->anim, CLIP(e, R_A7), 0);
+}
+
+static bool mc_dig_check(const Enemy *e) { return phys_ray(e->body.x, e->body.y, 0, -1, 1, CF_SOLID, NULL); }
+
+static void mc_in_air(Enemy *e) {
+  e->st = MC_IN_AIR;
+  e->flags &= (uint8_t)~4;   /* (not invincible) */
+  mc_collider(e, true);
+  e->body.gravity_scale = 1.5f;
+  anim_play(&e->anim, CLIP(e, R_A4));
+}
+
+static void mosscharger_start(Enemy *e) {
+  e->st = MC_INIT_PAUSE, e->wait = 0.5f;
+}
+
+static void mosscharger_fixed(Enemy *e) {
+  /* (ObjectBounce samples its speed every fourth step) */
+  if ((e->pause0 += 1) > 3) e->pause0 = 0, e->pause1 = sqrtf(e->body.vx * e->body.vx + e->body.vy * e->body.vy);
+  switch (e->st) {
+    case MC_SUBMERGE: case MC_SUBMERGE_GRASS: decelerate(e, 0.7f); break;
+    case MC_RUN: {
+      float vx = e->body.vx + (e->c0 ? 0.5f : -0.5f);
+      e->body.vx = vx > 10 ? 10 : vx < -10 ? -10 : vx;   /* (AccelerateVelocity) */
+      break;
+    }
+    case MC_DIG_START: decelerate(e, 0.4f); break;
+  }
+}
+
+static void mosscharger_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0, trig = (e->anim.events & ANIM_TRIGGER) != 0;
+  /* (BLOCKED HIT, everywhere; TAKE DAMAGE as it charges: Line Loop, Burst) */
+  if ((e->rc_flags & RF_BLOCKED) || (e->st == MC_CHARGE && (e->flags & 8))) {
+    mc_burst(e);
+    return;
+  }
+  switch (e->st) {
+    case MC_INIT_PAUSE:
+      if ((e->wait -= DT) <= 0) {
+        /* Init: hidden, out of reach; its range's length from where it starts */
+        mc_collider(e, false);
+        e->b0 = true;
+        e->start_x = e->body.x, e->start_y = e->body.y;
+        float len = e->ar_r;
+        e->ax = e->start_x - len + 2, e->ay = e->start_x + len - 2;
+        e->st = MC_HIDDEN;
+      }
+      break;
+    case MC_HIDDEN:
+      if (e->in_alert) e->st = MC_EMERGE_PAUSE, e->wait = rand_range(0.5f, 1);
+      break;
+    case MC_EMERGE_PAUSE:
+      if ((e->wait -= DT) <= 0) {
+        if (hero_x() > e->ay || hero_x() < e->ax) e->st = MC_HIDDEN;
+        else mc_emerge_side(e, rand_range(0, 2) < 1 ? 0 : 1);
+      }
+      break;
+    case MC_EMERGE_SIDE:
+      mc_emerge_side(e, 1 - e->c0);
+      break;
+    case MC_APPEAR:
+      if (done) {
+        e->st = MC_CHARGE, e->c1 = 1;
+        anim_play(&e->anim, CLIP(e, R_A2));
+        e->body.vx = e->qy;
+      }
+      break;
+    case MC_CHARGE:
+      if (--e->c1 == 0) {
+        e->c1 = 2;
+        if (mc_charge_rays(e)) mc_submerge(e);
+      }
+      break;
+    case MC_SUBMERGE:
+      if (trig || done) e->st = MC_SUBMERGE_GRASS;
+      break;
+    case MC_SUBMERGE_GRASS:
+      if (!e->anim.playing) mc_submerge_cd(e);
+      break;
+    case MC_SUBMERGE_CD:
+      if ((e->wait -= DT) <= 0) e->st = MC_HIDDEN;   /* (Play Range) */
+      break;
+    case MC_FLY:
+      mc_in_air(e);
+      break;
+    case MC_IN_AIR: {
+      bool ground = false;
+      for (int c = 0; c < e->body.ncontacts; c++) ground |= e->body.cny[c] > 0.5f;
+      if (ground) {
+        /* Land, Get Up */
+        e->body.vx = 0;
+        e->st = MC_GET_UP;
+        anim_play_from_frame(&e->anim, CLIP(e, R_A5), 0);
+      }
+      break;
+    }
+    case MC_GET_UP:
+      if (done) {
+        /* Direction: from its turn's third frame, away from the Knight */
+        anim_play_from_frame(&e->anim, CLIP(e, R_A6), 2);
+        mc_run(e, hero_x() <= e->body.x);
+        e->anim.playing = true;
+      }
+      break;
+    case MC_RUN: {
+      bool right = e->c0 == 1;
+      /* (the Knight passed: the other way) */
+      if (right ? hero_x() > e->body.x : hero_x() < e->body.x) {
+        mc_run(e, !right);
+        break;
+      }
+      float dir = right ? 1.0f : -1.0f;
+      bool wall = phys_ray(e->body.x, e->body.y, dir, 0, 2, CF_SOLID, NULL);
+      bool ground = phys_ray(e->body.x + 3 * dir, e->body.y, 0, -1, 1.3f, CF_SOLID, NULL);
+      if (wall || !ground || (e->wait -= DT) <= 0) mc_dig_start(e);   /* (On Ground?, Dig Start) */
+      break;
+    }
+    case MC_DIG_START:
+      if (!mc_dig_check(e)) mc_in_air(e);   /* (FALL) */
+      else if (trig) {
+        e->st = MC_DIG;
+        e->body.vx = 0;
+      }
+      break;
+    case MC_DIG:
+      if (!mc_dig_check(e)) mc_in_air(e);
+      else if (!e->anim.playing) mc_submerge_cd(e);
+      break;
+  }
+}
+
+/* the collisions a step brought (Collision2dEvent, ObjectBounce): the kinds that want them */
+static BodyEvent body_events[MAX_EVENTS];
+static bool wants_contacts(const Enemy *e) { return FSM(e) == EF_MOSQUITO || FSM(e) == EF_FATFLY || FSM(e) == EF_MOSSCHARGER; }
+
+static void enemy_contacts(Enemy *e, float pvx, float pvy, int had) {
+  for (int i = 0; i < e->body.nevents; i++) {
+    const BodyEvent *v = &body_events[i];
+    if (FSM(e) == EF_MOSQUITO && v->kind == EV_ENTER) e->b1 = true;   /* (HIT WALL) */
+    if (FSM(e) == EF_FATFLY && v->kind == EV_STAY && !e->b1) e->b1 = true, e->ax = v->nx, e->ay = v->ny;
+    if (FSM(e) == EF_MOSSCHARGER && v->kind == EV_ENTER && e->pause1 > 1) {
+      body_bounce(&e->body, pvx, pvy, had, 0.5f);   /* (ObjectBounce, at its speed as last sampled) */
+      e->b1 = true;
+    }
+  }
+}
+
+/* a Squit's TileDetector (a second box, there till it lunges): one box round both, for the terrain */
+static void mosquito_box(Enemy *e, float *save) {
+  const Ent *t = enemy_rec(e, ET_VARS);
+  save[0] = e->body.ox, save[1] = e->body.oy, save[2] = e->body.hx, save[3] = e->body.hy;
+  if (!t || e->b0) return;
+  float tx, ty;
+  enemy_point(e, t->x0, t->y0, &tx, &ty);
+  float x0 = fminf(e->body.ox - e->body.hx, tx - t->x1), x1 = fmaxf(e->body.ox + e->body.hx, tx + t->x1);
+  float y0 = fminf(e->body.oy - e->body.hy, ty - t->y1), y1 = fmaxf(e->body.oy + e->body.hy, ty + t->y1);
+  e->body.ox = (x0 + x1) / 2, e->body.oy = (y0 + y1) / 2, e->body.hx = (x1 - x0) / 2, e->body.hy = (y1 - y0) / 2;
+}
+
 /* its FSMs start */
 static void enemy_fsm_start(Enemy *e, const Ent *d) {
   if (FSM(e) == EF_CRAWLER) crawler_start(e, d);
@@ -4286,6 +4838,9 @@ static void enemy_fsm_start(Enemy *e, const Ent *d) {
   else if (FSM(e) == EF_PIGEON) pigeon_start(e);
   else if (FSM(e) == EF_PLANTTRAP) planttrap_start(e);
   else if (FSM(e) == EF_SHAKER) shaker_start(e);
+  else if (FSM(e) == EF_MOSQUITO) mosquito_start(e, d);
+  else if (FSM(e) == EF_FATFLY) fatfly_start(e);
+  else if (FSM(e) == EF_MOSSCHARGER) mosscharger_start(e);
 }
 
 /* ActiveRegion (a 50 by 35 box round the camera) meets its collider: FSMActivator turns its FSMs on */
@@ -4492,8 +5047,21 @@ void enemies_fixed(void) {
       else if (FSM(e) == EF_HATCHLING) hatchling_fixed(e);
       else if (FSM(e) == EF_SLUG) slug_fixed(e);
       else if (FSM(e) == EF_SHAKER) shaker_fixed(e);
+      else if (FSM(e) == EF_MOSQUITO) mosquito_fixed(e);
+      else if (FSM(e) == EF_FATFLY) fatfly_fixed(e);
+      else if (FSM(e) == EF_MOSSCHARGER) mosscharger_fixed(e);
       recoil_fixed(e);
-      body_step(&e->body, DT);
+      if (wants_contacts(e)) {
+        float pvx = e->body.vx, pvy = e->body.vy, box[4];
+        int had = e->body.ncontacts;
+        e->body.events = body_events;
+        if (FSM(e) == EF_MOSQUITO) mosquito_box(e, box);
+        body_step(&e->body, DT);
+        if (FSM(e) == EF_MOSQUITO) e->body.ox = box[0], e->body.oy = box[1], e->body.hx = box[2], e->body.hy = box[3];
+        enemy_contacts(e, pvx, pvy, had);
+        e->body.events = NULL, e->body.nevents = 0;
+      } else
+        body_step(&e->body, DT);
     } else if (FSM(e) != EF_BLOCKER) {
       /* Corpse: falls, lands (or smashes, a breaker) and stays */
       const Ent *cr = enemy_rec(e, ET_CORPSE);
@@ -4576,6 +5144,9 @@ void enemies_update(void) {
       else if (FSM(e) == EF_PIGEON) pigeon_update(e);
       else if (FSM(e) == EF_PLANTTRAP) planttrap_update(e);
       else if (FSM(e) == EF_SHAKER) shaker_update(e);
+      else if (FSM(e) == EF_MOSQUITO) mosquito_update(e);
+      else if (FSM(e) == EF_FATFLY) fatfly_update(e);
+      else if (FSM(e) == EF_MOSSCHARGER) mosscharger_update(e);
       if (FSM(e) == EF_FK) {
         /* (its Hitter: on till its FSM turns it off) */
         e->sub.events = 0;
@@ -4583,6 +5154,7 @@ void enemies_update(void) {
       } else
         hitbox_tick(e);
       e->flags &= (uint8_t)~8;
+      e->rc_flags &= (uint8_t)~(RF_HIT | RF_BLOCKED);
     } else if (FSM(e) == EF_SHADE)
       shade_update(e);
     else if (FSM(e) == EF_BLOCKER)
@@ -4600,6 +5172,7 @@ void enemies_draw(void) {
     float z = e->mode == EM_CORPSE && FSM(e) != EF_SHADE ? 0.0085f : e->z;
     if (FSM(e) == EF_SHADE && e->st == SH_DISSIPATE) continue;   /* (its renderer off) */
     if ((e->flags & 32) || (FSM(e) == EF_FKHEAD && !fk.head_shown && e->mode == EM_ALIVE)) continue;
+    if (FSM(e) == EF_MOSSCHARGER && e->mode == EM_ALIVE && e->b0) continue;   /* (its renderer off) */
     float sy = fabsf(e->sx) > 0 ? fabsf(e->sx) : 1;
     if (FSM(e) == EF_PIGEON && e->st == PG_FLY)
       /* (its x scale 1, its y its size; flying left its sprite turned, a half turn more) */

@@ -40,7 +40,7 @@ ENEMY_VARS = {"Zombie Swipe": (["Lunge Speed", "Idle Time"], ["Coward"]),
               "Zombie Guard": (["Chase Distance", "Roam Distance"], ["Start Facing Left"])}
 # enemies whose body is a trigger, whose body is only their frames' colliders, and other children that are ranges
 TRIGGER_BODIES = {"Pigeon"}
-FRAME_BODIES = {"Plant Trap Control"}
+FRAME_BODIES = {"Plant Trap Control", "Mossy Control"}
 RANGES = {"Moss Walker": ("Wake Range",), "Pigeon": ("Hero Range", "Enemy Range"), "Plant Trap Control": ("Detector",)}
 # what follows an enemy's record: ENT_BOX records, tagged
 ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX, ET_ZONE, ET_COND, \
@@ -485,6 +485,14 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
         e, w, g = (kid.get(k, [0, 0]) for k in ("Edge Range", "Wall Range", "Ground Range"))
         out.append(rec(ENT_BOX, ET_VARS, p=(e[0], e[1], w[0], w[1]), box=(g[0], g[1], 0, 0),
                        a=1 if (var.get("Roams") or [0, False])[1] else 0))
+    if fsm.get("name") == "Mozzie":
+        # (its TileDetector: a second box for the terrain, in its own units)
+        q = next((by_id[ch] for ch in o.get("children", []) if by_id[ch]["name"] == "TileDetector"), None)
+        bv = next((c["v"] for c in q["c"] if c["type"] == "BoxCollider2D" and c.get("v")), None) if q else None
+        if bv:
+            k = (abs(q["lscale"][0]), abs(q["lscale"][1]))
+            out.append(rec(ENT_BOX, ET_VARS, box=(q["lpos"][0] + bv["m_Offset"]["x"] * k[0], q["lpos"][1] + bv["m_Offset"]["y"] * k[1],
+                                                  bv["m_Size"]["x"] / 2 * k[0], bv["m_Size"]["y"] / 2 * k[1])))
     if fsm.get("name") == "Fungus Zombie Attack":
         # (its gas's hitbox grows from where its child is, from its scale then)
         q = next((by_id[ch] for ch in o.get("children", []) if by_id[ch]["name"] == "Gas Hit Box"), None)

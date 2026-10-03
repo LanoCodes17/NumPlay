@@ -71,6 +71,12 @@ ENEMY_KINDS = [
      {"IDLE": "Idle", "A1": "Snap Ready", "A2": "Snap", "A3": "Retract", "DEATH_AIR": "Death"}),
     ("shaker", "Fungus Zombie Attack", ("sharedassets128.assets", 220), "SHAKER",
      {"IDLE": "Idle", "WALK": "Walk", "TURN": "Turn", "A1": "Attack"}),
+    # (Squit, Obble, Moss Charger)
+    ("mosquito", "Mozzie", ("sharedassets27.assets", 795), "MOSQUITO",
+     {"IDLE": "Idle", "A1": "TurnToIdle", "A2": "Startle", "A3": "Attack Antic", "A4": "Attack"}),
+    ("fatfly", "Fatty Fly Attack", ("sharedassets147.assets", 98), "FATFLY", {"IDLE": "Fly", "A1": "Attack"}),
+    ("mosscharger", "Mossy Control", ("sharedassets139.assets", 37), "MOSSCHARGER",
+     {"A1": "Appear", "A2": "Charge", "A3": "Disappear", "A4": "Stun", "A5": "Get Up", "A6": "TurnRun", "A7": "Escape"}),
 ]
 ENEMY_CORPSE_LIBS = {}   # (name -> its corpse's library, if not its own)
 

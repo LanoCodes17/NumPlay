@@ -54,9 +54,8 @@ def room_data(name, variant=0):
         ROOM_DATA[(name, variant)] = ((solid, segs, cols, owners), (recs, groups), spans)
     return ROOM_DATA[(name, variant)]
 
-SECTIONS = ["TEX", "TMAP", "PAL", "BIDX", "BLK", "ROOMS", "RBLOB", "PRIOR", "SOFT", "SPR", "CLIP", "STR", "TEXT", "FONT", "PHASH",
-            "VM", "VMDEF",
-            "SCOL", "RVAR"]
+SECTIONS = ["TEX", "PAL", "TDAT", "ROOMS", "RBLOB", "PRIOR", "SOFT", "SPR", "CLIP", "STR", "TEXT", "FONT", "PHASH",
+            "SCOL", "RVAR", "HEADS", "VM", "VMDEF"]
 
 
 def _pdf_flags():
@@ -162,12 +161,14 @@ def svar(v):
     return uvar(v << 1 if v >= 0 else ((-v) << 1) - 1)
 
 
-def sector_stream(recs):
-    """A sector's instances in draw order, each relative to the one before (read in place by room.c):
-    flags, aux (1 tint, 2 same texture, 4 same z, 8|16 b: 0 its own, 1 = a, 2 = -a, 3 same as before, 32 same a,
-    64 next rank, 128 another sorting layer or order), [rank step - 2], [layer, order], [texture step], [tint],
-    x step, y step, [z step], [a], [b], [angle], [render group (F_DYN)]."""
-    out = bytearray()
+A_XY12 = 64       # (aux: x and y steps in 12 bits each)
+MAX_STEP = 3      # (rank steps a head can hold)
+
+
+def stream_insts(recs):
+    """A sector's instances as sector_stream codes them: (flags, aux, rank step, whether x and y fit 12 bits, the
+    bytes before x and y, x and y steps, the bytes after)."""
+    out = []
     pr, pt, px, py, pz, pa, pb, pg = -1, 0, 0, 0, 0, 0, 0, None
     for rank, (ax, ay, z, tex, tint, flags, a, b, rot, rgroup), group in recs:
         X, Y, Z, A, B = i16(ax * 64), i16(ay * 64), i16(z * 128), f16s(a) & 0xFFFF, f16s(b) & 0xFFFF
@@ -182,31 +183,70 @@ def sector_stream(recs):
         aux |= bm << 3
         if A == pa:
             aux |= 32
-        if rank == pr + 1:
-            aux |= 64
         if group != pg:
             aux |= 128
-        out += bytes([flags, aux])
-        if not aux & 64:
-            out += uvar(rank - pr - 2)
+        pre = bytearray()
         if aux & 128:
-            out += bytes([group[0]]) + svar(group[1])
+            pre += bytes([group[0]]) + svar(group[1])
         if not aux & 2:
-            out += svar(tex - pt)
+            pre += svar((tex - pt + 32768 & 0xFFFF) - 32768)   # (the game's sum wraps at 16 bits)
         if tint:
-            out.append(tint)
-        out += svar(X - px) + svar(Y - py)
+            pre.append(tint)
+        post = bytearray()
         if not aux & 4:
-            out += svar(Z - pz)
+            post += svar(Z - pz)
         if not aux & 32:
-            out += struct.pack("<H", A)
+            post += struct.pack("<H", A)
         if bm == 0:
-            out += struct.pack("<H", B)
+            post += struct.pack("<H", B)
         if flags & F_ROT:
-            out += struct.pack("<h", rot)
+            post += struct.pack("<h", rot)
         if flags & F_DYN:
-            out.append(rgroup)
+            post.append(rgroup)
+        dx, dy = X - px, Y - py
+        out.append((flags, aux, rank - pr, -2048 <= dx < 2048 and -2048 <= dy < 2048, bytes(pre), dx, dy, bytes(post)))
         pr, pt, px, py, pz, pa, pb, pg = rank, tex, X, Y, Z, A, B, group
+    return out
+
+
+def head_symbol(inst):
+    """The head an instance would rather have: (flags, aux, rank step or 0 if it is given after)"""
+    flags, aux, step, xy12 = inst[:4]
+    return flags, aux | (A_XY12 if xy12 else 0), step if step <= MAX_STEP else 0
+
+
+def head_table(streams):
+    """The 255 most common heads (sector_stream) of all the rooms' instances: (bytes, symbol -> code)"""
+    import collections
+    count = collections.Counter(head_symbol(i) for s in streams for i in s)
+    top = [k for k, _ in count.most_common(255)]
+    return b"".join(struct.pack("<I", f | a << 8 | s << 16) for f, a, s in top), {k: i for i, k in enumerate(top)}
+
+
+def sector_stream(insts, heads):
+    """A sector's instances in draw order, each relative to the one before (read in place by room.c): a head (a code
+    of the HEADS table: flags, aux, rank step; 255: flags and aux follow), [rank step - 1 (none in the head)], [layer,
+    order], [texture step], [tint], x step, y step (12 bits each if A_XY12, else on their own), [z step], [a], [b],
+    [angle], [render group (F_DYN)]. aux: 1 tint, 2 same texture, 4 same z, 8|16 b: 0 its own, 1 = a, 2 = -a, 3 same as
+    before, 32 same a, 64 A_XY12, 128 another sorting layer or order."""
+    out = bytearray()
+    for flags, aux, step, xy12, pre, dx, dy, post in insts:
+        xy = struct.pack("<I", (dx & 0xFFF) | (dy & 0xFFF) << 12)[:3] if xy12 else svar(dx) + svar(dy)
+        best = None
+        # (the cheapest head: the one wanted, else one with the steps on their own)
+        for x12 in ((True, False) if xy12 else (False,)):
+            for st in ((step, 0) if step <= MAX_STEP else (0,)):
+                code = heads.get((flags, aux | (A_XY12 if x12 else 0), st))
+                if code is None:
+                    continue
+                b = bytes([code]) + (uvar(step - 1) if not st else b"") + pre + \
+                    (xy if x12 or not xy12 else svar(dx) + svar(dy)) + post
+                if best is None or len(b) < len(best):
+                    best = b
+        if best is None:
+            a = aux | (A_XY12 if xy12 else 0)
+            best = bytes([255, flags, a]) + uvar(step - 1) + pre + xy + post
+        out += best
     return bytes(out)
 
 
@@ -245,7 +285,7 @@ def room_blobs(name, keep, st, tex_id, variant=0):
     table = bytearray()
     for k in order:
         recs, va, vb = secs[k]
-        blobs.append((sector_stream(recs), len(recs)))
+        blobs.append((stream_insts(recs), len(recs)))
         if k < 0:
             va, vb = -1e9, 1e9
         table += struct.pack("<IIHHff", 0, 0, len(recs), 0, va, vb)   # (offsets filled in by main)
@@ -290,6 +330,76 @@ def room_blobs(name, keep, st, tex_id, variant=0):
     for c in cells:
         cb += struct.pack("<%dH" % len(c), *c)
     return body, o_sec, blobs, bytes(cb), b"".join(erecs)
+
+
+def pal_colors(pal):
+    """A palette's 15 colors as the game has them: (red 5 bits, green 6, blue 5, alpha 8)"""
+    return tuple(((int(r) * 31 + 127) // 255, (int(g) * 63 + 127) // 255, (int(b) * 31 + 127) // 255, int(a))
+                 for r, g, b, a in pal)
+
+
+def pal_steps(cols):
+    """What pal_code codes of a palette's colors: per color, the steps (zigzag) from the one before in green, then in
+    red and blue less half the green."""
+    def zz(v):
+        return v << 1 if v >= 0 else (-v << 1) - 1
+    out, pg, pr, pb = [], 0, 0, 0
+    for r, g, b, a in cols:
+        out.append((zz(g - pg), zz(r - (g >> 1) - pr), zz(b - (g >> 1) - pb)))
+        pg, pr, pb = g, r - (g >> 1), b - (g >> 1)
+    return out
+
+
+def pal_ks(pals):
+    """The Rice codes' parameters that code the steps of all the palettes best (green, red, blue)."""
+    steps = [st for c in pals for st in pal_steps(c)]
+    return [min(range(9), key=lambda k: sum((st[ch] >> k) + 1 + k for st in steps)) for ch in range(3)]
+
+
+def pal_code(cols, ks):
+    """A palette (src/gfx.c: pal_get): per color, its steps (pal_steps: a Rice code each, ks: green, red, blue), then
+    a bit: 1 opaque, 0 its alpha follows (8 bits); bits from the low end of each byte."""
+    bits = []
+    def put(v, n):
+        bits.extend(v >> i & 1 for i in range(n))
+    for (r, g, b, a), st in zip(cols, pal_steps(cols)):
+        for ch in range(3):
+            bits.extend([1] * (st[ch] >> ks[ch]) + [0])
+            put(st[ch], ks[ch])
+        put(a == 255, 1)
+        if a != 255:
+            put(a, 8)
+    bits += [0] * (-len(bits) % 8)
+    return bytes(sum(bits[i + j] << j for j in range(8)) for i in range(0, len(bits), 8))
+
+
+TEX_SMOOTH, TEX_FULL, TEX_WIDE = 1, 2, 4
+
+
+def tex_record(w, h, tw, th, pal, off, fmt, flags):
+    """A texture's record (src/hk.h: TexRec): its size, tiles across and down, palette, then where its data is (27
+    bits), its format (2) and flags (3)."""
+    assert off < 1 << 27 and fmt < 4 and flags < 8
+    return struct.pack("<HHBBHI", w, h, tw, th, pal, off | fmt << 27 | flags << 29)
+
+
+def tile_map(t):
+    """A texture's tile map: per row, the rank of its first tile (a byte, 2 if TEX_WIDE), then 2 bits a tile (0 empty, 1
+    tile, 3 opaque tile); none at all (TEX_FULL) if every tile is kept and none is opaque. -> (bytes, flags)"""
+    codes = [[0 if t.empty[ty, tx] else (3 if t.opaque[ty, tx] else 1) for tx in range(t.tw)] for ty in range(t.th)]
+    if all(c == 1 for row in codes for c in row):
+        return b"", TEX_FULL
+    wide = t.ntiles > 255
+    m = bytearray()
+    rank = 0
+    for row in codes:
+        m += struct.pack("<H" if wide else "<B", rank)
+        b = bytearray((t.tw + 3) // 4)
+        for tx, code in enumerate(row):
+            b[tx >> 2] |= code << ((tx & 3) * 2)
+            rank += code != 0
+        m += b
+    return bytes(m), TEX_WIDE if wide else 0
 
 
 def tile_blocks(t):
@@ -406,48 +516,43 @@ def main():
     # the starting probabilities as the game uses them (tilecode.h)
     secs["PRIOR"].b += prior
     tex_id = {}
-    pal_at = {}   # (palettes shared: once each)
-    nblk = 0
+    # the palettes (shared: once each), coded: where each one is, 2 bytes a unit
+    pal_at = {pal_colors(t.pal): 0 for t in texs if t.pal is not None}
+    ks = pal_ks(pal_at)
+    secs["PAL"].b += bytes(ks) + bytes(1)
+    for c in pal_at:
+        secs["PAL"].align(2)
+        pal_at[c] = len(secs["PAL"].b) // 2
+        secs["PAL"].b += pal_code(c, ks)
+    assert len(secs["PAL"].b) < 2 << 16
     texrec = bytearray()
     for i, (v, t) in enumerate(zip(variants, texs)):
         tex_id[id(v)] = (i, t.w, t.h)
-        pal_off = 0xFFFFFFFF
-        if t.pal is not None:
-            # (15 colors: RGB565, then alpha; read a byte at a time)
-            pb = b"".join(struct.pack("<HB", (int(r) * 31 + 127) // 255 << 11 | (int(g) * 63 + 127) // 255 << 5 |
-                                      (int(b) * 31 + 127) // 255, int(a)) for r, g, b, a in t.pal)
-            if pb not in pal_at:
-                pal_at[pb] = secs["PAL"].add(pb, 1)
-            pal_off = pal_at[pb]
-        if t.fmt == art.FMT_SOFTA:   # (alpha only: read in place)
-            pal_off = secs["SOFT"].add(t.soft)
-            texrec += struct.pack("<HHBBBBIII", t.w, t.h, 0, 0, t.fmt, 0, pal_off, t.base, 0)
+        pal = pal_at[pal_colors(t.pal)] if t.pal is not None else 0
+        if t.fmt == art.FMT_SOFTA:   # (its color, then its alpha: read in place)
+            off = secs["SOFT"].add(struct.pack("<I", t.base) + t.soft)
+            texrec += tex_record(t.w, t.h, 0, 0, pal, off, t.fmt, 0)
             continue
         if t.fmt == art.FMT_SOFT:
             c = lz(t.soft)
-            pal_off = secs["SOFT"].add(struct.pack("<I", len(c)) + c)
-            texrec += struct.pack("<HHBBBBIII", t.w, t.h, 0, 0, t.fmt, 0, pal_off, t.base, 0)
+            off = secs["SOFT"].add(struct.pack("<I", len(c)) + c)
+            texrec += tex_record(t.w, t.h, 0, 0, pal, off, t.fmt, 0)
             continue
-        # tile map: per row, the rank of its first tile, then 2 bits a tile (0 empty, 1 tile, 3 opaque tile)
-        m = bytearray()
-        rank = 0
-        for ty in range(t.th):
-            m += struct.pack("<H", rank)
-            row = bytearray((t.tw + 3) // 4)
-            for tx in range(t.tw):
-                code = 0 if t.empty[ty, tx] else (3 if t.opaque[ty, tx] else 1)
-                row[tx >> 2] |= code << ((tx & 3) * 2)
-                rank += code != 0
-            m += row
-        map_off = secs["TMAP"].add(bytes(m))
-        bidx = secs["BIDX"].b
-        first = len(bidx) // 4
-        for bl in coded[t.first_block:t.first_block + (t.ntiles + art.BLOCK_TILES - 1) // art.BLOCK_TILES]:
-            bidx += struct.pack("<I", len(secs["BLK"].b))
-            secs["BLK"].b += bl
-        bidx += struct.pack("<I", len(secs["BLK"].b))
-        texrec += struct.pack("<HHBBBBIII", t.w, t.h, t.tw, t.th, t.fmt, 1 if v.blur else 0, pal_off, map_off, first)
-    secs["BLK"].b += bytes(3)   # (the game reads up to 3 bytes past a block)
+        bl = coded[t.first_block:t.first_block + (t.ntiles + art.BLOCK_TILES - 1) // art.BLOCK_TILES]
+        m, flags = tile_map(t)
+        if v.blur:
+            flags |= TEX_SMOOTH
+        # its data: the tile map, where its blocks after the first start (from its data), its blocks
+        d = bytearray(m)
+        at = len(d) + 2 * (len(bl) - 1)
+        for b in bl[:-1]:
+            at += len(b)
+            d += struct.pack("<H", at)
+        for b in bl:
+            d += b
+        assert at < 65536, (i, at)
+        texrec += tex_record(t.w, t.h, t.tw, t.th, pal, secs["TDAT"].add(bytes(d), 1), t.fmt, flags)
+    secs["TDAT"].b += bytes(3)   # (the game reads up to 3 bytes past a block)
     if os.environ.get("ACTSTATS"):
         import collections
         tot = collections.Counter()
@@ -496,14 +601,23 @@ def main():
     rooms = bytearray(struct.pack("<I", len(ROOMS) + len(VARIANT_ROOMS)))
     sector_offs, rvar = {}, bytearray(struct.pack("<I", len(VARIANT_ROOMS)))
     pdf = _pdf_flags()
+    made = {}
     for r in ROOMS + [r + "@1" for r in VARIANT_ROOMS]:
         base, variant = (r[:-2], 1) if r.endswith("@1") else (r, 0)
         keep, st = per_room[base]
-        body, o_sec, blobs, ground, recs = room_blobs(base, keep, st, tex_id, variant)
+        made[r] = room_blobs(base, keep, st, tex_id, variant)
+    # the instances' heads: the most common of all the rooms' (a variant's sectors are its room's)
+    table, heads = head_table([s for r in ROOMS for s, n in made[r][2]])
+    secs["HEADS"].b += table
+    for r in ROOMS + [r + "@1" for r in VARIANT_ROOMS]:
+        base, variant = (r[:-2], 1) if r.endswith("@1") else (r, 0)
+        keep, st = per_room[base]
+        body, o_sec, blobs, ground, recs = made[r]
         struct.pack_into("<I", body, 76, secs["RBLOB"].add(ground))
         struct.pack_into("<I", body, 80, secs["RBLOB"].add(recs))
         packed = 0
-        for i, (c, n) in enumerate(blobs):
+        for i, (insts, n) in enumerate(blobs):
+            c = sector_stream(insts, heads)
             # (a room's variant: the same sectors)
             off = sector_offs[(base, i)] if variant else secs["RBLOB"].add(c)
             sector_offs[(base, i)] = off

@@ -136,16 +136,31 @@ static bool inited;
 uint32_t g_tex_decodes, g_tex_misses, g_tex_calls;
 bool g_tex_overload;
 
-static const uint8_t *sec_tex, *sec_tmap, *sec_bidx, *sec_blk;
+static const uint8_t *sec_tex, *sec_tdat;
 const TexRec *tex_rec(uint16_t t) {
   if (!sec_tex) sec_tex = section(SEC_TEX) + 4;
-  return (const TexRec *)(sec_tex + sizeof(TexRec) * t);
+  return (const TexRec *)(const void *)(sec_tex + sizeof(TexRec) * t);
 }
+_Static_assert(sizeof(TexRec) == 12, "TexRec: as tools/pack.py writes it");
 
-static const uint8_t *row_base(const TexRec *r, int ty) { return sec_tmap + r->map_off + ty * (2 + (r->tw + 3) / 4); }
+/* (tools/pack.py) a texture's data: its tile map, where its blocks after the first start (2 bytes each, from its data),
+ * its blocks. The map: per row, the rank of its first tile (a byte, 2 if TEX_WIDE), then 2 bits a tile; none for
+ * TEX_FULL (every row as full_row) */
+static const uint8_t full_row[64] = {[0 ... 63] = 0x55};
+static int row_stride(const TexRec *r) { return ((r->flags & TEX_WIDE) ? 2 : 1) + (r->tw + 3) / 4; }
+static const uint8_t *row_base(const TexRec *r, int ty) { return sec_tdat + r->off + ty * row_stride(r); }
+static int row_rank(const TexRec *r, int ty) {
+  if (r->flags & TEX_FULL) return ty * r->tw;
+  const uint8_t *b = row_base(r, ty);
+  return (r->flags & TEX_WIDE) ? rd16(b) : b[0];
+}
+static const uint8_t *row_codes(const TexRec *r, int ty) {
+  if (r->flags & TEX_FULL) return full_row;
+  return row_base(r, ty) + ((r->flags & TEX_WIDE) ? 2 : 1);
+}
 const uint8_t *tex_row_codes(uint16_t t, int ty) {
-  if (!sec_tmap) sec_tmap = section(SEC_TMAP);
-  return row_base(tex_rec(t), ty) + 2;
+  if (!sec_tdat) sec_tdat = section(SEC_TDAT);
+  return row_codes(tex_rec(t), ty);
 }
 
 static int code_at(const uint8_t *codes, int tx) { return codes[tx >> 2] >> ((tx & 3) * 2) & 3; }
@@ -158,22 +173,24 @@ static void init_kept4(void) {
 
 /* the tile's number among the texture's kept tiles */
 static int tile_rank(const TexRec *r, int tx, int ty) {
-  const uint8_t *b = row_base(r, ty), *c = b + 2;
-  int n = rd16(b), i = 0;
+  if (r->flags & TEX_FULL) return ty * r->tw + tx;
+  const uint8_t *c = row_codes(r, ty);
+  int n = row_rank(r, ty), i = 0;
   for (; i + 4 <= tx; i += 4) n += kept4[c[i >> 2]];
   for (; i < tx; i++) n += code_at(c, i) != 0;
   return n;
 }
 static int tex_tiles(const TexRec *r) {
-  const uint8_t *b = row_base(r, r->th - 1), *c = b + 2;
-  int n = rd16(b);
+  if (r->flags & TEX_FULL) return r->tw * r->th;
+  const uint8_t *c = row_codes(r, r->th - 1);
+  int n = row_rank(r, r->th - 1);
   for (int i = 0; i < r->tw; i++) n += code_at(c, i) != 0;
   return n;
 }
 
 static void init(void) {
   init_kept4();
-  sec_tex = section(SEC_TEX) + 4, sec_tmap = section(SEC_TMAP), sec_bidx = section(SEC_BIDX), sec_blk = section(SEC_BLK);
+  sec_tex = section(SEC_TEX) + 4, sec_tdat = section(SEC_TDAT);
   for (int i = 0; i < NHASH; i++) head[i] = NO;
   for (int i = 0; i < NSLOTS; i++) slot_key[i] = 0xFFFFFFFF, slot_next[i] = NO, slot_frame[i] = 0;
   inited = true;
@@ -240,10 +257,10 @@ const uint8_t *tex_slot_px(int s) { return slot_px[s]; }
 static void block_geometry(const TexRec *r, int first, int n, uint8_t *left, uint8_t *up) {
   uint8_t tx[BLOCK_TILES], ty[BLOCK_TILES];
   int y = 0, i = 0;
-  while (y + 1 < r->th && rd16(row_base(r, y + 1)) <= first) y++;
-  for (int k = rd16(row_base(r, y)); i < n; y++)
+  while (y + 1 < r->th && row_rank(r, y + 1) <= first) y++;
+  for (int k = row_rank(r, y); i < n; y++)
     for (int x = 0; x < r->tw && i < n; x++)
-      if (code_at(row_base(r, y) + 2, x) && k++ >= first) tx[i] = (uint8_t)x, ty[i] = (uint8_t)y, i++;
+      if (code_at(row_codes(r, y), x) && k++ >= first) tx[i] = (uint8_t)x, ty[i] = (uint8_t)y, i++;
   for (i = 0; i < n; i++) {
     left[i] = i && ty[i - 1] == ty[i] && tx[i - 1] + 1 == tx[i] ? (uint8_t)(i - 1) : NONE_T;
     up[i] = NONE_T;
@@ -262,7 +279,7 @@ int tex_slot(uint16_t t, int tx, int ty) {
   g_tex_calls++;
   const TexRec *r = tex_rec(t);
   if ((unsigned)tx >= r->tw || (unsigned)ty >= r->th) return -1;
-  if (!code_at(row_base(r, ty) + 2, tx)) return -1;
+  if (!code_at(row_codes(r, ty), tx)) return -1;
   int rank = tile_rank(r, tx, ty);
   uint32_t key = (uint32_t)t << 16 | (uint32_t)rank;
   int s = find(key);
@@ -274,12 +291,14 @@ int tex_slot(uint16_t t, int tx, int ty) {
   /* decode the block */
   int bytes = 128;
   int blk = rank / BLOCK_TILES, first = blk * BLOCK_TILES;
-  int ntiles = tex_tiles(r) - first;
+  int all = tex_tiles(r), ntiles = all - first;
   if (ntiles > BLOCK_TILES) ntiles = BLOCK_TILES;
-  const uint8_t *bidx = sec_bidx + 4 * (r->blk_first + blk);
+  /* (the first block after the map and where the others start) */
+  const uint8_t *d = sec_tdat + r->off, *starts = d + ((r->flags & TEX_FULL) ? 0 : r->th * row_stride(r));
+  const uint8_t *src = blk ? d + rd16(starts + 2 * (blk - 1)) : starts + 2 * ((all - 1) / BLOCK_TILES);
   uint8_t left[BLOCK_TILES], up[BLOCK_TILES];
   block_geometry(r, first, ntiles, left, up);
-  decode_block(sec_blk + rd32(bidx), ntiles, r->fmt == FMT_ALPHA2, left, up, block_buf);
+  decode_block(src, ntiles, r->fmt == FMT_ALPHA2, left, up, block_buf);
   g_tex_decodes++;
   int want = insert((uint32_t)t << 16 | (uint32_t)rank, block_buf + (rank - first) * bytes, bytes);
   slot_frame[want] = frame;

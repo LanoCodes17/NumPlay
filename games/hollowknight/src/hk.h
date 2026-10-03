@@ -49,10 +49,13 @@ const char *str_at(int id);   /* the shared string table (SEC_STR) */
 /* ---------------------------------------------------------------- textures (tex.c) */
 typedef struct {
   uint16_t w, h;
-  uint8_t tw, th, fmt, flags;   /* flags: TEX_SMOOTH (drawn interpolated: the blurred background) */
-  uint32_t pal_off, map_off, blk_first;
+  uint8_t tw, th;
+  uint16_t pal;                            /* its colors (in SEC_PAL, at 2 x pal: gfx.c) */
+  uint32_t off : 27, fmt : 2, flags : 3;   /* its data: SEC_TDAT (tiles: tex.c), SEC_SOFT (smooth: gfx.c) */
 } TexRec;
-#define TEX_SMOOTH 1
+#define TEX_SMOOTH 1   /* drawn interpolated: the blurred background */
+#define TEX_FULL 2     /* every tile kept, none opaque: no tile map */
+#define TEX_WIDE 4     /* tile ranks of 2 bytes */
 enum { FMT_PAL4 = 0, FMT_ALPHA2 = 1, FMT_SOFT = 2, FMT_SOFTA = 3 };
 #define TILE 16
 #define TILE_SHIFT(fmt) ((fmt) == FMT_ALPHA2 ? 5 : 4)   /* a tile's width, log 2 */

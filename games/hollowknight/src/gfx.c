@@ -145,6 +145,27 @@ static inline uint32_t inst_alpha(const Inst *in) {
   return in->group ? (a * g_group_alpha[in->group & (MAX_GROUPS - 1)] + 127) / 255 : a;
 }
 
+/* a palette as tools/pack.py codes it (pal_code): per color, Rice codes of its steps from the one before (green, then
+ * red and blue less half the green: SEC_PAL's first bytes say how many low bits each has), then a bit: opaque, else 8
+ * bits of alpha */
+typedef struct {
+  const uint8_t *p;
+  uint32_t buf;
+  int n;
+} Bits;
+static uint32_t bits_get(Bits *b, int k) {
+  while (b->n < k) b->buf |= (uint32_t)*b->p++ << b->n, b->n += 8;
+  uint32_t v = b->buf & ((1u << k) - 1);
+  b->buf >>= k, b->n -= k;
+  return v;
+}
+static int bits_step(Bits *b, int k) {
+  uint32_t q = 0;
+  while (bits_get(b, 1)) q++;
+  uint32_t u = q << k | bits_get(b, k);
+  return (int)(u >> 1) ^ -(int)(u & 1);
+}
+
 static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
   /* (tex << 17: solid colors' TEX_NONE comes out as 0xFFFE....; black textures' keys below those) */
   uint32_t key = (uint32_t)tex << 17 | alpha << 9 | (uint32_t)tint << 1 | ((flags & F_LIT) ? 1 : 0);
@@ -188,15 +209,18 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
   if (r->fmt == FMT_ALPHA2) {   /* (drawn black whatever the tint) */
     for (int i = 1; i < 4; i++) p->c[i] = (uint32_t)(ta * i / 3.0f * 255 + 0.5f) << 24;
   } else {
-    const uint8_t *pc = section(SEC_PAL) + r->pal_off;
     /* (a flash: towards its color by its amount, the alpha kept) */
     float fk = tint >= DYN_TINT ? t[7] / 255.0f : 0, fr = fk ? t[4] / 255.0f * fk : 0, fg = fk ? t[5] / 255.0f * fk : 0,
           fb = fk ? t[6] / 255.0f * fk : 0;
+    const uint8_t *ks = section(SEC_PAL);
+    Bits bits = {ks + 2 * r->pal, 0, 0};
+    int g = 0, ro = 0, bo = 0;
     for (int i = 0; i < 15; i++) {
-      /* (RGB565, then alpha) */
-      unsigned v = pc[3 * i] | pc[3 * i + 1] << 8;
-      p->c[i + 1] = grade((float)(v >> 11) / 31 * tr * (1 - fk) + fr, (float)(v >> 5 & 63) / 63 * tg * (1 - fk) + fg,
-                          (float)(v & 31) / 31 * tb * (1 - fk) + fb, pc[3 * i + 2] / 255.0f * ta);
+      /* (red 5 bits, green 6, blue 5) */
+      g += bits_step(&bits, ks[0]), ro += bits_step(&bits, ks[1]), bo += bits_step(&bits, ks[2]);
+      int a = bits_get(&bits, 1) ? 255 : (int)bits_get(&bits, 8);
+      p->c[i + 1] = grade((float)(ro + (g >> 1)) / 31 * tr * (1 - fk) + fr, (float)g / 63 * tg * (1 - fk) + fg,
+                          (float)(bo + (g >> 1)) / 31 * tb * (1 - fk) + fb, a / 255.0f * ta);
     }
   }
   return s;
@@ -228,10 +252,13 @@ static void pals_forget_tint(int tint) {
 
 static void soft_reset(void) { nsoft = 0, soft_top = 0; }
 
+/* (FMT_SOFTA: its data is its color, then its alpha texels) */
+static uint32_t softa_color(const TexRec *r) { return rd32(section(SEC_SOFT) + r->off); }
+
 uint32_t g_soft_misses;
 static const uint32_t *soft_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
   const TexRec *rr = tex_rec(tex);
-  if (rr->fmt == FMT_SOFTA) return (const uint32_t *)(const void *)(section(SEC_SOFT) + rr->pal_off);   /* (alpha, in place) */
+  if (rr->fmt == FMT_SOFTA) return (const uint32_t *)(const void *)(section(SEC_SOFT) + rr->off + 4);   /* (alpha, in place) */
   uint32_t key = (uint32_t)tex << 17 | alpha << 9 | (uint32_t)tint << 1 | ((flags & F_LIT) ? 1 : 0);
   for (int i = 0; i < nsoft; i++)
     if (soft_ent[i].key == key) {
@@ -256,7 +283,7 @@ static const uint32_t *soft_get(uint16_t tex, uint8_t tint, uint8_t flags, uint3
     if (soft_top + n > SOFT_POOL || nsoft == NSOFT) return NULL;
   }
   uint32_t *px = soft_pool + soft_top;
-  const uint8_t *src = section(SEC_SOFT) + r->pal_off;
+  const uint8_t *src = section(SEC_SOFT) + r->off;
   lz_decode(src + 4, rd32(src), (uint8_t *)px, (uint32_t)n * 4);
   const uint8_t *t = tint_rgba(tint);
   float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f, ta = alpha / 255.0f;
@@ -785,7 +812,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
         const uint8_t *t = tint_rgba(in->tint);
         float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f;
         if (in->flags & F_LIT) tr *= g_room.h->ambient[0], tg *= g_room.h->ambient[1], tb *= g_room.h->ambient[2];
-        uint32_t base = c.r->map_off;
+        uint32_t base = softa_color(c.r);
         grade_off = in->tint >= HUD_TINT;
         uint32_t col = grade((base & 255) / 255.0f * tr, (base >> 8 & 255) / 255.0f * tg, (base >> 16 & 255) / 255.0f * tb, 1);
         crb = col & 0xFF00FF, cg = col & 0xFF00, ta = inst_alpha(in) + 1u;
@@ -902,7 +929,7 @@ static void draw_bg_item(Item *it) {
       const uint8_t *t = tint_rgba(in->tint);
       float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f;
       if (in->flags & F_LIT) tr *= g_room.h->ambient[0], tg *= g_room.h->ambient[1], tb *= g_room.h->ambient[2];
-      uint32_t base = r->map_off;
+      uint32_t base = softa_color(r);
       grade_off = in->tint >= HUD_TINT;
       uint32_t c = grade((base & 255) / 255.0f * tr, (base >> 8 & 255) / 255.0f * tg, (base >> 16 & 255) / 255.0f * tb, 1);
       crb = c & 0xFF00FF, cg = c & 0xFF00, ta = inst_alpha(in) + 1u;

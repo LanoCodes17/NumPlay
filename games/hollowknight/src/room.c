@@ -81,22 +81,33 @@ static inline int32_t svar(const uint8_t **pp) {
 }
 
 /* the stream's next instance (into s->in), false at its end */
+static const uint8_t *heads;   /* (SEC_HEADS: the common heads, flags | aux << 8 | rank step << 16) */
 static bool advance(Stream *s) {
   if (!s->left) return false;
   s->left--;
   const uint8_t *p = s->p;
   Inst *in = &s->in;
-  uint8_t flags = *p++, aux = *p++;
+  uint32_t h = *p++;
+  if (h < 255) h = ((const uint32_t *)(const void *)heads)[h];
+  else h = p[0] | p[1] << 8, p += 2;
+  uint8_t flags = (uint8_t)h, aux = (uint8_t)(h >> 8);
   in->flags = flags;
-  s->rank = (uint16_t)(s->rank + ((aux & 64) ? 1 : uvar(&p) + 2));
+  s->rank = (uint16_t)(s->rank + ((h >> 16) ? (h >> 16) : uvar(&p) + 1));
   if (aux & 128) {
     uint8_t layer = *p++;
     s->group = SORT_KEY(layer, svar(&p));
   }
   if (!(aux & 2)) in->tex = (uint16_t)(in->tex + svar(&p));
   in->tint = (aux & 1) ? *p++ : 0;
-  in->ax = (int16_t)(in->ax + svar(&p));
-  in->ay = (int16_t)(in->ay + svar(&p));
+  if (aux & 64) {   /* (x and y steps in 12 bits each) */
+    uint32_t v = p[0] | p[1] << 8 | (uint32_t)p[2] << 16;
+    p += 3;
+    in->ax = (int16_t)(in->ax + ((int32_t)(v << 20) >> 20));
+    in->ay = (int16_t)(in->ay + ((int32_t)(v << 8) >> 20));
+  } else {
+    in->ax = (int16_t)(in->ax + svar(&p));
+    in->ay = (int16_t)(in->ay + svar(&p));
+  }
   if (!(aux & 4)) in->z = (int16_t)(in->z + svar(&p));
   if (!(aux & 32)) in->a = rd16(p), p += 2;
   switch (aux >> 3 & 3) {
@@ -114,6 +125,7 @@ static bool advance(Stream *s) {
 
 void room_first(void) {
   const uint8_t *blob = section(SEC_RBLOB);
+  heads = section(SEC_HEADS);
   nstreams = 0;
   for (int j = 0; j < g_room.nnear; j++) {
     const SectorRec *r = &g_room.secs[g_room.near[j]];

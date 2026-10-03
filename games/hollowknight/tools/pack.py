@@ -322,7 +322,9 @@ def main():
     variants, per_room = art.build_variants(ROOMS, visible.compute)
     print("variants", len(variants), "%.0fs" % (time.time() - t0), flush=True)
     jobs = [art.Job(v) for v in variants]
+    actors.add_props(ALL_ROOMS)
     sprites, clips = actors.build()
+    ents.CLIP_INDEX.update({c["id"]: i for i, c in enumerate(clips)})
     # the rooms' objects, and the sprites they show (after the actors')
     SPRITES.base = len(sprites)
     named = actors.named_sprites(SPRITES)

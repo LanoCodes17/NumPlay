@@ -9,7 +9,7 @@ ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_M
     ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
 # objects (ENT_OBJ's flags: src/obj.c)
 OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR, OK_BGATE, OK_ARENA, \
-    OK_EVENT, OK_SUMMON, OK_COND = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+    OK_EVENT, OK_SUMMON, OK_COND, OK_PROP, OK_DRIP = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
 # the battle gates' events (src/game.h: BG_*)
 BG_EVENTS = ["BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY"]
 # battle gates (BG Control: OK_BGATE's s0): closed at first, the bone ones' clips, gone once a PlayerData bool is set
@@ -632,6 +632,41 @@ def _arenas(d, by_id):
     return gone, counted, later
 
 
+CLIP_INDEX = {}   # (actors' clips: their constant -> number, as pack.py builds them)
+
+
+def prop(d, o, by_id):
+    """A 2D Toolkit sprite that only shows: no FSM or script runs it or anything above it, and it is no sprite cache
+    (sprite_set_*) -> (the animator's library (file, path id), its default clip's name) or (None, None) when it has no
+    animator; None when it is no such thing."""
+    import tk2d, unity
+    mbs = {c.get("class") for c in o["c"] if c["type"] == "MonoBehaviour"}
+    if "tk2dSprite" not in mbs or mbs - {"tk2dSprite", "tk2dSpriteAnimator"} or any(c.get("fsm") for c in o["c"]):
+        return None
+    mr = next((c.get("v") for c in o["c"] if c["type"] == "MeshRenderer"), None)
+    if isinstance(mr, dict) and not mr.get("m_Enabled", 1):
+        return None
+    p = by_id.get(o.get("parent"))
+    while p is not None:
+        if any(c.get("fsm") or c.get("class") in ("HealthManager", "HealthCocoon") for c in p["c"]) or \
+                p["name"].startswith("sprite_set_"):
+            return None
+        p = by_id.get(p.get("parent"))
+    an = next((c.get("v") for c in o["c"] if c.get("class") == "tk2dSpriteAnimator" and c.get("v")), None)
+    if not an:
+        return (None, None)
+    lib = _ref_file(d, an["library"])
+    clips = tk2d.animation(*lib)["clips"]
+    return lib, unity.S(clips[an["defaultClipId"]]["name"])
+
+
+def _sorting(o):
+    """Its renderer's sorting layer (index) and order."""
+    import scene
+    mr = next((c.get("v") for c in o["c"] if c["type"] == "MeshRenderer" and isinstance(c.get("v"), dict)), {}) or {}
+    return scene.layer_index(mr.get("m_SortingLayerID", 0)), mr.get("m_SortingOrder", 0)
+
+
 def _gate(d, o, owners):
     """A battle gate (BG Control, or a gate closed till a PlayerData bool is set) -> its record, or None."""
     f = _fsm(o, ("BG Control",))
@@ -810,6 +845,27 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
             # an object off as the room loads with a PlayerData bool so: its sprites (and what is under it), its colliders
             c0, cn = _subcols(d, owners, o["id"]) if owners else (0, 0)
             recs.append(rec(ENT_OBJ, OK_COND, p=(flag, 1 if off_if else 0, 0, 0), a=c0, group=cn, group2=new_group(o["id"])))
+        pr = prop(d, o, by_id)
+        if pr is not None:
+            # a sprite that shows (its default clip, or its sprite); its place, scale, angle, its sorting
+            import actors
+            lib, clip = pr
+            m = np.array(o["m3"]).reshape(3, 3)
+            sx = float(np.hypot(m[0, 0], m[1, 0])) * (-1.0 if np.linalg.det(m[:2, :2]) < 0 else 1.0)
+            sy = float(np.hypot(m[0, 1], m[1, 1]))
+            ci = CLIP_INDEX.get(actors.clip_id(actors.PROP_ACTOR[lib], clip), -1) if lib else -1
+            sp = _tk2d_sprite(d, o) if ci < 0 else None
+            layer, order = _sorting(o)
+            recs.append(rec(ENT_OBJ, OK_PROP, (o["pos"][0], o["pos"][1], o["pos"][2], sx), (sy, _angle(o), ci, 0),
+                            a=order + 32768, group=layer, s0=sprites.tk2d(*sp) if sp else 0))
+        dv = next((c.get("v") for c in o["c"] if c.get("class") == "WaterDrip" and c.get("v")), None)
+        if dv is not None:
+            # a water drip: its place, its idle times, fall speed and how far it sinks as it hits
+            layer, order = _sorting(o)
+            box = next((c["v"] for c in o["c"] if c["type"] == "BoxCollider2D" and c.get("v")), None)
+            recs.append(rec(ENT_OBJ, OK_DRIP, (o["pos"][0], o["pos"][1], o["pos"][2], box["m_Offset"]["y"] - box["m_Size"]["y"] / 2 if box else 0),
+                            (dv.get("idleTimeMin", 2), dv.get("idleTimeMax", 8), dv.get("fallVelocity", -7),
+                             dv.get("impactTranslation", -0.5)), a=order + 32768, group=layer))
         ev = next((c.get("v") for c in o["c"] if c.get("class") == "SendPlaymakerEventOnEnable" and c.get("v")), None)
         if ev:
             # (an event broadcast as the room starts)

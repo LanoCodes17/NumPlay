@@ -8,7 +8,7 @@
 #endif
 
 #define DT 0.02f
-#define MAX_OBJS 64
+#define MAX_OBJS 96
 #define MAX_PIECES 24
 
 typedef struct {
@@ -475,6 +475,63 @@ static void arena_tick(void) {
   }
 }
 
+/* ---------------------------------------------------------------- props: 2D Toolkit sprites that only show; water drips */
+static void prop_draw(const Obj *o, const Ent *e) {
+  Inst in;
+  int sprite = e->p2 >= 0 ? o->anim.sprite : (int)e->s0;
+  if (sprite < 0) return;
+  if (e->p1 != 0) sprite_inst_rot(sprite, e->x0, e->y0, e->x1, e->y1, e->p0, e->p1, 0, &in);
+  else sprite_inst(sprite, e->x0, e->y0, e->x1, e->y1, e->p0, 0, &in);
+  gfx_actor(&in, SORT_KEY(e->group, (int)e->a - 32768));
+}
+
+/* WaterDrip: idle a while, drips, falls till it hits the ground, splashes there, then again from its place */
+enum { DR_IDLE, DR_DRIP, DR_FALL, DR_IMPACT };
+
+static void drip_idle(Obj *o, const Ent *e) {
+  anim_play(&o->anim, CLIP_DRIP_IDLE);
+  o->state = DR_IDLE, o->t = rand_range(e->p0, e->p1);
+  o->jy = 0, o->t2 = 0;
+}
+
+static void drip_enter(Obj *o, const Ent *e) {
+  /* (where it will hit: the ground below its collider's bottom) */
+  PhysHit hit;
+  float bottom = e->y0 + e->y1;
+  o->jx = phys_ray(e->x0, bottom, 0, -1, 200, CF_TERRAIN, &hit) ? bottom - hit.dist : -1e9f;
+  drip_idle(o, e);
+}
+
+static void drip_tick(Obj *o, const Ent *e) {
+  switch (o->state) {
+    case DR_IDLE:
+      if ((o->t -= DT) <= 0) anim_play_from_frame(&o->anim, CLIP_DRIP_DRIP, 0), o->state = DR_DRIP;
+      break;
+    case DR_DRIP:
+      if (o->anim.events & ANIM_DONE) anim_play(&o->anim, CLIP_DRIP_FALL), o->state = DR_FALL, o->t2 = e->p2;
+      break;
+    case DR_FALL:
+      /* (gravity's; jy: how far below its place) */
+      o->t2 += -60.0f * DT, o->jy += o->t2 * DT;
+      if (e->y0 + e->y1 + o->jy <= o->jx) {
+        o->jy = o->jx - (e->y0 + e->y1) + e->p3;
+        anim_play_from_frame(&o->anim, CLIP_DRIP_IMPACT, 0);
+        o->state = DR_IMPACT;
+      } else if (o->jy < -200)
+        drip_idle(o, e);
+      break;
+    case DR_IMPACT:
+      if (o->anim.events & ANIM_DONE) drip_idle(o, e);
+      break;
+  }
+}
+
+static void drip_draw(const Obj *o, const Ent *e) {
+  Inst in;
+  sprite_inst(o->anim.sprite, e->x0, e->y0 + o->jy, e->x1, 1, 1, 0, &in);
+  gfx_actor(&in, SORT_KEY(e->group, (int)e->a - 32768));
+}
+
 /* ---------------------------------------------------------------- the room */
 void obj_enter(void) {
   nobjs = 0;
@@ -504,6 +561,8 @@ void obj_enter(void) {
     else if (o->kind == OK_GEO_ROCK) georock_enter(o, &es[i]);
     else if (o->kind == OK_CHEST) chest_enter(o, &es[i]);
     else if (o->kind == OK_BGATE) gate_enter(o, &es[i]);
+    else if (o->kind == OK_PROP && es[i].p2 >= 0) anim_play(&o->anim, (int)es[i].p2);
+    else if (o->kind == OK_DRIP) drip_enter(o, &es[i]);
   }
   /* (then what sends the gates their events: SendPlaymakerEventOnEnable, the arenas) */
   for (int i = 0; i < n; i++)
@@ -530,6 +589,7 @@ void obj_tick(void) {
     else if (o->kind == OK_GEO_ROCK) georock_tick(o, e);
     else if (o->kind == OK_CHEST) chest_tick(o, e);
     else if (o->kind == OK_BGATE) gate_tick(o, e);
+    else if (o->kind == OK_DRIP) drip_tick(o, e);
   }
   arena_tick();
   pieces_tick();
@@ -549,6 +609,10 @@ void obj_draw(void) {
       gfx_actor(&in, SORT_KEY(0, 0));
     } else if (o->kind == OK_CHEST)
       chest_draw(o, e);
+    else if (o->kind == OK_PROP)
+      prop_draw(o, e);
+    else if (o->kind == OK_DRIP)
+      drip_draw(o, e);
     else if (o->kind == OK_BGATE && o->state != GT_GONE) {
       sprite_inst(o->anim.sprite, e->x0, e->y0, e->x1, e->y1, e->p0, 0, &in);
       gfx_actor(&in, SORT_KEY(0, 0));

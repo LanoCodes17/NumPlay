@@ -119,6 +119,29 @@ ACTORS.update(_enemy_actors())
 # battle gates (BG Control: the plain ones and the bone ones)
 ACTORS["bgate"] = ("sharedassets9.assets", 197, ["BG Opened", "BG Close 1", "BG Close 2", "BG Open", "BG Closed",
                                                  "Bone Gate Opened", "Bone Gate Close", "Bone Gate Closed", "Bone Gate Open"])
+# water drips (WaterDrip)
+ACTORS["drip"] = ("sharedassets6.assets", 1095, ["Idle", "Drip", "Fall", "Impact"])
+PROP_ACTOR = {}   # (props' libraries: their actors)
+
+
+def add_props(rooms):
+    """The rooms' props (ents.prop: sprites that only show) with an animator: their libraries and default clips as
+    actors ("prop0", ...)."""
+    import ents
+    libs = {}
+    for r in rooms:
+        d = unity.scene(r)
+        by = {o["id"]: o for o in d["objects"]}
+        for o in d["objects"]:
+            if o["active"]:
+                pr = ents.prop(d, o, by)
+                if pr and pr[0]:
+                    libs.setdefault(pr[0], set()).add(pr[1])
+    for i, (lib, names) in enumerate(sorted(libs.items())):
+        PROP_ACTOR[lib] = "prop%d" % i
+        ACTORS["prop%d" % i] = (lib[0], lib[1], sorted(names))
+
+
 # enemies' shots (EnemyBullet)
 ACTORS["bullet"] = ("sharedassets32.assets", 745, ["Idle", "Impact", "Shockwave Spurt"])
 

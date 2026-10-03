@@ -54,7 +54,7 @@ void save_set_respawn(const char *marker, bool facing_right);   /* (Bench Contro
 enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE,
        ENT_BOX, ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER };   /* (shape, box, piece: more of the record before) */
 enum { OK_BREAKABLE = 1, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR, OK_BGATE,
-       OK_ARENA, OK_EVENT, OK_SUMMON, OK_COND };   /* objects (ENT_OBJ's flags) */
+       OK_ARENA, OK_EVENT, OK_SUMMON, OK_COND, OK_PROP, OK_DRIP };   /* objects (ENT_OBJ's flags) */
 /* an enemy record's s1: starts alert (or first); startles; one of an arena's Pre Battle Enemies; its death counts for its arena; gone once its arena's
  * fight is over; spawned by its mother's burster; there only once its arena's fight is over; its FSMs off till near
  * the camera (FSMActivator); then its death's effects

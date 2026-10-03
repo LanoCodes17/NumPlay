@@ -200,8 +200,32 @@ bool game_enter(int room, float x, float y, bool facing_right);
 void game_tick(uint32_t keys);   /* 1/50 s */
 void game_draw(void);
 
+/* ---------------------------------------------------------------- text (text.c) */
+#define TEXT_BR 10     /* (in a text: a line break, a page break) */
+#define TEXT_PAGE 12
+const uint8_t *text_get(int id);
+float text_width(int style, const uint8_t *s, int n);
+/* the dialogue box (DialogueManager): its BOX UP and BOX DOWN; a conversation in it (DialogueBox.StartConversation),
+ * paged with the continue keys until CONVO_FINISH */
+void dialogue_reset(void);
+void dialogue_box_up(void);
+void dialogue_box_down(void);
+void dialogue_start(int text);
+bool dialogue_finished(void);
+bool dialogue_box_shown(void);
+void dialogue_cancel(void);
+void dialogue_tick(void);
+void dialogue_draw(void);
+/* prompt markers (ShowPromptMarker, HidePromptMarker): a label at a place; handle: the one stored (-1: none) */
+int prompt_show(int handle, int label, float x, float y);
+void prompt_hide(int handle);
+void prompts_reset(void);
+void prompts_tick(void);
+void prompts_draw(void);
+
 /* ---------------------------------------------------------------- the HUD (hud.c) */
 void hud_reset(void);
+void hud_slide(bool out);   /* the Hud Canvas's Slide Out FSM: OUT, IN */
 void hud_tick(void);
 void hud_draw(void);
 

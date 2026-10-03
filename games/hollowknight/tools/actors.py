@@ -3,7 +3,7 @@ clips. Each sprite frame becomes a texture like the scenery's; pack.py writes th
 clips (CLIP)."""
 import numpy as np
 from PIL import Image
-import unity, tk2d, scene, art
+import unity, tk2d, scene, art, text
 
 # the Knight's clips the game uses (from the Knight's library, resources.assets)
 KNIGHT = ("resources.assets", 20600, [
@@ -31,31 +31,39 @@ ACTORS = {"knight": KNIGHT,
                                               "Blue Appear", "Blue Idle", "Blue Break", "HUD Frame", "HUD Frame Idle",
                                               "Coin Appear", "Coin Idle", "Coin Get", "Soul Burst"]),
           "liquid": ("resources.assets", 20843, None),
-          "geo": ("resources.assets", 23266, ["Small Idle", "Small Air", "Med Idle", "Med Air", "Large Idle", "Large Air"])}
+          "geo": ("resources.assets", 23266, ["Small Idle", "Small Air", "Med Idle", "Med Air", "Large Idle", "Large Air"]),
+          # the dialogue box (on the HUD, a third bigger with its text) and the prompt markers
+          "dialogue": ("resources.assets", 20724, ["Arrow Up", "Arrow Down", "Stop Up", "Stop Down", "Fleur Top Up",
+                                                   "Fleur Top Down", "Fleur Bot Up", "Fleur Bot Down"]),
+          "prompt": ("resources.assets", 23333, ["Up", "Down", "Blank"])}
 
 # sprites of prefab objects the game draws itself: name -> (file, prefab, object, resolution)
 NAMED = {
     "HERO_LIGHT": ("resources.assets", 3916, "Knight/HeroLight", 1.0),
+    # (these at a scale of their own: the box's, with its text's; the shadow's x)
+    "DIALOGUE_BACKBOARD": ("resources.assets", 4446, "DialogueManager/DialogueBox/backboard", "hud", 2.325 * text.TEXT_K),
+    "PROMPT_SHADOW": ("resources.assets", 8342, "Arrow Prompt New/Shadow", 1.0, 0.8),
 }
 
 
 def named_sprites(sprites):
     """Registers NAMED in sprites (ents.Sprites) -> {name: sprite id}."""
     out = {}
-    for name, (path, gid, opath, res) in NAMED.items():
+    for name, (path, gid, opath, res, *scale) in NAMED.items():
         d = unity.prefab(path, gid)
         o = next(o for o in d["objects"] if o["path"] == opath)
         v = next(c["v"] for c in o["c"] if c["type"] == "SpriteRenderer")
         m = np.array(o["m3"]).reshape(3, 3)
-        out[name] = sprites.id(d, v["m_Sprite"], float(max(np.hypot(m[0, 0], m[1, 0]), np.hypot(m[0, 1], m[1, 1]))), res)
+        k = scale[0] if scale else float(max(np.hypot(m[0, 0], m[1, 0]), np.hypot(m[0, 1], m[1, 1])))
+        out[name] = sprites.id(d, v["m_Sprite"], k, HUD_K / K0 if res == "hud" else res)
     return out
 # clips drawn bigger than their sprites (the object's scale): their frames are kept that much finer
-DRAWN_SCALE = {"SlashEffect": 1.645, "SlashEffectAlt": 1.422, "UpSlashEffect": 1.4, "DownSlashEffect": 1.28,
+DRAWN_SCALE = {"Arrow Up": 1.3, "Arrow Down": 1.3, "Stop Up": 1.3, "Stop Down": 1.3, "SlashEffect": 1.645, "SlashEffectAlt": 1.422, "UpSlashEffect": 1.4, "DownSlashEffect": 1.28,
                "Small Idle": 1.5, "Small Air": 1.5, "Med Idle": 1.5, "Med Air": 1.5, "Large Idle": 1.5, "Large Air": 1.5}
 K0 = scene.FOCAL / (0.004 - scene.CAMZ)   # screen pixels a unit, where actors are (z near 0)
 HUD_K = (scene.VIEW_H / 2) / 8.7107        # the HUD's (its orthographic camera)
 # (actor, clip): drawn bigger or smaller than their sprites
-ACTOR_SCALE = {"hud": HUD_K / K0, "liquid": 1.4 * HUD_K / K0}
+ACTOR_SCALE = {"hud": HUD_K / K0, "liquid": 1.4 * HUD_K / K0, "dialogue": text.TEXT_K * HUD_K / K0}
 HUD_MASK = 0.7135
 
 

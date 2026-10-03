@@ -202,4 +202,29 @@ uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a);   /*
 /* the same, flashing: its colors towards (fr, fg, fb) by amount (SpriteFlash) */
 uint8_t gfx_dyn_flash(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a, uint8_t fr, uint8_t fg, uint8_t fb, uint8_t amount);
 extern uint8_t g_screen_fade;   /* 0 .. 255: the screen faded to black */
+/* a line of text (n glyphs of a style), its pen starting at (x, y) on the baseline (view pixels), of a color (0xAARRGGBB);
+ * layer 0: the HUD's (in front of all), 1: the room's (in front of it, behind the HUD and the fade) */
+bool gfx_text(int style, float x, float y, const uint8_t *s, int n, uint32_t argb, int layer);
+
+/* ---------------------------------------------------------------- fonts (text.c) */
+typedef struct {
+  uint8_t w, h;
+  int8_t left, top;   /* from the pen, on the baseline (pixels) */
+  uint16_t adv;       /* 1/64 pixels; then rows of 4-bit alpha, low nibble first */
+} Glyph;
+const uint8_t *font_style(int style);
+static inline float font_f(const uint8_t *st, int i) {
+  float f;
+  memcpy(&f, st + 4 * i, 4);
+  return f;
+}
+#define font_em(st) font_f(st, 0)
+#define font_line(st) font_f(st, 1)
+#define font_asc(st) font_f(st, 2)
+#define font_desc(st) font_f(st, 3)
+/* a code's glyph, the pen phase (0 .. FONT_PHASES - 1) parts of a pixel right of a whole pixel */
+static inline const Glyph *font_glyph(const uint8_t *st, uint8_t c, int phase) {
+  uint16_t o = rd16(st + 16 + 2 * (c * FONT_PHASES + phase));
+  return o ? (const Glyph *)(const void *)(st + o) : NULL;
+}
 extern uint32_t g_gfx_items, g_gfx_pixels;

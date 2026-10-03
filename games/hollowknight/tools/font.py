@@ -42,3 +42,28 @@ def glyphs(name, chars, em_px, scale_units):
                     "tu": w / ss * scale_units / W, "tv": h / ss * scale_units / H})
         adv.append(ft.getlength(ch) / ss * scale_units)
     return out, adv
+
+
+def bitmaps(name, chars, em_px, phase=0.0, ss=4, gamma=0.8):
+    """Glyphs at em_px pixels an em, unhinted (as the game's text is), from 4x, the pen phase pixels right of a whole
+    pixel: [(alpha rows, left, top from the pen's pixel on the baseline, advance in pixels)]. (Thin strokes a little
+    stronger: gamma.)"""
+    ft = ImageFont.truetype(io.BytesIO(font_data(name)), em_px * ss)
+    pad = int(em_px) + 2
+    out = []
+    for ch in chars:
+        adv = ft.getlength(ch) / ss
+        W, H = (int(em_px * 3) + 2 * pad) * ss, (int(em_px * 3) + 2 * pad) * ss
+        im = Image.new("L", (W, H), 0)
+        # the pen at (pad, base) in pixels: the baseline at a whole pixel
+        base = int(em_px * 2) + pad
+        ImageDraw.Draw(im).text((pad * ss + round(phase * ss), base * ss), ch, font=ft, fill=255, anchor="ls")
+        a = np.asarray(im.resize((W // ss, H // ss), Image.BOX)).astype(np.float32) / 255
+        a = (a ** gamma * 255).round().astype(np.uint8)
+        ys, xs = np.nonzero(a > 8)
+        if not len(ys):
+            out.append((np.zeros((0, 0), np.uint8), 0, 0, adv))
+            continue
+        a = a[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+        out.append((a, int(xs.min()) - pad, base - int(ys.min()), adv))
+    return out

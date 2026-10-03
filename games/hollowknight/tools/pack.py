@@ -4,13 +4,17 @@ import os, sys, struct, math, lzma, time, multiprocessing as mp
 import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import unity, scene, visible, art, actors, coll, ents, font
+import unity, scene, visible, art, actors, coll, ents, font, text
 
 SRC = os.path.join(HERE, "..", "src")
 ROOMS = [l.strip() for l in open(os.path.join(HERE, "rooms.txt")) if l.strip() and not l.startswith("#")]
 STRINGS = ents.Strings()
 PERSIST = ents.Persist()
 SPRITES = ents.Sprites()
+TEXTS = text.Texts()
+# the prompt markers' labels (Arrow Prompt New's)
+PROMPTS = ["Listen", "Rest", "Inspect", "Enter", "Sit", "Shop", "Travel", "Ascend", "Descend", "Exit", "Accept", "Trade",
+           "Watch", "Challenge"]
 ROOM_DATA = {}   # name -> (coll.room's, ents.room's)
 
 
@@ -24,7 +28,7 @@ def room_data(name):
         ROOM_DATA[name] = (cr, ents.room(d, ROOMS, STRINGS, PERSIST, name, SPRITES, cr[3]))
     return ROOM_DATA[name]
 
-SECTIONS = ["TEX", "TMAP", "PAL", "BIDX", "BLK", "ROOMS", "RBLOB", "PRIOR", "SOFT", "SPR", "CLIP", "STR"]
+SECTIONS = ["TEX", "TMAP", "PAL", "BIDX", "BLK", "ROOMS", "RBLOB", "PRIOR", "SOFT", "SPR", "CLIP", "STR", "TEXT", "FONT"]
 BLENDS = {"alpha": 0, "add": 1, "screen": 2, "linearlight": 3, "overlay": 4, "multiply": 5}
 F_LIT, F_ROT, F_SOLID, F_DYN, F_GRASS = 8, 16, 32, 64, 128
 
@@ -291,6 +295,8 @@ def main():
     # the rooms' objects, and the sprites they show (after the actors')
     SPRITES.base = len(sprites)
     named = actors.named_sprites(SPRITES)
+    prompt_ids = {p: TEXTS.id("Prompts", p.upper(), "PROMPT") for p in PROMPTS}
+    TEXTS.id("Elderbug", "ELDERBUG_INTRO_MAIN")   # (until the NPCs: a conversation to try)
     for r in ROOMS:
         room_data(r)
     sprites += actors.unity_sprites(SPRITES.list)
@@ -385,6 +391,8 @@ def main():
         print("room %-26s %5d instances in %2d sectors, %6d packed" % (r, len(keep), len(blobs), packed + len(hc)), flush=True)
     secs["ROOMS"].b += rooms
     secs["STR"].b += STRINGS.blob()
+    secs["TEXT"].b += TEXTS.blob()
+    secs["FONT"].b += TEXTS.fonts()
     # the file: "HKNW", count, then (offset, size) per section
     head = struct.pack("<4sI", b"HKNW", len(SECTIONS))
     pos = len(head) + 8 * len(SECTIONS)
@@ -411,6 +419,12 @@ def main():
         for k, v in named.items():
             f.write("#define SPRITE_%s %d\n" % (k, v))
         f.write("#define SPRITE_DIGIT0 %d\n" % digit_base)
+        for i, k in enumerate(text.STYLES):
+            f.write("#define STYLE_%s %d\n" % (k, i))
+        f.write("#define TEXT_K %.6ff\n#define FONT_PHASES %d\n" % (text.TEXT_K, text.PHASES))
+        for k, v in prompt_ids.items():
+            f.write("#define TXT_PROMPT_%s %d\n" % (k.upper(), v))
+        f.write("#define PROMPT_SORT %du\n" % ((scene.layer_index(-349214895) << 16) | (1 + 32768)))
         f.write("#define DIGIT_ADV {%s}\n" % ", ".join("%.4ff" % a for a in digit_adv))
 
 

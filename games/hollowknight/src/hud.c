@@ -25,11 +25,23 @@ static struct {
   Anim frame, liquid, coin;
   float liquid_grey;     /* (Liquid Control: grey while it cannot heal) */
   bool started;
+  /* Slide Out: the canvas shrinks about its corner (iTweenScaleTo, 0.15 s), then goes off the screen */
+  bool out, off;
+  float scale, scale_from, scale_t;
 } hd;
+
+#define SCALE_TIME 0.15f
+void hud_slide(bool out) {
+  if (!hd.started || out == hd.out) return;
+  hd.out = out;
+  if (!out) hd.off = false;   /* (Come In: back at its place) */
+  hd.scale_from = hd.scale, hd.scale_t = 0;
+}
 
 void hud_reset(void) {
   memset(&hd, 0, sizeof hd);
   hd.shown_health = -1;
+  hd.scale = 1, hd.scale_t = SCALE_TIME;
   anim_play(&hd.frame, CLIP_HUD_HUD_FRAME_IDLE);
   anim_play(&hd.liquid, CLIP_LIQUID_IDLE);
   anim_play(&hd.coin, CLIP_HUD_COIN_IDLE);
@@ -54,6 +66,12 @@ void hud_tick(void) {
   anim_update(&hd.frame, DT);
   anim_update(&hd.liquid, DT);
   anim_update(&hd.coin, DT);
+  if (hd.scale_t < SCALE_TIME) {
+    hd.scale_t += DT;
+    float t = hd.scale_t >= SCALE_TIME ? 1 : hd.scale_t / SCALE_TIME, to = hd.out ? 0.75f : 1;
+    hd.scale = hd.scale_from + (to - hd.scale_from) * (hd.out ? 1 - cosf(t * 1.5707964f) : sinf(t * 1.5707964f));
+    if (hd.out && hd.scale_t >= SCALE_TIME) hd.off = true;   /* (Out, after 0.15 s) */
+  }
   /* EaseColor over 0.2 s, to grey or white */
   float to = g_pd.mp < FOCUS_MP ? 1 : 0;
   if (hd.liquid_grey < to) hd.liquid_grey = fminf(to, hd.liquid_grey + DT / 0.2f);
@@ -61,19 +79,22 @@ void hud_tick(void) {
 }
 
 static void hud_sprite(int sprite, float x, float y, float sx, uint8_t tint, int clip) {
+  /* (on the canvas: about its corner, at its scale) */
+  float k = hd.scale;
   Inst in;
-  sprite_inst(sprite, x, y, 0, sx, 1, tint, &in);
+  sprite_inst(sprite, CANVAS_X + (x - CANVAS_X) * k, CANVAS_Y + (y - CANVAS_Y) * k, 0, sx * k, k, tint, &in);
   gfx_hud(&in, clip);
 }
 
 void hud_draw(void) {
-  if (!hd.started) return;
+  if (!hd.started || hd.off) return;
+  float k = hd.scale;
   uint8_t white = gfx_dyn_tint(8, 255, 255, 255, 255);
   /* the soul orb: its liquid (in the orb's circle), the frame over it */
-  if (g_pd.mp > 1) {
+  if (g_pd.mp > 1 && !hd.out) {   /* (the liquid's renderer off while the HUD is out) */
     float y = FILL_Y + LIQUID_BOTTOM_Y + g_pd.mp * LIQUID_Y_PER_MP;
     uint8_t g = (uint8_t)(255 - (255 - 110) * hd.liquid_grey);
-    gfx_hud_clip(1, FILL_X - 2.28f, FILL_Y + 1.32f, 0.97f);
+    gfx_hud_clip(1, CANVAS_X + (FILL_X - 2.28f - CANVAS_X) * k, CANVAS_Y + (FILL_Y + 1.32f - CANVAS_Y) * k, 0.97f * k);
     hud_sprite(hd.liquid.sprite, FILL_X - 2.23f, y, 1, gfx_dyn_tint(9, g, g, g, 255), 1);
   }
   hud_sprite(hd.frame.sprite, ORB_X + 0.12f, ORB_Y + 0.92f, 1, white, 0);

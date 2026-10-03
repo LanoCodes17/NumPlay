@@ -1092,6 +1092,67 @@ void gfx_hud_clip(int clip, float x, float y, float r) {
   hud_clips[clip - 1] = (HudClip){VIEW_W / 2 + x * k, VIEW_H / 2 - y * k, r * k};
 }
 
+/* text: lines of glyphs (4-bit alpha), drawn in front of what is behind them in their layer */
+typedef struct {
+  const uint8_t *s;
+  const uint8_t *style;
+  float x;            /* the pen's start (view pixels) */
+  int16_t y, y0, y1;  /* the baseline; the rows it can cover */
+  uint8_t n, layer;
+  uint32_t rgb;       /* (premultiplied by its alpha: 0xAARRGGBB) */
+} TextRun;
+#define MAX_RUNS 20
+static TextRun runs[MAX_RUNS];
+static int nruns;
+
+bool gfx_text(int style, float x, float y, const uint8_t *s, int n, uint32_t argb, int layer) {
+  uint32_t a = argb >> 24;
+  if (nruns >= MAX_RUNS || n <= 0 || !a) return false;
+  const uint8_t *st = font_style(style);
+  TextRun *r = &runs[nruns++];
+  r->s = s, r->style = st, r->x = x, r->n = (uint8_t)(n > 255 ? 255 : n), r->layer = (uint8_t)layer;
+  r->y = (int16_t)lrintf(y);
+  r->y0 = (int16_t)(r->y - (int)font_asc(st) - 3), r->y1 = (int16_t)(r->y + (int)font_desc(st) + 3);
+  uint32_t cr = (argb >> 16 & 255) * a / 255, cg = (argb >> 8 & 255) * a / 255, cb = (argb & 255) * a / 255;
+  r->rgb = a << 24 | cr << 16 | cg << 8 | cb;
+  return true;
+}
+
+static void draw_runs(int layer, int sy0, int sy1) {
+  for (int k = 0; k < nruns; k++) {
+    const TextRun *r = &runs[k];
+    if (r->layer != layer || r->y0 >= sy1 || r->y1 <= sy0) continue;
+    uint32_t a0 = r->rgb >> 24, rb0 = r->rgb & 0xFF00FF, g0 = r->rgb >> 8 & 255;
+    float pen = r->x;
+    for (int i = 0; i < r->n; i++) {
+      float fl = floorf(pen);
+      int ip = (int)fl, ph = (int)((pen - fl) * FONT_PHASES + 0.5f);
+      if (ph >= FONT_PHASES) ph = 0, ip++;
+      const Glyph *g = font_glyph(r->style, r->s[i], ph);
+      if (!g) continue;
+      int gx = ip + g->left, gy = r->y - g->top;
+      pen += g->adv * (1.0f / 64);
+      if (!g->w || gy >= sy1 || gy + g->h <= sy0 || gx >= VIEW_W || gx + g->w <= 0) continue;
+      int stride = (g->w + 1) >> 1;
+      const uint8_t *bits = (const uint8_t *)(g + 1);
+      int ya = gy < sy0 ? sy0 : gy, yb = gy + g->h > sy1 ? sy1 : gy + g->h;
+      int xa = gx < 0 ? 0 : gx, xb = gx + g->w > VIEW_W ? VIEW_W : gx + g->w;
+      for (int y = ya; y < yb; y++) {
+        const uint8_t *row = bits + (y - gy) * stride;
+        int p = (y - sy0) * VIEW_W;
+        for (int x = xa; x < xb; x++) {
+          int u = x - gx;
+          uint32_t v = row[u >> 1] >> ((u & 1) * 4) & 15;
+          if (!v) continue;
+          uint32_t w = v * 17 * 257 >> 8;   /* (0 .. 256) */
+          uint32_t s = (a0 * w >> 8) << 24 | (((rb0 * w) >> 8) & 0xFF00FF) | ((g0 * w >> 8) << 8);
+          take_over(y - sy0, x, p + x, s);
+        }
+      }
+    }
+  }
+}
+
 bool gfx_actor(const Inst *in, uint32_t group) {
   if (nactors >= MAX_ACTORS) return false;
   /* kept in draw order: sorting layer and order, then far first */
@@ -1179,6 +1240,7 @@ void gfx_frame(void) {
   for (int sy0 = 0; sy0 < VIEW_H; sy0 += STRIP_H) {
     int sy1 = sy0 + STRIP_H;
     memset(cov, 0, sizeof cov);
+    if (nruns) draw_runs(0, sy0, sy1);
     for (int i = nitems - 1; i >= nscene; i--)
       if (items[i].y0 < sy1 && items[i].y1 > sy0) draw_item(i, &items[i], sy0, sy1);
     if (g_screen_fade) {
@@ -1190,11 +1252,13 @@ void gfx_frame(void) {
         trans[p] = (uint8_t)t;
       }
     }
+    if (g_screen_fade < 255 && nruns) draw_runs(1, sy0, sy1);
     if (g_screen_fade < 255)
       for (int i = nscene - 1; i >= 0; i--)
         if (items[i].y0 < sy1 && items[i].y1 > sy0) draw_item(i, &items[i], sy0, sy1);
     finish_strip(sy0, STRIP_H);
   }
+  nruns = 0;
 #ifdef HOST
   {
     extern uint32_t g_peak_soft;

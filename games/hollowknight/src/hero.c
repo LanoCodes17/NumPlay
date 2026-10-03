@@ -945,6 +945,7 @@ void fx_dash_burst(float x, float y, bool facing_right, bool on_ground) { (void)
 void hero_leave_scene(int gate) {
   Hero *h = &g_hero;
   spell_cancel();   /* (LEAVING SCENE) */
+  dialogue_cancel();
   h->accepting_input = false;   /* (IgnoreInputWithoutReset) */
   h->hard_landing_timer = 0;
   set_state(HS_NO_INPUT);

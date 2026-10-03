@@ -13,11 +13,14 @@ void game_new(void) {
   g_pd.max_mp = 99;
   g_pd.nail_damage = 5;
   g_pd.can_dash = false;
+  dialogue_reset();
+  prompts_reset();
 }
 
 bool game_enter(int room, float x, float y, bool facing_right) {
   if (!room_load(room)) return false;
   memset(inside, 0, sizeof inside);
+  prompts_reset();
   world_enter();
   hero_init(x, y, facing_right);
   cam_init();
@@ -84,6 +87,7 @@ static void scene_load(void) {
   g->scene_phase = SC_NONE;
   if (!room_load(g->next_room)) return;
   memset(inside, 0, sizeof inside);
+  prompts_reset();   /* (PromptMarker.RecycleOnLevelLoad) */
   world_enter();
   int n;
   const Ent *es = room_ents(&n);
@@ -241,6 +245,8 @@ static void step(uint32_t keys) {
   hero_check_damage();
   hero_update();
   world_tick();
+  prompts_tick();
+  dialogue_tick();
   hazard_tick();
   fade_tick();
   hero_late_update();
@@ -262,6 +268,8 @@ void game_tick(uint32_t keys) {
 
 void game_draw(void) {
   hud_draw();
+  dialogue_draw();
+  prompts_draw();
   obj_draw();
   hero_draw();
   gfx_frame();

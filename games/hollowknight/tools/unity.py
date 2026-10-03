@@ -117,6 +117,28 @@ def _dump_objects(lv, name, level, root=None):
                     todo += [objs[ch["m_PathID"]].read_typetree()["m_GameObject"]["m_PathID"] for ch in t["m_Children"]]
     wm = {}
     sys.setrecursionlimit(20000)
+    # (a RectTransform's place is its anchored position, from its anchors in its parent's rect)
+    sizes = {}
+
+    def rect_size(pid):
+        if pid not in sizes:
+            d = tr[pid]
+            if "m_SizeDelta" not in d:
+                sizes[pid] = (0.0, 0.0)
+            else:
+                f = d["m_Father"]["m_PathID"]
+                ps = rect_size(f) if f in tr else (0.0, 0.0)
+                sizes[pid] = tuple(d["m_SizeDelta"][k] + (d["m_AnchorMax"][k] - d["m_AnchorMin"][k]) * ps[i]
+                                   for i, k in enumerate("xy"))
+        return sizes[pid]
+    for pid, d in tr.items():
+        if "m_AnchoredPosition" in d:
+            f = d["m_Father"]["m_PathID"]
+            ps = rect_size(f) if f in tr else (0.0, 0.0)
+            pp = tr[f].get("m_Pivot", {"x": 0.5, "y": 0.5}) if f in tr else {"x": 0.5, "y": 0.5}
+            for i, k in enumerate("xy"):
+                a0, a1, pv = d["m_AnchorMin"][k], d["m_AnchorMax"][k], d["m_Pivot"][k]
+                d["m_LocalPosition"][k] = (a0 + (a1 - a0) * pv - pp[k]) * ps[i] + d["m_AnchoredPosition"][k]
 
     def world(pid):
         if pid not in wm:

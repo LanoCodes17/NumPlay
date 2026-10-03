@@ -67,6 +67,13 @@ int main(int argc, char **argv) {
       while (*p && *p != ',') p++;
       if (*p == ',') p++;
       for (int i = 0; i < n; i++, tick++) {
+        /* (HKTALK=tick:text a conversation then; HKPROMPT=tick a prompt over the Knight then) */
+        if (getenv("HKTALK") && atoi(getenv("HKTALK")) == tick) {
+          dialogue_box_up();
+          dialogue_start(atoi(strchr(getenv("HKTALK"), ':') + 1));
+        }
+        if (getenv("HKPROMPT") && atoi(getenv("HKPROMPT")) == tick)
+          prompt_show(-1, TXT_PROMPT_LISTEN, g_hero.body.x, g_hero.body.y + 1.5f);
         game_tick(keys);
         if (trace)
           printf("%4d keys %02x pos %.3f,%.3f v %.3f,%.3f state %d ground %d jump %d fall %d clip %d frame %d cam %.2f,%.2f\n", tick,

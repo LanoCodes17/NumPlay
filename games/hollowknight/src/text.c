@@ -81,6 +81,10 @@ static struct {
   bool arrow_on, stop_on;
   bool finished;        /* CONVO_FINISH, since dialogue_start */
   uint32_t prev_keys;
+  /* Box Open Dream: the dream box (up, or going down a while), the text centred (SetTextMeshProAlignment) */
+  Anim dream;
+  bool dream_on, centre;
+  float dream_off;
 } dl;
 
 static float ease_sine(float t, bool out) { return out ? sinf(t * 1.5707964f) : 1 - cosf(t * 1.5707964f); }
@@ -109,6 +113,22 @@ void dialogue_box_down(void) {
   anim_play_from_frame(&dl.fleur_top, CLIP_DIALOGUE_FLEUR_TOP_DOWN, 0);
   anim_play_from_frame(&dl.fleur_bot, CLIP_DIALOGUE_FLEUR_BOT_DOWN, 0);
 }
+
+void dialogue_dream_box(bool up) {
+  if (up) {
+    /* Box Up: Dream Up, the HUD out */
+    anim_play_from_frame(&dl.dream, CLIP_DIALOGUE_DREAM_UP, 0);
+    hud_slide(true);
+    dl.dream_on = true, dl.dream_off = 0;
+  } else if (dl.dream_on) {
+    /* Box Down: Dream Down, the HUD in; a quarter second, then gone (Stop Audio) */
+    anim_play_from_frame(&dl.dream, CLIP_DIALOGUE_DREAM_DOWN, 0);
+    hud_slide(false);
+    dl.dream_off = 0.25f;
+  }
+}
+
+void dialogue_centre(bool on) { dl.centre = on; }
 
 static int lines_per_page(const uint8_t *st) {
   float h = TEXT_H * HUD_PX * TEXT_K;
@@ -193,6 +213,11 @@ void dialogue_tick(void) {
     anim_update(&dl.fleur_bot, DT);
     if (!dl.up && !dl.fleur_top.playing && !dl.fleur_bot.playing) dl.fleurs_on = false;
   }
+  if (dl.dream_on) {
+    dl.dream.events = 0;
+    anim_update(&dl.dream, DT);
+    if (dl.dream_off > 0 && (dl.dream_off -= DT) <= 0) dl.dream_on = false;
+  }
   if (dl.arrow_on) anim_update(&dl.arrow, DT);
   if (dl.stop_on) anim_update(&dl.stop, DT);
   if (!dl.text) return;
@@ -265,6 +290,13 @@ void dialogue_draw(void) {
     }
   }
   uint8_t white = gfx_dyn_tint(20, 255, 255, 255, 255);
+  if (dl.dream_on && dl.dream.sprite >= 0) {
+    /* (Box Dream: its place and scale in the box's, with the text's) */
+    Inst in;
+    sprite_inst(dl.dream.sprite, BOX_X + (0.1f - BOX_X) * TEXT_K, BOX_Y + (4.46f - BOX_Y) * TEXT_K, 0, 1.0745f * TEXT_K,
+                1.0745f * TEXT_K, white, &in);
+    gfx_hud(&in, 0);
+  }
   if (dl.arrow_on && dl.arrow.sprite >= 0) box_sprite(dl.arrow.sprite, 0.0069f, 1.695f, MARKER_K, MARKER_K, white);
   if (dl.stop_on && dl.stop.sprite >= 0) box_sprite(dl.stop.sprite, -0.0231f, 1.695f, MARKER_K, MARKER_K, white);
   if (!dl.text) return;
@@ -277,7 +309,9 @@ void dialogue_draw(void) {
   for (int l = 0; l < per && i < last; l++) {
     int next, e = line_end(st, dl.text, i, w, &next);
     int n = (e < dl.visible ? e : dl.visible) - i;
-    if (n > 0) gfx_text(STYLE_DIALOGUE, left, y, dl.text + i, n, 0xFFFFFFFFu, 0);
+    /* (centred: the whole line's place, as it is typed) */
+    float x = dl.centre ? left + (w - text_width(STYLE_DIALOGUE, dl.text + i, e - i)) / 2 : left;
+    if (n > 0) gfx_text(STYLE_DIALOGUE, x, y, dl.text + i, n, 0xFFFFFFFFu, 0);
     if (dl.visible <= e) break;
     i = next, y += font_line(st);
   }
@@ -286,7 +320,7 @@ void dialogue_draw(void) {
 void dialogue_reset(void) {
   memset(&dl, 0, sizeof dl);
   dl.scale = 0.75f;
-  dl.arrow.sprite = dl.stop.sprite = -1;
+  dl.arrow.sprite = dl.stop.sprite = dl.dream.sprite = -1;
 }
 
 /* ---------------------------------------------------------------- prompt markers */

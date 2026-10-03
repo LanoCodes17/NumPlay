@@ -1256,12 +1256,13 @@ void gfx_frame(void) {
   Item cur;
   uint32_t group;
   int na = 0;
+  /* (an actor behind the blur plane but in front of what is kept, by its sorting layer: kept too) */
   while (room_next(&cur.in, &group)) {
     while (na < nactors && (actors[na].group < group || (actors[na].group == group && actors[na].in.z > cur.in.z)))
-      add_item(&actors[na++].in, blur_z);
+      add_item(&actors[na++].in, nitems ? 1e9f : blur_z);
     add_item(&cur.in, blur_z);
   }
-  while (na < nactors) add_item(&actors[na++].in, blur_z);
+  while (na < nactors) add_item(&actors[na++].in, nitems ? 1e9f : blur_z);
   nactors = 0;
   /* the HUD's, in front (HUD units from the screen's center: where the camera is) */
   int nscene = nitems;

@@ -11,21 +11,24 @@ import unity, text, state
 # rooms -> the objects whose scripts run here (and all under them)
 ROOMS = {
     "Town": ["_NPCs/Elderbug"],
-    "Fungus1_04": ["Hornet Infected Knight Encounter", "Hornet Saver", "Cloak Corpse"],
+    "Fungus1_04": ["Hornet Infected Knight Encounter", "Hornet Saver", "Cloak Corpse", "Dream Scene Activate",
+                   "Dreamer Scene 1"],
     "Crossroads_ShamanTemple": ["_Props/Shaman Meeting", "_Props/Shaman Trapped", "_Props/Shaman Killed Blocker",
                                 "_Props/Knight Get Fireball", "Battle Scene/Reminder Cast"],
 }
 # FSMs left out (what this port does not have: the dream nail, sounds...)
-SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "fade and destroy", "Shop Open Voice"}
-# objects left out (effects drawn by the C code, or nothing at all; the dream nail's)
-SKIP_CLASSES = {"SpellGetOrb", "ParticleSystem", "SimpleSpriteFade"}
-SKIP_NAMES = {"Dream Dialogue", "Dream Dialogue Flower", "Flower", "Flower Give", "white_light", "white_light 1"}
-MAX_OBJS, MAX_FSMS, MAX_VARS = 28, 20, 256   # (src/vm.c)
+SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "Shop Open Voice"}
+# objects left out (effects drawn by the C code, or nothing at all; the dream nail's; Dreamer Scene 1's Knight Lift,
+# which nothing turns on)
+SKIP_CLASSES = {"SpellGetOrb", "ParticleSystem"}
+SKIP_NAMES = {"Dream Dialogue", "Dream Dialogue Flower", "Flower", "Flower Give", "white_light", "white_light 1",
+              "Knight Lift"}
+MAX_OBJS, MAX_FSMS, MAX_VARS = 32, 24, 256   # (src/vm.c)
 
 # the game's own objects
 SPECIAL = {"Hero": 0xFF00, "HeroLight": 0xFF01, "DialogueManager": 0xFF02, "DialogueText": 0xFF03, "AreaTitle": 0xFF04,
            "CameraParent": 0xFF05, "MainCamera": 0xFF06, "GameManager": 0xFF07, "HUD Blanker": 0xFF08,
-           "DialogueTextYN": 0xFF09, "UIManager": 0xFF0A, "Enemy Dream Msg": 0xFF0B}
+           "DialogueTextYN": 0xFF09, "UIManager": 0xFF0A, "Enemy Dream Msg": 0xFF0B, "HUD Blanker White": 0xFF0D}
 O_NONE = 0xFFFF
 # PlayerData ints (src/vm.c: pd_int)
 PD_INTS = ["MPCharge", "health", "maxHealth", "geo", "fireballLevel", "quakeLevel", "screamLevel", "shaman", "elderbug",
@@ -63,7 +66,8 @@ STR = Strings()
 EVENTS = Strings()
 for e in ("FINISHED", "CONVO_FINISH", "CONVO START", "CONVO END", "BIG TITLE START", "BIG TITLE END", "HERO DAMAGED",
           "NPC TITLE DOWN", "NPC CONVO START", "BOX UP", "BOX DOWN", "LEAVING SCENE", "TAKE DAMAGE", "GET ITEM MSG END",
-          "HORNET LEAVE", "BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY", "WAKE"):
+          "HORNET LEAVE", "BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY", "WAKE", "BOX UP DREAM",
+          "BOX DOWN DREAM", "FADE IN", "FADE OUT", "FSM CANCEL"):
     EVENTS.id(e)
 FIXED_EVENTS = len(EVENTS.list)   # (src/data.h: VMEV_*)
 
@@ -169,7 +173,7 @@ op("EaseFloat", ("fromValue", "f"), ("toValue", "f"), ("floatVariable", "F"), ("
 op("CameraZoom", ("z", "f"), ("time", "f"), ("delay", "f"))
 op("Collision2dEvent", ("sendEvent", "e"))
 op("HudBlanker", ("alpha", "f"), ("time", "f"), ("on", "n"))
-op("CreateObject", ("gameObject", "o"), ("x", "f"), ("y", "f"), ("storeObject", "O"))
+op("CreateObject", ("gameObject", "o"), ("x", "f"), ("y", "f"), ("storeObject", "O"), ("spawnPoint", "o"))
 op("GetItemMsg", ("item", "n"))
 op("Blanker", ("alpha", "f"), ("everyFrame", "n"))
 op("BlankerOn", ("on", "b"))
@@ -177,7 +181,13 @@ op("FindGameObject", ("objectName", "s"), ("store", "O"))
 op("SetParent", ("gameObject", "o"))
 op("IntOp", ("intVariable", "I"), ("value", "i"))
 op("ActivateAllChildren", ("gameObject", "o"), ("activate", "b"))
-op("iTweenMoveBy", ("gameObject", "o"), ("vector", "v3"), ("time", "f"), ("easeType", "n"), ("finishEvent", "e"))
+op("iTweenMoveBy", ("gameObject", "o"), ("vector", "v3"), ("time", "f"), ("easeType", "n"), ("loopType", "n"),
+   ("finishEvent", "e"))
+op("SetFsmFloat", ("gameObject", "o"), ("fsmName", "s"), ("variableName", "s"), ("setValue", "f"), ("slot", "n"))
+op("TextAlign", ("centre", "n"))
+op("ObjAlpha", ("gameObject", "o"), ("alpha", "f"), ("everyFrame", "n"))
+op("BuildString")   # (custom: its parts, the strings they can make, where it keeps it)
+op("GetObjAlpha", ("gameObject", "o"), ("store", "F"))
 
 # HeroController's methods the scripts call (HeroCall's method)
 HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "StartAnimationControl", "FaceLeft",
@@ -187,7 +197,9 @@ HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "S
 # the prompt marker the pool gives (Arrow Prompt New): a script's own, shown and hidden as ShowPromptMarker's
 PROMPT_PREFAB = ("resources.assets", 6142)
 # prefabs CreateObject makes that the scripts go on with (made beforehand, off): (file, path id)
-PREFAB_SPAWNS = {("sharedassets76.assets", 69)}
+PREFAB_SPAWNS = {("sharedassets76.assets", 69), ("sharedassets133.assets", 23), ("sharedassets6.assets", 509)}
+# prefabs the pool gives (SpawnObjectFromGlobalPool) that the scripts show (made beforehand, off)
+POOL_SPAWNS = {("resources.assets", 5267)}
 # the game's objects the scripts find by name that are not theirs (enemies): what they are to them
 GAME_OBJECTS = {"Hornet Boss 1": 0xFF0C}
 # what a trigger's Trigger2dEvent hears, by collideTag: the Knight (any), a spell
@@ -264,14 +276,14 @@ class Room:
         self.objs.append(o)
         return self.obj_index[o["id"]]
 
-    def add_prefab(self, f, pid):
-        """A prefab's objects, made beforehand (off): its root's VM object."""
-        key = ("pf", f, pid)
+    def add_prefab(self, f, pid, site=None):
+        """A prefab's objects, made beforehand (off): its root's VM object (one for each site that makes it)."""
+        key = ("pf", f, pid, site)
         if key in self.obj_index:
             return self.obj_index[key]
         d2 = unity.prefab(f, pid)
         ids = {q["id"] for q in d2["objects"]}
-        k = lambda i: ("pf", f, pid, i)
+        k = lambda i: ("pf", f, pid, site, i)
         root = None
         for q in d2["objects"]:
             c = dict(q)
@@ -350,6 +362,44 @@ class Compiler:
                 P = dict(a["params"])
                 if a["name"] == "SetFsmString" and P.get("gameObject") == self.prompt[1] and P.get("variableName") == "Prompt Name":
                     self.prompt[2] = P.get("setValue")
+
+    def alpha(self, c):
+        """a color operand's alpha -> its value slot, None if not one"""
+        if isinstance(c, str) and c[1:] in self.slots and self.slots[c[1:]][1] == "color":
+            return self.slots[c[1:]][0] + 3
+        if isinstance(c, (list, tuple)) and len(c) == 4:
+            return self.value(float(c[3]), "f")
+        return None
+
+    def string_values(self, v):
+        """the strings a string operand can be (constants: itself; a variable: as it starts and as it is set)"""
+        if not (isinstance(v, str) and v.startswith("$")):
+            return [v or ""]
+        n = v[1:]
+        out = [self.f["vars"].get(n, ["string", ""])[1] or ""]
+        for o in list(self.rm.by_id.values()):
+            for c in o["c"]:
+                for st in (c.get("fsm") or {}).get("states", []):
+                    for a in st["actions"]:
+                        P = dict(a["params"])
+                        if a["name"] == "SetFsmString" and P.get("fsmName") == self.f["name"] and P.get("variableName") == n:
+                            out.append(P.get("setValue") or "")
+        return sorted(set(out))
+
+    def build_string(self, P):
+        """BuildString: each way its parts can be, the string they make (with its separator)"""
+        import itertools
+        parts = P.get("stringParts") or []
+        sep = P.get("separator") or ""
+        store = self.store(P.get("storeResult"))
+        rows = list(itertools.product(*[self.string_values(q) for q in parts]))
+        assert len(rows) < 64, rows
+        body = bytes([len(parts)]) + b"".join(struct.pack("<H", self.value(q, "s")) for q in parts) + bytes([len(rows)])
+        for r in rows:
+            body += struct.pack("<H", STR.id(sep.join(r) + (sep if P.get("addToEnd") else "")))
+            body += b"".join(struct.pack("<H", STR.id(x)) for x in r)
+        body += bytes([store])
+        return bytes([OPS["BuildString"][0], len(body)]) + body
 
     def fsm_slot(self, fsm_name, var):
         """another FSM's variable, by its FSM's name and its own (one of the room's): its slot, 255 not known"""
@@ -513,7 +563,7 @@ class Compiler:
                  "ForceHeroFootstepSound", "SendEventToRegister", "AddTrackTrigger", "PlayVibration",
                  "VibrationPlayerStop", "TransitionToAudioSnapshot", "SetAudioPitch", "SetAudioVolume",
                  "AudioPlayInState", "FadeAudio", "PlayRandomSound", "SetRotation", "RandomFloat",
-                 "SpawnObjectFromGlobalPool", "GetLastEvent", "SetBoxCollider2DSize", "Tk2dSpriteSetColor"):
+                 "GetLastEvent", "SetBoxCollider2DSize", "Tk2dSpriteSetColor", "SetTextMeshProColor"):
             return None
         if n in ("PlayerDataBoolTest",):
             return self.emit(n, P)
@@ -531,19 +581,51 @@ class Compiler:
         if n == "SetFsmString":
             return self.emit(n, dict(P, slot=self.fsm_slot(P.get("fsmName"), P.get("variableName"))))
         if n == "EaseColor":
+            # (colors: their alphas only, what the scripts change)
             cv = P.get("colorVariable")
-            if not (isinstance(cv, str) and cv[1:] in self.slots):
+            if not (isinstance(cv, str) and cv[1:] in self.slots) or (P.get("easeType") or 0) != 21:
                 self.problem("EaseColor to %r" % cv)
                 return None
             slot = self.slots[cv[1:]][0] + 3
-            fv, tv = P.get("fromValue"), P.get("toValue")
-            if not isinstance(fv, (list, tuple)) or not isinstance(tv, (list, tuple)):
-                self.problem("EaseColor from %r" % fv)
+            fv, tv = self.alpha(P.get("fromValue")), self.alpha(P.get("toValue"))
+            if fv is None or tv is None:
+                self.problem("EaseColor from %r" % P.get("fromValue"))
                 return None
             code, schema = OPS["EaseFloat"]
-            body = struct.pack("<HH", self.value(float(fv[3]), "f"), self.value(float(tv[3]), "f")) + bytes([slot]) + \
+            body = struct.pack("<HH", fv, tv) + bytes([slot]) + \
                 struct.pack("<H", self.value(P.get("time"), "f")) + bytes([self.event(P.get("finishEvent"))])
             return bytes([code, len(body)]) + body
+        if n in ("SetColorValue", "GetColorRGBA"):
+            # (a color's alpha into another's, or a float)
+            src = self.alpha(P.get("color"))
+            dst = P.get("colorVariable") if n == "SetColorValue" else P.get("storeAlpha")
+            if src is None or not (isinstance(dst, str) and dst[1:] in self.slots):
+                return None
+            code, _ = OPS["SetFloatValue"]
+            body = bytes([self.slots[dst[1:]][0] + (3 if n == "SetColorValue" else 0)]) + struct.pack("<H", src) + \
+                bytes([int(P.get("everyFrame") or 0)])
+            return bytes([code, len(body)]) + body
+        if n == "GetMaterialColor" and isinstance(P.get("color"), str) and P.get("color")[1:] in self.slots:
+            # (its alpha into the color's)
+            body = struct.pack("<H", self.value(P.get("gameObject") or "Owner", "o")) + \
+                bytes([self.slots[P.get("color")[1:]][0] + 3])
+            return bytes([OPS["GetObjAlpha"][0], len(body)]) + body
+        if n == "SetMaterialColor" and P.get("gameObject") not in ("$HUD Blanker",):
+            a = self.alpha(P.get("color"))
+            if a is None:
+                self.problem("SetMaterialColor %r" % P.get("color"))
+                return None
+            code, _ = OPS["ObjAlpha"]
+            body = struct.pack("<HH", self.value(P.get("gameObject") or "Owner", "o"), a) + bytes([int(P.get("everyFrame") or 0)])
+            return bytes([code, len(body)]) + body
+        if n == "SetTextMeshProAlignment":
+            if P.get("gameObject") != "$DialogueText":
+                return None
+            return self.emit("TextAlign", {"centre": 1 if P.get("topCentre") else 0})
+        if n == "SetFsmFloat":
+            return self.emit(n, dict(P, slot=self.fsm_slot(P.get("fsmName"), P.get("variableName"))))
+        if n == "BuildString":
+            return self.build_string(P)
         if n == "SetMaterialColor" and P.get("gameObject") == "$HUD Blanker":
             c = P.get("color")
             if isinstance(c, str) and c[1:] in self.slots:
@@ -572,10 +654,21 @@ class Compiler:
                 f, pid = ents._ref_file(self.o.get("_doc") or self.rm.d, [r[1], r[2]])
                 if (f, pid) in PREFAB_SPAWNS:
                     pos = P.get("position") or [None, None, None]
-                    obj = self.rm.add_prefab(f, pid)
+                    obj = self.rm.add_prefab(f, pid, (self.o["id"], self.where, P.get("storeObject")))
                     return self.emit("CreateObject", {"gameObject": ("objindex", obj), "x": pos[0], "y": pos[1],
                                                       "storeObject": P.get("storeObject")})
             return None   # (effects)
+        if n == "SpawnObjectFromGlobalPool":
+            r = P.get("gameObject")
+            if isinstance(r, (list, tuple)) and r and r[0] == "ref":
+                import ents
+                f, pid = ents._ref_file(self.o.get("_doc") or self.rm.d, [r[1], r[2]])
+                if (f, pid) in POOL_SPAWNS:
+                    pos = P.get("position") or [None, None, None]
+                    obj = self.rm.add_prefab(f, pid, (self.o["id"], self.where, P.get("storeObject")))
+                    return self.emit("CreateObject", {"gameObject": ("objindex", obj), "x": pos[0], "y": pos[1],
+                                                      "storeObject": P.get("storeObject"), "spawnPoint": P.get("spawnPoint")})
+            return None
         if n == "GetButtonDown":
             m = {"Jump": "ListenForJump", "Attack": "ListenForAttack", "Cast": "ListenForCast"}.get(P.get("buttonName"))
             return self.emit(m, {"wasPressed": P.get("sendEvent")}) if m else None
@@ -637,7 +730,7 @@ class Compiler:
             if P.get("gameObject") == "$Main Camera Obj" or P.get("gameObject") == "$MainCamera":
                 vec = P.get("vector") or [0, 0, 0]
                 return self.emit("CameraZoom", {"z": vec[2], "time": P.get("time"), "delay": P.get("delay") or 0})
-            if P.get("speed") is not None or P.get("loopType") or P.get("space") or P.get("delay") or \
+            if P.get("speed") is not None or (P.get("loopType") or 0) > 2 or P.get("space") or P.get("delay") or \
                     (P.get("easeType") or 0) > 21:
                 self.problem("iTweenMoveBy %r" % P)
                 return None
@@ -820,10 +913,10 @@ def _unity_animator(o):
     return next((c.get("v") for c in o["c"] if c["type"] == "Animator" and c.get("v") and c["v"].get("m_Controller")), None)
 
 
-OBJ = "<fffffffffHHHHHBBHHhHBBH"   # x y z, sx sy, its trigger (center from its place, half size), parent, name, sprite,
+OBJ = "<fffffffffHHHHHBBHHhHBBBBBBH"   # x y z, sx sy, its trigger (center from its place, half size), parent, name, sprite,
 #                                  first clip, clip map, its count, flags, condition, sorting layer, order, blend, its
-#                                  colliders (first, count)
-OF_ACTIVE, OF_RENDERER, OF_ANIMATOR, OF_TRIGGER, OF_COLLIDER, OF_ANIM_OFF, OF_WAVE = 1, 2, 4, 8, 16, 32, 64
+#                                  colliders (first, count), its color (r g b a), (pad)
+OF_ACTIVE, OF_RENDERER, OF_ANIMATOR, OF_TRIGGER, OF_COLLIDER, OF_ANIM_OFF, OF_WAVE, OF_FADE = 1, 2, 4, 8, 16, 32, 64, 128
 
 
 def room_blob(name, clip_index, sprites, owners=()):
@@ -861,6 +954,12 @@ def room_blob(name, clip_index, sprites, owners=()):
             # (WaveEffectControl: it grows and fades as it is on; its speed, its scale)
             fl |= OF_WAVE
             bx, by = wv.get("accelStart", 5), wv.get("scaleMultiplier", 1) * abs(sx) / abs(o["lscale"][0] or 1)
+        sf = next((c.get("v") for c in o["c"] if c.get("class") == "SimpleSpriteFade" and c.get("v")), None)
+        if sf:
+            # (SimpleSpriteFade: from its color to the fade's as it is on, in its time; then off, or back in its pool)
+            assert sf.get("fadeInOnStart") and (sf.get("deactivateOnFadeIn") or sf.get("recycleOnFadeIn")), o["path"]
+            fl |= OF_FADE
+            bx, by = sf.get("fadeDuration", 1), (sf.get("fadeInColor") or {}).get("a", 0)
         bhx, bhy = ((box[2] - box[0]) / 2, (box[3] - box[1]) / 2) if box else (0, 0)
         sprite, first, start, count = 0xFFFF, 0xFFFF, nmap, 0
         an = _animator(o)
@@ -890,7 +989,8 @@ def room_blob(name, clip_index, sprites, owners=()):
         else:
             sr = next((c.get("v") for c in o["c"] if c["type"] == "SpriteRenderer" and c.get("v")), None)
             if sr and sr.get("m_Sprite"):
-                sprite = sprites.id(o.get("_doc") or rm.d, sr["m_Sprite"], max(abs(sx), abs(sy)))
+                # (its own size, drawn at its scale: its texture as fine as it is drawn)
+                sprite = sprites.id(o.get("_doc") or rm.d, sr["m_Sprite"], 1.0, max(abs(sx), abs(sy)))
         cond = 0xFFFF
         for bn, off_if in state.conditions(o):
             if bn in pdf:
@@ -913,9 +1013,11 @@ def room_blob(name, clip_index, sprites, owners=()):
                 doc = o.get("_doc") or rm.d
                 blend = {"alpha": 0, "add": 1, "screen": 2, "linearlight": 3, "overlay": 4, "multiply": 5}[
                     scene.blend_of(unity.material(unity.ref_path(doc, m0[0]), m0[1])[1])]
+        col = (mr or {}).get("m_Color") or {"r": 1, "g": 1, "b": 1, "a": 1}
+        rgba = [max(0, min(255, int(round(col[k] * 255)))) for k in "rgba"]
         objs += struct.pack(OBJ, o["pos"][0], o["pos"][1], o["pos"][2], sx, sy, bx, by, bhx, bhy, parent,
                             STR.id(o["name"]), sprite, first, start, min(count, 255), fl, cond, layer, order, blend,
-                            cols[0] if cols else 0, len(cols), 0)
+                            cols[0] if cols else 0, len(cols), *rgba, 0)
     fsms = bytearray()
     for di, owner, init, fname in rm.fsms:
         fsms += struct.pack("<HHHH", di, owner, fname, len(init)) + b"".join(struct.pack("<I", v) for v in init)

@@ -394,6 +394,7 @@ def tile_map(t):
     if all(c == 1 for row in codes for c in row):
         return b"", TEX_FULL
     wide = t.ntiles > 255
+    assert t.ntiles < 65536, ("too many tiles", t.w, t.h, getattr(t, "name", None), getattr(t, "key", None))
     m = bytearray()
     rank = 0
     for row in codes:
@@ -510,7 +511,11 @@ def main():
     jobs += [sp["job"] for sp in sprites]
     with mp.get_context("spawn").Pool(min(4, os.cpu_count() or 1)) as pool:
         texs = pool.map(art.encode_job, jobs, chunksize=4)
-    # (the actors' textures come after the scenery's)
+    # (the actors' textures come after the scenery's; a smooth one kept smaller: units a texel of what is kept)
+    for sp, t in zip(sprites, texs[len(texs) - len(sprites):]):
+        h, w = sp["job"].arr.shape[:2]
+        if (t.w, t.h) != (w, h):
+            sp["tu"], sp["tv"] = sp["tu"] * w / t.w, sp["tv"] * h / t.h
     variants = variants + [sp["job"] for sp in sprites]
     print("textures %.0fs" % (time.time() - t0), flush=True)
     blocks = []

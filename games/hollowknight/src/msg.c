@@ -37,7 +37,31 @@ void msg_show(int item) {
 
 bool msg_shown(void) { return m.st != MS_OFF; }
 
+/* the HUD Blanker White (Blanker Control): FADE IN to white, FADE OUT from it, linearly over its Fade Time */
+static struct {
+  float alpha, from, to, t, time;
+  bool on;
+} wb = {0, 0, 0, 0, 1, false};
+
+void white_blanker_time(float t) { wb.time = t; }
+
+void white_blanker_fade(bool in) {
+  wb.from = in ? 0 : 1, wb.to = in ? 1 : 0, wb.t = 0, wb.on = true;
+  wb.alpha = wb.from;
+}
+
+void white_blanker_reset(void) { wb.on = false, wb.alpha = 0, wb.time = 1; }
+
+static void white_blanker_tick(void) {
+  if (!wb.on) return;
+  wb.t += DT;
+  float k = wb.time > 0 ? wb.t / wb.time : 1;
+  wb.alpha = wb.from + (wb.to - wb.from) * (k > 1 ? 1 : k);
+  if (k >= 1 && wb.to == 0) wb.on = false;
+}
+
 void msg_tick(void) {
+  white_blanker_tick();
   if (m.st == MS_OFF) return;
   uint32_t pressed = g_hero.keys & ~m.prev_keys;
   m.prev_keys = g_hero.keys;
@@ -112,6 +136,8 @@ static bool blank_on;
 void blanker_set(float alpha, bool on) { blank_alpha = alpha, blank_on = on; }
 
 void msg_draw(void) {
+  if (wb.on && wb.alpha > 0)
+    gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(8, 255, 255, 255, (uint8_t)(wb.alpha * 255 + 0.5f)));
   if (blank_on && blank_alpha > 0)
     gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(27, 0, 0, 0, (uint8_t)(blank_alpha * 255 + 0.5f)));
   if (m.st == MS_OFF) return;

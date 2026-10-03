@@ -18,6 +18,7 @@ KNIGHT = ("resources.assets", 20600, [
     "Prostrate", "Prostrate Rise", "Wake Up Ground", "Collect Normal 1", "Collect Normal 2", "Collect Normal 3",
     "Collect Magical 1", "Collect Magical 2", "Collect Magical 3", "Collect Magical Fall", "Collect Magical Land",
     "Collect Heart Piece", "Collect Heart Piece End", "Collect StandToIdle", "GetUpToIdle", "Death Head Cracked",
+    "Dreamer Land",
 ])
 
 # enemy kinds: name, the FSM (or component) that runs them, their library, the C code for that FSM, and the clips each
@@ -135,7 +136,7 @@ ACTORS = {"knight": KNIGHT,
           "geo": ("resources.assets", 23266, ["Small Idle", "Small Air", "Med Idle", "Med Air", "Large Idle", "Large Air"]),
           # the dialogue box (on the HUD, a third bigger with its text) and the prompt markers
           "dialogue": ("resources.assets", 20724, ["Arrow Up", "Arrow Down", "Stop Up", "Stop Down", "Fleur Top Up",
-                                                   "Fleur Top Down", "Fleur Bot Up", "Fleur Bot Down"]),
+                                                   "Fleur Top Down", "Fleur Bot Up", "Fleur Bot Down", "Dream Up", "Dream Down"]),
           "prompt": ("resources.assets", 23333, ["Up", "Down", "Blank"]),
           # the shade (Hollow Shade, and the Hero Death's rising one)
           "shade": ("resources.assets", 22801, ["Idle", "Startle", "Fly", "TurnToFly", "TurnToIdle", "Slash Antic", "Slash",
@@ -206,7 +207,7 @@ def named_sprites(sprites):
         out[name] = sprites.id(d, v["m_Sprite"], k, HUD_K / K0 if res == "hud" else res)
     return out
 # clips drawn bigger than their sprites (the object's scale): their frames are kept that much finer
-DRAWN_SCALE = {"Arrow Up": 1.3, "Arrow Down": 1.3, "Stop Up": 1.3, "Stop Down": 1.3, "SlashEffect": 1.645, "SlashEffectAlt": 1.422, "UpSlashEffect": 1.4, "DownSlashEffect": 1.28,
+DRAWN_SCALE = {"Arrow Up": 1.3, "Arrow Down": 1.3, "Stop Up": 1.3, "Stop Down": 1.3, "Dream Up": 1.0745, "Dream Down": 1.0745, "SlashEffect": 1.645, "SlashEffectAlt": 1.422, "UpSlashEffect": 1.4, "DownSlashEffect": 1.28,
                "Blast": 1.4, "Ball": 1.45, "Ball End": 1.45, "Fireball Wall Impact": 2.0,
                "Small Idle": 1.5, "Small Air": 1.5, "Med Idle": 1.5, "Med Air": 1.5, "Large Idle": 1.5, "Large Air": 1.5}
 K0 = scene.FOCAL / (0.004 - scene.CAMZ)   # screen pixels a unit, where actors are (z near 0)
@@ -349,6 +350,9 @@ def unity_sprites(keys):
         img = unity.sprite_image(s)
         wu, hu = s.w / s.ppu * scale, s.h / s.ppu * scale
         w, h = max(1, round(wu * K0 * res)), max(1, round(hu * K0 * res))
+        if w > 2 * img.width or h > 2 * img.height:
+            # (drawn far bigger than it is, a glow: kept at its own size, stretched as it is drawn)
+            w, h = img.width, img.height
         arr = np.asarray(img.resize((w, h), Image.BOX)).copy()
         out.append({"key": (level, fid, pid), "job": art.ImageJob(arr, "piece/%s" % s.name),
                     "lx": -s.px * wu, "ty": (1 - s.py) * hu, "tu": wu / w, "tv": hu / h})

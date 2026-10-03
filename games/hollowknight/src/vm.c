@@ -10,14 +10,14 @@
 #endif
 
 #define DT 0.02f
-#define MAX_VM_OBJS 28   /* (tools/vm.py: MAX_OBJS, MAX_FSMS, MAX_VARS) */
-#define MAX_VM_FSMS 20
+#define MAX_VM_OBJS 32   /* (tools/vm.py: MAX_OBJS, MAX_FSMS, MAX_VARS) */
+#define MAX_VM_FSMS 24
 #define MAX_VM_VARS 256
-#define MAX_MOVERS 2
+#define MAX_MOVERS 4
 #define NONE 0xFFFF
 #define OWNER 0xFF0F
 enum { O_HERO = 0xFF00, O_HERO_LIGHT, O_DIALOGUE_MANAGER, O_DIALOGUE_TEXT, O_AREA_TITLE, O_CAMERA_PARENT, O_MAIN_CAMERA,
-       O_GAME_MANAGER, O_HUD_BLANKER, O_HORNET = 0xFF0C };
+       O_GAME_MANAGER, O_HUD_BLANKER, O_HORNET = 0xFF0C, O_WHITE_BLANKER };
 #define O_GATE 0xFD00   /* (+ k: a battle gate, obj.c's) */
 enum { OF_ACTIVE = 1, OF_RENDERER = 2, OF_ANIMATOR = 4, OF_TRIGGER = 8, OF_COLLIDER = 16,
        OF_GONE = 32, OF_INSIDE = 64, OF_WAS_INSIDE = 128,
@@ -25,6 +25,7 @@ enum { OF_ACTIVE = 1, OF_RENDERER = 2, OF_ANIMATOR = 4, OF_TRIGGER = 8, OF_COLLI
        OF_SPELL_HIT = 512, OF_SPELL_IN = 1024, OF_SPELL_WAS = 2048 };   /* (a spell in its trigger) */
 #define OF_ANIM_OFF 32   /* (its record's: off once its clip is over, DeactivateAfter2dtkAnimation) */
 #define OF_WAVE 64       /* (its record's: WaveEffectControl, grows and fades as it is on: bx its speed, by its scale) */
+#define OF_FADE 128      /* (its record's: SimpleSpriteFade, fades as it is on, then off: bx its time, by the alpha to) */
 #define OF_STARTED 4     /* (its own: its animator started, the first time it was on) */
 enum { M_ENTER, M_UPDATE, M_FIXED };
 
@@ -36,6 +37,7 @@ typedef struct {
   int16_t order;
   uint16_t blend;   /* (its material's: BL_*) */
   uint8_t col0, ncol;   /* (the colliders it has: on as it is) */
+  uint8_t r, g, b, a;   /* (its renderer's color) */
   uint16_t pad;
 } ObjRec;
 
@@ -43,13 +45,15 @@ typedef struct {
   float x, y, sx, sy;   /* its place and scale now */
   Anim anim;
   uint16_t flags;
+  uint8_t alpha;   /* (its material's color's alpha: the scripts') */
 } Obj;
 typedef struct {
   int16_t obj;          /* (-1: none) */
   float vx, vy, g;      /* (one the scripts set moving: velocity, gravity scale) */
-  /* (iTweenMoveBy: from, by, time so far, its time, ease; 1 going, 2 over) */
-  float tx, ty, tdx, tdy, tt, ttime;
-  uint8_t ease, tween;
+  /* (iTweenMoveBy: by, how much of it so far (eased), time so far, its time, ease; 1 going, 2 over; its loop: none,
+   * again, back and forth. It moves by steps, with what else moves it: Translate) */
+  float tdx, tdy, te, tt, ttime;
+  uint8_t ease, tween, loop;
 } Mover;
 
 typedef struct {
@@ -59,6 +63,7 @@ typedef struct {
   bool on, finished;
   uint64_t done;        /* its state's actions that are over */
   float t;              /* time in its state */
+  bool started, pending;   /* (started once; to start, the next frame: Start) */
 } Fsm;
 
 static struct {
@@ -214,7 +219,9 @@ static bool obj_active(int o) {
 }
 
 static void obj_pos(int o, float *x, float *y) {
-  if (o == O_HERO) {
+  if (o == O_MAIN_CAMERA) {
+    *x = g_cam_x, *y = g_cam_y;
+  } else if (o == O_HERO) {
     *x = g_hero.body.x, *y = g_hero.body.y;
   } else if (obj_ok(o)) {
     *x = vm.objs[o].x, *y = vm.objs[o].y;
@@ -308,12 +315,15 @@ static void obj_set_active(int o, bool on) {
   if (on) vm.objs[o].flags |= OF_ACTIVE;
   else vm.objs[o].flags &= (uint16_t)~OF_ACTIVE;
   if (!was && on) anims_start();
-  if (!was && on && (vm.rec[o].flags & OF_WAVE)) vm.objs[o].anim.time = 0;   /* (its wave from the start) */
-  /* (an FSM starts again as its object comes on: RestartOnEnable) */
+  if (!was && on && (vm.rec[o].flags & (OF_WAVE | OF_FADE))) vm.objs[o].anim.time = 0;   /* (its wave, its fade, from the start) */
+  /* (an FSM starts again as its object comes on: RestartOnEnable; the first time, on its Start, the next frame) */
   if (!was && on)
     for (int i = 0; i < vm.nfsms; i++) {
       Fsm *f = &vm.fsms[i];
-      if (!f->on && obj_active(f->owner)) fsm_start(f);
+      if (!f->on && obj_active(f->owner)) {
+        if (f->started) fsm_start(f);
+        else f->pending = true;
+      }
     }
   if (was && !on)
     for (int i = 0; i < vm.nfsms; i++)
@@ -354,7 +364,12 @@ static void run_switches(Fsm *f) {
 }
 
 static void fsm_event(Fsm *f, int ev) {
-  if (!f->on || ev == 255) return;
+  if (ev == 255) return;
+  if (!f->on) {
+    /* (one not started yet starts as it hears one) */
+    if (!f->pending || !obj_active(f->owner)) return;
+    fsm_start(f);
+  }
   int s = transition(f, ev);
   if (s < 0) return;
   f->next = (uint8_t)s;
@@ -376,9 +391,19 @@ static void obj_event(int o, int ev, uint16_t fsm_name) {
     if (ev == VMEV_WAKE) enemies_hornet_wake();
     return;
   }
+  if (o == O_WHITE_BLANKER) {
+    if (ev == VMEV_FADE_IN || ev == VMEV_FADE_OUT) white_blanker_fade(ev == VMEV_FADE_IN);
+    return;
+  }
+  if (o == O_HERO) {
+    if (ev == VMEV_FSM_CANCEL) spell_cancel();   /* (its FSMs' FSM CANCEL: a spell, a focus, stopped) */
+    return;
+  }
   if (o == O_DIALOGUE_MANAGER) {
     if (ev == VMEV_BOX_UP) dialogue_box_up();
     else if (ev == VMEV_BOX_DOWN) dialogue_box_down();
+    else if (ev == VMEV_BOX_UP_DREAM) dialogue_dream_box(true);
+    else if (ev == VMEV_BOX_DOWN_DREAM) dialogue_dream_box(false);
     return;
   }
   for (int i = 0; i < vm.nfsms; i++)
@@ -971,8 +996,15 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       int o = oval(f, rv(&r));
       uint16_t x = rv(&r), y = rv(&r);
       uint8_t store = rb(&r);
+      uint16_t at = rv(&r);
       if (obj_ok(o)) {
-        if (has(x) && has(y)) obj_move(o, fval(f, x), fval(f, y));
+        if (has(at)) {
+          /* (at its spawn point, by an offset) */
+          float px, py;
+          obj_pos(oval(f, at), &px, &py);
+          obj_move(o, px + (has(x) ? fval(f, x) : 0), py + (has(y) ? fval(f, y) : 0));
+        } else if (has(x) && has(y))
+          obj_move(o, fval(f, x), fval(f, y));
         vm.objs[o].flags &= (uint16_t)~OF_GONE;
         obj_set_active(o, true);
       }
@@ -991,13 +1023,12 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       int o = oval(f, rv(&r));
       uint16_t vec = rv(&r);
       float t = fval(f, rv(&r));
-      int ease = rb(&r), ev = rb(&r);
+      int ease = rb(&r), loop = rb(&r), ev = rb(&r);
       Mover *m = mover(o, enter);
       if (enter) {
         if (!m) return true;
-        obj_pos(o, &m->tx, &m->ty);
         m->tdx = has(vec) ? fval(f, vec) : 0, m->tdy = has(vec) ? fval(f, (uint16_t)(vec + 1)) : 0;
-        m->tt = 0, m->ttime = t, m->ease = (uint8_t)ease, m->tween = 1;
+        m->te = 0, m->tt = 0, m->ttime = t, m->ease = (uint8_t)ease, m->tween = 1, m->loop = (uint8_t)loop;
         return false;
       }
       if (mode == M_UPDATE && (!m || m->tween != 1)) {
@@ -1006,6 +1037,55 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
         return true;
       }
       return false;
+    }
+    case VMOP_SETFSMFLOAT: {
+      int o = oval(f, rv(&r));
+      uint16_t fname = (uint16_t)val(f, rv(&r));
+      rv(&r);
+      uint32_t x = val(f, rv(&r));
+      uint8_t slot = rb(&r);
+      float v;
+      memcpy(&v, &x, 4);
+      if (o == O_WHITE_BLANKER) white_blanker_time(v);   /* (its Fade Time) */
+      else if (obj_ok(o) && slot != 255)
+        for (int i = 0; i < vm.nfsms; i++)
+          if (vm.fsms[i].owner == o && vm.fsms[i].name == fname) set_var(&vm.fsms[i], slot, x);
+      return true;
+    }
+    case VMOP_TEXTALIGN:
+      dialogue_centre(rb(&r) != 0);
+      return true;
+    case VMOP_OBJALPHA: {
+      int o = oval(f, rv(&r));
+      float a = fval(f, rv(&r));
+      bool every = rb(&r);
+      if (obj_ok(o)) vm.objs[o].alpha = (uint8_t)(a <= 0 ? 0 : a >= 1 ? 255 : a * 255 + 0.5f);
+      return !every;
+    }
+    case VMOP_GETOBJALPHA: {
+      int o = oval(f, rv(&r));
+      set_f(f, rb(&r), obj_ok(o) ? vm.objs[o].alpha / 255.0f : 1);
+      return true;
+    }
+    case VMOP_BUILDSTRING: {
+      /* (the string its parts make now: one of those it can) */
+      int n = rb(&r);
+      uint16_t parts[4];
+      for (int k = 0; k < n; k++) {
+        uint16_t sl = rv(&r);
+        if (k < 4) parts[k] = (uint16_t)val(f, sl);
+      }
+      int rows = rb(&r);
+      uint32_t found = 0;
+      for (int j = 0; j < rows; j++) {
+        uint16_t res = rv(&r);
+        bool match = true;
+        for (int k = 0; k < n; k++)
+          if (rv(&r) != parts[k < 4 ? k : 3]) match = false;
+        if (match) found = res;
+      }
+      set_var(f, rb(&r), found);
+      return true;
     }
     default:
       return true;
@@ -1076,7 +1156,7 @@ static void fsm_start(Fsm *f) {
   /* (its variables as they start, its first state) */
   const uint8_t *init = NULL;
   (void)init;
-  f->on = true, f->next = 255;
+  f->on = true, f->next = 255, f->started = true, f->pending = false;
   vm.depth = 0;
   enter_state(f, f->def[2]);
   run_switches(f);
@@ -1131,6 +1211,7 @@ void vm_enter(void) {
     /* (DeactivateIfPlayerdataTrue, False; or a scene loaded with the room's by a bool, not now) */
     if (r->cond != NONE && pd_flag(r->cond & 0x7FFF) == ((r->cond & 0x8000) != 0)) o->flags = OF_COND_OFF;
     o->anim.clip = -1, o->anim.sprite = -1;
+    o->alpha = 255;
   }
   const uint8_t *p = vm.map + 4 * nmap;
   int nvars = 0;
@@ -1158,6 +1239,9 @@ void vm_enter(void) {
 
 void vm_tick(void) {
   if (!vm.nfsms) return;
+  /* (FSMs whose objects came on: their Start) */
+  for (int i = 0; i < vm.nfsms; i++)
+    if (vm.fsms[i].pending && !vm.fsms[i].on && obj_active(vm.fsms[i].owner)) fsm_start(&vm.fsms[i]);
   /* the Knight in the objects' triggers */
   for (int i = 0; i < vm.nobjs; i++) {
     Obj *o = &vm.objs[i];
@@ -1170,6 +1254,11 @@ void vm_tick(void) {
     if (vm.rec[i].flags & OF_WAVE) {
       /* (WaveEffectControl: its timer at its speed; past 1, off) */
       if (obj_active(i) && (o->anim.time += DT * vm.rec[i].bx) > 1) obj_set_active(i, false);
+      continue;
+    }
+    if (vm.rec[i].flags & OF_FADE) {
+      /* (SimpleSpriteFade: over its time; then off) */
+      if (obj_active(i) && (o->anim.time += DT / vm.rec[i].bx) >= 1) obj_set_active(i, false);
       continue;
     }
     o->anim.events = 0;
@@ -1199,9 +1288,17 @@ void vm_tick(void) {
     if (m->obj < 0 || m->tween != 1) continue;
     m->tt += DT;
     float q = m->ttime > 0 ? m->tt / m->ttime : 1;
-    if (q >= 1) q = 1, m->tween = 2;
-    float e = ease(m->ease, q);
-    obj_move(m->obj, m->tx + m->tdx * e, m->ty + m->tdy * e);
+    if (m->loop && m->ttime > 0) {
+      /* (looping: never over; back and forth, the way back eased as the way there) */
+      float span = m->loop == 2 ? 2 * m->ttime : m->ttime;
+      while (m->tt >= span) m->tt -= span;
+      q = m->tt / m->ttime;
+      if (q > 1) q = 2 - q;
+    } else if (q >= 1) q = 1, m->tween = 2;
+    float e = ease(m->ease, q), x, y;
+    obj_pos(m->obj, &x, &y);
+    obj_move(m->obj, x + m->tdx * (e - m->te), y + m->tdy * (e - m->te));
+    m->te = e;
   }
   for (int i = 0; i < vm.nfsms; i++) fsm_step(&vm.fsms[i], M_UPDATE);
   vm.prev_keys = g_hero.keys;
@@ -1213,7 +1310,23 @@ void vm_tick(void) {
   }
 }
 
+/* (a colour for an object this frame: the same colour, the same slot; slots no one else uses) */
+static const uint8_t tint_slots[] = {28, 29, 30, 31, 9, 12, 13, 14};
+static uint32_t tint_used[sizeof tint_slots];
+static uint8_t obj_tint(int *n, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+  uint32_t c = (uint32_t)r | (uint32_t)g << 8 | (uint32_t)b << 16 | (uint32_t)a << 24;
+  int k = 0;
+  while (k < *n && tint_used[k] != c) k++;
+  if (k == *n) {
+    if (*n < (int)sizeof tint_slots) (*n)++;
+    else k = *n - 1;   /* (more than there are: the last one's) */
+    tint_used[k] = c;
+  }
+  return gfx_dyn_tint(tint_slots[k], r, g, b, a);
+}
+
 void vm_draw(void) {
+  int ntint = 0;
   for (int i = 0; i < vm.nobjs; i++) {
     const Obj *o = &vm.objs[i];
     const ObjRec *r = &vm.rec[i];
@@ -1221,12 +1334,14 @@ void vm_draw(void) {
     int sprite = (r->flags & OF_ANIMATOR) ? o->anim.sprite : (r->sprite == NONE ? -1 : r->sprite);
     if (sprite < 0) continue;
     Inst in;
-    if (r->flags & OF_WAVE) {
-      /* (its scale 1 + 4 t, its alpha 1 - t) */
-      float t = o->anim.time, k = (1 + 4 * t) * r->by;
-      sprite_inst(sprite, o->x, o->y, r->z, k, k, gfx_dyn_tint(28, 255, 255, 255, (uint8_t)(255 * (1 - t))), &in);
-    } else
-      sprite_inst(sprite, o->x, o->y, r->z, o->sx, o->sy, 0, &in);
+    /* (its color: its renderer's, its alpha the scripts' too; a wave's, a fade's as they go) */
+    float a = r->a / 255.0f * o->alpha / 255.0f, t = o->anim.time, sx = o->sx, sy = o->sy;
+    if (r->flags & OF_WAVE) a *= 1 - t, sx = sy = (1 + 4 * t) * r->by;
+    else if (r->flags & OF_FADE) a = a + (r->by - a) * (t > 1 ? 1 : t);
+    uint8_t al = (uint8_t)(a <= 0 ? 0 : a >= 1 ? 255 : a * 255 + 0.5f), tint = 0;
+    if (al != 255 || (r->r & r->g & r->b) != 255) tint = obj_tint(&ntint, r->r, r->g, r->b, al);
+    if (!al) continue;
+    sprite_inst(sprite, o->x, o->y, r->z, sx, sy, tint, &in);
     in.flags = (uint8_t)((in.flags & ~F_BLEND) | r->blend);
     gfx_actor(&in, SORT_KEY(r->layer, r->order));
   }
@@ -1243,7 +1358,8 @@ void vm_debug(void) {
   printf("\n");
   if (getenv("VMOBJ"))
     for (int i = 0; i < vm.nobjs; i++)
-      printf("   obj %d name %d flags %d active %d cols %d+%d at %.2f,%.2f clip %d sprite %d\n", i, vm.rec[i].name, vm.objs[i].flags,
-             obj_active(i), vm.rec[i].col0, vm.rec[i].ncol, vm.objs[i].x, vm.objs[i].y, vm.objs[i].anim.clip, vm.objs[i].anim.sprite);
+      printf("   obj %d name %d flags %d active %d cols %d+%d at %.2f,%.2f clip %d sprite %d/%d alpha %d scale %.2f,%.2f\n", i,
+             vm.rec[i].name, vm.objs[i].flags, obj_active(i), vm.rec[i].col0, vm.rec[i].ncol, vm.objs[i].x, vm.objs[i].y,
+             vm.objs[i].anim.clip, vm.objs[i].anim.sprite, vm.rec[i].sprite, vm.objs[i].alpha, vm.objs[i].sx, vm.objs[i].sy);
 }
 #endif

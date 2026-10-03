@@ -288,6 +288,9 @@ bool msg_shown(void);
 void msg_tick(void);
 void msg_draw(void);
 void blanker_set(float alpha, bool on);
+void white_blanker_fade(bool in);   /* HUD Blanker White: FADE IN, FADE OUT (over its Fade Time) */
+void white_blanker_time(float t);
+void white_blanker_reset(void);
 bool bench_respawn(const char *name);   /* RESPAWN: the Knight asleep on the bench so named */
 
 /* the Spell Control FSM (spell.c): focus, spells */
@@ -328,6 +331,8 @@ float text_width(int style, const uint8_t *s, int n);
 void dialogue_reset(void);
 void dialogue_box_up(void);
 void dialogue_box_down(void);
+void dialogue_dream_box(bool up);   /* Box Open Dream: BOX UP DREAM, BOX DOWN DREAM */
+void dialogue_centre(bool on);      /* (SetTextMeshProAlignment: the text centred, or to the left) */
 void dialogue_start(int text);
 bool dialogue_finished(void);
 bool dialogue_box_shown(void);

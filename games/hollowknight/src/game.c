@@ -28,6 +28,7 @@ void game_new(void) {
   dialogue_reset();
   prompts_reset();
   death_reset();
+  white_blanker_reset();
 }
 
 bool game_enter(int room, float x, float y, bool facing_right) {

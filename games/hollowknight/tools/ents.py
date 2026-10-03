@@ -718,7 +718,8 @@ def prop(d, o, by_id):
 def _sorting(o):
     """Its renderer's sorting layer (index) and order."""
     import scene
-    mr = next((c.get("v") for c in o["c"] if c["type"] == "MeshRenderer" and isinstance(c.get("v"), dict)), {}) or {}
+    mr = next((c.get("v") for c in o["c"] if c["type"] in ("MeshRenderer", "SpriteRenderer") and isinstance(c.get("v"), dict)),
+              {}) or {}
     return scene.layer_index(mr.get("m_SortingLayerID", 0)), mr.get("m_SortingOrder", 0)
 
 

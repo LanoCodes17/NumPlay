@@ -10,9 +10,10 @@
 #endif
 
 #define DT 0.02f
-#define MAX_VM_OBJS 32
+#define MAX_VM_OBJS 28   /* (tools/vm.py: MAX_OBJS, MAX_FSMS, MAX_VARS) */
 #define MAX_VM_FSMS 20
-#define MAX_VM_VARS 384
+#define MAX_VM_VARS 256
+#define MAX_MOVERS 2
 #define NONE 0xFFFF
 #define OWNER 0xFF0F
 enum { O_HERO = 0xFF00, O_HERO_LIGHT, O_DIALOGUE_MANAGER, O_DIALOGUE_TEXT, O_AREA_TITLE, O_CAMERA_PARENT, O_MAIN_CAMERA,
@@ -32,10 +33,13 @@ typedef struct {
 
 typedef struct {
   float x, y, sx, sy;   /* its place and scale now */
-  float vx, vy, g;      /* (a falling one's: velocity, gravity scale) */
   Anim anim;
   uint8_t flags;
 } Obj;
+typedef struct {
+  int16_t obj;          /* (-1: none) */
+  float vx, vy, g;      /* (one the scripts set moving: velocity, gravity scale) */
+} Mover;
 
 typedef struct {
   const uint8_t *def;
@@ -53,6 +57,7 @@ static struct {
   Obj objs[MAX_VM_OBJS];
   Fsm fsms[MAX_VM_FSMS];
   uint32_t vars[MAX_VM_VARS];
+  Mover movers[MAX_MOVERS];
   Fsm *executing;       /* (the FSM whose action runs: its events to itself wait) */
   int depth;
   /* the area title's variables as scripts set them (title.c starts it from them) */
@@ -243,6 +248,18 @@ static int obj_clip(int o, uint16_t name) {
 static Anim *obj_anim(int o) {
   if (o == O_HERO) return &g_hero.anim;
   return obj_ok(o) ? &vm.objs[o].anim : NULL;
+}
+
+static Mover *mover(int o, bool make) {
+  for (int i = 0; i < MAX_MOVERS; i++)
+    if (vm.movers[i].obj == o) return &vm.movers[i];
+  if (!make) return NULL;
+  for (int i = 0; i < MAX_MOVERS; i++)
+    if (vm.movers[i].obj < 0) {
+      vm.movers[i] = (Mover){(int16_t)o, 0, 0, 0};
+      return &vm.movers[i];
+    }
+  return NULL;
 }
 
 static void fsm_start(Fsm *f);
@@ -641,8 +658,9 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
         if (has(vx)) g_hero.body.vx = fval(f, vx);
         if (has(vy)) g_hero.body.vy = fval(f, vy);
       } else if (obj_ok(o)) {
-        if (has(vx)) vm.objs[o].vx = fval(f, vx);
-        if (has(vy)) vm.objs[o].vy = fval(f, vy);
+        Mover *m = mover(o, true);
+        if (m && has(vx)) m->vx = fval(f, vx);
+        if (m && has(vy)) m->vy = fval(f, vy);
       }
       return !every;
     }
@@ -650,7 +668,10 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       int o = oval(f, rv(&r));
       float g = fval(f, rv(&r));
       if (o == O_HERO) g_hero.body.gravity_scale = g;
-      else if (obj_ok(o)) vm.objs[o].g = g;
+      else if (obj_ok(o)) {
+        Mover *m = mover(o, true);
+        if (m) m->g = g;
+      }
       return true;
     }
     case VMOP_CHECKTARGETDIRECTION: {
@@ -859,7 +880,8 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
     case VMOP_COLLISION2DEVENT: {
       /* (a falling object reaching the ground) */
       int ev = rb(&r);
-      if (mode == M_FIXED && obj_ok(f->owner) && vm.objs[f->owner].vy == 0 && vm.objs[f->owner].g > 0) {
+      Mover *m = mover(f->owner, false);
+      if (mode == M_FIXED && m && m->vy == 0 && m->g > 0) {
         fsm_event(f, ev);
         return true;
       }
@@ -934,6 +956,7 @@ static const uint8_t *room_vm(void) {
 void vm_enter(void) {
   memset(&vm, 0, sizeof vm);
   vm.title = -1;
+  for (int k = 0; k < MAX_MOVERS; k++) vm.movers[k].obj = -1;
   const uint8_t *b = room_vm();
   if (!b) return;
   int nobjs = rd16(b), nfsms = rd16(b + 2), nmap = rd16(b + 4);
@@ -977,19 +1000,24 @@ void vm_tick(void) {
     o->flags = (uint8_t)((o->flags & ~OF_WAS_INSIDE) | ((o->flags & OF_INSIDE) ? OF_WAS_INSIDE : 0));
     bool in = (vm.rec[i].flags & OF_TRIGGER) && (o->flags & OF_COLLIDER) && obj_active(i) && hero_box_in(i);
     o->flags = (uint8_t)(in ? o->flags | OF_INSIDE : o->flags & ~OF_INSIDE);
-    /* (falling ones: to the ground) */
-    if (o->g > 0) {
-      o->vy -= 60 * o->g * DT;
-      float ny = o->y + o->vy * DT;
+    o->anim.events = 0;
+    anim_update(&o->anim, DT);
+  }
+  /* (those set moving: falling to the ground) */
+  for (int k = 0; k < MAX_MOVERS; k++) {
+    Mover *m = &vm.movers[k];
+    if (m->obj < 0) continue;
+    Obj *o = &vm.objs[m->obj];
+    if (m->g > 0) {
+      m->vy -= 60 * m->g * DT;
+      float ny = o->y + m->vy * DT;
       PhysHit hit;
-      if (o->vy < 0 && phys_ray(o->x, o->y, 0, -1, o->y - ny + 0.76f, CF_TERRAIN, &hit) && hit.dist <= o->y - ny + 0.76f)
-        o->y = o->y - hit.dist + 0.76f, o->vy = 0;
+      if (m->vy < 0 && phys_ray(o->x, o->y, 0, -1, o->y - ny + 0.76f, CF_TERRAIN, &hit) && hit.dist <= o->y - ny + 0.76f)
+        o->y = o->y - hit.dist + 0.76f, m->vy = 0;
       else
         o->y = ny;
     }
-    o->x += o->vx * DT;
-    o->anim.events = 0;
-    anim_update(&o->anim, DT);
+    o->x += m->vx * DT;
   }
   for (int i = 0; i < vm.nfsms; i++) fsm_step(&vm.fsms[i], M_FIXED);
   for (int i = 0; i < vm.nfsms; i++) fsm_step(&vm.fsms[i], M_UPDATE);

@@ -16,8 +16,10 @@ ROOMS = {
 }
 # FSMs left out (what this port does not have: the dream nail, sounds...)
 SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "fade and destroy", "Shop Open Voice"}
-# objects left out (effects drawn by the C code, or nothing at all)
+# objects left out (effects drawn by the C code, or nothing at all; the dream nail's)
 SKIP_CLASSES = {"SpellGetOrb", "ParticleSystem"}
+SKIP_NAMES = {"Dream Dialogue", "Dream Dialogue Flower", "Flower", "Flower Give"}
+MAX_OBJS, MAX_FSMS, MAX_VARS = 28, 20, 256   # (src/vm.c)
 
 # the game's own objects
 SPECIAL = {"Hero": 0xFF00, "HeroLight": 0xFF01, "DialogueManager": 0xFF02, "DialogueText": 0xFF03, "AreaTitle": 0xFF04,
@@ -193,7 +195,7 @@ class Room:
     # ------------------------------------------------------------ objects
     def want(self, o):
         cls = {c.get("class") or c["type"] for c in o["c"]}
-        return not (cls & SKIP_CLASSES)
+        return not (cls & SKIP_CLASSES) and o["name"] not in SKIP_NAMES
 
     def add_tree(self, o):
         if not self.want(o):
@@ -569,6 +571,9 @@ def prepare(rooms, sprites, texts):
                 rm.fsms.append((DEF_INDEX[body], rm.obj_index[o["id"]], init, STR.id(f["name"])))
         for p in rm.problems:
             print("vm:", p)
+        nvars = sum(len(i) for _, _, i, _ in rm.fsms)
+        assert len(rm.objs) <= MAX_OBJS and len(rm.fsms) <= MAX_FSMS and nvars <= MAX_VARS, \
+            (name, len(rm.objs), len(rm.fsms), nvars)
         BUILT[name] = rm
     # the animators' libraries: actors with the clips the scripts name (and their first)
     names = set(STR.list)

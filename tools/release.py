@@ -21,10 +21,13 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 REPO = "https://github.com/Mason363/NumPlay"
 # in games.json, but not games
 EXTRAS = {"numvisuals"}
-# games too big to fit next to NumPlay on the calculator: only on their own
+# games too big to fit next to NumPlay on the calculator: only on their own (after: listed after that game, else
+# in a section of their own)
 ALONE = {
+    "celeste": ("Celeste", "the whole climb up Celeste Mountain. Too big to share the calculator with NumPlay: install it "
+                "on its own", "numblocks"),
     "championisland": ("Champion Island", "the Doodle Champion Island Games. Too big to share the calculator with "
-                       "NumPlay: install it on its own"),
+                       "NumPlay: install it on its own", None),
 }
 VARIANTS = [
     ("NumPlay-Invisible.nwa", "The same app, hidden: a blank icon with no name"),
@@ -65,6 +68,12 @@ def main():
         files.append((os.path.join(a.build, name), f"{name} · {what}"))
         notes.append(f"| {link(name)} | {what} |")
     notes += ["", "### Each one on its own", "", "In the launcher's order.", "", "| File | |", "| --- | --- |"]
+    def alone_entry(gid):
+        title, what, _ = ALONE[gid]
+        name, what = apps[gid], f"{title}: {what}"
+        files.append((os.path.join(a.build, "apps", name), f"{name} · {what}"))
+        notes.append(f"| {link(name)} | {what} |")
+
     for g in games:
         name = g.get("app") or apps.get(g["id"])
         if not name:
@@ -73,14 +82,14 @@ def main():
         what = f"Only {g['title']}: {tagline}"
         files.append((os.path.join(a.build, "apps", name), f"{name} · {what}"))
         notes.append(f"| {link(name)} | {what} |")
-    alone = [(gid, apps[gid]) for gid in ALONE if gid in apps]
+        for gid in ALONE:
+            if ALONE[gid][2] == g["id"] and gid in apps:
+                alone_entry(gid)
+    alone = [gid for gid in ALONE if gid in apps and not ALONE[gid][2]]
     if alone:
         notes += ["", "### Too big for NumPlay", "", "| File | |", "| --- | --- |"]
-        for gid, name in alone:
-            title, what = ALONE[gid]
-            what = f"{title}: {what}"
-            files.append((os.path.join(a.build, "apps", name), f"{name} · {what}"))
-            notes.append(f"| {link(name)} | {what} |")
+        for gid in alone:
+            alone_entry(gid)
     notes += ["", "<sub>The file list below is sorted A to Z by GitHub. Each file's label says what it is.</sub>"]
 
     intro = open(os.path.join(ROOT, ".github", "release.md")).read().rstrip()

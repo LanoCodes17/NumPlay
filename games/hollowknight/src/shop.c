@@ -157,15 +157,10 @@ static void pay(const Item *it) {
 static bool give(const Item *it) {
   switch (it->type) {
     case ST_HEART:
-      /* (Heart Piece: a piece of a mask; four, a mask more) */
-      pd_set_flag(PDF_HEART_PIECE_COLLECTED, true);
-      if (++g_pd.heart_pieces >= 4) g_pd.heart_pieces = 0, g_pd.max_health++, hero_max_health();
-      return false;
     case ST_VESSEL:
-      /* (Vessel Fragment: three, a soul vessel more) */
-      pd_set_flag(PDF_VESSEL_FRAGMENT_COLLECTED, true);
-      if (++g_pd.vessel_fragments >= 3) g_pd.vessel_fragments = 0, g_pd.mp_reserve_max = (int16_t)(g_pd.mp_reserve_max + 33);
-      return false;
+      /* (Heart Piece, Vessel Fragment: its Instant made, the window closed) */
+      collect_start(it->type == ST_VESSEL);
+      return true;
     case ST_CHARM:
       /* (Charm: one more; the first, the charms' lesson) */
       g_pd.charms_owned++;

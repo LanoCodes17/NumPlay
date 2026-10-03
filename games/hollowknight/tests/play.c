@@ -57,6 +57,11 @@ int main(int argc, char **argv) {
     if (getenv("HKMP")) g_pd.mp = (int16_t)atoi(getenv("HKMP"));
     if (getenv("HKHEALTH")) g_pd.health = (int8_t)atoi(getenv("HKHEALTH"));
     if (getenv("HKGRUBS")) g_pd.grubs_collected = (uint8_t)atoi(getenv("HKGRUBS"));
+    if (getenv("HKPIECES")) {
+      int hp = 0, vf = 0;
+      sscanf(getenv("HKPIECES"), "%d,%d", &hp, &vf);
+      g_pd.heart_pieces = (uint8_t)hp, g_pd.vessel_fragments = (uint8_t)vf;
+    }
     if (getenv("HKGEO")) g_pd.geo = atoi(getenv("HKGEO"));
     if (getenv("HKFIRE")) g_pd.fireball_level = atoi(getenv("HKFIRE"));
     if (getenv("HKHORNETGP")) g_pd.hornet_greenpath = (uint8_t)atoi(getenv("HKHORNETGP"));
@@ -179,9 +184,11 @@ int main(int argc, char **argv) {
         if (pd_flag(i)) printf(" %d", i);
       int np = 0;
       for (int i = 0; i < MAX_PERSIST; i++) np += persist_get(i);
-      printf(" hornet_greenpath %d trinkets %d %d %d %d charms %d saved %d health %d+%d mp %d geo %d grubs %d\n", g_pd.hornet_greenpath,
+      printf(" hornet_greenpath %d trinkets %d %d %d %d charms %d saved %d health %d+%d mp %d geo %d grubs %d"
+             " max %d pieces %d %d reserve %d\n", g_pd.hornet_greenpath,
              g_pd.trinkets[0], g_pd.trinkets[1], g_pd.trinkets[2], g_pd.trinkets[3], g_pd.charms_owned, np, g_pd.health,
-             g_pd.health_blue, g_pd.mp, (int)g_pd.geo, g_pd.grubs_collected);
+             g_pd.health_blue, g_pd.mp, (int)g_pd.geo, g_pd.grubs_collected, g_pd.max_health, g_pd.heart_pieces,
+             g_pd.vessel_fragments, g_pd.mp_reserve_max);
     }
     return 0;
   }

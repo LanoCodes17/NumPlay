@@ -402,6 +402,12 @@ void ui_piece(const UiPiece *p, float ox, float oy, float k, uint8_t tint);
 void ui_sprite_at(int sprite, float x, float y, float k, uint8_t tint);
 void ui_text_at(int text, int style, const UiText *t, float ox, float oy, int align, float a);   /* (0 left, 1 center, 2 right) */
 void ui_number_at(int v, int style, float x, float top, int align, float a);
+/* a mask shard's, a vessel fragment's getting and its UI (collect.c) */
+void collect_reset(void);
+void collect_start(int kind);   /* 0 a mask shard, 1 a vessel fragment */
+void collect_tick(void);
+void collect_draw(void);        /* (before the HUD: behind it) */
+bool collect_active(void);
 /* the shops' menu (shop.c): SHOP UP from its region's script; what it does the game goes on behind it */
 void shop_reset(void);
 void shop_event(int ev);

@@ -521,10 +521,11 @@ def main():
     for key, style in (("CHARM_TUTE_TITLE", "TUTE_TITLE"), ("CHARM_TUTE_SUB", "TUTE"), ("CHARM_REMINDER", "TUTE")):
         fleurs["TXT_" + key] = TEXTS.add(text.clean(text.sheets()["Prompts"][key]), style)
     # the title screen, the save profiles, the pause menu; each room's map zone (the save slots' area)
-    import menu, inv, shop
+    import menu, inv, shop, collect
     fleurs.update(menu.build(SPRITES, TEXTS))
     fleurs.update(inv.build(SPRITES, TEXTS, hud_res, vm.CHARMS, charm_icon))
     fleurs.update(shop.build(SPRITES, TEXTS, hud_res, actors.clip_id, vm.CHARMS))
+    fleurs.update(collect.build())
     fleurs["ROOM_ZONES"] = "{%s}" % ", ".join(str(scene.settings(unity.scene(r)).get("map_zone") or 0) for r in ROOMS)
     for i, item in enumerate(text.MSGS):
         fleurs["MSG_" + item] = i

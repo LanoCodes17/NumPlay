@@ -142,6 +142,10 @@ ACTORS = {"knight": KNIGHT,
                                                     "Shop_Figurehead_Sly Down", "Shop_Figurehead_Mapperwife Up",
                                                     "Shop_Figurehead_Mapperwife Down", "Shop_Figurehead_Slug Up",
                                                     "Shop_Figurehead_Slug Down"]),
+          # a mask shard's and a vessel fragment's UI (Heart Container UI, Vessel Fragment UI: in front of the room)
+          "heartui": ("sharedassets10.assets", 592, ["Fleur Appear", "Fleur Disappear", "Get 0", "Get 1", "Get 2", "Get 3",
+                                                     "Get 4", "Got 1", "Got 2", "Got 3", "Fuse", "Head Move"]),
+          "vesselui": ("sharedassets10.assets", 542, ["Get 0", "Get 1", "Get 2", "Get 3", "Got 1", "Got 2"]),
           # (Gathering Swarm: the bug that brings geo, a child of each)
           "geobug": ("resources.assets", 22564, ["Lamp_Bug_idle"]),
           # the dialogue box (on the HUD, a third bigger with its text) and the prompt markers
@@ -152,7 +156,7 @@ ACTORS = {"knight": KNIGHT,
           "shade": ("resources.assets", 22801, ["Idle", "Startle", "Fly", "TurnToFly", "TurnToIdle", "Slash Antic", "Slash",
                                                  "Slash CD", "Slash Effect", "Cast Antic", "Cast Charge", "Cast",
                                                  "Retreat Start", "Retreat End", "Death Start", "Death", "Depart",
-                                                 "Appear", "Fireball", "Fireball End", "Cast Ring"])}
+                                                 "Appear", "Fireball", "Fireball End", "Cast Ring", "Death Glow"])}
 ACTORS.update(_enemy_actors())
 # battle gates (BG Control: the plain ones and the bone ones)
 ACTORS["bgate"] = ("sharedassets9.assets", 197, ["BG Opened", "BG Close 1", "BG Close 2", "BG Open", "BG Closed",
@@ -222,7 +226,8 @@ DRAWN_SCALE = {"Arrow Up": 1.3, "Arrow Down": 1.3, "Stop Up": 1.3, "Stop Down": 
                "SlashEffect F": 1.645, "SlashEffectAlt F": 1.422, "UpSlashEffect F": 1.4, "DownSlashEffect F": 1.28,
                "Blast": 1.4, "Ball": 1.45, "Ball End": 1.45, "Fireball Wall Impact": 2.0,
                "Lamp_Bug_idle": 1.5 * 1.4838, "Shop_Menu_Top Up": 1.124, "Shop_Menu_Top Down": 1.124,
-               "Shop_Menu_Bottom Up": 1.134, "Shop_Menu_Bottom Down": 1.134, "Small Idle": 1.5, "Small Air": 1.5, "Med Idle": 1.5, "Med Air": 1.5, "Large Idle": 1.5, "Large Air": 1.5}
+               "Shop_Menu_Bottom Up": 1.134, "Shop_Menu_Bottom Down": 1.134, "Small Idle": 1.5, "Small Air": 1.5, "Med Idle": 1.5, "Med Air": 1.5, "Large Idle": 1.5, "Large Air": 1.5,
+               "Head Move": 2.0, "Death Glow": 2.0}
 K0 = scene.FOCAL / (0.004 - scene.CAMZ)   # screen pixels a unit, where actors are (z near 0)
 HUD_K = (scene.VIEW_H / 2) / 8.7107        # the HUD's (its orthographic camera)
 # (actor, clip): drawn bigger or smaller than their sprites

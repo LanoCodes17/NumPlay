@@ -29,6 +29,7 @@ void game_new(void) {
   prompts_reset();
   inv_reset();
   shop_reset();
+  collect_reset();
   death_reset();
   white_blanker_reset();
 }
@@ -309,6 +310,7 @@ static void step(uint32_t keys) {
   benches_tick();
   vm_tick();
   msg_tick();
+  collect_tick();
   titles_tick();
   prompts_tick();
   dialogue_tick();
@@ -335,6 +337,7 @@ void game_tick(uint32_t keys) {
 bool game_changing_room(void) { return g_game.scene_phase != SP_NONE; }
 
 void game_draw_layers(void) {
+  collect_draw();
   hud_draw();
   msg_draw();
   titles_draw();

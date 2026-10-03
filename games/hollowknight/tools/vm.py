@@ -60,7 +60,8 @@ class Strings:
 STR = Strings()
 EVENTS = Strings()
 for e in ("FINISHED", "CONVO_FINISH", "CONVO START", "CONVO END", "BIG TITLE START", "BIG TITLE END", "HERO DAMAGED",
-          "NPC TITLE DOWN", "NPC CONVO START", "BOX UP", "BOX DOWN", "LEAVING SCENE", "TAKE DAMAGE", "GET ITEM MSG END"):
+          "NPC TITLE DOWN", "NPC CONVO START", "BOX UP", "BOX DOWN", "LEAVING SCENE", "TAKE DAMAGE", "GET ITEM MSG END",
+          "HORNET LEAVE"):
     EVENTS.id(e)
 
 # ---------------------------------------------------------------- the actions it runs: name -> (opcode, operands)

@@ -230,10 +230,11 @@ def pd_flags():
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "game.h")).read()
     names = re.search(r"enum \{\s*(PDF_AT_BENCH[^}]*)\}", src).group(1)
     ids = [n.strip() for n in names.replace("\n", " ").split(",") if n.strip() and n.strip() != "PDF_COUNT"]
-    camel = lambda n: "".join(w.capitalize() for w in n[4:].lower().split("_"))
+    camel = lambda n: "".join(w.capitalize() for w in n.lower().split("_"))
     out = {}
     for i, n in enumerate(ids):
-        c = camel(n)
+        # (Cornifer's: "corn_greenpathLeft")
+        c = "Corn_" + camel(n[9:]) if n.startswith("PDF_CORN_") else camel(n[4:])
         out[c[0].lower() + c[1:]] = i
     return out
 

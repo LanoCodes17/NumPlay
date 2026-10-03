@@ -83,6 +83,13 @@ ENEMY_KINDS = [
      ["Shield Front", "Shield Front Bump", "Shield Top", "Shield Top Bump", "Unshield Front", "Unshield Top", "Slash",
       "Slash Quick", "Slash Effect", "Slash Effect Quick", "Slash 2", "Slash 2 Effect", "Slash End", "Evade", "Shoot",
       "Shoot End", "Wake", "Dormant 1", "Dormant 2", "Shake"]),
+    # (Hornet: her code plays her clips by name, CLIP_HORNET_*; her needle's, her ball's, her effects', her corpse's)
+    ("hornet", "Control", ("sharedassets105.assets", 68), "HORNET", {"IDLE": "Idle", "DEATH_AIR": "Death Air"},
+     ["G Dash Antic", "G Dash", "G Dash Recover1", "G Dash Recover2", "Jump Antic", "Jump", "Land", "A Dash Antic",
+      "A Dash", "Wall Impact", "Sphere Antic G", "Sphere Antic A", "Sphere Attack", "Sphere Recover G", "Sphere Recover A",
+      "Sphere Ball", "Fall", "Throw Antic", "Throw", "Throw Recover", "Needle", "Needle Thread", "Run", "Hard Land",
+      "Evade Antic", "Evade", "Stun Air", "Stun", "Air Dash Effect", "G Dash Effect", "Flash", "Throw Effect", "Wounded",
+      "Flourish"]),
 ]
 ENEMY_CORPSE_LIBS = {}   # (name -> its corpse's library, if not its own)
 
@@ -166,6 +173,10 @@ def add_props(rooms):
         PROP_ACTOR[lib] = "prop%d" % i
         ACTORS["prop%d" % i] = (lib[0], lib[1], sorted(names))
 
+
+# Hornet as her cutscenes show her (her encounters, her corpse's leaving)
+ACTORS["hornetcs"] = ("sharedassets19.assets", 91, ["Idle", "Jump Full", "Throw Side Start", "Throw Side", "Harpoon Side",
+                                                    "Thread 1", "Point", "Evade Antic", "Evade", "Soft Land"])
 
 # enemies' shots (EnemyBullet)
 ACTORS["bullet"] = ("sharedassets32.assets", 745, ["Idle", "Impact", "Shockwave Spurt"])

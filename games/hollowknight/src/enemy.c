@@ -17,7 +17,7 @@
 enum {
   EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER, EF_ROLLER, EF_BLOCKER, EF_LEAPER, EF_GUARD,
   EF_FK, EF_FKHEAD, EF_GFLY, EF_HATCHER, EF_HATCHLING, EF_SLUG, EF_MOSSWALKER, EF_PIGEON, EF_PLANTTRAP, EF_SHAKER,
-  EF_MOSQUITO, EF_FATFLY, EF_MOSSCHARGER, EF_MOSSKNIGHT
+  EF_MOSQUITO, EF_FATFLY, EF_MOSSCHARGER, EF_MOSSKNIGHT, EF_HORNET
 };
 enum { R_IDLE, R_TURN, R_WALK, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, R_A7, R_A8, R_DEATH_AIR, R_DEATH_LAND, NUM_ROLES };
 typedef struct {
@@ -371,6 +371,7 @@ static void blocker_die(Enemy *e);
 static void gfly_die(Enemy *e);
 static void hatchling_reset(Enemy *e);
 static void hatcher_corpse_smash(const Enemy *e);
+static void hornet_corpse_start(Enemy *e);
 static void enemy_die(Enemy *e, float direction, bool has_direction) {
   if (FSM(e) == EF_SHADE) {
     shade_killed(e);
@@ -391,6 +392,7 @@ static void enemy_die(Enemy *e, float direction, bool has_direction) {
     if (d->s1 & EF_BATTLE) arena_enemy_died();   /* (its battleScene's Battle Enemies) */
   }
   if (FSM(e) == EF_GFLY) gfly_die(e);
+  else if (FSM(e) == EF_HORNET) hornet_corpse_start(e);
   else if (FSM(e) == EF_HATCHLING) {
     /* (deathReset: back to its cage) */
     death_shake(e);
@@ -421,6 +423,7 @@ static void blocker_hit(Enemy *e);
 static void fk_head_hit(void);
 static void fk_stun(Enemy *e);
 static void fk_head_stun_end(Enemy *h);
+static void hornet_hit(Enemy *e);
 static void enemy_hit_by(Enemy *e, float direction, int damage, bool nail, float magnitude) {
   if (e->mode != EM_ALIVE || e->evasion > 0 || damage <= 0) return;
   int dir = cardinal(direction);
@@ -443,9 +446,10 @@ static void enemy_hit_by(Enemy *e, float direction, int damage, bool nail, float
   if ((FSM(e) == EF_BUZZER || FSM(e) == EF_SHADE || FSM(e) == EF_HUSK) && e->st == 0) e->b1 = true;   /* (TOOK DAMAGE, in Idle / Ready) */
   if (FSM(e) == EF_BLOCKER && e->hp > 0) blocker_hit(e);
   if (FSM(e) == EF_FKHEAD) fk_head_hit();   /* (its sendHitTo) */
-  if (e->hp > 0)
+  if (e->hp > 0) {
     e->evasion = 0.2f;
-  else if (FSM(e) == EF_FK || FSM(e) == EF_FKHEAD) {
+    if (FSM(e) == EF_HORNET) hornet_hit(e);
+  } else if (FSM(e) == EF_FK || FSM(e) == EF_FKHEAD) {
     /* (hasSpecialDeath: ZERO HP to its FSMs, then NonFatalHit) */
     if (FSM(e) == EF_FK) fk_stun(e);
     else fk_head_stun_end(e);
@@ -5217,6 +5221,992 @@ static void mossknight_fixed(Enemy *e) {
   }
 }
 
+/* ---------------------------------------------------------------- Hornet (Greenpath): her Control and Stun Control;
+ * her Needle and its thread, her Sphere Ball, her effects; then her corpse (Corpse Hornet 1): wounded, she leaves */
+enum { HO_INERT, HO_REFIGHT_READY, HO_FLOURISH, HO_IDLE, HO_RUN_ANTIC, HO_RUN, HO_DMG_IDLE, HO_GDASH_ANTIC, HO_GDASH,
+       HO_GDASH_REC1, HO_GDASH_REC2, HO_JUMP_ANTIC, HO_JUMP, HO_IN_AIR, HO_LAND, HO_ADASH_ANTIC, HO_ADASH, HO_WALL,
+       HO_HARD_LAND, HO_SPHERE_ANTIC_G, HO_SPHERE_G, HO_SPHERE_REC_G, HO_SPHERE_ANTIC_A, HO_SPHERE_A, HO_SPHERE_REC_A,
+       HO_THROW_ANTIC, HO_THROW, HO_THROWN, HO_THROW_REC, HO_EVADE_ANTIC, HO_EVADE, HO_EVADE_LAND, HO_STUN_START,
+       HO_STUN_AIR, HO_STUN_LAND };
+/* (her corpse's) */
+enum { HC_LAUNCH, HC_IN_AIR, HC_LAND, HC_JUMP, HC_THROW_START, HC_THROW, HC_YANK, HC_END };
+/* (her FSM's: the arena's) */
+#define HO_FLOOR_Y 27.55f
+#define HO_ROOF_Y 40.54f
+#define HO_WALL_L 15.13f
+#define HO_WALL_R 37.9f
+#define HO_LEFT_X 16.06f
+#define HO_RIGHT_X 36.53f
+#define HO_SPHERE_Y 33.8f
+#define HO_THROW_X_L 22.51f
+#define HO_THROW_X_R 30.16f
+#define HO_GRAVITY 1.5f
+/* her collider by what she does: offset, size (Box Off / Box Size: Idle, Antic, GDash, ADash, Throw, Throwing) */
+enum { HB_IDLE, HB_ANTIC, HB_GDASH, HB_ADASH, HB_THROW, HB_THROWING };
+static const float ho_boxes[6][4] = {
+    {0.1201f, -0.2645f, 0.8947f, 2.5647f}, {1.0812f, -0.8565f, 1.229f, 1.3807f}, {0.0504f, -0.7939f, 1.5633f, 1.506f},
+    {0.1019f, 0, 1.4602f, 1.0251f},       {0.9968f, -0.2645f, 0.9817f, 2.5647f}, {0.1484f, -0.9688f, 1.3936f, 1.1562f}};
+/* (Hit GDash's triangle; Hit ADash's the same, 0.51 up; the Needle's, from it) */
+static const float ho_hit_pts[3][2] = {{-0.3343f, -0.6715f}, {-0.3788f, -0.9065f}, {-2.149f, -0.8611f}};
+static const float ho_needle_pts[3][2] = {{0.6598f, 0.0988f}, {0.653f, -0.1331f}, {-1.8165f, -0.0018f}};
+/* the counts her random choices keep (Ct ..., Ms ...) */
+enum { HC_CT_IDLE, HC_CT_RUN, HC_CT_GSPHERE, HC_CT_MISS, HC_CT_AIRDASH, HC_CT_ASPHERE, HC_CT_GDASH, HC_CT_THROW,
+       HC_MS_AIRDASH, HC_MS_ASPHERE, HC_MS_GDASH, HC_MS_THROW, HC_NUM };
+/* her effects (children that play a clip once where she put them) */
+typedef struct {
+  float x, y, sx, sy, ang;
+  Anim anim;
+} HoFx;
+#define HO_FX 2
+static struct {
+  uint8_t ct[HC_NUM];
+  uint8_t loops[2];    /* (SendRandomEventV3's, Move Choice A's and B's: never reset) */
+  uint8_t box;         /* (her collider's: HB_*) */
+  bool escalated, will_sphere, kinematic, evade_bool, evade_on, evade_in;
+  uint8_t hits_on;     /* (Hit GDash 1, Hit ADash 2) */
+  float air_dash_pause, run_wait_min, run_wait_max, idle_wait_min, idle_wait_max, angle, return_x_scale;
+  float evade_t;       /* (Evade Range's Fluctuate: its time left on or off) */
+  /* Stun Control */
+  uint8_t stun_st, combo, hits, stun_combo, stun_hit_max;
+  float combo_t;
+  /* her Needle: out, slowing, back (0 off); its place, velocity, time, where it went from, its rotation; its Tink */
+  uint8_t needle_st;
+  bool tink, thread_on, ball_started;
+  float nx, ny, nvx, nvy, nt, n0x, n0y, nrx, nry, nang, tink_t;
+  Anim needle, thread;
+  /* her Sphere Ball (Grow) */
+  bool ball_on;
+  float ball_t;
+  Anim ball;
+  HoFx fx[HO_FX];
+  /* her corpse: its Leave Anim, its Thread; its tween (iTweenMoveBy) */
+  bool leave_on, cthread_on, corpse_shown;
+  float tw_t, tw_x0, tw_y0, tw_dx, tw_dy, tw_time, rot, leave_dx;
+  uint8_t tw_ease;
+  Anim leave, cthread;
+} ho;
+enum { HSC_IDLE, HSC_COMBO, HSC_STOP };
+
+static float ho_xscale(const Enemy *e) { return e->sx < 0 ? -1.0f : 1.0f; }
+
+/* (a point in her own units -> the world: her scale's signs, then her rotation) */
+static void ho_point(const Enemy *e, float lx, float ly, float *wx, float *wy) {
+  lx *= ho_xscale(e), ly *= (float)e->sy;
+  float a = e->ang * (float)M_PI / 180, c = cosf(a), s = sinf(a);
+  *wx = e->body.x + lx * c - ly * s, *wy = e->body.y + lx * s + ly * c;
+}
+
+/* SetBoxCollider2DSizeVector (turned with her: its bounds) */
+static void ho_box(Enemy *e, int b) {
+  ho.box = (uint8_t)b;
+  const float *q = ho_boxes[b];
+  float cx, cy, a = e->ang * (float)M_PI / 180, c = fabsf(cosf(a)), s = fabsf(sinf(a));
+  ho_point(e, q[0], q[1], &cx, &cy);
+  e->body.ox = cx - e->body.x, e->body.oy = cy - e->body.y;
+  e->body.hx = (q[2] * c + q[3] * s) / 2, e->body.hy = (q[2] * s + q[3] * c) / 2;
+}
+
+/* SetBoxColliderTrigger: a trigger touches nothing */
+static void ho_trigger(Enemy *e, bool on) { e->body.mask = on ? 0 : CF_SOLID; }
+
+/* FaceObject (her sprite faces left) */
+static void ho_face(Enemy *e) {
+  if (hero_x() > e->body.x) set_scale_x(e, -1);
+  else if (hero_x() < e->body.x) set_scale_x(e, 1);
+}
+
+/* (SetScale x: her collider's offset with it) */
+static void ho_scale_x(Enemy *e, float sx) {
+  set_scale_x(e, sx);
+  ho_box(e, ho.box);
+}
+
+/* (the Knight's box in one of her ranges: a box in her own units) */
+static bool ho_hero_in_box(const Enemy *e, float cx, float cy, float w, float h) {
+  const Body *k = &g_hero.body;
+  float x = e->body.x + cx * ho_xscale(e), y = e->body.y + cy;
+  return !g_hero.hidden && fabsf(k->x + k->ox - x) < w / 2 + k->hx && fabsf(k->y + k->oy - y) < h / 2 + k->hy;
+}
+static bool ho_run_away_check(const Enemy *e) { return ho_hero_in_box(e, 0, 0.928f, 9.49f, 4.455f); }
+static bool ho_a_sphere_range(const Enemy *e) { return ho_hero_in_box(e, 0, 0.7219f, 13.05f, 35.9087f); }
+/* (Sphere Range: a circle) */
+static bool ho_sphere_range(const Enemy *e) {
+  const Body *k = &g_hero.body;
+  float cx = e->body.x - 0.0625f * ho_xscale(e), cy = e->body.y - 0.2812f, hx = k->x + k->ox, hy = k->y + k->oy;
+  float qx = fminf(fmaxf(cx, hx - k->hx), hx + k->hx) - cx, qy = fminf(fmaxf(cy, hy - k->hy), hy + k->hy) - cy;
+  return !g_hero.hidden && qx * qx + qy * qy < 3.43f * 3.43f;
+}
+/* (Evade Check: the terrain in a box behind her) */
+static bool ho_evade_check(const Enemy *e) {
+  float cx = e->body.x + 1.2562f * ho_xscale(e);
+  for (int i = 0; i < 3; i++)
+    if (phys_ray(cx - 1.7562f, e->body.y - 0.5f + 0.5f * (float)i, 1, 0, 3.5124f, CF_TERRAIN, NULL)) return true;
+  return false;
+}
+/* (A Dash Range: a polygon round her, the Knight's place in it) */
+static bool ho_a_dash_range(const Enemy *e) {
+  static const float p[8][2] = {{0.0271f, 0.2417f}, {25.4355f, 18.4062f}, {26.4515f, -21.5487f}, {7.3552f, -21.3394f},
+                                {0.008f, -0.1862f}, {-6.961f, -21.2192f}, {-25.1917f, -21.3371f}, {-24.868f, 19.831f}};
+  float pts[16];
+  for (int i = 0; i < 8; i++) pts[2 * i] = e->body.x + p[i][0] * ho_xscale(e), pts[2 * i + 1] = e->body.y + p[i][1];
+  const Body *k = &g_hero.body;
+  float x = k->x + k->ox, y = k->y + k->oy;
+  return !g_hero.hidden && box_meets_shape(x - k->hx, y - k->hy, x + k->hx, y + k->hy, pts, 8);
+}
+
+/* GetRandomWeightedIndex */
+static int ho_weighted(const float *w, int n) {
+  float sum = 0, s = 0;
+  for (int i = 0; i < n; i++) sum += w[i];
+  float r = rand_range(0, sum);
+  for (int i = 0; i < n; i++)
+    if (r < (s += w[i])) return i;
+  return n - 1;
+}
+
+/* SendRandomEventV2: none more than its most in a row */
+static int ho_random_v2(int c0, const float *w, const uint8_t *max, int n) {
+  for (;;) {
+    int k = ho_weighted(w, n);
+    if (ho.ct[c0 + k] < max[k]) {
+      uint8_t v = (uint8_t)(ho.ct[c0 + k] + 1);
+      for (int i = 0; i < n; i++) ho.ct[c0 + i] = 0;
+      ho.ct[c0 + k] = v;
+      return k;
+    }
+  }
+}
+
+/* SendRandomEventV3: as V2, but one missed too long is taken; past its hundredth time, the first as well (it wins) */
+static int ho_random_v3(int which, const float *w, const uint8_t *max, const uint8_t *missed, int n) {
+  int out = -1;
+  while (out < 0) {
+    int k = ho_weighted(w, n), forced = -1;
+    for (int i = 0; i < n; i++)
+      if (ho.ct[HC_MS_AIRDASH + i] >= missed[i]) forced = i;
+    if (forced >= 0 || ho.ct[HC_CT_AIRDASH + k] < max[k]) {
+      int pick = forced >= 0 ? forced : k;
+      uint8_t v = forced >= 0 ? 1 : (uint8_t)(ho.ct[HC_CT_AIRDASH + k] + 1);
+      for (int i = 0; i < n; i++) ho.ct[HC_CT_AIRDASH + i] = 0, ho.ct[HC_MS_AIRDASH + i]++;
+      ho.ct[HC_CT_AIRDASH + pick] = v, ho.ct[HC_MS_AIRDASH + pick] = 0;
+      out = pick;
+    }
+    if (ho.loops[which] < 255) ho.loops[which]++;
+    if (ho.loops[which] > 100) out = 0;
+  }
+  return out;
+}
+
+/* an effect: its clip at a place in her own units, turned and scaled as she is (then left there) */
+static void ho_fx(Enemy *e, int clip, float lx, float ly, float sx, float sy) {
+  HoFx *f = &ho.fx[0];
+  for (int i = 0; i < HO_FX; i++)
+    if (!ho.fx[i].anim.playing) f = &ho.fx[i];
+  ho_point(e, lx, ly, &f->x, &f->y);
+  f->sx = ho_xscale(e) * sx, f->sy = (float)e->sy * sy, f->ang = e->ang;
+  anim_play_from_frame(&f->anim, clip, 0);
+}
+
+static void ho_idle(Enemy *e);
+static void ho_g_sphere(Enemy *e);
+static void ho_jump_antic(Enemy *e);
+
+/* Escalation: at 90 HP or less, quicker */
+static void ho_escalation(Enemy *e) {
+  if (!ho.escalated && e->hp <= 90) {
+    ho.escalated = true;
+    ho.run_wait_min = 0.35f, ho.run_wait_max = 0.75f, ho.idle_wait_min = 0.1f, ho.idle_wait_max = 0.4f;
+  }
+  ho_idle(e);
+}
+
+/* Evade Antic: not with the terrain behind her */
+static void ho_evade_antic(Enemy *e) {
+  if (ho_evade_check(e)) {
+    ho_g_sphere(e);
+    return;
+  }
+  ho.evade_bool = false;
+  e->body.vx = e->body.vy = 0;
+  ho_face(e);
+  anim_play_from_frame(&e->anim, CLIP_HORNET_EVADE_ANTIC, 0);
+  e->st = HO_EVADE_ANTIC;
+}
+
+/* Flip? (half the time turned), Run Away? (from the Knight, near), Run Antic */
+static void ho_flip(Enemy *e) {
+  if (rand_range(0, 1) < 0.5f) ho_scale_x(e, -e->sx);
+  if (ho_run_away_check(e)) {
+    ho_face(e);
+    ho_scale_x(e, -e->sx);
+  }
+  anim_play_from_frame(&e->anim, CLIP_HORNET_EVADE_ANTIC, 0);
+  e->st = HO_RUN_ANTIC;
+}
+
+static void ho_idle(Enemy *e) {
+  e->st = HO_IDLE;
+  ho_face(e);
+  ho.air_dash_pause = 999;
+  ho_box(e, HB_IDLE);
+  anim_play(&e->anim, CLIP_HORNET_IDLE);
+  e->body.vx = 0;
+  if (ho.evade_bool) {
+    ho_evade_antic(e);
+    return;
+  }
+  static const float w[2] = {0.5f, 0.5f};
+  static const uint8_t mx[2] = {2, 2};
+  if (rand_range(0, 1) < 0.5f || ho_random_v2(HC_CT_IDLE, w, mx, 2) == 1) {
+    ho_flip(e);   /* (RUN) */
+    return;
+  }
+  e->wait = rand_range(ho.idle_wait_min, ho.idle_wait_max);
+}
+
+static void ho_gdash_antic(Enemy *e) {
+  ho_box(e, HB_ANTIC);
+  anim_play_from_frame(&e->anim, CLIP_HORNET_G_DASH_ANTIC, 0);
+  ho_face(e);
+  e->body.vx = 0;
+  e->st = HO_GDASH_ANTIC;
+}
+
+static void ho_throw_antic(Enemy *e) {
+  float a = atan2f(hero_y() - e->body.y, hero_x() - e->body.x) * 180 / (float)M_PI;
+  ho.angle = a < 0 ? a + 360 : a;
+  ho.stun_st = HSC_STOP;   /* (STUN CONTROL STOP) */
+  ho_face(e);
+  ho_box(e, HB_THROW);
+  e->body.vx = 0;
+  anim_play_from_frame(&e->anim, CLIP_HORNET_THROW_ANTIC, 0);
+  e->st = HO_THROW_ANTIC;
+}
+
+/* Move Choice A (she may throw) or B: an air dash, a sphere in the air, a ground dash, a throw */
+static void ho_move_choice(Enemy *e, bool can_throw) {
+  static const float wa[4] = {0.25f, 0.25f, 0.25f, 0.25f}, wb[3] = {0.33f, 0.33f, 0.34f};
+  static const uint8_t mx[4] = {2, 1, 2, 1}, ms[4] = {5, 7, 5, 3};
+  int k = can_throw ? ho_random_v3(0, wa, mx, ms, 4) : ho_random_v3(1, wb, mx, ms, 3);
+  if (k == 0) ho.air_dash_pause = rand_range(0.15f, 0.4f), ho.will_sphere = false, ho_jump_antic(e);   /* (Set ADash) */
+  else if (k == 1) ho.will_sphere = true, ho.air_dash_pause = 999, ho_jump_antic(e);                 /* (Set Sphere A) */
+  else if (k == 2) ho_gdash_antic(e);
+  else ho_throw_antic(e);
+}
+
+/* G Sphere? (the Knight near: a sphere on the ground, a fifth of the time), Can Throw? */
+static void ho_g_sphere(Enemy *e) {
+  static const float w[2] = {0.2f, 0.8f};
+  static const uint8_t mx[2] = {1, 5};
+  if (ho_sphere_range(e) && ho_random_v2(HC_CT_GSPHERE, w, mx, 2) == 0) {
+    e->body.vx = e->body.vy = 0;
+    ho_box(e, HB_IDLE);
+    anim_play_from_frame(&e->anim, CLIP_HORNET_SPHERE_ANTIC_G, 0);
+    ho_face(e);
+    e->st = HO_SPHERE_ANTIC_G;
+    return;
+  }
+  bool right = hero_x() > e->body.x;
+  ho_move_choice(e, (e->body.x > HO_THROW_X_R && !right) || (e->body.x < HO_THROW_X_L && right));
+}
+
+static void ho_jump_antic(Enemy *e) {
+  ho_box(e, HB_IDLE);
+  e->body.vx = e->body.vy = 0;
+  anim_play_from_frame(&e->anim, CLIP_HORNET_JUMP_ANTIC, 0);
+  ho_face(e);
+  e->st = HO_JUMP_ANTIC;
+}
+
+/* Set Jump Only */
+static void ho_jump_only(Enemy *e) {
+  ho.air_dash_pause = 999, ho.will_sphere = false;
+  ho_jump_antic(e);
+}
+
+static void ho_in_air(Enemy *e) {
+  e->st = HO_IN_AIR;
+  e->wait = ho.air_dash_pause;
+}
+
+/* Land, Hard Land: her collider, gravity and turn as they were */
+static void ho_grounded(Enemy *e) {
+  ho_trigger(e, false);
+  e->body.gravity_scale = HO_GRAVITY;
+  e->ang = 0, e->sy = 1;
+  ho_box(e, HB_IDLE);
+}
+
+/* Dmg Response: an evade, a jump, an attack, or a moment still */
+static void ho_dmg_response(Enemy *e) {
+  float r = rand_range(0, 1);
+  if (r < 0.3f) ho_evade_antic(e);
+  else if (r < 0.45f) ho_jump_only(e);
+  else if (r < 0.6f) ho_g_sphere(e);
+  else e->st = HO_DMG_IDLE, e->wait = rand_range(0.25f, 0.4f);
+}
+
+/* (the needle gone, its tink off; her attacks off) */
+static void ho_needle_off(void) { ho.needle_st = 0, ho.thread_on = false, ho.tink = false; }
+
+/* STUN (from her Stun Control): Stun Start */
+static void ho_stun(Enemy *e) {
+  ho_box(e, HB_IDLE);
+  ho.ball_on = false;
+  ho_trigger(e, false);
+  e->body.gravity_scale = HO_GRAVITY;
+  e->ang = 0, e->sy = 1;
+  ho_face(e);
+  anim_play_from_frame(&e->anim, CLIP_HORNET_STUN_AIR, 0);
+  e->body.vx = 10 * ho_xscale(e), e->body.vy = 20;
+  ho_needle_off();
+  ho.hits_on = 0;
+  e->st = HO_STUN_START;
+}
+
+/* HealthManager: TOOK DAMAGE (to her Control), then STUN DAMAGE (to her Stun Control) */
+static void hornet_hit(Enemy *e) {
+  if (e->st == HO_IDLE || e->st == HO_RUN) ho_dmg_response(e);
+  else if (e->st == HO_STUN_LAND) ho_jump_only(e);   /* (Stun Recover) */
+  bool stun = false;
+  if (ho.stun_st == HSC_STOP) ho.hits++;   /* (Unstun Increment) */
+  else if (ho.hits >= ho.stun_hit_max) stun = true;   /* (Max Check, Continue Combo) */
+  else {
+    /* In Combo: its two seconds again */
+    ho.combo++, ho.hits++, ho.combo_t = 2, ho.stun_st = HSC_COMBO;
+    stun = ho.combo == ho.stun_combo;
+  }
+  if (stun) {
+    ho.combo = ho.hits = 0, ho.stun_st = HSC_IDLE;
+    ho_stun(e);
+  }
+}
+
+static void hornet_wake(Enemy *e) {
+  /* Wake: solid, shown; Music; Flourish (and her title) */
+  ho.kinematic = false;
+  e->flags &= (uint8_t)~(1 | 32);
+  ho_box(e, HB_IDLE);
+  title_show(TITLE_HORNET, TF_VISITED);
+  anim_play_from_frame(&e->anim, CLIP_HORNET_FLOURISH, 0);
+  e->st = HO_FLOURISH;
+}
+
+static Enemy *hornet(void) {
+  for (int i = 0; i < MAX_ENEMIES; i++)
+    if (en[i].mode == EM_ALIVE && FSM(&en[i]) == EF_HORNET) return &en[i];
+  return NULL;
+}
+
+/* WAKE (from her encounter): Set Scale, Wake */
+void enemies_hornet_wake(void) {
+  Enemy *e = hornet();
+  if (e && e->st == HO_INERT) {
+    ho_scale_x(e, -1);
+    hornet_wake(e);
+  }
+}
+
+static void hornet_start(Enemy *e) {
+  memset(&ho, 0, sizeof ho);
+  ho.run_wait_min = 0.5f, ho.run_wait_max = 1, ho.idle_wait_min = 0.5f, ho.idle_wait_max = 0.75f;
+  /* (Stun Control's Heavy Blow: with Heavy Blow worn, one less of each) */
+  ho.stun_hit_max = 10, ho.stun_combo = 6;
+  ho.evade_t = rand_range(2, 3);
+  ho.box = HB_THROWING;
+  e->body.gravity_scale = HO_GRAVITY;
+  e->hb_on = 0;
+  /* Inert: kinematic, unseen, untouched; with hornetGreenpath 4 or more, Refight Ready */
+  ho.kinematic = true;
+  e->flags |= 1 | 32;
+  e->st = HO_INERT;
+  if (g_pd.hornet_greenpath >= 4) {
+    ho.kinematic = false;
+    e->flags &= (uint8_t)~(1 | 32);
+    anim_play(&e->anim, CLIP_HORNET_IDLE);
+    ho_scale_x(e, -1);
+    e->st = HO_REFIGHT_READY;
+  }
+#ifdef HOST
+  if (getenv("HKHORNET")) ho_scale_x(e, -1), hornet_wake(e), gates_event(BG_CLOSE);   /* (tests: awake at once) */
+#endif
+}
+
+static void ho_needle_tick(Enemy *e) {
+  if (!ho.needle_st) return;
+  ho.needle.events = 0;
+  anim_update(&ho.needle, DT);
+  ho.nt += DT;
+  if (ho.needle_st == 1) {
+    /* Out: a while, turned to its way */
+    ho.nang = atan2f(ho.nvy, ho.nvx) * 180 / (float)M_PI + 180;
+    if (ho.nt >= 0.3f) ho.needle_st = 2;
+  } else if (ho.needle_st == 2) {
+    /* Decel: till nearly still; Return: its thread out */
+    if (sqrtf(ho.nvx * ho.nvx + ho.nvy * ho.nvy) <= 0.5f) {
+      ho.needle_st = 3, ho.nt = 0, ho.nrx = ho.nx, ho.nry = ho.ny;
+      anim_play_from_frame(&ho.thread, CLIP_HORNET_NEEDLE_THREAD, 0), ho.thread_on = true;
+    }
+  } else {
+    /* Return: back where it was thrown from, 30 a second, easeInSine */
+    float dx = ho.n0x - ho.nrx, dy = ho.n0y - ho.nry, time = sqrtf(dx * dx + dy * dy) / 30;
+    float k = time > 0 ? ho.nt / time : 1;
+    if (k >= 1) {
+      ho.nx = ho.n0x, ho.ny = ho.n0y;
+      /* Notify: NEEDLE RETURN; Throw Recover */
+      ho_needle_off();
+      if (e->st == HO_THROWN) {
+        anim_play_from_frame(&e->anim, CLIP_HORNET_THROW_RECOVER, 0);
+        e->rc_base = 15;
+        if (ho.stun_st == HSC_STOP) ho.stun_st = HSC_IDLE, ho.combo = 0;   /* (STUN CONTROL START: Reset Counter) */
+        e->st = HO_THROW_REC;
+      }
+      return;
+    }
+    float f = 1 - cosf(k * (float)M_PI / 2);
+    ho.nx = ho.nrx + dx * f, ho.ny = ho.nry + dy * f;
+  }
+  if (ho.thread_on) {
+    ho.thread.events = 0;
+    anim_update(&ho.thread, DT);
+    if (ho.thread.events & ANIM_DONE) ho.thread_on = false;   /* (DeactivateAfter2dtkAnimation) */
+  }
+}
+
+static void hornet_fixed(Enemy *e) {
+  switch (e->st) {
+    case HO_GDASH_REC1: e->body.vx *= 0.77f; break;
+    case HO_GDASH_REC2: e->body.vx *= 0.75f; break;
+    case HO_HARD_LAND: e->body.vx *= 0.8f; break;
+    case HO_ADASH_ANTIC: e->body.vx = e->body.vy = 0; break;
+    case HO_SPHERE_ANTIC_A: case HO_SPHERE_A: e->body.vx *= 0.78f, e->body.vy *= 0.78f; break;
+  }
+  if (fabsf(e->body.vx) < 0.001f) e->body.vx = 0;
+  if (ho.needle_st == 1 || ho.needle_st == 2) {
+    ho.nx += ho.nvx * DT, ho.ny += ho.nvy * DT;
+    if (ho.needle_st == 2) ho.nvx *= 0.8f, ho.nvy *= 0.8f;
+  }
+}
+
+/* CheckCollisionSide: touching the terrain at her side, or under her */
+static bool ho_wall_side(const Enemy *e) {
+  for (int c = 0; c < e->body.ncontacts; c++)
+    if (fabsf(e->body.cnx[c]) > 0.5f) return true;
+  return false;
+}
+static bool ho_on_ground(const Enemy *e) {
+  for (int c = 0; c < e->body.ncontacts; c++)
+    if (e->body.cny[c] > 0.5f) return true;
+  return false;
+}
+
+static void hornet_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0;
+  ho_needle_tick(e);
+  for (int i = 0; i < HO_FX; i++) {
+    ho.fx[i].anim.events = 0;
+    if (ho.fx[i].anim.playing) anim_update(&ho.fx[i].anim, DT);
+  }
+  /* her Evade Range: its Fluctuate (off 2-3 s, on 1-2 s); ENTER and EXIT set her bool */
+  if ((ho.evade_t -= DT) <= 0) {
+    ho.evade_on = !ho.evade_on;
+    ho.evade_t = ho.evade_on ? rand_range(1, 2) : rand_range(2, 3);
+  }
+  bool in = ho.evade_on && !(e->flags & 1) && ho_hero_in_box(e, 0, 1.8175f, 7.6201f, 6.2341f);
+  if (in != ho.evade_in) ho.evade_bool = in, ho.evade_in = in;
+  /* Stun Control: In Combo's two seconds */
+  if (ho.stun_st == HSC_COMBO && (ho.combo_t -= DT) <= 0) ho.stun_st = HSC_IDLE, ho.combo = 0;
+  if (ho.ball_on) {
+    ho.ball.events = 0;
+    anim_update(&ho.ball, DT);
+    ho.ball_t += DT;
+  }
+  if (ho.tink_t > 0) ho.tink_t -= DT;
+  switch (e->st) {
+    case HO_REFIGHT_READY:
+      if (ho_hero_in_box(e, -1.0777f, 0.081f, 43.8482f, 3.6616f)) {
+        /* Refight Wake: the gates closed, her saver's walls up */
+        gates_event(BG_CLOSE);
+        enemies_hornet_saver(true);
+        hornet_wake(e);
+      }
+      break;
+    case HO_FLOURISH:
+      if (done) ho_idle(e);
+      break;
+    case HO_IDLE:
+      if ((e->wait -= DT) <= 0) ho_g_sphere(e);
+      break;
+    case HO_DMG_IDLE:
+      if ((e->wait -= DT) <= 0 || ho_wall_side(e)) ho_g_sphere(e);
+      break;
+    case HO_RUN_ANTIC:
+      if (done) {
+        /* Run: away, a while */
+        if (ho.evade_bool) {
+          ho_evade_antic(e);
+          break;
+        }
+        e->body.vx = -8 * ho_xscale(e);
+        anim_play(&e->anim, CLIP_HORNET_RUN);
+        e->wait = rand_range(ho.run_wait_min, ho.run_wait_max);
+        e->st = HO_RUN;
+      }
+      break;
+    case HO_RUN:
+      if ((e->wait -= DT) <= 0 || ho_wall_side(e)) ho_g_sphere(e);
+      break;
+    case HO_GDASH_ANTIC:
+      if (done) {
+        /* G Dash: along the ground, hurting */
+        anim_play(&e->anim, CLIP_HORNET_G_DASH);
+        ho_fx(e, CLIP_HORNET_G_DASH_EFFECT, 6.71f, 1, 1, 1);
+        cam_shake(SHAKE_ENEMY_KILL);
+        ho_box(e, HB_GDASH);
+        ho.hits_on = 1;
+        e->body.vx = -25 * ho_xscale(e);
+        e->wait = 0.35f;
+        e->st = HO_GDASH;
+      }
+      break;
+    case HO_GDASH:
+      if ((e->wait -= DT) <= 0 || ho_wall_side(e)) {
+        anim_play_from_frame(&e->anim, CLIP_HORNET_G_DASH_RECOVER1, 0);
+        ho_box(e, HB_ANTIC);
+        ho.hits_on = 0;
+        e->st = HO_GDASH_REC1;
+      }
+      break;
+    case HO_GDASH_REC1:
+      if (done) {
+        anim_play_from_frame(&e->anim, CLIP_HORNET_G_DASH_RECOVER2, 0);
+        ho_box(e, HB_IDLE);
+        e->st = HO_GDASH_REC2;
+      }
+      break;
+    case HO_GDASH_REC2:
+    case HO_LAND:
+    case HO_HARD_LAND:
+    case HO_SPHERE_REC_G:
+    case HO_THROW_REC:
+      if (done) ho_escalation(e);
+      break;
+    case HO_JUMP_ANTIC:
+      if (done) {
+        /* Aim Jump: somewhere across the arena, not near; Jump */
+        float jx;
+        do jx = rand_range(HO_LEFT_X, HO_RIGHT_X) - e->body.x;
+        while (jx >= -2.5f && jx <= 2.5f);
+        anim_play(&e->anim, CLIP_HORNET_JUMP);
+        e->body.vx = jx, e->body.vy = 41;
+        e->st = HO_JUMP;
+      }
+      break;
+    case HO_JUMP:
+      ho_in_air(e);
+      break;
+    case HO_IN_AIR: {
+      if (ho_on_ground(e)) {
+        anim_play_from_frame(&e->anim, CLIP_HORNET_LAND, 0);
+        e->body.vx = e->body.vy = 0;
+        ho_grounded(e);
+        e->st = HO_LAND;
+        break;
+      }
+      bool airdash = (e->wait -= DT) <= 0;
+      if (e->body.vy < 0 && e->body.y < HO_SPHERE_Y && ho.will_sphere) {
+        /* Do Sphere?: the Knight near enough */
+        ho.will_sphere = false;
+        if (ho_a_sphere_range(e)) {
+          anim_play_from_frame(&e->anim, CLIP_HORNET_SPHERE_ANTIC_A, 0);
+          e->body.gravity_scale = 0;
+          ho_face(e);
+          e->st = HO_SPHERE_ANTIC_A;
+        } else
+          ho_in_air(e);
+      } else if (airdash) {
+        /* ADash Antic: only with the Knight in her A Dash Range */
+        if (!ho_a_dash_range(e)) {
+          ho_in_air(e);
+          break;
+        }
+        float a = atan2f(hero_y() - 0.5f - e->body.y, hero_x() - e->body.x) * 180 / (float)M_PI;
+        ho.angle = a < 0 ? a + 360 : a;
+        anim_play_from_frame(&e->anim, CLIP_HORNET_A_DASH_ANTIC, 0);
+        ho_face(e);
+        e->body.vx = e->body.vy = 0, e->body.gravity_scale = 0;
+        e->st = HO_ADASH_ANTIC;
+      }
+      break;
+    }
+    case HO_ADASH_ANTIC:
+      if (done) {
+        /* Fire: at the Knight, a trigger, turned to her way (Firing R: upside down, going right) */
+        ho_trigger(e, true);
+        float a = ho.angle * (float)M_PI / 180;
+        e->body.vx = cosf(a) * 30, e->body.vy = sinf(a) * 30;
+        set_scale_x(e, 1);
+        e->sy = 1;
+        e->ang = fmodf(ho.angle + 180, 360);
+        if (e->ang >= 90 && e->ang <= 270) e->sy = -1, ho.return_x_scale = -1;
+        else ho.return_x_scale = 1;
+        ho_box(e, HB_ADASH);
+        ho.hits_on = 2;
+        /* A Dash */
+        ho_fx(e, CLIP_HORNET_AIR_DASH_EFFECT, 2.99f, 0.25f, 1, 1);
+        cam_shake(SHAKE_ENEMY_KILL);
+        ho.air_dash_pause = 999;
+        anim_play(&e->anim, CLIP_HORNET_A_DASH);
+        e->st = HO_ADASH;
+      }
+      break;
+    case HO_ADASH: {
+      int ev = 0;   /* (the last of the frame: LAND, ROOF, WALL L, WALL R) */
+      if (e->body.y <= HO_FLOOR_Y) ev = 1;
+      if (e->body.y >= HO_ROOF_Y) ev = 2;
+      if (e->body.x <= HO_WALL_L) ev = 3;
+      if (e->body.x >= HO_WALL_R) ev = 4;
+      if (!ev) break;
+      ho.hits_on = 0;
+      if (ev == 1) {
+        /* Land Y, Hard Land */
+        e->body.y = HO_FLOOR_Y;
+        set_scale_x(e, ho.return_x_scale);
+        anim_play_from_frame(&e->anim, CLIP_HORNET_HARD_LAND, 0);
+        e->body.vy = 0;
+        ho_grounded(e);
+        e->st = HO_HARD_LAND;
+      } else if (ev == 2) {
+        /* Hit Roof: down from there */
+        set_scale_x(e, ho.return_x_scale);
+        e->sy = 1, e->ang = 0;
+        e->body.y = HO_ROOF_Y;
+        e->body.vx = e->body.vy = 0;
+        ho_trigger(e, false);
+        e->body.gravity_scale = 2;
+        ho_box(e, HB_IDLE);
+        ho_in_air(e);
+      } else {
+        /* Wall L / R: against it a moment */
+        bool left = ev == 3;
+        e->ang = 0, e->sy = 1;
+        e->body.vx = e->body.vy = 0;
+        set_scale_x(e, left ? 1 : -1);
+        e->body.x = left ? HO_WALL_L : HO_WALL_R;
+        ho_trigger(e, false);
+        ho_box(e, HB_IDLE);
+        anim_play_from_frame(&e->anim, CLIP_HORNET_WALL_IMPACT, 0);
+        e->c0 = left;
+        e->st = HO_WALL;
+      }
+      break;
+    }
+    case HO_WALL:
+      if (done) {
+        /* Jump R / L: off it */
+        bool left = e->c0;
+        e->body.vx = left ? 10 : -10, e->body.vy = 20;
+        anim_play(&e->anim, CLIP_HORNET_JUMP);
+        e->body.gravity_scale = 2;
+        ho_scale_x(e, left ? -1 : 1);
+        ho_in_air(e);
+      }
+      break;
+    case HO_SPHERE_ANTIC_G:
+    case HO_SPHERE_ANTIC_A:
+      if (done) {
+        /* Sphere: her ball out, a flash, a shake; a second */
+        ho.ball_on = true, ho.ball_t = 0;
+        if (!ho.ball_started) anim_play_from_frame(&ho.ball, CLIP_HORNET_SPHERE_BALL, 0), ho.ball_started = true;
+        ho_fx(e, CLIP_HORNET_FLASH, 0, 0, 1.3849f, 1.05f);
+        cam_shake(SHAKE_ENEMY_KILL);
+        anim_play(&e->anim, CLIP_HORNET_SPHERE_ATTACK);
+        e->wait = 1;
+        e->st = e->st == HO_SPHERE_ANTIC_G ? HO_SPHERE_G : HO_SPHERE_A;
+      }
+      break;
+    case HO_SPHERE_G:
+    case HO_SPHERE_A:
+      if ((e->wait -= DT) <= 0) {
+        bool g = e->st == HO_SPHERE_G;
+        anim_play_from_frame(&e->anim, g ? CLIP_HORNET_SPHERE_RECOVER_G : CLIP_HORNET_SPHERE_RECOVER_A, 0);
+        ho.ball_on = false;
+        e->st = g ? HO_SPHERE_REC_G : HO_SPHERE_REC_A;
+      }
+      break;
+    case HO_SPHERE_REC_A:
+      if (done) {
+        /* Sphere A End: falling */
+        anim_play(&e->anim, CLIP_HORNET_FALL);
+        e->body.gravity_scale = HO_GRAVITY;
+        ho_in_air(e);
+      }
+      break;
+    case HO_THROW_ANTIC:
+      if (done) {
+        /* Lock?: straight across, her way; Throw: her needle out of her hand */
+        ho.angle = ho.angle <= 90 ? 0 : ho.angle <= 270 ? 180 : 0;
+        ho_fx(e, CLIP_HORNET_THROW_EFFECT, 1.34f, -0.05f, 1, 1);
+        ho_box(e, HB_THROWING);
+        ho.nx = ho.n0x = e->body.x, ho.ny = ho.n0y = e->body.y - 0.5f;
+        float a = ho.angle * (float)M_PI / 180;
+        ho.nvx = cosf(a) * 38, ho.nvy = sinf(a) * 38;
+        ho.nang = ho.angle + 180;
+        ho.needle_st = 1, ho.nt = 0;
+        anim_play_from_frame(&ho.needle, CLIP_HORNET_NEEDLE, 0);
+        anim_play(&e->anim, CLIP_HORNET_THROW);
+        e->rc_base = 0;
+        ho.tink = true;
+        e->st = HO_THROW;
+      }
+      break;
+    case HO_THROW:
+      e->st = HO_THROWN;
+      break;
+    case HO_EVADE_ANTIC:
+      if (done) {
+        anim_play(&e->anim, CLIP_HORNET_EVADE);
+        e->body.vx = 22 * ho_xscale(e);
+        e->wait = 0.25f;
+        e->st = HO_EVADE;
+      }
+      break;
+    case HO_EVADE:
+      if ((e->wait -= DT) <= 0 || ho_wall_side(e)) {
+        anim_play_from_frame(&e->anim, CLIP_HORNET_LAND, 0);
+        e->body.vx = e->body.vy = 0;
+        e->st = HO_EVADE_LAND;
+      }
+      break;
+    case HO_EVADE_LAND:
+      if (done) {
+        /* After Evade: an attack, or idle */
+        if (rand_range(0, 1) < 0.5f) ho_g_sphere(e);
+        else ho_escalation(e);
+      }
+      break;
+    case HO_STUN_START:
+      e->st = HO_STUN_AIR;
+      break;
+    case HO_STUN_AIR:
+      if (ho_on_ground(e)) {
+        anim_play(&e->anim, CLIP_HORNET_STUN);
+        e->body.vx = e->body.vy = 0;
+        e->wait = 3;
+        e->st = HO_STUN_LAND;
+      }
+      break;
+    case HO_STUN_LAND:
+      if ((e->wait -= DT) <= 0) ho_jump_only(e);   /* (Stun Recover) */
+      break;
+  }
+}
+
+/* her attacks the Knight's box meets (Hit GDash, Hit ADash, the Needle, the Sphere Ball) */
+static bool hornet_touch(const Enemy *e, float x0, float y0, float x1, float y1) {
+  float pts[6];
+  if (ho.hits_on) {
+    float oy = ho.hits_on == 2 ? 0.51f : 0;
+    for (int j = 0; j < 3; j++) ho_point(e, ho_hit_pts[j][0], ho_hit_pts[j][1] + oy, &pts[2 * j], &pts[2 * j + 1]);
+    if (box_meets_shape(x0, y0, x1, y1, pts, 3)) return true;
+  }
+  if (ho.needle_st) {
+    float a = ho.nang * (float)M_PI / 180, c = cosf(a), s = sinf(a);
+    for (int j = 0; j < 3; j++)
+      pts[2 * j] = ho.nx + ho_needle_pts[j][0] * c - ho_needle_pts[j][1] * s,
+      pts[2 * j + 1] = ho.ny + ho_needle_pts[j][0] * s + ho_needle_pts[j][1] * c;
+    if (box_meets_shape(x0, y0, x1, y1, pts, 3)) return true;
+  }
+  if (ho.ball_on) {
+    /* (Grow: from 0.8 to 1.5 in a quarter second, easeOutSine) */
+    float k = ho.ball_t >= 0.25f ? 1 : sinf(ho.ball_t / 0.25f * (float)M_PI / 2), sc = 0.8f + 0.7f * k;
+    float cx = e->body.x - 0.0625f * sc * ho_xscale(e), cy = e->body.y - 0.2812f * sc, r = 2.53f * sc;
+    float qx = fminf(fmaxf(cx, x0), x1) - cx, qy = fminf(fmaxf(cy, y0), y1) - cy;
+    if (qx * qx + qy * qy < r * r) return true;
+  }
+  return false;
+}
+
+/* her Needle Tink: the nail meets it, the Knight thrown back */
+static int hornet_nail(const float *pts, int npts, float direction) {
+  if (!ho.tink || ho.tink_t > 0) return 0;
+  float a = ho.nang * (float)M_PI / 180, c = cosf(a), s = sinf(a), q[8];
+  static const float b[4][2] = {{-1.6935f, -0.1256f}, {1.5531f, -0.1256f}, {1.5531f, 0.1256f}, {-1.6935f, 0.1256f}};
+  for (int j = 0; j < 4; j++) q[2 * j] = ho.nx + b[j][0] * c - b[j][1] * s, q[2 * j + 1] = ho.ny + b[j][0] * s + b[j][1] * c;
+  float x0 = q[0], y0 = q[1], x1 = q[0], y1 = q[1];
+  for (int j = 1; j < 4; j++) x0 = fminf(x0, q[2 * j]), x1 = fmaxf(x1, q[2 * j]), y0 = fminf(y0, q[2 * j + 1]), y1 = fmaxf(y1, q[2 * j + 1]);
+  if (!box_meets_shape(x0, y0, x1, y1, pts, npts)) return 0;
+  ho.tink_t = 0.25f;
+  cam_shake(SHAKE_ENEMY_KILL);
+  switch (cardinal(direction)) {
+    case 0: hero_recoil_left(); break;
+    case 1: hero_recoil_down(); break;
+    case 2: hero_recoil_right(); break;
+  }
+  return HB_RECOIL;
+}
+
+/* ---------------------------------------------------------------- her corpse (Corpse Hornet 1) */
+static void hornet_corpse_start(Enemy *e) {
+  const Ent *c = enemy_rec(e, ET_CORPSE);
+  e->mode = EM_CORPSE;
+  ho_needle_off();
+  ho.ball_on = false, ho.hits_on = 0;
+  for (int i = 0; i < HO_FX; i++) ho.fx[i].anim.playing = false;
+  e->ang = 0, e->sy = 1;
+  if (c) e->body.ox = c->x0, e->body.oy = c->y0, e->body.hx = c->x1, e->body.hy = c->y1, e->body.gravity_scale = c->p0;
+  e->body.mask = CF_SOLID, e->body.friction = 0.2f, e->body.ncontacts = 0;
+  /* Limit Pos; Set PD; Blow */
+  e->body.y = fmaxf(e->body.y, 28.75f), e->body.x = fminf(fmaxf(e->body.x, 16), 37);
+  pd_set_flag(PDF_HORNET1_DEFEATED, true);
+  game_freeze(0.01f, 0.35f, 0.1f, 0, false);
+  cam_shake(SHAKE_AVERAGE);
+  /* Launch: up, a little toward the Knight */
+  ho_face(e);
+  e->body.vx = ho_xscale(e) * 5, e->body.vy = 20;
+  anim_play(&e->anim, CLIP_HORNET_DEATH_AIR);
+  ho.corpse_shown = true;
+  e->st = HC_LAUNCH;
+}
+
+/* (iTweenMoveBy: easeOutCubic, or linear) */
+static void hc_tween(Enemy *e, float dx, float dy, float time, uint8_t ease) {
+  ho.tw_t = 0, ho.tw_x0 = e->body.x, ho.tw_y0 = e->body.y, ho.tw_dx = dx, ho.tw_dy = dy, ho.tw_time = time;
+  ho.tw_ease = ease;
+}
+
+static void hornet_corpse_fixed(Enemy *e) {
+  if (e->st <= HC_LAND) {
+    if (e->st != HC_LAND || e->body.vx || e->body.vy) body_step(&e->body, DT);
+    return;
+  }
+  if (ho.tw_time > 0) {
+    ho.tw_t += DT;
+    float k = ho.tw_t >= ho.tw_time ? 1 : ho.tw_t / ho.tw_time;
+    if (ho.tw_ease) k = 1 - (1 - k) * (1 - k) * (1 - k);
+    e->body.x = ho.tw_x0 + ho.tw_dx * k, e->body.y = ho.tw_y0 + ho.tw_dy * k;
+    if (ho.tw_t >= ho.tw_time) ho.tw_time = 0;
+  }
+}
+
+static void hornet_corpse_update(Enemy *e) {
+  if (ho.leave_on) {
+    ho.leave.events = 0;
+    anim_update(&ho.leave, DT);
+  }
+  bool tdone = false;
+  if (ho.cthread_on) {
+    ho.cthread.events = 0;
+    anim_update(&ho.cthread, DT);
+    tdone = (ho.cthread.events & ANIM_DONE) != 0;
+  }
+  switch (e->st) {
+    case HC_LAUNCH:
+      e->st = HC_IN_AIR;
+      break;
+    case HC_IN_AIR:
+      if (ho_on_ground(e)) {
+        /* Land: wounded, a while */
+        anim_play(&e->anim, CLIP_HORNET_WOUNDED);
+        e->body.vx = e->body.vy = 0;
+        e->wait = 3;
+        e->st = HC_LAND;
+      }
+      break;
+    case HC_LAND:
+      if ((e->wait -= DT) <= 0) {
+        /* Check Pos: away from the nearer side; Jump: her cutscene self leaps */
+        bool l = e->body.x < 27.3f;
+        set_scale_x(e, l ? -1 : 1);
+        ho.leave_dx = l ? 8 : -8, ho.rot = l ? 45 : -45;
+        ho.corpse_shown = false;
+        ho.leave_on = true;
+        anim_play_from_frame(&ho.leave, CLIP_HORNETCS_JUMP_FULL, 0);
+        e->body.vx = e->body.vy = 0, e->body.gravity_scale = 0, e->body.mask = 0;
+        hc_tween(e, 0, 6, 0.7f, 1);
+        e->wait = 0.415f;
+        e->st = HC_JUMP;
+      }
+      break;
+    case HC_JUMP:
+      if ((e->wait -= DT) <= 0) {
+        anim_play_from_frame(&ho.leave, CLIP_HORNETCS_THROW_SIDE_START, 0);
+        e->st = HC_THROW_START;
+      }
+      break;
+    case HC_THROW_START:
+      if (ho.leave.events & ANIM_DONE) {
+        /* Throw: her thread out */
+        ho.cthread_on = true;
+        anim_play_from_frame(&ho.cthread, CLIP_HORNETCS_THREAD_1, 0);
+        anim_play_from_frame(&ho.leave, CLIP_HORNETCS_THROW_SIDE, 0);
+        e->st = HC_THROW;
+      }
+      break;
+    case HC_THROW:
+      if (tdone) {
+        /* Yank: she turns (her thread not: it is let go of then), pulled to it */
+        anim_play_from_frame(&ho.leave, CLIP_HORNETCS_HARPOON_SIDE, 0);
+        e->ang = ho.rot;
+        hc_tween(e, ho.leave_dx, 8, 0.15f, 0);
+        e->st = HC_YANK;
+      }
+      break;
+    case HC_YANK:
+      if (ho.tw_time <= 0) {
+        /* End: gone; HORNET LEAVE */
+        cam_shake(SHAKE_ENEMY_KILL);
+        ho.leave_on = false;
+        vm_broadcast(VMEV_HORNET_LEAVE);
+        e->st = HC_END;
+      }
+      break;
+  }
+}
+
+static void hornet_draw(const Enemy *e, int i, float z) {
+  Inst in;
+  uint8_t tint = flash_tint(e, 2 + i % 5);
+  if (e->mode == EM_ALIVE || ho.corpse_shown) {
+    sprite_inst_rot(e->anim.sprite, e->body.x, e->body.y, z, e->sx, (float)e->sy, e->ang, tint, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+  }
+  if (e->mode == EM_ALIVE) {
+    if (ho.ball_on && ho.ball.sprite >= 0) {
+      float k = ho.ball_t >= 0.25f ? 1 : sinf(ho.ball_t / 0.25f * (float)M_PI / 2), sc = 0.8f + 0.7f * k;
+      sprite_inst(ho.ball.sprite, e->body.x, e->body.y, z - 0.001f, sc * ho_xscale(e), sc, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
+    for (int k = 0; k < HO_FX; k++) {
+      const HoFx *f = &ho.fx[k];
+      if (!f->anim.playing || f->anim.sprite < 0) continue;
+      sprite_inst_rot(f->anim.sprite, f->x, f->y, z - 0.002f, f->sx, f->sy, f->ang, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
+  }
+  if (ho.needle_st && ho.needle.sprite >= 0) {
+    sprite_inst_rot(ho.needle.sprite, ho.nx, ho.ny, z - 0.001f, 1, 1, ho.nang, 0, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+    if (ho.thread_on && ho.thread.sprite >= 0) {
+      float a = ho.nang * (float)M_PI / 180;
+      sprite_inst_rot(ho.thread.sprite, ho.nx + 5.2f * cosf(a), ho.ny + 5.2f * sinf(a), z - 0.001f, 1, 1, ho.nang, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
+  }
+  if (e->mode == EM_CORPSE) {
+    if (ho.leave_on && ho.leave.sprite >= 0) {
+      sprite_inst_rot(ho.leave.sprite, e->body.x, e->body.y, z, e->sx, 1, e->ang, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
+    if (ho.cthread_on && ho.cthread.sprite >= 0) {
+      /* (her child, turned 45 degrees its way; not turned with her as she yanks) */
+      float k = ho_xscale(e);
+      sprite_inst_rot(ho.cthread.sprite, e->body.x - 6.37f * k, e->body.y + 5.44f, z + 0.001f, 2.3241f * k, 1, -45 * k, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
+  }
+}
+
 /* the collisions a step brought (Collision2dEvent, ObjectBounce): the kinds that want them */
 static BodyEvent body_events[MAX_EVENTS];
 static bool wants_contacts(const Enemy *e) { return FSM(e) == EF_MOSQUITO || FSM(e) == EF_FATFLY || FSM(e) == EF_MOSSCHARGER; }
@@ -5271,6 +6261,7 @@ static void enemy_fsm_start(Enemy *e, const Ent *d) {
   else if (FSM(e) == EF_FATFLY) fatfly_start(e);
   else if (FSM(e) == EF_MOSSCHARGER) mosscharger_start(e);
   else if (FSM(e) == EF_MOSSKNIGHT) mossknight_start(e);
+  else if (FSM(e) == EF_HORNET) hornet_start(e);
 }
 
 /* ActiveRegion (a 50 by 35 box round the camera) meets its collider: FSMActivator turns its FSMs on */
@@ -5450,6 +6441,11 @@ void enemies_fixed(void) {
       else body_step(&e->body, DT);
       continue;
     }
+    if (FSM(e) == EF_HORNET) {
+      if (e->mode == EM_CORPSE) hornet_corpse_fixed(e);
+      else if (!ho.kinematic) hornet_fixed(e), recoil_fixed(e), body_step(&e->body, DT);
+      continue;
+    }
     if (e->mode == EM_ALIVE && (FSM(e) == EF_FKHEAD || (e->flags & 128))) continue;   /* (the head: its body's; off) */
     if (e->mode == EM_ALIVE && ((FSM(e) == EF_MOSSWALKER && e->b1) || FSM(e) == EF_PIGEON || FSM(e) == EF_PLANTTRAP)) {
       /* (a kinematic body, a trigger, frames' colliders: nothing stops them) */
@@ -5581,11 +6577,12 @@ void enemies_update(void) {
       else if (FSM(e) == EF_FATFLY) fatfly_update(e);
       else if (FSM(e) == EF_MOSSCHARGER) mosscharger_update(e);
       else if (FSM(e) == EF_MOSSKNIGHT) mossknight_update(e);
+      else if (FSM(e) == EF_HORNET) hornet_update(e);
       if (FSM(e) == EF_FK) {
         /* (its Hitter: on till its FSM turns it off) */
         e->sub.events = 0;
         if (e->sub_hb) anim_update(&e->sub, DT);
-      } else if (FSM(e) == EF_MOSSKNIGHT) {
+      } else if (FSM(e) == EF_MOSSKNIGHT || FSM(e) == EF_HORNET) {
         /* (its hitboxes its own; its effect updated with it) */
       } else
         hitbox_tick(e);
@@ -5593,6 +6590,8 @@ void enemies_update(void) {
       e->rc_flags &= (uint8_t)~(RF_HIT | RF_BLOCKED);
     } else if (FSM(e) == EF_SHADE)
       shade_update(e);
+    else if (FSM(e) == EF_HORNET)
+      hornet_corpse_update(e);
     else if (FSM(e) == EF_BLOCKER)
       blocker_corpse(e);
     else if (e->st == CS_DEATH_ANIM && !e->anim.playing)
@@ -5609,6 +6608,10 @@ void enemies_draw(void) {
     if (FSM(e) == EF_SHADE && e->st == SH_DISSIPATE) continue;   /* (its renderer off) */
     if ((e->flags & 32) || (FSM(e) == EF_FKHEAD && !fk.head_shown && e->mode == EM_ALIVE)) continue;
     if (FSM(e) == EF_MOSSCHARGER && e->mode == EM_ALIVE && e->b0) continue;   /* (its renderer off) */
+    if (FSM(e) == EF_HORNET) {
+      hornet_draw(e, i, z);
+      continue;
+    }
     float sy = fabsf(e->sx) > 0 ? fabsf(e->sx) : 1;
     if (FSM(e) == EF_PIGEON && e->st == PG_FLY)
       /* (its x scale 1, its y its size; flying left its sprite turned, a half turn more) */
@@ -5718,6 +6721,7 @@ static void grass_balls_hit(float x0, float y0, float x1, float y1) {
 
 int enemies_nail(const float *pts, int npts, float direction, int damage) {
   int out = mossknights_nail(pts, npts);
+  if (hornet()) out |= hornet_nail(pts, npts, direction);
   float bx0, by0, bx1, by1;
   shape_bounds(pts, npts, &bx0, &by0, &bx1, &by1);
   grass_balls_hit(bx0, by0, bx1, by1);
@@ -5762,7 +6766,7 @@ int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side) {
       *side = e->body.x > g_hero.body.x ? SIDE_RIGHT : SIDE_LEFT;
       return e->damage;
     }
-    int hd = e->hb_on ? hitbox_touch(e, x0, y0, x1, y1) : 0;
+    int hd = e->hb_on ? hitbox_touch(e, x0, y0, x1, y1) : FSM(e) == EF_HORNET && hornet_touch(e, x0, y0, x1, y1);
     if (hd) {
       *side = e->body.x > g_hero.body.x ? SIDE_RIGHT : SIDE_LEFT;
       return hd;
@@ -5821,3 +6825,6 @@ void enemies_debug_hit(int damage) {
   }
 }
 #endif
+
+/* her Hornet Saver (walls round her arena): ActivateAllChildren */
+void enemies_hornet_saver(bool on) { (void)on; }

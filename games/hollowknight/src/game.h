@@ -12,7 +12,7 @@ enum {
   PDF_VISITED_DIRTMOUTH, PDF_TISO_ENCOUNTERED_TOWN, PDF_HAS_DASH, PDF_SHAMAN_PILLAR, PDF_VISITED_GREENPATH,
   PDF_ELDERBUG_HISTORY1, PDF_ELDERBUG_SPEECH_SLY, PDF_ELDERBUG_SPEECH_STATION, PDF_ELDERBUG_SPEECH_EGG_TEMPLE,
   PDF_ELDERBUG_SPEECH_MAP_SHOP, PDF_ELDERBUG_FIRST_CALL, PDF_SLY_RESCUED, PDF_OPENED_TOWN_BUILDING,
-  PDF_EGG_TEMPLE_VISITED, PDF_OPENED_MAPPER_SHOP,
+  PDF_EGG_TEMPLE_VISITED, PDF_OPENED_MAPPER_SHOP, PDF_DREAMER_SCENE1, PDF_CORN_GREENPATH_LEFT,
   PDF_COUNT
 };
 typedef struct {
@@ -34,7 +34,8 @@ typedef struct {
   uint8_t shaman;         /* (the Snail Shaman's state) */
   uint8_t current_area;   /* (the area whose title showed last: AreaTitleController) */
   uint8_t elderbug;       /* (Elderbug's state) */
-  uint8_t reserved[61];
+  uint8_t hornet_greenpath;   /* (hornetGreenpath: her encounters in Greenpath) */
+  uint8_t reserved[60];
   /* (saved apart, by the objects' names: their states) */
   uint8_t persist[MAX_PERSIST / 8];
   /* (not saved) */
@@ -77,6 +78,8 @@ void arena_set_activated(void);  /* Activated: its fight over (and saved) */
 bool arena_done(void);
 void enemies_summon(void);       /* SUMMON: the summoners bring their enemies */
 void enemies_battle_start(void); /* BATTLE START */
+void enemies_hornet_wake(void);  /* WAKE (to Hornet) */
+void enemies_hornet_saver(bool on);   /* her Hornet Saver's walls (ActivateAllChildren) */
 enum { HB_BOUNCE = 1, HB_RECOIL = 2 };    /* a hit box (ENT_BOX's flags): a down slash bounces off it, a slash recoils */
 enum { HAZ_NONE, HAZ_NORMAL, HAZ_SPIKES, HAZ_ACID, HAZ_LAVA, HAZ_PIT };   /* DamageHero.hazardType */
 enum { MK_SECRET = 1, MK_REMASK = 2, MK_SIMPLE = 4 };   /* masks: the unmasker, remasker and inverse FSMs */

@@ -695,7 +695,7 @@ def main():
         f.write("#define DIGIT_ADV {%s}\n" % ", ".join("%.4ff" % a for a in digit_adv))
         for name, (code, _) in vm.OPS.items():
             f.write("#define VMOP_%s %d\n" % (name.upper(), code))
-        for i, e in enumerate(vm.EVENTS.list[:14]):
+        for i, e in enumerate(vm.EVENTS.list[:15]):
             f.write("#define VMEV_%s %d\n" % (e.upper().replace(" ", "_"), i))
         for name in ("NPC Title", "Visited", "Display Right"):
             f.write("#define VMSTR_%s %d\n" % (name.upper().replace(" ", "_"), vm.STR.index[name]))

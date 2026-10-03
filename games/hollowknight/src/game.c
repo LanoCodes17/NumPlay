@@ -300,6 +300,7 @@ static void step(uint32_t keys) {
   triggers_tick();
   hero_check_damage();
   hero_update();
+  fireballs_tick();
   death_tick();
   world_tick();
   benches_tick();
@@ -332,6 +333,7 @@ void game_draw(void) {
   prompts_draw();
   obj_draw();
   hero_draw();
+  fireballs_draw();
   death_draw();
   gfx_frame();
 }

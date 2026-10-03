@@ -357,20 +357,20 @@ static void blocker_hit(Enemy *e);
 static void fk_head_hit(void);
 static void fk_stun(Enemy *e);
 static void fk_head_stun_end(Enemy *h);
-static void enemy_hit(Enemy *e, float direction, int damage) {
+static void enemy_hit_by(Enemy *e, float direction, int damage, bool nail, float magnitude) {
   if (e->mode != EM_ALIVE || e->evasion > 0 || damage <= 0) return;
   int dir = cardinal(direction);
   if (e->flags & 4) {
-    /* Invincible: the hit blocked, the Knight recoiling off it */
-    if (dir == 0) hero_recoil_left();
-    else if (dir == 2) hero_recoil_right();
+    /* Invincible: the hit blocked, the Knight recoiling off it (a nail's) */
+    if (nail && dir == 0) hero_recoil_left();
+    else if (nail && dir == 2) hero_recoil_right();
     FREEZE_MOMENT_1();
     cam_shake(SHAKE_ENEMY_KILL);
     e->evasion = 0.15f;
     return;
   }
-  recoil_by_direction(e, dir, 1);
-  if (FSM(e) != EF_SHADE && FSM(e) != EF_FK) hero_soul_gain();   /* (enemyType 3, a shade, or 6: no soul) */
+  recoil_by_direction(e, dir, magnitude);
+  if (nail && FSM(e) != EF_SHADE && FSM(e) != EF_FK) hero_soul_gain();   /* (enemyType 3, a shade, or 6: no soul) */
   e->flashing = true, e->flash_t = 0;
   e->flags |= 8;
   e->hp = (int16_t)(e->hp - damage < -50 ? -50 : e->hp - damage);
@@ -387,6 +387,8 @@ static void enemy_hit(Enemy *e, float direction, int damage) {
   } else
     enemy_die(e, direction, true);
 }
+
+static void enemy_hit(Enemy *e, float direction, int damage) { enemy_hit_by(e, direction, damage, true, 1); }
 
 /* ---------------------------------------------------------------- PlayMaker actions */
 /* the hero's position (its transform) */
@@ -4216,6 +4218,20 @@ int enemies_nail(const float *pts, int npts, float direction, int damage) {
     if (swing_bits >> i & 1) continue;
     swing_bits |= 1u << i;
     enemy_hit(e, direction, damage);
+  }
+  return out;
+}
+
+uint32_t enemies_spell(float x0, float y0, float x1, float y1, float direction, int damage, float magnitude, uint32_t done) {
+  uint32_t out = 0;
+  for (int i = 0; i < MAX_ENEMIES; i++) {
+    Enemy *e = &en[i];
+    if (e->mode != EM_ALIVE || (e->flags & 17) || (done >> i & 1)) continue;
+    float a0, b0, a1, b1;
+    enemy_box(e, &a0, &b0, &a1, &b1);
+    if (!(x1 > a0 && x0 < a1 && y1 > b0 && y0 < b1)) continue;
+    out |= 1u << i;
+    enemy_hit_by(e, direction, damage, false, magnitude);
   }
   return out;
 }

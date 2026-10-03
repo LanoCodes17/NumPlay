@@ -839,6 +839,26 @@ int obj_nail(const float *pts, int npts, float direction) {
   return out;
 }
 
+/* a spell's box: the breakables, cocoons and scuttlers it touches (each object once: done, bits) */
+void obj_spell(float x0, float y0, float x1, float y1, float direction, uint32_t *done) {
+  float pts[8] = {x0, y0, x1, y0, x1, y1, x0, y1};
+  for (int k = 0; k < nobjs; k++) {
+    Obj *o = &objs[k];
+    if ((o->kind != OK_BREAKABLE && o->kind != OK_COCOON) || (done[k >> 5] >> (k & 31) & 1)) continue;
+    const Ent *e = ent_at(o->ent);
+    bool touched = false;
+    for (int j = 0; j < e->s1 && !touched; j++) {
+      const Ent *b = e + 1 + j;
+      touched = b->type == ENT_BOX && x1 > b->x0 && x0 < b->x1 && y1 > b->y0 && y0 < b->y1;
+    }
+    if (!touched) continue;
+    done[k >> 5] |= 1u << (k & 31);
+    if (o->kind == OK_BREAKABLE) breakable_hit(o, e, direction);
+    else cocoon_hit(o, e);
+  }
+  scuttlers_nail(pts, 4);
+}
+
 /* DirectionUtils.GetCardinalDirection: 0 right, 1 up, 2 left, 3 down */
 int cardinal(float degrees) {
   int d = (int)lrintf(degrees / 90.0f) % 4;

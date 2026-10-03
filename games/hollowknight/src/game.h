@@ -269,6 +269,11 @@ void spell_update(void);
 void spell_cancel(void);
 bool spell_busy(void);
 void spell_cast(bool up, bool down);
+void fireballs_tick(void);
+void fireballs_draw(void);
+/* a spell's box (world): the enemies it touches hit (but those in done: bits of the enemies) -> those it touched */
+uint32_t enemies_spell(float x0, float y0, float x1, float y1, float direction, int damage, float magnitude, uint32_t done);
+void obj_spell(float x0, float y0, float x1, float y1, float direction, uint32_t *done);
 void hero_add_geo(int amount);
 
 /* the nail's slashes (NailSlash), children of the Knight */

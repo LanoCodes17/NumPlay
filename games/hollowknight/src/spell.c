@@ -1,4 +1,5 @@
 /* The Knight's Spell Control FSM: holding the cast key focuses soul into health; a tap casts a spell. */
+#include <math.h>
 #include "game.h"
 
 #define DT 0.02f
@@ -10,8 +11,10 @@
 
 enum {
   SP_INACTIVE, SP_BUTTON_DOWN, SP_CANCEL, SP_FOCUS_START, SP_FOCUS, SP_FOCUS_HEAL, SP_FOCUS_GET_FINISH, SP_FOCUS_CANCEL,
-  SP_BACK_IN
+  SP_BACK_IN, SP_FIREBALL_ANTIC, SP_FIREBALL_RECOIL
 };
+#define FIREBALL_RECOIL_DISTANCE 1.0f
+static void fireball_spawn(void);
 
 static struct {
   uint8_t state;
@@ -27,7 +30,11 @@ static struct {
 static bool cast_held(void) { return g_hero.keys & K_SPELL; }
 static bool cast_pressed(void) { return (g_hero.keys & K_SPELL) && !(g_hero.prev_keys & K_SPELL); }
 
-void spell_reset(void) { memset(&sp, 0, sizeof sp); }
+void fireballs_reset(void);
+void spell_reset(void) {
+  memset(&sp, 0, sizeof sp);
+  fireballs_reset();
+}
 
 /* StartMPDrain, StopMPDrain; the drain itself is HeroController.Update's */
 static void drain_start(void) { sp.drain = true, sp.drain_timer = 0, sp.drained = 0; }
@@ -161,6 +168,31 @@ void spell_update(void) {
       sp.state = SP_INACTIVE;
       if (cast_held() && sp.didnt_hit_full) can_focus();
       break;
+    case SP_FIREBALL_ANTIC:
+      h->body.vx = h->body.vy = 0;
+      if (h->anim.events & ANIM_DONE) {
+        /* Level Check, Fireball 1: its cast, the soul it takes, the fireball */
+        anim_play_from_frame(&h->anim, CLIP_KNIGHT_FIREBALL1_CAST, 0);
+        g_pd.mp = (int16_t)(g_pd.mp > MP_COST ? g_pd.mp - MP_COST : 0);   /* (TakeMP) */
+        fireball_spawn();
+        /* Fireball Recoil: back a little, no gravity, till the cast is over */
+        hero_gravity(false);
+        sp.state = SP_FIREBALL_RECOIL;
+      }
+      break;
+    case SP_FIREBALL_RECOIL:
+      h->body.vy = 0;
+      h->body.vx = FIREBALL_RECOIL_DISTANCE * 2 * (h->cs.facing_right ? -1.0f : 1.0f);
+      if (h->anim.events & ANIM_DONE) {
+        /* Spell End */
+        h->body.vx = 0;
+        hero_regain_control();
+        hero_start_anim_control();
+        hero_gravity(true);
+        sp.can_cancel = false;
+        sp.state = SP_INACTIVE;
+      }
+      break;
   }
 }
 
@@ -168,20 +200,168 @@ void spell_update(void) {
 void spell_cancel(void) {
   if (sp.state == SP_INACTIVE) return;
   bool focusing = sp.state >= SP_FOCUS_START && sp.state <= SP_FOCUS_CANCEL;
+  bool casting = sp.state == SP_FIREBALL_ANTIC || sp.state == SP_FIREBALL_RECOIL;
   sp.drain = false;
   sp.didnt_hit_full = false;
   g_hero.cs.focusing = false;
   sp.state = SP_INACTIVE;
   if (focusing) hero_start_anim_control();
+  if (casting) {
+    /* (RegainControl, StartAnimationControl, AffectedByGravity) */
+    hero_regain_control();
+    hero_start_anim_control();
+    hero_gravity(true);
+  }
 }
 
 bool spell_busy(void) { return sp.state != SP_INACTIVE && sp.state != SP_BUTTON_DOWN; }
 
-/* Can Cast?, Spell Choice: up a scream, down a quake, else a fireball (the ones the Knight has) */
+/* Can Cast?, Spell Choice: up a scream, down a quake (the Knight has neither yet: Has Scream?, Has Quake? go on to),
+ * a fireball if he has it */
 void spell_cast(bool up, bool down) {
   (void)up, (void)down;
-  if (g_pd.mp < MP_COST || !hero_can_cast()) return;
-  if (g_pd.fireball_level > 0 && !up && !down) {
-    /* (Vengeful Spirit: fireball.c) */
+  if (g_pd.mp < MP_COST || !hero_can_cast() || g_pd.fireball_level <= 0) return;
+  /* Wallside? (no wall sliding here), Fireball Antic: the Knight held still in the air */
+  Hero *h = &g_hero;
+  sp.can_cancel = true;
+  anim_play_from_frame(&h->anim, CLIP_KNIGHT_FIREBALL_ANTIC, 0);
+  hero_relinquish_control();
+  hero_stop_anim_control();
+  hero_gravity(false);
+  h->body.vx = h->body.vy = 0;
+  sp.state = SP_FIREBALL_ANTIC;
+}
+
+/* ---------------------------------------------------------------- Vengeful Spirit (Fireball Top, Fireball) */
+#define MAX_FIREBALLS 2
+#define FIRE_SPEED 40.0f
+#define FB_SX 1.3f             /* (Set Damage: its scale) */
+#define FB_SY 1.6f
+#define FB_DAMAGE 15
+#define FB_MAGNITUDE 1.5f      /* (damages_enemy: magnitudeMult) */
+enum { FB_OFF, FB_PAUSE, FB_IDLE, FB_DISSIPATE, FB_GONE, FB_WALL };
+
+typedef struct {
+  uint8_t st;
+  bool right;
+  float t;
+  Body body;              /* (its Terrain Checker's box: what stops it) */
+  Anim anim, blast, impact;
+  float bx, by;           /* the blast's place (Fireball Top's child) */
+  bool blast_on, impact_on;
+  uint32_t hit_enemies;   /* (damages_enemy: each once) */
+  uint32_t hit_objs[3];
+} Fireball;
+static Fireball fbs[MAX_FIREBALLS];
+
+void fireballs_reset(void) { memset(fbs, 0, sizeof fbs); }
+
+static void fireball_spawn(void) {
+  Fireball *f = &fbs[0];
+  for (int i = 0; i < MAX_FIREBALLS; i++)
+    if (fbs[i].st == FB_OFF || fbs[i].st == FB_GONE) {
+      f = &fbs[i];
+      break;
+    }
+  const Hero *h = &g_hero;
+  memset(f, 0, sizeof *f);
+  /* Fireball Top, at the Knight: its blast ahead of him, the camera shaken, the fireball sent off */
+  f->right = h->cs.facing_right;
+  float k = f->right ? 1.0f : -1.0f;
+  f->bx = h->body.x + 1.13f * k, f->by = h->body.y;
+  f->blast_on = true;
+  anim_play_from_frame(&f->blast, CLIP_FIREBALL_BLAST, 0);
+  cam_shake(SHAKE_AVERAGE);
+  Body *b = &f->body;
+  b->x = h->body.x + 1.1683f * k, b->y = h->body.y - 0.5428f;
+  b->vx = FIRE_SPEED * k;
+  /* (the Terrain Checker's box, at the fireball's scale) */
+  b->ox = 0.513f * k, b->oy = -0.032f, b->hx = 0.887f, b->hy = 0.504f;
+  b->mask = CF_TERRAIN;
+  anim_play(&f->anim, CLIP_FIREBALL_BALL);
+  f->st = FB_PAUSE;
+}
+
+static void fireball_hit_things(Fireball *f) {
+  /* (its trigger box: 2.61 x 2.12 about (0.53, -0.02), at its scale) */
+  float k = f->right ? 1.0f : -1.0f, cx = f->body.x + 0.5344f * FB_SX * k, cy = f->body.y - 0.0179f * FB_SY;
+  float hx = 2.6111f / 2 * FB_SX, hy = 2.1246f / 2 * FB_SY;
+  float dir = f->right ? 0 : 180;
+  f->hit_enemies |= enemies_spell(cx - hx, cy - hy, cx + hx, cy + hy, dir, FB_DAMAGE, FB_MAGNITUDE, f->hit_enemies);
+  obj_spell(cx - hx, cy - hy, cx + hx, cy + hy, dir, f->hit_objs);
+}
+
+void fireballs_tick(void) {
+  for (int i = 0; i < MAX_FIREBALLS; i++) {
+    Fireball *f = &fbs[i];
+    if (f->st == FB_OFF) continue;
+    f->t += DT;
+    if (f->blast_on) {
+      f->blast.events = 0;
+      anim_update(&f->blast, DT);
+      if (f->blast.events & ANIM_DONE) f->blast_on = false;   /* (DeactivateAfter2dtkAnimation) */
+    }
+    if (f->impact_on) {
+      f->impact.events = 0;
+      anim_update(&f->impact, DT);
+      if (f->impact.events & ANIM_DONE) f->impact_on = false;
+    }
+    f->anim.events = 0;
+    anim_update(&f->anim, DT);
+    switch (f->st) {
+      case FB_PAUSE:
+        /* (a frame on: Init, then Idle; moving meanwhile) */
+        f->st = FB_IDLE, f->t = DT;
+        /* fall through */
+      case FB_IDLE: {
+        body_step(&f->body, DT);
+        fireball_hit_things(f);
+        /* (any collision with the terrain, or stopped by it: WALL) */
+        if (f->body.ncontacts > 0 || fabsf(f->body.vx) < 0.1f) {
+          /* Wall Impact: still, its impact ahead of it; the camera shaken */
+          f->body.vx = 0;
+          cam_shake(SHAKE_AVERAGE);
+          f->impact_on = true;
+          anim_play_from_frame(&f->impact, CLIP_FIREBALL_FIREBALL_WALL_IMPACT, 0);
+          f->st = FB_WALL, f->t = 0;
+        } else if (f->t >= 0.45f) {
+          /* Dissipate: its end, no longer hitting */
+          anim_play_from_frame(&f->anim, CLIP_FIREBALL_BALL_END, 0);
+          f->st = FB_DISSIPATE, f->t = 0;
+        }
+        break;
+      }
+      case FB_DISSIPATE:
+        f->body.x += f->body.vx * DT;
+        if (f->anim.events & ANIM_DONE) f->st = FB_GONE, f->t = 0;
+        break;
+      case FB_GONE:
+      case FB_WALL:
+        /* (Dissipate End, Break: recycled after 2 s) */
+        if (f->t >= 2 && !f->blast_on && !f->impact_on) f->st = FB_OFF;
+        break;
+    }
+  }
+}
+
+void fireballs_draw(void) {
+  for (int i = 0; i < MAX_FIREBALLS; i++) {
+    const Fireball *f = &fbs[i];
+    if (f->st == FB_OFF) continue;
+    float k = f->right ? 1.0f : -1.0f;
+    Inst in;
+    if (f->blast_on) {
+      sprite_inst(f->blast.sprite, f->bx, f->by, -0.001f, 2 * k, 2, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
+    if (f->st == FB_PAUSE || f->st == FB_IDLE || f->st == FB_DISSIPATE) {
+      sprite_inst(f->anim.sprite, f->body.x, f->body.y, -0.002f, FB_SX * k, FB_SY, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
+    if (f->impact_on) {
+      /* (Wall Impact: its child, 1.71 ahead, at 2.5 its scale) */
+      sprite_inst(f->impact.sprite, f->body.x + 1.7094f * FB_SX * k, f->body.y, -0.002f, 2.5f * FB_SX * k, 2.5f * FB_SY, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
   }
 }

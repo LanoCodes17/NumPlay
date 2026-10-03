@@ -122,6 +122,8 @@ ACTORS["bgate"] = ("sharedassets9.assets", 197, ["BG Opened", "BG Close 1", "BG 
 # lifeblood cocoons and their scuttlers (HealthCocoon, ScuttlerControl); effects (splats)
 ACTORS["cocoon"] = ("sharedassets6.assets", 1092, ["Cocoon Idle", "Cocoon Sweat", "Scuttler Land", "Scuttler Run"])
 ACTORS["fx"] = ("resources.assets", 21298, ["Splat", "Splat2"])
+# Vengeful Spirit (Fireball Top's blast, Fireball: its ball, its end, its impact on a wall)
+ACTORS["fireball"] = ("resources.assets", 23262, ["Blast", "Ball", "Ball End", "Fireball Wall Impact"])
 # water drips (WaterDrip)
 ACTORS["drip"] = ("sharedassets6.assets", 1095, ["Idle", "Drip", "Fall", "Impact"])
 PROP_ACTOR = {}   # (props' libraries: their actors)
@@ -174,6 +176,7 @@ def named_sprites(sprites):
     return out
 # clips drawn bigger than their sprites (the object's scale): their frames are kept that much finer
 DRAWN_SCALE = {"Arrow Up": 1.3, "Arrow Down": 1.3, "Stop Up": 1.3, "Stop Down": 1.3, "SlashEffect": 1.645, "SlashEffectAlt": 1.422, "UpSlashEffect": 1.4, "DownSlashEffect": 1.28,
+               "Blast": 1.4, "Ball": 1.45, "Ball End": 1.45, "Fireball Wall Impact": 2.0,
                "Small Idle": 1.5, "Small Air": 1.5, "Med Idle": 1.5, "Med Air": 1.5, "Large Idle": 1.5, "Large Air": 1.5}
 K0 = scene.FOCAL / (0.004 - scene.CAMZ)   # screen pixels a unit, where actors are (z near 0)
 HUD_K = (scene.VIEW_H / 2) / 8.7107        # the HUD's (its orthographic camera)

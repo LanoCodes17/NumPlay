@@ -6,13 +6,13 @@
 
 <p align="center">
   <b>17 free games for your NumWorks calculator, in one app.</b><br>
-  NumDash, Crossy Road, NumBlocks, NumDrive, Balatro, Buckshot Roulette, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.<br>
-  And two apps of their own: <b>Celeste</b>, the whole climb up Celeste Mountain, and <b>Champion Island</b>, the Doodle Champion Island Games.
+  Plus <b>Celeste</b> and <b>Champion Island</b>, two big games that come as apps of their own.
 </p>
 
 <p align="center">
-  <b>New: <a href="#new-numblocks">NumBlocks</a></b>. Mine, craft and survive in a world like Minecraft 1.8.<br>
-  <b>And <a href="#new-celeste">Celeste</a></b>. Climb Celeste Mountain with Madeline, every chapter, B-side and C-side.
+  <a href="https://github.com/Mason363/NumPlay/releases"><img src="https://img.shields.io/github/downloads/Mason363/NumPlay/total?style=for-the-badge&label=downloads&color=7B43FF" alt="Total downloads"></a>
+  <a href="https://github.com/Mason363/NumPlay/stargazers"><img src="https://img.shields.io/github/stars/Mason363/NumPlay?style=for-the-badge&color=E3B341" alt="GitHub stars"></a>
+  <a href="https://github.com/Mason363/NumPlay/releases/latest"><img src="https://img.shields.io/github/v/release/Mason363/NumPlay?style=for-the-badge&label=version&color=2D9F4F" alt="Latest version"></a>
 </p>
 
 <p align="center">
@@ -20,20 +20,26 @@
 </p>
 
 <p align="center">
-  <a href="#how-to-install"><b>How to install</b></a> &nbsp;·&nbsp; <a href="docs/play.md"><b>How to play</b></a>
-</p>
-
-<p align="center">
-  Open to game requests! Email me at <a href="mailto:masonchen204@gmail.com">masonchen204@gmail.com</a>.
-</p>
-
-<p align="center">
-  Also try <a href="https://github.com/yannis300307/NumcraftRust"><b>Numcraft</b></a> and this <a href="https://gist.github.com/yannis300307/9123136f90877107ec0d49ba96b303e5"><b>great list of NumWorks games and apps</b></a>, made by others!
+  <a href="#how-to-install"><b>How to install</b></a> &nbsp;·&nbsp; <a href="docs/play.md"><b>How to play</b></a> &nbsp;·&nbsp; <a href="#on-a-real-calculator"><b>See it on a real calculator</b></a>
 </p>
 
 <p align="center">
   <img src="docs/media/launcher.gif" width="640" alt="The NumPlay launcher on a NumWorks calculator, scrolling through its games">
 </p>
+
+<p align="center">
+  <b>New: <a href="#new-numblocks">NumBlocks</a></b>, a world like Minecraft 1.8. &nbsp;<b>And <a href="#new-celeste">Celeste</a></b>, the whole climb up Celeste Mountain.
+</p>
+
+<p align="center">
+  <sub>NumDash, Crossy Road, NumBlocks, NumDrive, Balatro, Buckshot Roulette, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, 2048, Minesweeper and Block Breaker, plus NumVisuals: moving backgrounds with a clock, a timer and more.</sub>
+</p>
+
+## ⭐ Enjoying NumPlay? Give it a star
+
+NumPlay is open source and completely free, and it took a lot of work to make. If you like it, please click **Star** at the top of this page. It only takes a second, and it helps other people find NumPlay.
+
+Want a game that isn't here? I'm open to requests: email me at [masonchen204@gmail.com](mailto:masonchen204@gmail.com).
 
 ## New: NumBlocks
 
@@ -80,6 +86,23 @@ Climb Celeste Mountain with Madeline, right on your calculator.
 </p>
 
 
+
+## On a real calculator
+
+<table>
+  <tr>
+    <td><img src="docs/media/irl_numdash.gif" width="100%" alt="NumDash on a real NumWorks calculator"></td>
+    <td><img src="docs/media/irl_crossyroad.gif" width="100%" alt="Crossy Road on a real NumWorks calculator"></td>
+    <td><img src="docs/media/irl_numdrive.gif" width="100%" alt="NumDrive on a real NumWorks calculator"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/irl_balatro.gif" width="100%" alt="Balatro on a real NumWorks calculator"></td>
+    <td><img src="docs/media/irl_buckshot.gif" width="100%" alt="Buckshot Roulette on a real NumWorks calculator"></td>
+    <td><img src="docs/media/irl_tetris.gif" width="100%" alt="Tetris on a real NumWorks calculator"></td>
+  </tr>
+</table>
+
+Filmed on my own calculator, no emulator.
 
 ## Go support the original games!
 

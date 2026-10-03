@@ -1,6 +1,5 @@
 /* The title screen, the save profiles and the pause menu (UIManager: Menu_Title's MainMenuScreen, SaveProfileScreen and
  * PauseMenuScreen, their pieces where tools/menu.py found them): what is selected, what the keys do. */
-#include <stdio.h>
 #include "game.h"
 
 #define DT 0.02f
@@ -37,16 +36,29 @@ static struct {
   bool quit;
 } mn;
 
+/* a number's digits at p (at least `width`, zero padded) -> past them */
+static char *digits(char *p, uint32_t v, int width) {
+  char t[10];
+  int n = 0;
+  do t[n++] = (char)('0' + v % 10), v /= 10;
+  while (v && n < 10);
+  while (n < width && n < 10) t[n++] = '0';
+  while (n) *p++ = t[--n];
+  return p;
+}
+
 static void read_slots(void) {
   for (int i = 0; i < SAVE_SLOTS; i++) {
     mn.state[i] = (int8_t)save_stats(i, &mn.stats[i]);
     mn.num[i][0] = (char)('1' + i), mn.num[i][1] = '.', mn.num[i][2] = 0;
-    snprintf(mn.geo[i], sizeof mn.geo[i], "%ld", (long)mn.stats[i].geo);
+    *digits(mn.geo[i], mn.stats[i].geo > 0 ? (uint32_t)mn.stats[i].geo : 0, 1) = 0;
     /* (SaveStats.GetPlaytimeHHMM: hours if any, then minutes) */
     float pt = mn.stats[i].play_time;
     unsigned m = pt > 0 && pt < 3.6e8f ? (unsigned)(pt / 60) : 0, h = m / 60;
-    if (h) snprintf(mn.time[i], sizeof mn.time[i], "%uh %02um", h % 100000u, m % 60);
-    else snprintf(mn.time[i], sizeof mn.time[i], "%um", m);
+    char *q = mn.time[i];
+    if (h) q = digits(q, h % 100000u, 1), *q++ = 'h', *q++ = ' ', q = digits(q, m % 60, 2);
+    else q = digits(q, m, 1);
+    q[0] = 'm', q[1] = 0;
   }
 }
 

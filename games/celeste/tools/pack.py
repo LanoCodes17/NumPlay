@@ -230,6 +230,8 @@ def quantize(t):
     # un-premultiply for the 565 color, keep alpha in 0..255 (quantized to 16 levels)
     rgb = img[..., :3].astype(np.float32)
     keyed = (a >> 4)  # 0..15
+    if t.path == "objects/heartdoor/mist":   # (faint all over: rounded, not cut, or a third of it goes)
+        keyed = np.minimum(15, (a + 8) >> 4)
     c = to565(img).astype(np.uint32)
     key = np.where(keyed == 0, 0xFFFFFFFF, c | (keyed << 16))
     uniq = [int(k) for k in np.unique(key) if k != 0xFFFFFFFF]

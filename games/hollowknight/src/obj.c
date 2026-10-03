@@ -9,7 +9,7 @@
 #endif
 
 #define DT 0.02f
-#define MAX_OBJS 96
+#define MAX_OBJS 80   /* (the most a room has: 69, Crossroads_ShamanTemple) */
 #define MAX_PIECES 24
 
 typedef struct {
@@ -461,7 +461,7 @@ int camlock_find(uint16_t name) {
   int n;
   const Ent *es = room_ents(&n);
   for (int i = 0; i < n && i < MAX_ENTS; i++)
-    if (es[i].type == ENT_CAMLOCK && es[i].s1 == name) return i;
+    if ((es[i].type == ENT_CAMLOCK || es[i].type == ENT_MASK) && es[i].s1 == name) return i;
   return -1;
 }
 
@@ -828,6 +828,9 @@ void obj_enter(void) {
     if (es[i].flags == OK_ENEMY || es[i].flags == OK_BENCH || es[i].flags == OK_ARENA || es[i].flags == OK_EVENT ||
         es[i].flags == OK_SUMMON)
       continue;   /* (enemy.c's, npc.c's; below) */
+#ifdef HOST
+    if (nobjs == MAX_OBJS - 1) fprintf(stderr, "obj: room %d has more objects than %d\n", g_room.id, MAX_OBJS);
+#endif
     Obj *o = &objs[nobjs++];
     memset(o, 0, sizeof *o);
     o->kind = es[i].flags, o->ent = (uint16_t)i;

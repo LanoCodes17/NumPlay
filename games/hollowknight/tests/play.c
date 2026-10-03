@@ -179,6 +179,7 @@ int main(int argc, char **argv) {
     }
     printf("end: pos %.3f,%.3f state %d\n", g_hero.body.x, g_hero.body.y, g_hero.state);
     if (getenv("HKROOM")) printf("room: %s\n", room_name(g_room.id));
+    if (getenv("HKCAM")) cam_debug();
     if (getenv("HKPD")) {
       /* (the PlayerData bools on, by number; Hornet's Greenpath count) */
       printf("pd:");

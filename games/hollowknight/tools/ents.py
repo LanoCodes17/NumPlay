@@ -856,8 +856,9 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                 g = new_group(o["id"])
                 g2 = new_group(inverse) if inverse else 0
                 persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
+                import vm
                 recs.append(rec(ENT_MASK, kind, box, (fade, pause, p2, p3), group=g, group2=g2,
-                                persist=persist.id(name, o["path"]) if persistent else NO_PERSIST))
+                                persist=persist.id(name, o["path"]) if persistent else NO_PERSIST, s1=vm.STR.id(o["name"])))
                 recs += _more_boxes(o)
         classes = {c.get("class") for c in o["c"]}
         f = _fsm(o, ("Bench Control",))

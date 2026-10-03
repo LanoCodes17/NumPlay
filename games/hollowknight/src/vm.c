@@ -11,8 +11,9 @@
 #endif
 
 #define DT 0.02f
-#define MAX_VM_OBJS 32   /* (tools/vm.py: MAX_OBJS, MAX_FSMS, MAX_VARS) */
-#define MAX_VM_FSMS 24
+#define MAX_VM_OBJS 48
+#define MAX_VM_ANIMS 20   /* (its objects that animate: an animator, a wave, a fade) */   /* (tools/vm.py: MAX_OBJS, MAX_FSMS, MAX_VARS) */
+#define MAX_VM_FSMS 26
 #define MAX_VM_VARS 256
 #define MAX_MOVERS 4
 #define NONE 0xFFFF
@@ -47,10 +48,10 @@ typedef struct {
 
 typedef struct {
   float x, y, sx, sy;   /* its place and scale now */
-  Anim anim;
   uint16_t flags;
   uint8_t alpha;   /* (its material's color's alpha: the scripts') */
   int8_t fade;     /* (iTweenFadeTo: its alpha's change a step, to none or all) */
+  int8_t anim;     /* (its animation: one of vm.anims; -1 none) */
 } Obj;
 typedef struct {
   int16_t obj;          /* (-1: none) */
@@ -86,11 +87,14 @@ static struct {
   const uint8_t *map;   /* (clip maps: string, clip) */
   int nobjs, nfsms;
   Obj objs[MAX_VM_OBJS];
+  Anim anims[MAX_VM_ANIMS];
   Fsm fsms[MAX_VM_FSMS];
   uint32_t vars[MAX_VM_VARS];
   Mover movers[MAX_MOVERS];
   const uint8_t *persist;   /* (what the save keeps: FSM, slot, bit) */
   int npersist;
+  const uint8_t *folds;     /* (sprites drawn with their objects: 36 bytes each) */
+  int nfolds;
   Fsm *executing;       /* (the FSM whose action runs: its events to itself wait) */
   int depth;
   /* the area title's variables as scripts set them (title.c starts it from them) */
@@ -99,7 +103,8 @@ static struct {
   bool blank_on;
   int title;
   uint32_t prev_keys;
-  uint32_t touch, touch_was;   /* (objects whose colliders the Knight touches, this step and the one before) */
+  uint8_t nanims;
+  uint64_t touch, touch_was;   /* (objects whose colliders the Knight touches, this step and the one before) */
   float nail_dir, spell_dir, dmg_dir;   /* (the nail's last blow, the spell's way; the hit's: damages_enemy's direction) */
   uint8_t dmg_type;                     /* (its attackType: 0 the nail, 2 a spell) */
 } vm;
@@ -157,9 +162,11 @@ static float fval(const Fsm *f, uint16_t s) {
   return x;
 }
 static int ival(const Fsm *f, uint16_t s) { return (int32_t)val(f, s); }
+static int named(uint16_t name);
 static int oval(const Fsm *f, uint16_t s) {
   uint32_t o = val(f, s);
   if (s == NONE) return NONE;
+  if (o >> 16 == 1) return named((uint16_t)o);   /* (one of the game's, by its name: a mask) */
   return o == OWNER ? f->owner : (int)(o & 0xFFFF);
 }
 static void set_var(Fsm *f, uint8_t v, uint32_t x) {
@@ -328,9 +335,19 @@ static int obj_clip(int o, uint16_t name) {
   return -1;
 }
 
+/* an object by its name: the scripts', on; or a battle gate, a camera lock area, a mask (the game's) */
+static int named(uint16_t name) {
+  for (int i = 0; i < vm.nobjs; i++)
+    if (vm.rec[i].name == name && obj_active(i)) return i;
+  int g = gate_find(name), c = g < 0 ? camlock_find(name) : -1;
+  return g >= 0 ? O_GATE + g : c >= 0 ? O_ENT + c : NONE;
+}
+
+static Anim *oanim(int o) { return vm.objs[o].anim >= 0 ? &vm.anims[vm.objs[o].anim] : NULL; }
+
 static Anim *obj_anim(int o) {
   if (o == O_HERO) return &g_hero.anim;
-  return obj_ok(o) ? &vm.objs[o].anim : NULL;
+  return obj_ok(o) ? oanim(o) : NULL;
 }
 
 static Mover *mover(int o, bool make) {
@@ -349,9 +366,9 @@ static Mover *mover(int o, bool make) {
 /* (an animator plays its first clip the first time its object is on) */
 static void anims_start(void) {
   for (int i = 0; i < vm.nobjs; i++)
-    if (!(vm.objs[i].flags & OF_STARTED) && vm.rec[i].clip != NONE && obj_active(i)) {
+    if (!(vm.objs[i].flags & OF_STARTED) && vm.rec[i].clip != NONE && obj_active(i) && oanim(i)) {
       vm.objs[i].flags |= OF_STARTED;
-      anim_play_from_frame(&vm.objs[i].anim, vm.rec[i].clip, 0);
+      anim_play_from_frame(oanim(i), vm.rec[i].clip, 0);
     }
 }
 
@@ -376,7 +393,7 @@ static void obj_set_active(int o, bool on) {
   else vm.objs[o].flags &= (uint16_t)~OF_ACTIVE;
   if (!was && on) anims_start();
   /* (its wave, its fade, from the start; a wave's speed (anim.fps) its first) */
-  if (!was && on && (vm.rec[o].flags & (OF_WAVE | OF_FADE))) vm.objs[o].anim.time = 0, vm.objs[o].anim.fps = vm.rec[o].bx;
+  if (!was && on && (vm.rec[o].flags & (OF_WAVE | OF_FADE)) && oanim(o)) oanim(o)->time = 0, oanim(o)->fps = vm.rec[o].bx;
   /* (an FSM starts again as its object comes on: RestartOnEnable; the first time, on its Start, the next frame) */
   if (!was && on)
     for (int i = 0; i < vm.nfsms; i++) {
@@ -467,6 +484,11 @@ void vm_fsm_set(int fsm, int var, uint32_t v, int ev) {
 }
 
 static void obj_event(int o, int ev, uint16_t fsm_name) {
+  if (o >= O_ENT && o < O_ENT + MAX_ENTS) {
+    /* (a mask told to uncover: HIT, UNCOVER) */
+    if (ev == VMEV_HIT || ev == VMEV_UNCOVER) world_send_hit(o - O_ENT);
+    return;
+  }
   if (o >= O_GATE && o < O_GATE + 0x100) {
     if (ev >= VMEV_BG_CLOSE && ev <= VMEV_BG_DESTROY) gate_event_at(o - O_GATE, ev - VMEV_BG_CLOSE);
     return;
@@ -753,6 +775,13 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       }
       return true;
     }
+    case VMOP_SETBENCHRESPAWN: {
+      uint16_t m = rv(&r);
+      int type = rb(&r);
+      bool right = rb(&r);
+      save_set_respawn_kind(str_at(m), right, type);
+      return true;
+    }
     case VMOP_FREEZEMOMENT: {
       /* (GameManager.FreezeMoment: its kinds) */
       int k = rb(&r);
@@ -845,6 +874,21 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
     case VMOP_INTADD: {
       uint8_t v = rb(&r);
       set_var(f, v, (uint32_t)(ival(f, v) + ival(f, rv(&r))));
+      return !rb(&r);
+    }
+    case VMOP_FLOATSWITCH: {
+      /* (the first of its bounds the value is under: that one's event) */
+      float x = fval(f, rv(&r));
+      int n = rb(&r);
+      const uint8_t *lt = r.p;
+      r.p += 2 * n;
+      int ne = rb(&r);
+      for (int i = 0; i < n && i < ne; i++)
+        if (x < fval(f, rd16(lt + 2 * i))) {
+          fsm_event(f, r.p[i]);
+          break;
+        }
+      r.p += ne;
       return !rb(&r);
     }
     case VMOP_INTSWITCH: {
@@ -1327,11 +1371,14 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
         case 19: set_var(f, store, hero_can_talk()); break;   /* (CanInspect: as CanTalk) */
         case 20: set_var(f, store, h->accepting_input); break;   /* (CanInput) */
         case 22: hero_cancel_hero_jump(); break;
+        case 23: if (!h->cs.on_ground) h->cs.will_hard_land = true; break;   /* (ForceHardLanding) */
+        case 24: hero_add_health((int)a0); break;      /* (AddHealth) */
+        case 25: hero_add_mp_charge((int)a0); break;   /* (TryAddMPChargeSpa) */
         case 21: {
           /* (GetState: tools/vm.py's HERO_STATES) */
           int k = (int)a0;
           set_var(f, store, k == 0 ? h->cs.on_ground : k == 1 ? h->cs.attacking : k == 2 ? h->cs.up_attacking
-                            : k == 3 ? h->cs.down_attacking : k == 4 ? h->cs.dashing : 0);
+                            : k == 3 ? h->cs.down_attacking : k == 4 ? h->cs.dashing : k == 6 ? h->cs.will_hard_land : 0);
           break;
         }
       }
@@ -1387,16 +1434,7 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       return true;
     case VMOP_FINDGAMEOBJECT: {
       uint16_t name = (uint16_t)val(f, rv(&r));
-      int found = NONE;
-      for (int i = 0; i < vm.nobjs && found == NONE; i++)
-        if (vm.rec[i].name == name && obj_active(i)) found = i;
-      if (found == NONE) {
-        /* (a battle gate, a camera lock area: the game's) */
-        int g = gate_find(name), c = g < 0 ? camlock_find(name) : -1;
-        if (g >= 0) found = O_GATE + g;
-        else if (c >= 0) found = O_ENT + c;
-      }
-      set_var(f, rb(&r), (uint32_t)found);
+      set_var(f, rb(&r), (uint32_t)named(name));
       return true;
     }
     case VMOP_CREATEOBJECT: {
@@ -1645,8 +1683,13 @@ void vm_enter(void) {
     if ((r->cond != NONE && pd_flag(r->cond & 0x7FFF) == ((r->cond & 0x8000) != 0)) ||
         (r->cond2 != NONE && pd_flag(r->cond2 & 0x7FFF) == ((r->cond2 & 0x8000) != 0)))
       o->flags = OF_COND_OFF;
-    o->anim.clip = -1, o->anim.sprite = -1;
-    if (r->flags & OF_WAVE) o->anim.fps = r->bx;
+    /* (an animation for those that need one) */
+    o->anim = -1;
+    if ((r->flags & (OF_ANIMATOR | OF_WAVE | OF_FADE)) && vm.nanims < MAX_VM_ANIMS) {
+      Anim *a = &vm.anims[o->anim = (int8_t)vm.nanims++];
+      a->clip = -1, a->sprite = -1;
+      if (r->flags & OF_WAVE) a->fps = r->bx;
+    }
     o->alpha = 255;
   }
   const uint8_t *p = vm.map + 4 * nmap;
@@ -1674,6 +1717,7 @@ void vm_enter(void) {
     } else if (persist_get(id))
       set_var(&vm.fsms[p[0]], p[1], 1);
   }
+  vm.nfolds = rd16(p), vm.folds = p + 2;
   vm.prev_keys = g_hero.keys;
   /* (what it holds within the condition's: off too) */
   for (int i = 0; i < nobjs; i++)
@@ -1695,8 +1739,8 @@ void vm_tick(void) {
     Obj *o = &vm.objs[i];
     o->flags = (uint16_t)((o->flags & ~(OF_WAS_INSIDE | OF_SPELL_WAS | OF_NAIL_WAS)) | ((o->flags & OF_INSIDE) ? OF_WAS_INSIDE : 0) |
                           ((o->flags & OF_SPELL_IN) ? OF_SPELL_WAS : 0) | ((o->flags & OF_NAIL_IN) ? OF_NAIL_WAS : 0));
-    vm.touch_was = (vm.touch_was & ~(1u << i)) | (vm.touch & (1u << i));
-    vm.touch = (vm.touch & ~(1u << i)) | (vm.rec[i].ncol && obj_active(i) && hero_touches(i) ? 1u << i : 0);
+    vm.touch_was = (vm.touch_was & ~(1ull << i)) | (vm.touch & (1ull << i));
+    vm.touch = (vm.touch & ~(1ull << i)) | (vm.rec[i].ncol && obj_active(i) && hero_touches(i) ? 1ull << i : 0);
     bool on = (vm.rec[i].flags & OF_TRIGGER) && (o->flags & OF_COLLIDER) && obj_active(i);
     bool in = on && hero_box_in(i), spell = on && (o->flags & OF_SPELL_HIT), nail = on && (o->flags & OF_NAIL_HIT);
     o->flags = (uint16_t)((in ? o->flags | OF_INSIDE : o->flags & ~OF_INSIDE) & ~(OF_SPELL_HIT | OF_NAIL_HIT));
@@ -1714,23 +1758,25 @@ void vm_tick(void) {
       if (a <= 0 || a >= 255) a = a <= 0 ? 0 : 255, o->fade = 0;
       o->alpha = (uint8_t)a;
     }
+    Anim *an = oanim(i);
+    if (!an) continue;
     if (vm.rec[i].flags & OF_WAVE) {
       /* (WaveEffectControl: its speed down by a twentieth a step, to a half at least; its timer at that speed; past 1,
        * off) */
       if (obj_active(i)) {
-        o->anim.fps = o->anim.fps * 0.95f < 0.5f ? 0.5f : o->anim.fps * 0.95f;
-        if ((o->anim.time += DT * o->anim.fps) > 1) obj_set_active(i, false);
+        an->fps = an->fps * 0.95f < 0.5f ? 0.5f : an->fps * 0.95f;
+        if ((an->time += DT * an->fps) > 1) obj_set_active(i, false);
       }
       continue;
     }
     if (vm.rec[i].flags & OF_FADE) {
       /* (SimpleSpriteFade: over its time; then off) */
-      if (obj_active(i) && (o->anim.time += DT / vm.rec[i].bx) >= 1) obj_set_active(i, false);
+      if (obj_active(i) && (an->time += DT / vm.rec[i].bx) >= 1) obj_set_active(i, false);
       continue;
     }
-    o->anim.events = 0;
-    anim_update(&o->anim, DT);
-    if ((vm.rec[i].flags & OF_ANIM_OFF) && (o->anim.events & ANIM_DONE)) obj_set_active(i, false);
+    an->events = 0;
+    anim_update(an, DT);
+    if ((vm.rec[i].flags & OF_ANIM_OFF) && (an->events & ANIM_DONE)) obj_set_active(i, false);
   }
   /* (those set moving: falling to the ground) */
   for (int k = 0; k < MAX_MOVERS; k++) {
@@ -1832,11 +1878,12 @@ void vm_draw(void) {
     const Obj *o = &vm.objs[i];
     const ObjRec *r = &vm.rec[i];
     if (!(o->flags & OF_RENDERER) || !obj_active(i)) continue;
-    int sprite = (r->flags & OF_ANIMATOR) ? o->anim.sprite : (r->sprite == NONE ? -1 : r->sprite);
+    const Anim *an = oanim(i);
+    int sprite = (r->flags & OF_ANIMATOR) ? (an ? an->sprite : -1) : (r->sprite == NONE ? -1 : r->sprite);
     if (sprite < 0) continue;
     Inst in;
     /* (its color: its renderer's, its alpha the scripts' too; a wave's, a fade's as they go) */
-    float a = r->a / 255.0f * o->alpha / 255.0f, t = o->anim.time, sx = o->sx, sy = o->sy;
+    float a = r->a / 255.0f * o->alpha / 255.0f, t = an ? an->time : 0, sx = o->sx, sy = o->sy;
     if (r->flags & OF_WAVE) a *= 1 - t, sx = sy = (1 + 4 * t) * r->by;
     else if (r->flags & OF_FADE) a = a + (r->by - a) * (t > 1 ? 1 : t);
     uint8_t al = (uint8_t)(a <= 0 ? 0 : a >= 1 ? 255 : a * 255 + 0.5f), tint = 0;
@@ -1845,6 +1892,20 @@ void vm_draw(void) {
     sprite_inst(sprite, o->x, o->y, r->z, sx, sy, tint, &in);
     in.flags = (uint8_t)((in.flags & ~F_BLEND) | (r->blend & 0xFF));
     gfx_actor(&in, SORT_KEY(r->layer, r->order));
+  }
+  /* (sprites drawn with their objects: on with them, at their alpha, where they are) */
+  for (int k = 0; k < vm.nfolds; k++) {
+    const uint8_t *q = vm.folds + 36 * k;
+    int i = q[0];
+    if (i >= vm.nobjs || !obj_active(i)) continue;
+    const Obj *o = &vm.objs[i];
+    uint8_t al = (uint8_t)(q[31] * o->alpha / 255), tint = 0;
+    if (!al) continue;
+    if (al != 255 || (q[28] & q[29] & q[30]) != 255) tint = obj_tint(&ntint, q[28], q[29], q[30], al);
+    Inst in;
+    sprite_inst((int16_t)rd16(q + 2), o->x + rdf(q + 4), o->y + rdf(q + 8), rdf(q + 12), rdf(q + 16), rdf(q + 20), tint, &in);
+    in.flags = (uint8_t)((in.flags & ~F_BLEND) | q[32]);
+    gfx_actor(&in, SORT_KEY(rd16(q + 24), (int16_t)rd16(q + 26)));
   }
 }
 
@@ -1861,7 +1922,8 @@ void vm_debug(void) {
     for (int i = 0; i < vm.nobjs; i++)
       printf("   obj %d name %d flags %d active %d cols %d+%d at %.2f,%.2f clip %d sprite %d/%d alpha %d scale %.2f,%.2f\n", i,
              vm.rec[i].name, vm.objs[i].flags, obj_active(i), vm.rec[i].col0, vm.rec[i].ncol, vm.objs[i].x, vm.objs[i].y,
-             vm.objs[i].anim.clip, vm.objs[i].anim.sprite, vm.rec[i].sprite, vm.objs[i].alpha, vm.objs[i].sx, vm.objs[i].sy);
+             oanim(i) ? oanim(i)->clip : -1, oanim(i) ? oanim(i)->sprite : -1, vm.rec[i].sprite, vm.objs[i].alpha,
+             vm.objs[i].sx, vm.objs[i].sy);
   if (getenv("VMOBJ"))
     for (int i = 0; i < vm.nobjs; i++)
       if (vm.rec[i].flags & OF_TRIGGER)

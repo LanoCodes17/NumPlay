@@ -128,11 +128,13 @@ bool save_load(int slot) {
   return true;
 }
 
-void save_set_respawn(const char *marker, bool facing_right) {
-  /* (SetPlayerDataString respawnMarkerName, respawnScene; respawnType 1: a bench) */
+void save_set_respawn_kind(const char *marker, bool facing_right, int type) {
+  /* (SetPlayerDataString respawnMarkerName, respawnScene; respawnType 1: a bench, 0: face down) */
   strncpy(g_pd.respawn_marker, marker, SCENE_NAME - 1);
   strncpy(g_pd.respawn_scene, room_name(g_room.id), SCENE_NAME - 1);
   g_pd.respawn_marker[SCENE_NAME - 1] = g_pd.respawn_scene[SCENE_NAME - 1] = 0;
-  g_pd.respawn_type = 1;
+  g_pd.respawn_type = (uint8_t)type;
   g_pd.respawn_facing_right = facing_right;
 }
+
+void save_set_respawn(const char *marker, bool facing_right) { save_set_respawn_kind(marker, facing_right, 1); }

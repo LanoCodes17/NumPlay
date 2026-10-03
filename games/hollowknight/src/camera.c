@@ -2,6 +2,9 @@
  * (looking up and down), both inside the scene and the room's lock areas. */
 #include <math.h>
 #include "game.h"
+#ifdef HOST
+#include <stdio.h>
+#endif
 
 #define DT 0.02f
 #define X_MIN 14.6f
@@ -30,7 +33,8 @@ static struct {
   int mode;
   float cx, cy, cvx, cvy, cdamp_x, cdamp_y, look_offset, x_limit, y_limit, start_locked_timer;
   float x_lock0, x_lock1, y_lock0, y_lock1;
-  int8_t locks[8], nlocks, cur_lock;   /* lockZoneList, currentLockArea (entities) */
+  int16_t locks[8], cur_lock;   /* lockZoneList, currentLockArea (entities: a room has more than 127) */
+  int8_t nlocks;
 } c;
 
 /* Mathf.SmoothDamp */
@@ -179,9 +183,9 @@ void cam_lock(int ent) {
   c.entered_right = hx > e->x1 - 1 && hx < e->x1 + 1;
   c.entered_top = hy > e->y1 - 2 && hy < e->y1 + 2;
   c.entered_bot = hy > e->y0 - 1 && hy < e->y0 + 1;
-  if (c.nlocks < 8) c.locks[c.nlocks++] = (int8_t)ent;
+  if (c.nlocks < 8) c.locks[c.nlocks++] = (int16_t)ent;
   if (c.cur_lock >= 0 && (es[c.cur_lock].flags & CL_MAX_PRIORITY) && !(e->flags & CL_MAX_PRIORITY)) return;
-  c.cur_lock = (int8_t)ent;
+  c.cur_lock = (int16_t)ent;
   c.mode = CM_LOCKED;
   lock_bounds(e, &c.x_lock0, &c.y_lock0, &c.x_lock1, &c.y_lock1);
   if (c.start_locked_timer > 0) {
@@ -342,3 +346,11 @@ void cam_freeze(void) {
   c.mode = CM_FROZEN;
   c.tmode = TM_FREE;
 }
+
+#ifdef HOST
+void cam_debug(void) {
+  printf("cam %.2f,%.2f target %.2f,%.2f mode %d tmode %d locks %d:", c.cx, c.cy, c.tx, c.ty, c.mode, c.tmode, c.nlocks);
+  for (int i = 0; i < c.nlocks; i++) printf(" %d", c.locks[i]);
+  printf("\n");
+}
+#endif

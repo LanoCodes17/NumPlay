@@ -10,7 +10,8 @@ import unity, text, state
 
 # rooms -> the objects whose scripts run here (and all under them)
 ROOMS = {
-    "Town": ["_NPCs/Elderbug", "_NPCs/Tiso Town NPC"],
+    "Town": ["_NPCs/Elderbug", "_NPCs/Tiso Town NPC", "_Areas/Death Respawn Trigger", "_Areas/Death Respawn Trigger 1",
+             "_Props/Mappers_house/closed/Inspect Region", "Interact Reminder"],
     "Room_temple": ["Quirrel"],
     "Crossroads_47": ["_NPCs/Tiso Bench NPC", "Stag", "_Scenery/Station Bell", "Stag_Tunnel/Stag_tunnel_Grate",
                       "Stag Blanker"],
@@ -22,16 +23,19 @@ ROOMS = {
     "Fungus1_04": ["Hornet Infected Knight Encounter", "Hornet Saver", "Cloak Corpse", "Dream Scene Activate",
                    "Dreamer Scene 1"],
     "Crossroads_ShamanTemple": ["_Props/Shaman Meeting", "_Props/Shaman Trapped", "_Props/Shaman Killed Blocker",
-                                "_Props/Knight Get Fireball", "Battle Scene/Reminder Cast", "Shiny Item", "Soul Totem 2"],
+                                "_Props/Knight Get Fireball", "Battle Scene/Reminder Cast", "Shiny Item", "Soul Totem 2",
+                                "Bone Gate", "Reminder Cast (1)",
+                                "_Areas/Death Respawn Trigger 1"],
     # items lying about (Shiny Item: a relic, a charm), the City Crest the False Knight leaves
-    "Crossroads_01": ["Shiny Item"],
-    "Tutorial_01": ["_Props/Chest/Item"],   # (its chest: src/obj.c, which turns on what is in it)
+    "Crossroads_01": ["Shiny Item", "Force Hard Landing"],
+    "Tutorial_01": ["_Props/Chest/Item", "_Props/Collapser Tute 01", "_Scenery/Break Floor 1", "Interact Reminder",
+                    "_Props/Tute Door 5/Active/Jump Reminder"],   # (its chest: src/obj.c, which turns on what is in it)
     "Fungus1_22": ["Shiny Item", "Gate Switch", "Metal Gate", "Breakable Wall"],
-    "Crossroads_10": ["Key Giver"],
+    "Crossroads_10": ["Key Giver", "Breakable Wall"],
     # the shops: their keepers, their regions (the menu: src/shop.c)
     "Room_shop": ["Basement Closed"],
     "Room_mapper": ["Iselda", "Shop Region"],
-    "Room_Charm_Shop": ["Charm Slug", "Shop Region"],
+    "Room_Charm_Shop": ["Charm Slug", "Shop Region", "Scene Blanker"],
     # the grubs in their jars; the Grubfather, his rewards, the grubs back home
     "Crossroads_03": ["_Props/Grub Bottle", "_Props/Toll Gate", "_Props/Toll Gate 1", "_Props/Toll Gate Switch",
                       "Break Wall 2"],
@@ -45,9 +49,11 @@ ROOMS = {
                    "Toll Gate", "Toll Gate (1)"],
     # the world's other scripted things: walls that break, floors, a soul totem, tablets, a wall that turns on
     "Crossroads_08": ["Break Wall 2"],
-    "Crossroads_04": ["_Scenery/Break Floor 1"],
+    "Crossroads_04": ["_Scenery/Break Floor 1", "CamLock Destroyer"],
     "Crossroads_19": ["Soul Totem mini_two_horned"],
-    "Crossroads_21": ["Breakable Wall", "Polygon_Collider_Cross_21 1/Roof Collider (1)"],
+    "Crossroads_21": ["Breakable Wall", "Polygon_Collider_Cross_21 1/Roof Collider (1)", "Collapser Small"],
+    "Crossroads_07": ["Breakable Wall_Silhouette"],
+    "Crossroads_30": ["Spa Region"],
     "Crossroads_33": ["_Props/full_wall_left"],
     "Fungus1_32": ["Breakable Wall", "Inspect Region"],
     "Crossroads_11_alt": ["Inspect Region"],
@@ -87,6 +93,25 @@ def _fsm(name, start, vars_, states):
 def _behaviours(rm, o):
     """The game's own components that are scripts here (as the FSMs they would be)."""
     out = []
+    rt = next((c.get("v") for c in o["c"] if c.get("class") == "RespawnTrigger" and c.get("v")), None)
+    if rt is not None and isinstance(rt.get("respawnMarker"), list):
+        # RespawnTrigger: the Knight coming into it makes its marker where he comes back from death (single use: once,
+        # Activated kept by its PersistentBoolItem)
+        import pack
+        pid = rt["respawnMarker"][1]
+        mk = next(q for q in rm.d["objects"] for c in q["c"] if c.get("pid") == pid)
+        right = next(c.get("v") or {} for c in mk["c"] if c.get("pid") == pid).get("respawnFacingRight", 0)
+        single = bool(rt.get("singleUse"))
+        out.append({"fsm": _fsm("Respawn Trigger", "Init", {"Activated": ["bool", False]}, [
+            ("Init", [("BoolTest", {"boolVariable": "$Activated", "isTrue": ["event", "DONE"], "isFalse": None,
+                                    "everyFrame": False})], {"FINISHED": "Idle", "DONE": "Done"}),
+            ("Idle", [("Trigger2dEvent", {"trigger": 0, "collideTag": "Player", "collideLayer": "",
+                                          "sendEvent": ["event", "ENTER"], "storeCollider": None})], {"ENTER": "Set"}),
+            ("Set", [("SetBenchRespawn", {"marker": pack.STRINGS.id(mk["name"]), "type": rt.get("respawnType", 0),
+                                          "facing": 1 if right else 0}),
+                     ("SetBoolValue", {"boolVariable": "$Activated", "boolValue": single, "everyFrame": False})],
+             {"FINISHED": "Done" if single else "Idle"}),
+            ("Done", [], {})])})
     g = next((c.get("v") for c in o["c"] if c.get("class") == "GrubBGControl" and c.get("v")), None)
     if g is not None:
         # GrubBGControl: a grub back home, there once that many are saved
@@ -112,13 +137,14 @@ def _behaviours(rm, o):
 
 
 # FSMs left out (what this port does not have: the dream nail, sounds...)
-SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "Shop Open Voice", "Enviro Region", "tink_effect"}
+SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "Shop Open Voice", "Enviro Region", "tink_effect",
+             "RespawnTriggerFSM"}
 # objects left out (effects drawn by the C code, or nothing at all; the dream nail's; Dreamer Scene 1's Knight Lift,
 # which nothing turns on)
 SKIP_CLASSES = {"SpellGetOrb", "ParticleSystem"}
 SKIP_NAMES = {"Dream Dialogue", "Dream Dialogue Flower", "Flower", "Flower Give", "white_light", "white_light 1",
               "Knight Lift"}
-MAX_OBJS, MAX_FSMS, MAX_VARS = 32, 24, 256   # (src/vm.c)
+MAX_OBJS, MAX_FSMS, MAX_VARS, MAX_ANIMS = 48, 26, 256, 20   # (src/vm.c)
 # the grubs in this part of the game (Crossroads_03, Fungus1_21): the Grubfather's rewards past them never come
 GRUBS = 2
 # the ints ConvertIntToString turns into strings here (the Grubfather's rewards given)
@@ -186,7 +212,7 @@ for e in ("FINISHED", "CONVO_FINISH", "CONVO START", "CONVO END", "BIG TITLE STA
           "HORNET LEAVE", "BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY", "WAKE", "BOX UP DREAM",
           "BOX DOWN DREAM", "FADE IN", "FADE OUT", "FSM CANCEL", "CLOSE", "FK DEATH", "SHOP UP", "SHOP CLOSED",
           "SHOP CLOSED QUICK", "SHOP WINDOW UP", "RESET SHOP WINDOW", "CLOSE SHOP WINDOW", "BOX UP YN", "BOX DOWN YN",
-          "YES", "NO", "CONTINUE", "RESET"):
+          "YES", "NO", "CONTINUE", "RESET", "HIT", "UNCOVER"):
     EVENTS.id(e)
 FIXED_EVENTS = len(EVENTS.list)   # (src/data.h: VMEV_*)
 
@@ -232,6 +258,7 @@ op("IntCompareToBool", ("integer1", "i"), ("integer2", "i"), ("equalBool", "B"),
    ("greaterThanBool", "B"), ("everyFrame", "n"))
 op("IntAdd", ("intVariable", "I"), ("add", "i"), ("everyFrame", "n"))
 op("IntSwitch", ("intVariable", "i"), ("compareTo", "i*"), ("sendEvent", "e*"), ("everyFrame", "n"))
+op("FloatSwitch", ("floatVariable", "f"), ("lessThan", "f*"), ("sendEvent", "e*"), ("everyFrame", "n"))
 op("BoolTest", ("boolVariable", "b"), ("isTrue", "e"), ("isFalse", "e"), ("everyFrame", "n"))
 op("BoolAllTrue", ("boolVariables", "b*"), ("sendEvent", "e"), ("storeResult", "B"), ("everyFrame", "n"))
 op("BoolAnyTrue", ("boolVariables", "b*"), ("sendEvent", "e"), ("storeResult", "B"), ("everyFrame", "n"))
@@ -353,15 +380,17 @@ op("GetDistance", ("gameObject", "o"), ("target", "o"), ("storeResult", "F"), ("
 op("SoulOrbs", ("spawnMin", "i"), ("spawnMax", "i"), ("speedMin", "f"), ("speedMax", "f"), ("angleMin", "f"),
    ("angleMax", "f"), ("originVariationX", "f"), ("originVariationY", "f"))   # (Soul Orb R: flung, then to the Knight)
 op("FadeTo", ("gameObject", "o"), ("alpha", "f"), ("time", "f"), ("includeChildren", "n"))   # (iTweenFadeTo)
+op("SetBenchRespawn", ("marker", "x"), ("type", "n"), ("facing", "n"))   # (PlayerData.SetBenchRespawn: the marker's name)
 
 # HeroController's methods the scripts call (HeroCall's method)
 HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "StartAnimationControl", "FaceLeft",
                 "FaceRight", "CanTalk", "PreventCastByDialogueEnd", "SetBackOnGround", "AddMPCharge",
                 "FindGroundPoint", "SetBenchRespawn", "SetHazardRespawn", "RelinquishControlNotVelocity",
                 "SetCState", "SaveGame", "AffectedByGravity", "ResetHardLandingTimer", "StopPlayingAudio", "CanInspect",
-                "CanInput", "GetState", "CancelHeroJump"]
+                "CanInput", "GetState", "CancelHeroJump", "ForceHardLanding", "AddHealth", "TryAddMPChargeSpa"]
 # (GetState's states, by name: its argument)
-HERO_STATES = ["onGround", "attacking", "upAttacking", "downAttacking", "dashing", "backDashing"]
+HERO_STATES = ["onGround", "attacking", "upAttacking", "downAttacking", "dashing", "backDashing", "willHardLand",
+               "spellQuake"]   # (backDashing, spellQuake: never here)
 # the geo prefabs (Geo Small, Med, Large): GeoControl's types
 GEO_PREFABS = {("resources.assets", 5736): 0, ("resources.assets", 6395): 1, ("resources.assets", 6376): 2}
 SOUL_ORB = ("resources.assets", 4231)   # (Soul Orb R: src/obj.c's soul orbs)
@@ -418,6 +447,7 @@ class Room:
                 self.by_id[c["id"]] = c
                 self.by_path.setdefault(q["path"], c)
         self.objs, self.obj_index = [], {}
+        self.folds = []   # (sprites drawn with an object of theirs, nothing else to them: (its object, them))
         self.fsms = []
         self.persist, self.persist_objs = [], []   # (PersistentBoolItem: FSM, its Activated's slot, its object)
         self.problems = []
@@ -441,12 +471,55 @@ class Room:
             return False
         return not (cls & SKIP_CLASSES) and o["name"] not in SKIP_NAMES
 
+    def referenced(self):
+        """the names and objects the scene's scripts can find (FindChild, FindGameObject, references)"""
+        if not hasattr(self, "_refs"):
+            names, ids = set(), set()
+
+            def walk(v):
+                if isinstance(v, str):
+                    names.add(v)
+                elif isinstance(v, (list, tuple)):
+                    if len(v) == 3 and v[0] == "ref":
+                        ids.add(v[2])
+                    for x in v:
+                        walk(x)
+                elif isinstance(v, dict):
+                    for x in v.values():
+                        walk(x)
+            for q in list(self.by_id.values()):
+                for c in q["c"]:
+                    f = c.get("fsm")
+                    if f:
+                        walk(f["vars"])
+                        for st in f["states"]:
+                            for a in st["actions"]:
+                                walk(a["params"])
+            self._refs = names, ids
+        return self._refs
+
+    def foldable(self, q):
+        """a sprite and nothing else, on, under nothing, that no script finds: drawn with its parent's object"""
+        if q.get("children") or not q.get("active") or not q.get("self_active", True):
+            return False
+        if {c.get("class") or c["type"] for c in q["c"]} != {"SpriteRenderer"}:
+            return False
+        sr = next(c.get("v") for c in q["c"])
+        if not sr or not sr.get("m_Sprite") or not sr.get("m_Enabled", 1):
+            return False
+        names, ids = self.referenced()
+        return q["name"] not in names and q.get("_raw", q["id"]) not in ids and not any(c.get("pid") in ids for c in q["c"])
+
     def add_tree(self, o):
         if not self.want(o):
             return
-        self.obj(o)
+        i = self.obj(o)
         for c in o.get("children", []):
-            self.add_tree(self.by_id[c])
+            q = self.by_id[c]
+            if self.foldable(q):
+                self.folds.append((i, q))
+            else:
+                self.add_tree(q)
 
     def obj(self, o):
         if o["id"] in self.obj_index:
@@ -489,6 +562,10 @@ class Room:
         o = self.by_id.get(key(r[2]) if key else r[2])
         if o is None:
             return O_NONE
+        # (a mask not the scripts' own: the game's, found by its name as the FSM runs)
+        if o["id"] not in self.obj_index and any(c.get("fsm") and c["fsm"]["name"] in ("unmasker", "remasker", "remasker_inverse")
+                                                 for c in o["c"]):
+            return 0x10000 | STR.id(o["name"])
         if o["id"] not in self.obj_index:
             self.add_tree(o)
         return self.obj_index.get(o["id"], O_NONE)
@@ -829,7 +906,7 @@ class Compiler:
             return bytes([len(w)]) + bytes(int(round(255 * x / sum(w))) for x in w)
         if kind == "x*":
             return bytes([len(v)]) + b"".join(struct.pack("<H", q) for q in v)
-        if kind in ("i*", "b*", "e*"):
+        if kind in ("i*", "b*", "e*", "f*"):
             v = v or []
             out = bytes([len(v)])
             for q in v:
@@ -1107,7 +1184,8 @@ class Compiler:
             if beh == "HeroPlatformStick" and m in ("Activate", "Deactivate"):
                 return self.emit("PlatformStick", {"on": 1 if m == "Activate" else 0})
             if beh == "HeroController" and m in HERO_METHODS:
-                a0 = args[0]["f"] if args and args[0].get("type") in (5, 0) else 0
+                a0 = args[0]["f"] if args and args[0].get("type") in (5, 0) else \
+                    args[0]["i"] if args and args[0].get("type") == 1 else 0
                 if m == "GetState":
                     a0 = HERO_STATES.index(args[0]["s"])
                 return self.emit("HeroCall", {"method": HERO_METHODS.index(m), "store": P.get("storeResult"), "a": a0})
@@ -1198,12 +1276,24 @@ class Compiler:
             return self.emit("Collision2dEvent", P)
         if n == "WaitForHeroInPosition":
             return self.emit(n, P)
-        if n in ("IntOperator", "GetDistance"):
+        if n in ("IntOperator", "GetDistance", "SetBenchRespawn"):
+            return self.emit(n, P)
+        if n in ("SetPlayerDataInt", "GetPlayerDataInt") and P.get("intName") in ("environmentType", "environmentTypeDefault"):
+            return None   # (footsteps' sounds)
+        if n == "FloatSwitch":
             return self.emit(n, P)
         if n == "SetPolygonCollider":
             return self.emit("SetCollider", P)
         if n == "SetProperty" and not (P.get("targetProperty") or {}).get("target"):
             return None
+        if n == "SetProperty" and (P.get("targetProperty") or {}).get("prop") == "enabled":
+            # (a collider of its object's switched off: as SetCollider)
+            t = P["targetProperty"]["target"]
+            q = next((q for q in self.rm.by_id.values() for c in q["c"] if c.get("pid") == t[2] and
+                      c["type"] in ("BoxCollider2D", "PolygonCollider2D", "CircleCollider2D")), None)
+            if q is not None and q["id"] in self.rm.obj_index:
+                return self.emit("SetCollider", {"gameObject": ["ref", 0, q["id"]] if q is not self.o else "Owner",
+                                                 "active": False})
         if n == "iTweenFadeTo":
             if P.get("delay") or (P.get("loopType") or 0) or P.get("finishEvent") or P.get("speed") is not None:
                 self.problem("iTweenFadeTo %r" % P)
@@ -1402,8 +1492,10 @@ def prepare(rooms, sprites, texts):
             print("vm:", p)
         assert len(EVENTS.list) < 255, (name, len(EVENTS.list))
         nvars = sum(len(i) for _, _, i, _ in rm.fsms)
-        assert len(rm.objs) <= MAX_OBJS and len(rm.fsms) <= MAX_FSMS and nvars <= MAX_VARS, \
-            (name, len(rm.objs), len(rm.fsms), nvars)
+        nanims = sum(1 for o in rm.objs if _animator(o) or _unity_animator(o) or
+                     any(c.get("class") in ("WaveEffectControl", "SimpleSpriteFade") for c in o["c"]))
+        assert len(rm.objs) <= MAX_OBJS and len(rm.fsms) <= MAX_FSMS and nvars <= MAX_VARS and nanims <= MAX_ANIMS, \
+            (name, len(rm.objs), len(rm.fsms), nvars, nanims)
         BUILT[name] = rm
     # Unity Animators (a sprite swapped each frame): their clips as actors'
     for rm in BUILT.values():
@@ -1576,8 +1668,29 @@ def room_blob(name, clip_index, sprites, owners=(), persist=None):
     for fi, slot, o, *semi in rm.persist:
         bits = 3 if slot & 0x80 else 1
         fsms += struct.pack("<BBH", fi, slot, persist.id(o.get("_scene", name), o["path"], bits, semi[0] if semi else False))
+    # (folded sprites: their object, sprite, place from it, depth, scale, sorting, color, blend)
+    folds = struct.pack("<H", len(rm.folds))
+    for i, q in rm.folds:
+        o = rm.objs[i]
+        m = np.array(q["m3"]).reshape(3, 3)
+        sx = float(np.hypot(m[0, 0], m[1, 0])) * (1 if m[0, 0] >= 0 else -1)
+        sy = float(np.hypot(m[0, 1], m[1, 1])) * (1 if m[1, 1] >= 0 else -1)
+        sr = next(c["v"] for c in q["c"])
+        spr = sprites.id(q.get("_doc") or rm.d, sr["m_Sprite"], 1.0, max(abs(sx), abs(sy)))
+        layer, order = ents._sorting(q)
+        import scene
+        blend = 0
+        m0 = (sr.get("m_Materials") or [None])[0]
+        if m0 and m0[1]:
+            doc = q.get("_doc") or rm.d
+            blend = {"alpha": 0, "add": 1, "screen": 2, "linearlight": 3, "overlay": 4, "multiply": 5}[
+                scene.blend_of(unity.material(unity.ref_path(doc, m0[0]), m0[1])[1])]
+        col = sr.get("m_Color") or {"r": 1, "g": 1, "b": 1, "a": 1}
+        rgba = [max(0, min(255, int(round(col[k] * 255)))) for k in "rgba"]
+        folds += struct.pack("<BBhfffffHhBBBBHH", i, 0, spr, q["pos"][0] - o["pos"][0], q["pos"][1] - o["pos"][1], q["pos"][2],
+                             sx, sy, layer, order, *rgba, blend, 0)
     head = struct.pack("<HHHH", len(rm.objs), len(rm.fsms), nmap, len(rm.persist))
-    return bytes(head + objs + clipmap + fsms)
+    return bytes(head + objs + clipmap + fsms + folds)
 
 
 def tables(clip_index, prompt_text):
@@ -1628,7 +1741,7 @@ PD_INT_CONST = {"permadeathMode": 0, "quakeLevel": 0, "screamLevel": 0}
 def owned(room):
     """the room's objects the scripts have (and draw): (scene, object id)"""
     rm = BUILT.get(room)
-    return [(o.get("_scene", room), o.get("_raw", o["id"])) for o in rm.objs] if rm else []
+    return [(o.get("_scene", room), o.get("_raw", o["id"])) for o in rm.objs + [q for _, q in rm.folds]] if rm else []
 
 
 def _const_bool(name):

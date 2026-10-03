@@ -105,6 +105,7 @@ typedef struct {
 int save_stats(int slot, SaveStats *st);   /* -> 0 no game, 1 a game, -1 a file that does not check out */
 bool save_clear(int slot);
 void save_set_respawn(const char *marker, bool facing_right);   /* (Bench Control's Rest Burst) */
+void save_set_respawn_kind(const char *marker, bool facing_right, int type);   /* (respawnType: 0 face down) */
 
 /* ---------------------------------------------------------------- the room's game objects (tools/ents.py) */
 enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE,
@@ -124,7 +125,7 @@ enum { BG_CLOSE, BG_QUICK_CLOSE, BG_OPEN, BG_QUICK_OPEN, BG_DESTROY };
 void gates_event(int ev);
 int gate_find(uint16_t name);    /* (a gate by its name: the scripts' strings) */
 void gate_event_at(int k, int ev);
-int camlock_find(uint16_t name);  /* (a camera lock area by its name: the scripts' strings) */
+int camlock_find(uint16_t name);  /* (a camera lock area, a mask, by its name: the scripts' strings) */
 void arena_start(void);          /* START (sent by an enemy) */
 void arena_enemy_died(void);     /* (one it counts) */
 void arena_set_activated(void);  /* Activated: its fight over (and saved) */
@@ -482,6 +483,9 @@ void hud_draw(void);
 /* ---------------------------------------------------------------- the camera (camera.c) */
 void cam_init(void);
 void cam_tick(void);
+#ifdef HOST
+void cam_debug(void);
+#endif
 void cam_snap_to_hero(void);   /* (after a respawn) */
 enum { SHAKE_ENEMY_KILL = 1, SHAKE_AVERAGE, SHAKE_BIG, SHAKE_SMALL };   /* the CameraShake FSM's events */
 void cam_shake(int kind);

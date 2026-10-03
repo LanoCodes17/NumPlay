@@ -93,6 +93,8 @@ ENEMY_KINDS = [
       "Sphere Ball", "Fall", "Throw Antic", "Throw", "Throw Recover", "Needle", "Needle Thread", "Run", "Hard Land",
       "Evade Antic", "Evade", "Stun Air", "Stun", "Air Dash Effect", "G Dash Effect", "Flash", "Throw Effect", "Wounded",
       "Flourish"]),
+    # (the Mender Bug: by the Crossroads' sign, now and then)
+    ("mender", "Mender Bug Ctrl", ("sharedassets37.assets", 158), "MENDER", {"IDLE": "Idle", "A1": "Startle", "A2": "Fly"}),
 ]
 ENEMY_CORPSE_LIBS = {}   # (name -> its corpse's library, if not its own)
 

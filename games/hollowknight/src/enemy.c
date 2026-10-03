@@ -18,7 +18,7 @@
 enum {
   EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER, EF_ROLLER, EF_BLOCKER, EF_LEAPER, EF_GUARD,
   EF_FK, EF_FKHEAD, EF_GFLY, EF_HATCHER, EF_HATCHLING, EF_SLUG, EF_MOSSWALKER, EF_PIGEON, EF_PLANTTRAP, EF_SHAKER,
-  EF_MOSQUITO, EF_FATFLY, EF_MOSSCHARGER, EF_MOSSKNIGHT, EF_HORNET
+  EF_MOSQUITO, EF_FATFLY, EF_MOSSCHARGER, EF_MOSSKNIGHT, EF_HORNET, EF_MENDER
 };
 enum { R_IDLE, R_TURN, R_WALK, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, R_A7, R_A8, R_DEATH_AIR, R_DEATH_LAND, NUM_ROLES };
 typedef struct {
@@ -302,7 +302,20 @@ static uint8_t flash_tint_at(bool on, float t, int slot) {
   return gfx_dyn_flash(slot, 255, 255, 255, 255, 255, 79, 0, (uint8_t)(0.9f * k * 255));
 }
 
-static uint8_t flash_tint(const Enemy *e, int slot) { return flash_tint_at(e->flashing, e->flash_t, slot); }
+/* (uninfected (EnemyDeathEffectsUninfected, EnemyHitEffectsUninfected): flashFocusHeal, white: up 0.01 s, stays 0.01 s,
+ * down over 0.35 s, to 0.85) */
+static uint8_t flash_white_at(bool on, float t, int slot) {
+  if (!on || t > 0.37f) return 0;
+  float k = t < 0.01f ? t / 0.01f : t < 0.02f ? 1 : 1 - (t - 0.02f) / 0.35f;
+  if (k < 0) k = 0;
+  return gfx_dyn_flash(slot, 255, 255, 255, 255, 255, 255, 255, (uint8_t)(0.85f * k * 255));
+}
+
+static bool uninfected(const Enemy *e) { return e->ent != NO_ENT && (ent_at(e->ent)->s1 >> 12 & 3) == 1; }
+
+static uint8_t flash_tint(const Enemy *e, int slot) {
+  return uninfected(e) ? flash_white_at(e->flashing, e->flash_t, slot) : flash_tint_at(e->flashing, e->flash_t, slot);
+}
 
 /* ---------------------------------------------------------------- Recoil */
 #define RF_NONE 0x80   /* (no Recoil component) */
@@ -420,6 +433,7 @@ static void enemy_die(Enemy *e, float direction, bool has_direction) {
     persist_set(d->persist), enemy_terrain_off(d);
     if (d->s1 & EF_BATTLE) arena_enemy_died();   /* (its battleScene's Battle Enemies) */
   }
+  if (FSM(e) == EF_MENDER) g_pd.mender_state = 2;   /* (Killed) */
   if (FSM(e) == EF_GFLY) gfly_die(e);
   else if (FSM(e) == EF_HORNET) hornet_corpse_start(e);
   else if (FSM(e) == EF_HATCHLING) {
@@ -4261,6 +4275,53 @@ static void pigeon_fixed(Enemy *e) {
   e->body.x += e->body.vx * DT, e->body.y += e->body.vy * DT;   /* (a trigger: touches nothing) */
 }
 
+/* ---------------------------------------------------------------- the Mender Bug (Mender Bug Ctrl): by the sign once it
+ * was broken, one time in fifty; startled as the Knight comes near, it flies off (by 15 across, 20 up in a second,
+ * easeInSine) and is gone. Killed, menderState 2. */
+enum { MB_IDLE, MB_STARTLE, MB_FLY };
+static void mender_start(Enemy *e) {
+  /* Dead?, Sign Broken?, Chance (the sign mended either way) */
+  if (g_pd.mender_state == 2 || !pd_flag(PDF_MENDER_SIGN_BROKEN)) {
+    e->mode = EM_OFF;
+    return;
+  }
+  pd_set_flag(PDF_MENDER_SIGN_BROKEN, false);
+#ifdef HOST
+  bool here = getenv("HKMENDER") != NULL;   /* (tests: always) */
+#else
+  bool here = false;
+#endif
+  if (!here && (int)rand_range(1, 50.999f) != 50) {
+    e->mode = EM_OFF;
+    return;
+  }
+  e->st = MB_IDLE;
+}
+
+static void mender_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0;
+  if (e->st == MB_IDLE) {
+    if (!e->in_alert) return;
+    /* (HERO ENTER) Direction: away from the Knight (flying right, turned) */
+    bool right = hero_x() <= e->body.x;
+    if (right) set_scale_x(e, -e->sx);
+    e->tx = right ? 15.0f : -15.0f, e->ty = 20;
+    e->st = MB_STARTLE;
+    anim_play_from_frame(&e->anim, CLIP(e, R_A1), 0);
+  } else if (e->st == MB_STARTLE) {
+    if (!done && e->anim.playing) return;
+    /* Fly: its collider off, by its vector in a second */
+    e->st = MB_FLY, e->t0 = 0, e->start_x = e->body.x, e->start_y = e->body.y;
+    e->flags |= 1;
+    anim_play(&e->anim, CLIP(e, R_A2));
+  } else {
+    e->t0 += DT;
+    float q = e->t0 >= 1 ? 1 : e->t0, k = 1 - cosf(q * 1.5707964f);
+    e->body.x = e->start_x + e->tx * k, e->body.y = e->start_y + e->ty * k;
+    if (e->t0 >= 1) e->mode = EM_OFF;   /* (DESTROY) */
+  }
+}
+
 /* ---------------------------------------------------------------- Fool Eaters: Plant Trap Control (snaps as the Knight
  * steps over its Detector; only its frames have colliders) */
 enum { PT_IDLE, PT_READY, PT_SNAP, PT_RETRACT, PT_COOLDOWN };
@@ -6294,6 +6355,7 @@ static void enemy_fsm_start(Enemy *e, const Ent *d) {
   else if (FSM(e) == EF_SLUG) slug_start(e);
   else if (FSM(e) == EF_MOSSWALKER) mosswalker_start(e);
   else if (FSM(e) == EF_PIGEON) pigeon_start(e);
+  else if (FSM(e) == EF_MENDER) mender_start(e);
   else if (FSM(e) == EF_PLANTTRAP) planttrap_start(e);
   else if (FSM(e) == EF_SHAKER) shaker_start(e);
   else if (FSM(e) == EF_MOSQUITO) mosquito_start(e, d);
@@ -6575,7 +6637,7 @@ void enemies_update(void) {
     if (e->mode == EM_OFF) continue;
     e->anim.events = 0;
     anim_update(&e->anim, DT);
-    if (e->flashing && (e->flash_t += DT) > 0.27f) e->flashing = false;
+    if (e->flashing && (e->flash_t += DT) > (uninfected(e) ? 0.37f : 0.27f)) e->flashing = false;
     if (e->mode == EM_ALIVE) {
       frame_collider(e);
       if (e->evasion > 0) e->evasion -= DT;
@@ -6610,6 +6672,7 @@ void enemies_update(void) {
       else if (FSM(e) == EF_SLUG) slug_update(e);
       else if (FSM(e) == EF_MOSSWALKER) mosswalker_update(e);
       else if (FSM(e) == EF_PIGEON) pigeon_update(e);
+      else if (FSM(e) == EF_MENDER) mender_update(e);
       else if (FSM(e) == EF_PLANTTRAP) planttrap_update(e);
       else if (FSM(e) == EF_SHAKER) shaker_update(e);
       else if (FSM(e) == EF_MOSQUITO) mosquito_update(e);

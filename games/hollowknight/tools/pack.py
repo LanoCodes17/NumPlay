@@ -470,6 +470,7 @@ def main():
             row.append(TEXTS.add(line, style) if line else -1)
         titles.append("{%s}" % ", ".join(str(i) for i in row))
     fleurs = actors.title_fleurs(SPRITES)
+    fleurs["VM_PIECE_BASE"] = SPRITES.base   # (the sprites the scripts' debris named, before it was known: theirs from it)
     # the message as an item is taken (UI Msg Get Item, on the HUD): each item's texts, the message's sprites, the
     # items' icons
     msgs = []

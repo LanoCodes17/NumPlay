@@ -237,6 +237,7 @@ static int pd_int(int i) {
     case 21: return g_pd.grub_rewards;
     case 22: return (int)g_pd.stag_position1 - 1;
     case 23: return g_pd.stations_opened;
+    case 25: return g_pd.mender_state;
     default: return 0;
   }
 }
@@ -258,6 +259,7 @@ static void pd_set_int(int i, int v) {
     case 21: g_pd.grub_rewards = (uint8_t)v; break;
     case 22: g_pd.stag_position1 = (uint8_t)(v + 1); break;
     case 23: g_pd.stations_opened = (uint8_t)v; break;
+    case 25: g_pd.mender_state = (uint8_t)v; break;
   }
 }
 
@@ -640,7 +642,7 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
     case VMOP_FLINGPIECE: {
       int o = oval(f, rv(&r));
       bool hide = rb(&r), snap = rb(&r);
-      uint16_t sprite = rv(&r);
+      int sprite = rv(&r) + VM_PIECE_BASE;   /* (named as the scripts were made: before the room sprites' place) */
       uint8_t layer = rb(&r);
       uint16_t order = rv(&r);
       uint8_t pfl = rb(&r);

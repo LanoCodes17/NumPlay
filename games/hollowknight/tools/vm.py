@@ -27,7 +27,7 @@ ROOMS = {
                                 "Bone Gate", "Reminder Cast (1)",
                                 "_Areas/Death Respawn Trigger 1"],
     # items lying about (Shiny Item: a relic, a charm), the City Crest the False Knight leaves
-    "Crossroads_01": ["Shiny Item", "Force Hard Landing"],
+    "Crossroads_01": ["Shiny Item", "Force Hard Landing", "_Scenery/sign_post_03/Crossroads Sign Post"],
     "Tutorial_01": ["_Props/Chest/Item", "_Props/Collapser Tute 01", "_Scenery/Break Floor 1", "Interact Reminder",
                     "_Props/Tute Door 5/Active/Jump Reminder", "_Props/Tut_tablet_top", "_Props/Tut_tablet_top (1)",
                     "_Props/Tut_tablet_top (2)"],   # (its chest: src/obj.c, which turns on what is in it)
@@ -50,7 +50,7 @@ ROOMS = {
                    "Toll Gate", "Toll Gate (1)"],
     # the world's other scripted things: walls that break, floors, a soul totem, tablets, a wall that turns on
     "Crossroads_08": ["Break Wall 2"],
-    "Crossroads_04": ["_Scenery/Break Floor 1", "CamLock Destroyer"],
+    "Crossroads_04": ["_Scenery/Break Floor 1", "CamLock Destroyer", "_Transition Gates/Mender Door"],
     "Crossroads_19": ["Soul Totem mini_two_horned"],
     "Crossroads_21": ["Breakable Wall", "Polygon_Collider_Cross_21 1/Roof Collider (1)", "Collapser Small"],
     "Crossroads_07": ["Breakable Wall_Silhouette"],
@@ -145,6 +145,8 @@ SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "Shop Open Voice"
 SKIP_CLASSES = {"SpellGetOrb", "ParticleSystem"}
 SKIP_NAMES = {"Dream Dialogue", "Dream Dialogue Flower", "Flower", "Flower Give", "white_light", "white_light 1",
               "Knight Lift"}
+# (the Mender House's door: its inspect region, for a key there is none of, never on)
+SKIP_PATHS = {("Crossroads_04", "_Transition Gates/Mender Door/Inspect")}
 MAX_OBJS, MAX_FSMS, MAX_VARS, MAX_ANIMS = 48, 26, 256, 20   # (src/vm.c)
 # the grubs in this part of the game (Crossroads_03, Fungus1_21): the Grubfather's rewards past them never come
 GRUBS = 2
@@ -164,7 +166,7 @@ O_NONE = 0xFFFF
 PD_INTS = ["MPCharge", "health", "maxHealth", "geo", "fireballLevel", "quakeLevel", "screamLevel", "shaman", "elderbug",
            "permadeathMode", "nailDamage", "hornetGreenpath", "quirrelEggTemple", "charmsOwned", "trinket1", "trinket2",
            "trinket3", "trinket4", "rancidEggs", "ore", "grubsCollected", "grubRewards", "stagPosition", "stationsOpened",
-           "xunFlowerBrokeTimes"]
+           "xunFlowerBrokeTimes", "menderState"]
 # PlayerData bools kept elsewhere (src/vm.c)
 PD_SPECIAL = {"disablePause": 0xFFF0, "hasSpell": 0xFFF1, "canDash": 0xFFF2}
 # PlayerData bools that keep their new game value all through this part of the game
@@ -489,6 +491,8 @@ class Room:
         cls = {c.get("class") or c["type"] for c in o["c"]}
         if o["path"].startswith("Grub King/Rewards Parent/Reward ") and int(o["name"].split()[-1]) > GRUBS:
             return False
+        if (self.name, o["path"]) in SKIP_PATHS or any((self.name, p) in SKIP_PATHS for p in _ancestors(o["path"])):
+            return False
         return not (cls & SKIP_CLASSES) and o["name"] not in SKIP_NAMES and o["name"] not in HUD_CHILDREN
 
     def referenced(self):
@@ -649,6 +653,11 @@ def _slots(vars_, keep=None):
     return out, n
 
 
+def _ancestors(path):
+    parts = path.split("/")
+    return ["/".join(parts[:i]) for i in range(1, len(parts))]
+
+
 def _dollars(v):
     """the variables a parameter names ($name), however deep"""
     if isinstance(v, str):
@@ -789,6 +798,12 @@ class Compiler:
                 return 1 if Q["childName"] == "Stop" else 2
         return None
 
+    def owner_var(self, v):
+        """a gameObject variable GetOwner sets (its owner)"""
+        return isinstance(v, str) and v.startswith("$") and any(
+            a["name"] == "GetOwner" and dict(a["params"]).get("storeGameObject") == v
+            for s in self.f["states"] for a in s["actions"])
+
     def static_child(self, v):
         """a gameObject variable FindChild sets from its owner (always the same child) -> that child"""
         if not (isinstance(v, str) and v.startswith("$")):
@@ -796,7 +811,8 @@ class Compiler:
         for s in self.f["states"]:
             for a in s["actions"]:
                 Q = dict(a["params"])
-                if a["name"] == "FindChild" and Q.get("storeResult") == v and Q.get("gameObject") == "Owner":
+                if a["name"] == "FindChild" and Q.get("storeResult") == v and (Q.get("gameObject") == "Owner" or
+                                                                               self.owner_var(Q.get("gameObject"))):
                     return next((q for q in self.rm.by_id.values() if q.get("parent") == self.o["id"] and
                                  q["name"] == Q.get("childName")), None)
         return None
@@ -979,7 +995,7 @@ class Compiler:
                  "GetLastEvent", "SetBoxCollider2DSize", "Tk2dSpriteSetColor", "SetTextMeshProColor",
                  "AudioPlayRandom", "SetName", "GameObjectIsNull", "PlayVibrationV2",
                  "SpawnFromPool", "SpawnRandomObjects", "Rotate", "GetEventSender", "SetMaterialColor",
-                 "GetMaterialColor", "EaseColor"):
+                 "GetMaterialColor", "EaseColor", "GetMidPoint", "SetAudioClip"):
             return None
         if n == "SendEventByNameV2":
             n = "SendEventByName"
@@ -1006,6 +1022,9 @@ class Compiler:
             return self.emit("DialoguePlace", {"which": self.dialogue_part(P.get("gameObject")), "y": P.get("y")})
         if n in ("GetFsmInt", "GetFsmFloat") and P.get("gameObject") == "$Damager":
             # (the hit's damages_enemy: its damage, its attack's type (0 the nail, 2 a spell), its direction)
+            if P.get("variableName") == "magnitudeMult":
+                # (its magnitude: 1, the nail's and the spells' here)
+                return self.emit("SetFloatValue", {"floatVariable": P.get("storeValue"), "floatValue": 1.0})
             which = {"damageDealt": 0, "attackType": 1, "direction": 2}.get(P.get("variableName"))
             if which is None:
                 self.problem("%s Damager %s" % (n, P.get("variableName")))
@@ -1856,12 +1875,18 @@ def _const_vars(f, external=()):
         for a in st["actions"]:
             for k, v in a["params"]:
                 if isinstance(v, str) and v.startswith("$") and (k.startswith("store") or k.endswith("Bool") and k != "boolName" or
-                                                                 (a["name"] in ("SetBoolValue", "BoolFlip") and k == "boolVariable")):
+                                                                 (a["name"] in ("SetBoolValue", "BoolFlip") and k == "boolVariable") or
+                                                                 k in _outputs(a["name"])):
                     written.add(v[1:])
     out = {n: bool(val) for n, (t, val) in f["vars"].items() if t == "bool" and n not in written}
     _, _, inline = _layout(f, external)
     out.update({n: int(f["vars"][n][1] or 0) for n in inline if f["vars"][n][0] == "int"})
     return out
+
+
+def _outputs(name):
+    """an action's parameters it writes (its op's stores: F, I, B, S, O, V3)"""
+    return {k for k, kind in OPS.get(name, (0, ()))[1] if kind in ("F", "I", "B", "S", "O", "V3")}
 
 
 def _events_of_state(f, s, consts=None, where=False):
@@ -1970,7 +1995,10 @@ def _events_of_state(f, s, consts=None, where=False):
             if var(P.get("boolVariable")):
                 known[var(P.get("boolVariable"))] = bval(P.get("boolValue"))
             continue
-        # anything else: whatever events it names
+        # anything else: whatever events it names (what it writes, no longer known)
+        for k in _outputs(n):
+            if var(P.get(k)):
+                known[var(P.get(k))] = None
         for k, v in a["params"]:
             if isinstance(v, (list, tuple)) and v and v[0] == "event":
                 out.add(v[1])

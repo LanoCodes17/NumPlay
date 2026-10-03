@@ -42,7 +42,7 @@ ENEMY_VARS = {"Zombie Swipe": (["Lunge Speed", "Idle Time"], ["Coward"]),
 TRIGGER_BODIES = {"Pigeon"}
 FRAME_BODIES = {"Plant Trap Control", "Mossy Control"}
 RANGES = {"Moss Walker": ("Wake Range",), "Pigeon": ("Hero Range", "Enemy Range"), "Plant Trap Control": ("Detector",),
-          "Moss Knight Control": ("Wake Box",)}
+          "Moss Knight Control": ("Wake Box",), "Mender Bug Ctrl": ("Hero Detect",)}
 # (enemies whose attacks start with their colliders off: those still kept, off)
 HITBOXES_OFF = {"Moss Knight Control"}
 # what follows an enemy's record: ENT_BOX records, tagged

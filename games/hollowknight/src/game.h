@@ -39,7 +39,7 @@ enum {
   PDF_SALUBRA_NOTCH4, PDF_MET_STAG, PDF_CORNIFER_AT_HOME, PDF_ISELDA_CONVO1, PDF_ISELDA_CORNIFER_HOME_CONVO,
   PDF_SALUBRA_CONVO_COMBO, PDF_SALUBRA_CONVO_OVERCHARM, PDF_SALUBRA_CONVO_TRUTH, PDF_SLY_CONVO_MAPPER,
   PDF_OPENED_CROSSROADS, PDF_OPENED_GREENPATH, PDF_TRAVELLING, PDF_STAG_REMEMBER1, PDF_STAG_CONVO_TISO,
-  PDF_QUIRREL_LEFT_EGG_TEMPLE, PDF_MET_CORNIFER, PDF_CORN_CROSSROADS_ENCOUNTERED, PDF_CORNIFER_INTRODUCED, PDF_COUNT
+  PDF_QUIRREL_LEFT_EGG_TEMPLE, PDF_MET_CORNIFER, PDF_CORN_CROSSROADS_ENCOUNTERED, PDF_CORNIFER_INTRODUCED, PDF_MENDER_SIGN_BROKEN, PDF_COUNT
 };
 typedef struct {
   /* (saved: the layout only ever grows into reserved) */
@@ -76,7 +76,8 @@ typedef struct {
   /* (scenesVisited, scenesMapped (the quill's), scenesEncounteredCocoon (a lifeblood cocoon broken there): by room) */
   uint8_t rooms_visited[5], rooms_mapped[5], rooms_cocoon[5];
   uint8_t map_key_pref;         /* (mapKeyPref: the map's key and its pins shown 0, the pins only 1, neither 2) */
-  uint8_t reserved[14];
+  uint8_t mender_state;         /* (menderState: 1 the sign broken once, 2 the Mender Bug killed) */
+  uint8_t reserved[13];
   /* (save version 2 on) the markers placed on the map (placedMarkers_b, _r, _y, _w: their places, 1/100 map units) */
   uint8_t markers_placed[4];
   int16_t markers[4][6][2];

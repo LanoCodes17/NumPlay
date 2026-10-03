@@ -67,6 +67,7 @@ int main(int argc, char **argv) {
     if (getenv("HKFIRE")) g_pd.fireball_level = atoi(getenv("HKFIRE"));
     if (getenv("HKHORNETGP")) g_pd.hornet_greenpath = (uint8_t)atoi(getenv("HKHORNETGP"));
     if (getenv("HKDASH")) g_pd.has_dash = true;
+    if (getenv("HKMENDERSTATE")) g_pd.mender_state = (uint8_t)atoi(getenv("HKMENDERSTATE"));
     if (getenv("HKMAPPED")) memset(g_pd.rooms_mapped, 0xFF, sizeof g_pd.rooms_mapped);   /* (every room mapped) */
     if (getenv("HKTRINKETS"))   /* (relics: "1,2,0,0") */
       sscanf(getenv("HKTRINKETS"), "%hhu,%hhu,%hhu,%hhu", &g_pd.trinkets[0], &g_pd.trinkets[1], &g_pd.trinkets[2], &g_pd.trinkets[3]);

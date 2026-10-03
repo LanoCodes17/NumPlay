@@ -15,9 +15,11 @@ import actors as _actors
 ENEMIES = {(fsm, f, pid): i + 1 for i, (name, fsm, (f, pid), code, roles) in enumerate(_actors.ENEMY_KINDS) if fsm}
 # their FSMs' variables an enemy's record keeps (ET_VARS: up to four numbers, then bools as bits)
 ENEMY_VARS = {"Zombie Swipe": (["Lunge Speed", "Idle Time"], ["Coward"]),
-              "Bouncer Control": (["Speed"], ["Starts Inactive", "Start Up"])}
+              "Bouncer Control": (["Speed"], ["Starts Inactive", "Start Up"]),
+              "Roller": (["Acceleration", "Max Speed", "Roll time Min", "Roll time Max", "Stop Time"], ["Moving Right"]),
+              "Blocker Control": (["Shot Y Speed"], ["Facing Right"])}
 # what follows an enemy's record: ENT_BOX records, tagged
-ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS = 0, 1, 2, 3, 4, 5, 6
+ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN = 0, 1, 2, 3, 4, 5, 6, 7
 EF_START, EF_STARTLES = 1, 2   # (FSM bools: First Crawler or Start Alert; Startles)
 # the layers the nail's slashes touch (Physics2D's collision matrix, layer 17 Attack)
 ATTACK_HITS = {3, 6, 7, 8, 11, 12, 17, 19, 20, 21, 25, 31}
@@ -315,10 +317,11 @@ def _alert_range(q):
     return None
 
 
-def _enemy(o, by_id, persist, name, d=None, strings=None):
+def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
     """An enemy -> its records: ENT_OBJ (OK_ENEMY: its kind, place (x, y, z, x scale), hp, damage, small and medium
     geo; large geo in group; s0 how many records follow), then ENT_BOX records each tagged (flags, ET_*): its
-    collider, alert ranges, Walker, Recoil, corpse; or None."""
+    collider, alert ranges, Walker, Recoil, corpse, the terrain it holds (its subtree's colliders: a first, group how
+    many); or None."""
     an = next((c.get("v") for c in o["c"] if c.get("class") == "tk2dSpriteAnimator" and c.get("v")), None)
     hm = next((c.get("v") for c in o["c"] if c.get("class") == "HealthManager" and c.get("v")), None)
     if not an or not hm:
@@ -378,9 +381,10 @@ def _enemy(o, by_id, persist, name, d=None, strings=None):
                                             cl.get("minTurnDistance", 0.25)), a=1 if cl.get("startRight", 1) else 0, s1=ang))
     nums, bools = ENEMY_VARS.get(fsm.get("name"), ([], []))
     if nums or bools:
-        vals = [float((var.get(k) or [0, 0])[1] or 0) for k in nums] + [0.0] * (4 - len(nums))
+        # (up to eight numbers: p0..p3, then the box's)
+        vals = [float((var.get(k) or [0, 0])[1] or 0) for k in nums] + [0.0] * (8 - len(nums))
         bits = sum(1 << i for i, k in enumerate(bools) if (var.get(k) or [0, False])[1])
-        out.append(rec(ENT_BOX, ET_VARS, p=tuple(vals[:4]), a=bits))
+        out.append(rec(ENT_BOX, ET_VARS, p=tuple(vals[:4]), box=tuple(vals[4:8]), a=bits))
     rc = next((c.get("v") for c in o["c"] if c.get("class") == "Recoil" and c.get("v")), None)
     if rc:
         out.append(rec(ENT_BOX, ET_RECOIL, box=(rc.get("recoilSpeedBase", 15), rc.get("recoilDuration", 0.15), 0, 0),
@@ -410,6 +414,11 @@ def _enemy(o, by_id, persist, name, d=None, strings=None):
                            a=cfl | (0 if cb else 32)))
         except Exception as e:
             print("ents: %s: corpse %s" % (o["path"], e))
+    if owners:
+        import coll
+        c0, cn = coll.subtree_colliders(d, owners, o["id"])
+        if cn:
+            out.append(rec(ENT_BOX, ET_TERRAIN, a=c0, group=cn))
     persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
     head = rec(ENT_OBJ, OK_ENEMY, (o["pos"][0], o["pos"][1], o["pos"][2], sx),
                (hm.get("hp", 1), dh.get("damageDealt", 0), hm.get("smallGeoDrops", 0), hm.get("mediumGeoDrops", 0)),
@@ -554,7 +563,7 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
                             group=g_lit, group2=g_light, s0=strings.id(o["name"])))
             recs.append(rec(ENT_BOX, 0, box))
             recs.append(rec(ENT_BOX, 0, dr or box))
-        en = _enemy(o, by_id, persist, name, d, strings) or _props(d, o, by_id, rooms, strings, persist, sprites, owners, name)
+        en = _enemy(o, by_id, persist, name, d, strings, owners) or _props(d, o, by_id, rooms, strings, persist, sprites, owners, name)
         if en:
             recs += en
         br = next((c for c in o["c"] if c.get("class") == "Breakable" and c.get("v") is not None), None)
@@ -660,5 +669,5 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
         else:
             print("ents: %s: HIT receiver %d has no record" % (name, target))
     assert ngroups[0] < MAX_GROUPS, ngroups[0]
-    assert len(recs) <= 320, len(recs)   # (src/game.h: MAX_ENTS)
+    assert len(recs) <= 448, len(recs)   # (src/game.h: MAX_ENTS)
     return recs, groups

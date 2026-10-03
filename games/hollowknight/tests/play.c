@@ -57,6 +57,7 @@ int main(int argc, char **argv) {
     if (getenv("HKMP")) g_pd.mp = (int16_t)atoi(getenv("HKMP"));
     if (getenv("HKHEALTH")) g_pd.health = (int8_t)atoi(getenv("HKHEALTH"));
     if (getenv("HKGEO")) g_pd.geo = atoi(getenv("HKGEO"));
+    if (getenv("HKFIRE")) g_pd.fireball_level = atoi(getenv("HKFIRE"));
     /* (HKLOAD=slot: that save loaded, the Knight at its respawn point) */
     if (getenv("HKLOAD")) {
       if (!save_load(atoi(getenv("HKLOAD"))) || (getenv("HKGEO") && (g_pd.geo = atoi(getenv("HKGEO")), 0)) || !game_respawn()) {
@@ -81,6 +82,10 @@ int main(int argc, char **argv) {
           dialogue_start(atoi(strchr(getenv("HKTALK"), ':') + 1));
         }
         if (getenv("HKKILL") && atoi(getenv("HKKILL")) == tick) hero_take_damage(SIDE_LEFT, 99, HAZ_NORMAL);
+        if (getenv("HKHIT") && atoi(getenv("HKHIT")) <= tick && tick % 10 == 0) {
+          extern void enemies_debug_hit(int damage);
+          enemies_debug_hit(21);
+        }
         if (getenv("HKPROMPT") && atoi(getenv("HKPROMPT")) == tick)
           prompt_show(-1, TXT_PROMPT_LISTEN, g_hero.body.x, g_hero.body.y + 1.5f);
         game_tick(keys);

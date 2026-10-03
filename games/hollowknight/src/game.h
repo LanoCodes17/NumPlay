@@ -26,7 +26,8 @@ typedef struct {
   int32_t geo_pool;
   float play_time;
   uint8_t flags[32];      /* PDF_* */
-  uint8_t reserved[64];
+  uint8_t shaman;         /* (the Snail Shaman's state) */
+  uint8_t reserved[63];
   /* (saved apart, by the objects' names: their states) */
   uint8_t persist[MAX_PERSIST / 8];
   /* (not saved) */
@@ -99,7 +100,7 @@ void enemies_hero_leave(void);   /* HERO LEAVE (the Knight dead): the shade depa
 void geo_fling_at(int type, int n, float x, float y, float smin, float smax, float amin, float amax, float spread);
 int cardinal(float degrees);            /* DirectionUtils.GetCardinalDirection */
 const Ent *room_ents(int *n);
-#define MAX_ENTS 320
+#define MAX_ENTS 448
 
 /* ---------------------------------------------------------------- the game */
 typedef struct {

@@ -224,6 +224,10 @@ def rec(type_, flags=0, box=(0, 0, 0, 0), p=(0, 0, 0, 0), a=0, group=0, group2=0
     return struct.pack(REC, type_, flags, group, group2, a, persist, *box, *p, s0, s1)
 
 
+# PlayerData bools whose names are not camel case
+PD_RAW_NAMES = {"PDF_HORNET_F19": "hornet_f19"}
+
+
 def pd_flags():
     """PlayerData's bools as the game numbers them (src/game.h: PDF_*), by their names in the game ("falseKnightDefeated")"""
     import os, re
@@ -233,10 +237,31 @@ def pd_flags():
     camel = lambda n: "".join(w.capitalize() for w in n.lower().split("_"))
     out = {}
     for i, n in enumerate(ids):
+        if n in PD_RAW_NAMES:
+            out[PD_RAW_NAMES[n]] = i
+            continue
         # (Cornifer's: "corn_greenpathLeft")
         c = camel(n[9:]) if n.startswith("PDF_CORN_") else camel(n[4:])
         out[("corn_" if n.startswith("PDF_CORN_") else "") + c[0].lower() + c[1:]] = i
     return out
+
+
+_FOUND = {}
+
+
+def _found_names(d):
+    """The names a scene's scripts find objects by (FindGameObject)."""
+    key = id(d)
+    if key not in _FOUND:
+        out = set()
+        for o in d["objects"]:
+            for c in o["c"]:
+                for st in (c.get("fsm") or {}).get("states", []):
+                    for a in st["actions"]:
+                        if a["name"] == "FindGameObject":
+                            out.add(dict(a["params"]).get("objectName"))
+        _FOUND[key] = (d, out)
+    return _FOUND[key][1]
 
 
 def _fsm(o, names):
@@ -1098,7 +1123,11 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                 fl = (CL_PREVENT_UP if v.get("preventLookUp") else 0) | (CL_PREVENT_DOWN if v.get("preventLookDown") else 0) | \
                     (CL_MAX_PRIORITY if v.get("maxPriority") else 0)
                 cam_rec[o["id"]] = len(recs)
-                recs.append(rec(ENT_CAMLOCK, fl, box, (v["cameraXMin"], v["cameraYMin"], v["cameraXMax"], v["cameraYMax"])))
+                # (its name, if scripts find it: FindGameObject)
+                import vm
+                nm = vm.STR.id(o["name"]) if o["name"] in _found_names(d) else 0xFFFF
+                recs.append(rec(ENT_CAMLOCK, fl, box, (v["cameraXMin"], v["cameraYMin"], v["cameraXMax"], v["cameraYMax"]),
+                                s1=nm))
                 recs += _more_boxes(o)
             elif cls == "TransitionPoint":
                 box = _trigger(o)

@@ -19,6 +19,7 @@
 enum { O_HERO = 0xFF00, O_HERO_LIGHT, O_DIALOGUE_MANAGER, O_DIALOGUE_TEXT, O_AREA_TITLE, O_CAMERA_PARENT, O_MAIN_CAMERA,
        O_GAME_MANAGER, O_HUD_BLANKER, O_HORNET = 0xFF0C, O_WHITE_BLANKER };
 #define O_GATE 0xFD00   /* (+ k: a battle gate, obj.c's) */
+#define O_ENT 0xF000    /* (+ i: a room record (a camera lock area), the game's) */
 enum { OF_ACTIVE = 1, OF_RENDERER = 2, OF_ANIMATOR = 4, OF_TRIGGER = 8, OF_COLLIDER = 16,
        OF_GONE = 32, OF_INSIDE = 64, OF_WAS_INSIDE = 128,
        OF_COND_OFF = 256,                                       /* (not there: its condition) */
@@ -666,6 +667,7 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
     }
     case VMOP_DESTROYOBJECT: {
       int o = oval(f, rv(&r));
+      if (o >= O_ENT && o < O_ENT + MAX_ENTS) ent_set_enabled(o - O_ENT, false);   /* (a camera lock area: gone) */
       if (obj_ok(o)) {
         vm.objs[o].flags |= OF_GONE;
         obj_set_active(o, false);
@@ -984,9 +986,10 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       for (int i = 0; i < vm.nobjs && found == NONE; i++)
         if (vm.rec[i].name == name && obj_active(i)) found = i;
       if (found == NONE) {
-        /* (a battle gate: the game's) */
-        int g = gate_find(name);
+        /* (a battle gate, a camera lock area: the game's) */
+        int g = gate_find(name), c = g < 0 ? camlock_find(name) : -1;
         if (g >= 0) found = O_GATE + g;
+        else if (c >= 0) found = O_ENT + c;
       }
       set_var(f, rb(&r), (uint32_t)found);
       return true;
@@ -1361,5 +1364,10 @@ void vm_debug(void) {
       printf("   obj %d name %d flags %d active %d cols %d+%d at %.2f,%.2f clip %d sprite %d/%d alpha %d scale %.2f,%.2f\n", i,
              vm.rec[i].name, vm.objs[i].flags, obj_active(i), vm.rec[i].col0, vm.rec[i].ncol, vm.objs[i].x, vm.objs[i].y,
              vm.objs[i].anim.clip, vm.objs[i].anim.sprite, vm.rec[i].sprite, vm.objs[i].alpha, vm.objs[i].sx, vm.objs[i].sy);
+  if (getenv("VMOBJ"))
+    for (int i = 0; i < vm.nobjs; i++)
+      if (vm.rec[i].flags & OF_TRIGGER)
+        printf("   trigger %d at %.2f,%.2f half %.2f,%.2f in %d\n", i, vm.objs[i].x + vm.rec[i].bx, vm.objs[i].y + vm.rec[i].by,
+               vm.rec[i].bhx, vm.rec[i].bhy, (vm.objs[i].flags & OF_INSIDE) != 0);
 }
 #endif

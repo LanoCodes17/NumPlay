@@ -15,6 +15,11 @@ ROOMS = {
                    "Dreamer Scene 1"],
     "Crossroads_ShamanTemple": ["_Props/Shaman Meeting", "_Props/Shaman Trapped", "_Props/Shaman Killed Blocker",
                                 "_Props/Knight Get Fireball", "Battle Scene/Reminder Cast"],
+    # Hornet seen in Greenpath before her arena
+    "Fungus1_02": ["Hornet Encounter GP1"],
+    "Fungus1_03": ["Set Hornet Encounter"],
+    "Fungus1_17": ["Set Hornet Encounter"],
+    "Fungus1_31": ["Hornet Encounter Control"],
 }
 # FSMs left out (what this port does not have: the dream nail, sounds...)
 SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "Shop Open Voice"}
@@ -251,7 +256,7 @@ class Room:
                     for st in (c.get("fsm") or {}).get("states", []):
                         for a in st["actions"]:
                             if a["name"].startswith("SetFsm"):
-                                self._ext.add(dict(a["params"]).get("variableName"))
+                                self._ext.add(_one_string(self, c["fsm"], dict(a["params"]).get("variableName")))
         return self._ext
 
     def want(self, o):
@@ -309,6 +314,28 @@ class Room:
         if o["id"] not in self.obj_index:
             self.add_tree(o)
         return self.obj_index.get(o["id"], O_NONE)
+
+
+def _string_values(rm, f, v):
+    """the strings a string operand of an FSM can be (constants: itself; a variable: as it starts and as it is set)"""
+    if not (isinstance(v, str) and v.startswith("$")):
+        return [v or ""]
+    n = v[1:]
+    out = [f["vars"].get(n, ["string", ""])[1] or ""]
+    for o in list(rm.by_id.values()):
+        for c in o["c"]:
+            for st in (c.get("fsm") or {}).get("states", []):
+                for a in st["actions"]:
+                    P = dict(a["params"])
+                    if a["name"] == "SetFsmString" and P.get("fsmName") == f["name"] and P.get("variableName") == n:
+                        out.append(P.get("setValue") or "")
+    return sorted(set(out))
+
+
+def _one_string(rm, f, v):
+    """a string operand: its one value if a variable can be only that, else itself"""
+    vals = _string_values(rm, f, v) if isinstance(v, str) and v.startswith("$") else [v]
+    return vals[0] if len(vals) == 1 else v
 
 
 def _active_chain(rm, o):
@@ -373,18 +400,7 @@ class Compiler:
 
     def string_values(self, v):
         """the strings a string operand can be (constants: itself; a variable: as it starts and as it is set)"""
-        if not (isinstance(v, str) and v.startswith("$")):
-            return [v or ""]
-        n = v[1:]
-        out = [self.f["vars"].get(n, ["string", ""])[1] or ""]
-        for o in list(self.rm.by_id.values()):
-            for c in o["c"]:
-                for st in (c.get("fsm") or {}).get("states", []):
-                    for a in st["actions"]:
-                        P = dict(a["params"])
-                        if a["name"] == "SetFsmString" and P.get("fsmName") == self.f["name"] and P.get("variableName") == n:
-                            out.append(P.get("setValue") or "")
-        return sorted(set(out))
+        return _string_values(self.rm, self.f, v)
 
     def build_string(self, P):
         """BuildString: each way its parts can be, the string they make (with its separator)"""
@@ -558,6 +574,10 @@ class Compiler:
     def action(self, a):
         n = a["name"]
         P = dict(a["params"])
+        if n.startswith("SetFsm"):
+            # (another FSM's variable named by variables: what they always are)
+            P = dict(P, fsmName=_one_string(self.rm, self.f, P.get("fsmName")),
+                     variableName=_one_string(self.rm, self.f, P.get("variableName")))
         if n in ("AudioPlayerOneShot", "AudioPlayerOneShotSingle", "AudioStop", "AudioPlay", "AudioPlaySimple",
                  "PlayParticleEmitter", "StopParticleEmitter", "SetParticleEmission", "SetParticleEmissionRate",
                  "ForceHeroFootstepSound", "SendEventToRegister", "AddTrackTrigger", "PlayVibration",

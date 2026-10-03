@@ -177,7 +177,8 @@ def add_props(rooms):
 
 # Hornet as her cutscenes show her (her encounters, her corpse's leaving)
 ACTORS["hornetcs"] = ("sharedassets19.assets", 91, ["Idle", "Jump Full", "Throw Side Start", "Throw Side", "Harpoon Side",
-                                                    "Thread 1", "Point", "Evade Antic", "Evade", "Soft Land"])
+                                                    "Thread 1", "Point", "Evade Antic", "Evade", "Soft Land", "Turn",
+                                                    "Run"])
 
 # enemies' shots (EnemyBullet)
 ACTORS["bullet"] = ("sharedassets32.assets", 745, ["Idle", "Impact", "Shockwave Spurt"])

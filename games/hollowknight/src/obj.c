@@ -380,6 +380,15 @@ int gate_find(uint16_t name) {
   return -1;
 }
 
+/* a camera lock area by its name (the scripts': FindGameObject) -> its record, or -1 */
+int camlock_find(uint16_t name) {
+  int n;
+  const Ent *es = room_ents(&n);
+  for (int i = 0; i < n && i < MAX_ENTS; i++)
+    if (es[i].type == ENT_CAMLOCK && es[i].s1 == name) return i;
+  return -1;
+}
+
 void gate_event_at(int k, int ev) {
   if (k >= 0 && k < nobjs && objs[k].kind == OK_BGATE) gate_event(&objs[k], ent_at(objs[k].ent), ev);
 }

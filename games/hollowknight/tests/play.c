@@ -139,6 +139,13 @@ int main(int argc, char **argv) {
                  e[i].group, e[i].group2, e[i].x0, e[i].y0, e[i].x1, e[i].y1, e[i].p0, e[i].p1, e[i].p2, e[i].p3);
     }
     printf("end: pos %.3f,%.3f state %d\n", g_hero.body.x, g_hero.body.y, g_hero.state);
+    if (getenv("HKPD")) {
+      /* (the PlayerData bools on, by number; Hornet's Greenpath count) */
+      printf("pd:");
+      for (int i = 0; i < PDF_COUNT; i++)
+        if (pd_flag(i)) printf(" %d", i);
+      printf(" hornet_greenpath %d\n", g_pd.hornet_greenpath);
+    }
     return 0;
   }
   if (sweep == 2) {

@@ -179,7 +179,7 @@ def decode_params(ad, data_version, names_of=None):
             return {"prop": S(d.get("PropertyName", b"")), "target": named(d.get("TargetObject"), lambda d: ref(d["value"]))}
         if t == "FunctionCall":
             d = ad["functionCallParams"][p]
-            t = S(d.get("ParameterType", b""))
+            t = S(d.get("parameterType", d.get("ParameterType", b"")))
             out = {"fn": S(d.get("FunctionName", b"")), "type": t}
             for key, name in (("int", "IntParameter"), ("float", "FloatParameter"), ("bool", "BoolParameter"),
                               ("string", "StringParameter")):

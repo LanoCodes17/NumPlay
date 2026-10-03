@@ -1103,6 +1103,16 @@ void gfx_hud_clip(int clip, float x, float y, float r) {
   hud_clips[clip - 1] = (HudClip){VIEW_W / 2 + x * k, VIEW_H / 2 - y * k, r * k, 0, 0, 0, 0, false};
 }
 
+void gfx_hud_fill(float x0, float y0, float x1, float y1, uint8_t tint) {
+  /* (a solid color: its top left, its size) */
+  Inst in;
+  memset(&in, 0, sizeof in);
+  in.ax = (int16_t)lrintf(x0 * 64), in.ay = (int16_t)lrintf(y1 * 64);
+  in.tex = TEX_NONE, in.flags = F_SOLID, in.tint = tint;
+  in.a = to_f16(x1 - x0), in.b = to_f16(y0 - y1);
+  gfx_hud(&in, 0);
+}
+
 void gfx_hud_rect(int clip, float x0, float y0, float x1, float y1) {
   float k = FOCAL / (HUD_Z - CAM_Z);
   hud_clips[clip - 1] = (HudClip){0, 0, 0, VIEW_W / 2 + x0 * k, VIEW_H / 2 - y1 * k, VIEW_W / 2 + x1 * k, VIEW_H / 2 - y0 * k, true};

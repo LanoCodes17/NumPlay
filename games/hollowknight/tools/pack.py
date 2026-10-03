@@ -354,6 +354,25 @@ def main():
             row.append(TEXTS.add(line, style) if line else -1)
         titles.append("{%s}" % ", ".join(str(i) for i in row))
     fleurs = actors.title_fleurs(SPRITES)
+    # the message as an item is taken (UI Msg Get Item, on the HUD): each item's texts, the message's sprites, the
+    # items' icons
+    msgs = []
+    for item, (name, prefix, press, m1, m2, key) in text.MSGS.items():
+        msgs.append("{%d, %d, %d, %d, %d, %d}" % (TEXTS.id("UI", name, "MSG_NAME"), TEXTS.id("Prompts", prefix, "MSG"),
+                                                  TEXTS.id("Prompts", press, "MSG"), TEXTS.id("Prompts", m1, "MSG"),
+                                                  TEXTS.id("Prompts", m2, "MSG"), TEXTS.add(key, "PROMPT")))
+    pmsg = unity.prefab("sharedassets6.assets", 493)
+    hud_res = actors.HUD_K / actors.K0
+    for name, path, res, ref in (("BG", "BG", 0.003, None), ("STOP", "Stop", hud_res, None),
+                                 ("FLEUR", "Fleur", hud_res, [4, 2086]), ("KEY", "Button", hud_res, None)):
+        # (the fleur: its animation's last frame)
+        o = next(q for q in pmsg["objects"] if q["path"] == "UI Msg Get Item/" + path)
+        sr = next(c["v"] for c in o["c"] if c["type"] == "SpriteRenderer")
+        fleurs["SPRITE_MSG_" + name] = SPRITES.id(pmsg, ref or sr["m_Sprite"], max(o["lscale"][:2]), res)
+    fleurs["SPRITE_MSG_ICON_FIREBALL"] = SPRITES.id(unity.scene("Crossroads_ShamanTemple"), [4, 44], 1.5607, hud_res)
+    fleurs["MSG_TABLE"] = "{%s}" % ", ".join(msgs)
+    for i, item in enumerate(text.MSGS):
+        fleurs["MSG_" + item] = i
     for r in ROOMS:
         room_data(r)
         if r in VARIANT_ROOMS:

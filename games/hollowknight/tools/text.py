@@ -89,7 +89,15 @@ STYLES = {
     "TITLE_L": _style("TrajanPro-Bold", 36 * 0.4902, HUD_PX, *TRAJAN, k=1, spacing=4.69, phases=1),
     "TITLE_S": _style("TrajanPro-Bold", 36 * 0.3493, HUD_PX, *TRAJAN, k=1, spacing=4.69, phases=1),
     "TITLE_SUB": _style("TrajanPro-Bold", 36 * 0.1942, HUD_PX, *TRAJAN, k=1, spacing=21.06),
+    # the message as an item is taken (UI Msg Get Item: its lines, a third bigger; its item's name)
+    "MSG": _style("Perpetua", 3.73 * 1.4407, HUD_PX, 134.0625, 0, 117, 95.9375, -38.1875),
+    "MSG_NAME": _style("TrajanPro-Bold", 9.32 * 1.4407, HUD_PX, *TRAJAN, k=1, phases=1),
 }
+
+# the items the message shows: (its name in the UI sheet, the Prompts sheet's prefix, tap or press, its two lines, the
+# calculator's key for it)
+MSGS = {"FIREBALL": ("INV_NAME_SPELL_FIREBALL1", "GET_ITEM_INTRO2", "BUTTON_DESC_TAP", "GET_FIREBALL_1", "GET_FIREBALL_2",
+                     "alpha")}
 
 # the titles the game shows (the Titles sheet's X_MAIN, X_SUB, X_SUPER): the areas', bosses' and characters'
 TITLES = ["KINGSPASS", "DIRTMOUTH", "CROSSROADS", "EGGTEMPLE", "SHAMANTEMPLE", "GREENPATH", "BIGFLY", "FALSE_KNIGHT",

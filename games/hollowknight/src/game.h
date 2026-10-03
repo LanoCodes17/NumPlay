@@ -267,10 +267,17 @@ void titles_hero_in_position(void);
 void titles_tick(void);
 void titles_draw(void);
 /* the game's own scripts (vm.c): a room's, run each step, their objects drawn; events heard by all of them */
+void hero_add_mp_charge(int amount);   /* (AddMPCharge) */
 void vm_enter(void);
 void vm_tick(void);
 void vm_draw(void);
 void vm_broadcast(int ev);
+/* the message as an item is taken (msg.c: MSG_*), the HUD Blanker (a white screen the scripts fade) */
+void msg_show(int item);
+bool msg_shown(void);
+void msg_tick(void);
+void msg_draw(void);
+void blanker_set(float alpha, bool on);
 bool bench_respawn(const char *name);   /* RESPAWN: the Knight asleep on the bench so named */
 
 /* the Spell Control FSM (spell.c): focus, spells */

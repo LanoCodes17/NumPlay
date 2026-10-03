@@ -204,6 +204,7 @@ bool gfx_actor(const Inst *in, uint32_t group);
  * height), not graded nor faded with the room (tints from HUD_TINT); clip: 0, or 1 + a circle it is drawn in */
 bool gfx_hud(const Inst *in, int clip);
 void gfx_hud_rect(int clip, float x0, float y0, float x1, float y1);   /* (a clip that is a box, HUD units) */
+void gfx_hud_fill(float x0, float y0, float x1, float y1, uint8_t tint);   /* (a box of one color) */
 void gfx_hud_clip(int clip, float x, float y, float r);
 uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a);   /* a tint (for Inst.tint) of that color */
 /* the same, flashing: its colors towards (fr, fg, fb) by amount (SpriteFlash) */

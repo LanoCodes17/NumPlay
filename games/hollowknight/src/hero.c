@@ -1405,6 +1405,7 @@ static void add_mp_charge(int amount) {
 }
 
 void hero_soul_gain(void) { add_mp_charge(g_pd.mp < g_pd.max_mp ? 11 : 6); }
+void hero_add_mp_charge(int amount) { add_mp_charge(amount); }
 
 void hero_add_geo(int amount) { g_pd.geo += amount; }
 

@@ -20,6 +20,8 @@ enum { O_HERO = 0xFF00, O_HERO_LIGHT, O_DIALOGUE_MANAGER, O_DIALOGUE_TEXT, O_ARE
        O_GAME_MANAGER, O_HUD_BLANKER };
 enum { OF_ACTIVE = 1, OF_RENDERER = 2, OF_ANIMATOR = 4, OF_TRIGGER = 8, OF_COLLIDER = 16,
        OF_GONE = 32, OF_INSIDE = 64, OF_WAS_INSIDE = 128 };
+#define OF_ANIM_OFF 32   /* (its record's: off once its clip is over, DeactivateAfter2dtkAnimation) */
+#define OF_STARTED 4     /* (its own: its animator started, the first time it was on) */
 enum { M_ENTER, M_UPDATE, M_FIXED };
 
 typedef struct {
@@ -28,7 +30,7 @@ typedef struct {
   uint8_t nmap, flags;
   uint16_t cond, layer;
   int16_t order;
-  uint16_t pad;
+  uint16_t blend;   /* (its material's: BL_*) */
 } ObjRec;
 
 typedef struct {
@@ -62,6 +64,8 @@ static struct {
   int depth;
   /* the area title's variables as scripts set them (title.c starts it from them) */
   bool title_npc, title_visited, title_right, title_start;
+  float blank_alpha;
+  bool blank_on;
   int title;
   uint32_t prev_keys;
 } vm;
@@ -262,6 +266,15 @@ static Mover *mover(int o, bool make) {
   return NULL;
 }
 
+/* (an animator plays its first clip the first time its object is on) */
+static void anims_start(void) {
+  for (int i = 0; i < vm.nobjs; i++)
+    if (!(vm.objs[i].flags & OF_STARTED) && vm.rec[i].clip != NONE && obj_active(i)) {
+      vm.objs[i].flags |= OF_STARTED;
+      anim_play_from_frame(&vm.objs[i].anim, vm.rec[i].clip, 0);
+    }
+}
+
 static void fsm_start(Fsm *f);
 static void obj_set_active(int o, bool on) {
   if (o == O_AREA_TITLE) {
@@ -272,6 +285,7 @@ static void obj_set_active(int o, bool on) {
   bool was = obj_active(o);
   if (on) vm.objs[o].flags |= OF_ACTIVE;
   else vm.objs[o].flags &= (uint8_t)~OF_ACTIVE;
+  if (!was && on) anims_start();
   /* (an FSM starts again as its object comes on: RestartOnEnable) */
   if (!was && on)
     for (int i = 0; i < vm.nfsms; i++) {
@@ -840,7 +854,7 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
         case 6: set_var(f, store, hero_can_talk()); break;
         case 7: h->prevent_cast = 0.3f; break;
         case 8: h->cs.on_ground = true; break;
-        case 9: break;   /* (AddMPCharge sent without its amount: nothing) */
+        case 9: hero_add_mp_charge((int)a0); break;
         case 10: {
           /* FindGroundPoint: below a point, the Knight's place standing there */
           float y = hero_ground_y(h->body.x, a0);
@@ -886,6 +900,41 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
         return true;
       }
       return false;
+    }
+    case VMOP_GETITEMMSG:
+      msg_show(rb(&r));
+      return true;
+    case VMOP_BLANKER: {
+      float a = fval(f, rv(&r));
+      bool every = rb(&r);
+      vm.blank_alpha = a;
+      blanker_set(a, vm.blank_on);
+      return !every;
+    }
+    case VMOP_BLANKERON:
+      vm.blank_on = val(f, rv(&r)) != 0;
+      blanker_set(vm.blank_alpha, vm.blank_on);
+      return true;
+    case VMOP_FINDGAMEOBJECT: {
+      uint16_t name = (uint16_t)val(f, rv(&r));
+      int found = NONE;
+      for (int i = 0; i < vm.nobjs && found == NONE; i++)
+        if (vm.rec[i].name == name && obj_active(i)) found = i;
+      set_var(f, rb(&r), (uint32_t)found);
+      return true;
+    }
+    case VMOP_CREATEOBJECT: {
+      /* (a prefab made beforehand: on, where it is made) */
+      int o = oval(f, rv(&r));
+      uint16_t x = rv(&r), y = rv(&r);
+      uint8_t store = rb(&r);
+      if (obj_ok(o)) {
+        if (has(x) && has(y)) obj_move(o, fval(f, x), fval(f, y));
+        vm.objs[o].flags &= (uint8_t)~OF_GONE;
+        obj_set_active(o, true);
+      }
+      set_var(f, store, (uint32_t)o);
+      return true;
     }
     default:
       return true;
@@ -972,7 +1021,6 @@ void vm_enter(void) {
     /* (DeactivateIfPlayerdataTrue, False) */
     if (r->cond != NONE && pd_flag(r->cond & 0x7FFF) == ((r->cond & 0x8000) != 0)) o->flags &= (uint8_t)~OF_ACTIVE;
     o->anim.clip = -1, o->anim.sprite = -1;
-    if (r->clip != NONE) anim_play(&o->anim, r->clip);
   }
   const uint8_t *p = vm.map + 4 * nmap;
   int nvars = 0;
@@ -988,6 +1036,7 @@ void vm_enter(void) {
   }
   vm.nfsms = nfsms;
   vm.prev_keys = g_hero.keys;
+  anims_start();
   for (int i = 0; i < nfsms; i++)
     if (obj_active(vm.fsms[i].owner)) fsm_start(&vm.fsms[i]);
 }
@@ -1002,6 +1051,7 @@ void vm_tick(void) {
     o->flags = (uint8_t)(in ? o->flags | OF_INSIDE : o->flags & ~OF_INSIDE);
     o->anim.events = 0;
     anim_update(&o->anim, DT);
+    if ((vm.rec[i].flags & OF_ANIM_OFF) && (o->anim.events & ANIM_DONE)) obj_set_active(i, false);
   }
   /* (those set moving: falling to the ground) */
   for (int k = 0; k < MAX_MOVERS; k++) {
@@ -1039,6 +1089,7 @@ void vm_draw(void) {
     if (sprite < 0) continue;
     Inst in;
     sprite_inst(sprite, o->x, o->y, r->z, o->sx, o->sy, 0, &in);
+    in.flags = (uint8_t)((in.flags & ~F_BLEND) | r->blend);
     gfx_actor(&in, SORT_KEY(r->layer, r->order));
   }
 }
@@ -1052,5 +1103,9 @@ void vm_debug(void) {
     else printf(" %d:-", i);
   }
   printf("\n");
+  if (getenv("VMOBJ"))
+    for (int i = 0; i < vm.nobjs; i++)
+      printf("   obj %d name %d flags %d active %d at %.2f,%.2f clip %d sprite %d\n", i, vm.rec[i].name, vm.objs[i].flags,
+             obj_active(i), vm.objs[i].x, vm.objs[i].y, vm.objs[i].anim.clip, vm.objs[i].anim.sprite);
 }
 #endif

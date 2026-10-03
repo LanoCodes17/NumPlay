@@ -41,7 +41,10 @@ ENEMY_VARS = {"Zombie Swipe": (["Lunge Speed", "Idle Time"], ["Coward"]),
 # enemies whose body is a trigger, whose body is only their frames' colliders, and other children that are ranges
 TRIGGER_BODIES = {"Pigeon"}
 FRAME_BODIES = {"Plant Trap Control", "Mossy Control"}
-RANGES = {"Moss Walker": ("Wake Range",), "Pigeon": ("Hero Range", "Enemy Range"), "Plant Trap Control": ("Detector",)}
+RANGES = {"Moss Walker": ("Wake Range",), "Pigeon": ("Hero Range", "Enemy Range"), "Plant Trap Control": ("Detector",),
+          "Moss Knight Control": ("Wake Box",)}
+# (enemies whose attacks start with their colliders off: those still kept, off)
+HITBOXES_OFF = {"Moss Knight Control"}
 # what follows an enemy's record: ENT_BOX records, tagged
 ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX, ET_ZONE, ET_COND, \
     ET_CONTACT = 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
@@ -439,7 +442,7 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
         q = by_id[ch]
         qd = next((c.get("v") for c in q["c"] if c.get("class") == "DamageHero" and c.get("v") is not None), None)
         qc = next((c for c in q["c"] if c["type"] in ("BoxCollider2D", "PolygonCollider2D") and c.get("v") and
-                   c["v"].get("m_IsTrigger") and c["v"].get("m_Enabled", 1)), None)
+                   c["v"].get("m_IsTrigger") and (c["v"].get("m_Enabled", 1) or fsm.get("name") in HITBOXES_OFF)), None)
         zone = q["name"] == "Battle Range"
         if (qd is None and not zone) or qc is None:
             continue
@@ -448,7 +451,8 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
         nrec = (len(pts) + 3) // 4
         qd = qd or {"damageDealt": 0, "hazardType": 0}
         out.append(rec(ENT_BOX, ET_ZONE if zone else ET_HITBOX, box=(min(xs), min(ys), max(xs), max(ys)),
-                       p=(len(pts), qd.get("damageDealt", 1), qd.get("hazardType", 1), 0), a=1 if q["self_active"] else 0,
+                       p=(len(pts), qd.get("damageDealt", 1), qd.get("hazardType", 1), 0),
+                       a=1 if q["self_active"] and qc["v"].get("m_Enabled", 1) else 0,
                        group=nrec, s0=strings.id(q["name"]) if strings else 0))
         for i in range(nrec):
             t = pts[4 * i:4 * i + 4] + [pts[-1]] * (4 - len(pts[4 * i:4 * i + 4]))
@@ -485,6 +489,13 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
         e, w, g = (kid.get(k, [0, 0]) for k in ("Edge Range", "Wall Range", "Ground Range"))
         out.append(rec(ENT_BOX, ET_VARS, p=(e[0], e[1], w[0], w[1]), box=(g[0], g[1], 0, 0),
                        a=1 if (var.get("Roams") or [0, False])[1] else 0))
+    if fsm.get("name") == "Moss Knight Control":
+        # (Dormant, Lakeside; its Wake Box's Start Battle)
+        wb = next((by_id[ch] for ch in o.get("children", []) if by_id[ch]["name"] == "Wake Box"), None)
+        wf = next((c["fsm"] for c in wb["c"] if c.get("fsm")), {}) if wb else {}
+        bits = (1 if (var.get("Dormant") or [0, False])[1] else 0) | (2 if (var.get("Lakeside") or [0, False])[1] else 0) | \
+            (4 if (wf.get("vars", {}).get("Start Battle") or [0, False])[1] else 0)
+        out.append(rec(ENT_BOX, ET_VARS, a=bits))
     if fsm.get("name") == "Mozzie":
         # (its TileDetector: a second box for the terrain, in its own units)
         q = next((by_id[ch] for ch in o.get("children", []) if by_id[ch]["name"] == "TileDetector"), None)

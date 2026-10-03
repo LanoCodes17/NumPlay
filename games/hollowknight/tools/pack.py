@@ -480,6 +480,9 @@ def main():
         sr = next(c["v"] for c in o["c"] if c["type"] == "SpriteRenderer")
         fleurs["SPRITE_MSG_" + name] = SPRITES.id(pmsg, ref or sr["m_Sprite"], max(o["lscale"][:2]), res)
     fleurs["SPRITE_MSG_ICON_FIREBALL"] = SPRITES.id(unity.scene("Crossroads_ShamanTemple"), [4, 44], 1.5607, hud_res)
+    # (a Moss Knight's grass ball: a Unity sprite)
+    pgb = unity.prefab("sharedassets149.assets", 34)
+    fleurs["SPRITE_GRASS_BALL"] = SPRITES.id(pgb, next(c["v"] for c in pgb["objects"][0]["c"] if c["type"] == "SpriteRenderer")["m_Sprite"], 1)
     fleurs["MSG_TABLE"] = "{%s}" % ", ".join(msgs)
     for i, item in enumerate(text.MSGS):
         fleurs["MSG_" + item] = i
@@ -636,6 +639,9 @@ def main():
         print("room %-26s %5d instances in %2d sectors, %6d packed, ground %d, recs %d" % (r, len(keep), len(blobs), packed + len(hc), len(ground), len(recs)), flush=True)
     secs["ROOMS"].b += rooms
     secs["RVAR"].b += rvar
+    # (the children enemy.c knows by name)
+    str_ids = {n: STRINGS.id(n) for n in ("Attack Range", "Evade Range", "Spit Range", "Wake Box", "Slash Hitbox",
+                                          "Slash2 Hitbox")}
     secs["STR"].b += STRINGS.blob()
     secs["TEXT"].b += TEXTS.blob()
     secs["FONT"].b += TEXTS.fonts()
@@ -693,6 +699,8 @@ def main():
             f.write("#define VMEV_%s %d\n" % (e.upper().replace(" ", "_"), i))
         for name in ("NPC Title", "Visited", "Display Right"):
             f.write("#define VMSTR_%s %d\n" % (name.upper().replace(" ", "_"), vm.STR.index[name]))
+        for name, i in str_ids.items():
+            f.write("#define STR_%s %d\n" % (name.upper().replace(" ", "_"), i))
         for i, t in enumerate(text.TITLES):
             f.write("#define TITLE_%s %d\n" % (t, i))
         f.write("#define NUM_TITLES %d\n#define TITLE_TABLE {%s}\n" % (len(titles), ", ".join(titles)))

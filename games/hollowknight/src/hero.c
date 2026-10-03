@@ -285,6 +285,9 @@ static void do_attack(void) {
   h->thunk_hit = false;
 }
 
+/* NailParry: a moment unhurt by what is no hazard */
+void hero_nail_parry(void) { g_hero.parry_t = 0.25f; }
+
 void hero_recoil_left(void) {
   Hero *h = &g_hero;
   if (!h->cs.recoiling_left && !h->cs.recoiling_right && !h->control_relinquished) {
@@ -795,6 +798,7 @@ void hero_fixed(uint32_t keys) {
 void hero_update(void) {
   Hero *h = &g_hero;
   if (h->prevent_cast > 0) h->prevent_cast -= DT;
+  if (h->parry_t > 0) h->parry_t -= DT;
   update();
   invulnerable_tick();
   respawn_tick();
@@ -1250,6 +1254,7 @@ static void take_health(int damage) {
 void hero_take_damage(int side, int damage, int hazard) {
   Hero *h = &g_hero;
   if (damage <= 0) return;
+  if (h->parry_t > 0 && hazard == HAZ_NORMAL) return;
   if (can_take_damage()) {
     spell_cancel();   /* (HERO DAMAGED) */
     vm_broadcast(VMEV_HERO_DAMAGED);

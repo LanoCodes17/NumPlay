@@ -17,7 +17,7 @@
 enum {
   EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER, EF_ROLLER, EF_BLOCKER, EF_LEAPER, EF_GUARD,
   EF_FK, EF_FKHEAD, EF_GFLY, EF_HATCHER, EF_HATCHLING, EF_SLUG, EF_MOSSWALKER, EF_PIGEON, EF_PLANTTRAP, EF_SHAKER,
-  EF_MOSQUITO, EF_FATFLY, EF_MOSSCHARGER
+  EF_MOSQUITO, EF_FATFLY, EF_MOSSCHARGER, EF_MOSSKNIGHT
 };
 enum { R_IDLE, R_TURN, R_WALK, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, R_A7, R_A8, R_DEATH_AIR, R_DEATH_LAND, NUM_ROLES };
 typedef struct {
@@ -69,6 +69,7 @@ typedef struct {
   /* SpriteFlash (flashInfected) */
   float flash_t;
   bool flashing;
+  uint8_t c2, c3, c4;          /* (more counters) */
   /* the FSM's state */
   float t0, t1, wait, start_x, start_y, ax, ay, pause0, pause1, jx, jy;
   float ang, qx, qy, tx, ty;   /* (its rotation, degrees; a tween's from and to) */
@@ -80,7 +81,8 @@ typedef struct {
   /* alert range (local circle, or box: ar_hy >= 0) and sight */
   float ar_x, ar_y, ar_r, ar_hy;
   bool in_alert, can_see;
-  float cbox_ox, cbox_oy, cbox_hx, cbox_hy;   /* its collider */
+  uint8_t inv_dir;   /* (HealthManager.invincibleFromDirection) */
+  uint8_t fx;        /* (an effect its sub sprite plays, + 1) */
 } Enemy;
 static Enemy en[MAX_ENEMIES];
 static uint32_t swing_bits;   /* (a bit an enemy: hit this swing) */
@@ -400,6 +402,20 @@ static void enemy_die(Enemy *e, float direction, bool has_direction) {
   FREEZE_MOMENT_1();
 }
 
+/* HealthManager.IsBlockingByDirection: invincible, from every way or from some (a spell gets through to what is Spell
+ * Vulnerable) */
+static bool blocking_by_direction(const Enemy *e, int dir, bool nail) {
+  if (!(e->flags & 4)) return false;
+  if (!nail && FSM(e) == EF_MOSSKNIGHT && (e->c4 & 0x80)) return false;
+  int d = e->inv_dir;
+  switch (dir) {
+    case 0: return d == 0 || d == 1 || d == 5 || d == 8 || d == 10;
+    case 1: return d == 0 || d == 2 || (d >= 5 && d <= 9);
+    case 2: return d == 0 || d == 3 || d == 6 || d == 9 || d == 11;
+    default: return d == 0 || d == 4 || (d >= 7 && d <= 11);
+  }
+}
+
 /* HealthManager.Hit (a nail's): evasion, damage, recoil, flash, soul */
 static void blocker_hit(Enemy *e);
 static void fk_head_hit(void);
@@ -409,7 +425,7 @@ static void enemy_hit_by(Enemy *e, float direction, int damage, bool nail, float
   if (e->mode != EM_ALIVE || e->evasion > 0 || damage <= 0) return;
   int dir = cardinal(direction);
   e->rc_flags = (uint8_t)((e->rc_flags & ~(3 << RF_DIR_SHIFT)) | dir << RF_DIR_SHIFT);   /* (directionOfLastAttack) */
-  if (e->flags & 4) {
+  if (blocking_by_direction(e, dir, nail)) {
     /* Invincible: the hit blocked (BLOCKED HIT), the Knight recoiling off it (a nail's) */
     e->rc_flags |= RF_BLOCKED;
     if (nail && dir == 0) hero_recoil_left();
@@ -1002,7 +1018,9 @@ static void distance_fly_at(Enemy *e, float dist, float vmax, float accel, bool 
 #define MAX_BULLETS 8
 typedef struct {
   bool on, active;
+  uint8_t kind;   /* (0 a spit shot, 1 a Moss Knight's grass ball) */
   float x, y, vx, vy, scale, ang, gravity;
+  float spin, age;   /* (a grass ball's: degrees a second, its time) */
   Anim anim;
 } Bullet;
 static Bullet bullets[MAX_BULLETS];
@@ -1044,7 +1062,23 @@ static void bullet_fire(float x, float y, float speed) {
   anim_play(&b->anim, CLIP_BULLET_IDLE);
 }
 
+/* a Moss Knight's Grass Ball (grass ball control, SpinSelf): from (x, y) at a velocity, falling */
+#define GRASS_BALL_R 0.4f
+static void grass_ball_spawn(float x, float y, float vx, float vy) {
+  Bullet *b = bullet_new(x, y, vx, vy, 1);
+  if (!b) return;
+  b->kind = 1;
+  b->ang = rand_range(0, 360);
+  b->spin = vx * 15 / (0.5f * GRASS_BALL_R * GRASS_BALL_R) * DT * 180 / (float)M_PI;   /* (its one push of torque) */
+}
+
 static void bullet_impact(Bullet *b) {
+  if (b->kind == 1) {
+    /* (Break: gone, with a shake) */
+    cam_shake(SHAKE_ENEMY_KILL);
+    b->on = false;
+    return;
+  }
   b->active = false;
   b->vx = b->vy = 0;
   anim_play_from_frame(&b->anim, CLIP_BULLET_IMPACT, 0);
@@ -1063,6 +1097,18 @@ static void bullets_tick(void) {
     b->vy += -60 * b->gravity * DT;   /* (its Rigidbody2D's gravity) */
     float dx = b->vx * DT, dy = b->vy * DT, l = sqrtf(dx * dx + dy * dy);
     PhysHit hit;
+    if (b->kind == 1) {
+      /* (its circle meets the terrain: Break; its scale tweened up from half in 0.1 s) */
+      b->age += DT;
+      b->scale = b->age < 0.1f ? 0.5f + 5 * b->age : 1;
+      b->ang += b->spin * DT;
+      b->x += dx, b->y += dy;
+      if (phys_ray(b->x - GRASS_BALL_R, b->y, 1, 0, 2 * GRASS_BALL_R, CF_TERRAIN, NULL) ||
+          phys_ray(b->x, b->y - GRASS_BALL_R, 0, 1, 2 * GRASS_BALL_R, CF_TERRAIN, NULL))
+        bullet_impact(b);
+      if (b->y < -10) b->on = false;
+      continue;
+    }
     if (l > 0 && phys_ray(b->x, b->y, dx / l, dy / l, l + BULLET_HX, CF_SOLID, &hit)) {
       b->x = hit.x - dx / l * BULLET_HX, b->y = hit.y - dy / l * BULLET_HX;
       b->ang = atan2f(hit.ny, hit.nx) * 180 / (float)M_PI + 90;
@@ -1081,6 +1127,7 @@ static int bullets_touch_hero(float x0, float y0, float x1, float y1, int *side)
     Bullet *b = &bullets[i];
     if (!b->on || !b->active) continue;
     float hx = BULLET_HX * b->scale, hy = BULLET_HY * b->scale;
+    if (b->kind == 1) hx = hy = GRASS_BALL_R * b->scale;
     if (x1 > b->x - hx && x0 < b->x + hx && y1 > b->y - hy && y0 < b->y + hy) {
       *side = b->vx < 0 ? SIDE_RIGHT : SIDE_LEFT;
       bullet_impact(b);
@@ -1094,10 +1141,15 @@ static void bullets_draw(void) {
   for (int i = 0; i < MAX_BULLETS; i++) {
     const Bullet *b = &bullets[i];
     if (!b->on) continue;
+    Inst in;
+    if (b->kind == 1) {
+      sprite_inst_rot(SPRITE_GRASS_BALL, b->x, b->y, -0.01f, b->scale, b->scale, b->ang, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+      continue;
+    }
     /* (stretched along its flight) */
     float sp = sqrtf(b->vx * b->vx + b->vy * b->vy), sy = 1 - sp * 1.2f * 0.01f, sx = 1 + sp * 1.2f * 0.01f;
     if (!b->active) sx = sy = 1;
-    Inst in;
     sprite_inst_rot(b->anim.sprite, b->x, b->y, -0.01f, sx * b->scale, sy * b->scale, b->ang, 0, &in);
     gfx_actor(&in, SORT_KEY(0, 0));
   }
@@ -4788,6 +4840,383 @@ static void mosscharger_update(Enemy *e) {
   }
 }
 
+/* ---------------------------------------------------------------- Moss Knights: Moss Knight Control (a Walker; with the
+ * Knight in its Attack Range it raises its shield against where he is, then slashes (once or twice), jumps back, or
+ * spits grass balls; some sleep in the moss till struck or till their battle starts) */
+enum { MK_PAUSE, MK_DETECT, MK_SHIELD, MK_BLOCK, MK_UNSHIELD, MK_A1_ANTIC, MK_A1_LUNGE, MK_A1_ON, MK_A1_OFF, MK_A1_END,
+       MK_A2_ANTIC, MK_A2_SLASH, MK_A2_END, MK_SLASH_END, MK_EVADE_ANTIC, MK_EVADE, MK_EVADE_END, MK_SHOOT_ANTIC, MK_SHOOT,
+       MK_SHOT_END, MK_SLEEP, MK_SHAKE, MK_WAKE };
+enum { MKS_RIGHT_LOW, MKS_RIGHT_HIGH, MKS_LEFT_HIGH, MKS_LEFT_LOW };
+enum { MKF_SPIT = 1, MKF_QUICK = 2, MKF_LOW6 = 4 };   /* (c4: After Evade SPIT, Slash Quick, Low Block Direction 6) */
+#define MK_DORMANT 1
+#define MK_START_BATTLE 4
+#define MK_EFFECT_SLASH2 1   /* (its effect's sprite: Slash2 Effect's place) */
+/* (c0: its shield; c1: Shot Repeats; c2: Ct Slash, Ct Jump Back; c3: Ct Single, Ct Double (2 bits each); c4: MKF_*;
+ * qx: Attack Pause; qy: Lunge1 Speed; ax: Evade Speed; ay: Spit X; t0, t1: its Spit and Evade Ranges' on (> 0) or off
+ * (< 0) time left; sub: its slash effect, fx its kind + 1 (drawn while it plays)) */
+
+/* a named range of its own (ET_RANGE by its child's name): the Knight in it? */
+static bool mk_in(const Enemy *e, int name) {
+  const Ent *d = ent_at(e->ent);
+  for (int i = 1; i <= d->s0; i++)
+    if (d[i].type == ENT_BOX && d[i].flags == ET_RANGE && d[i].s0 == name) {
+      float x, y, rx, hy;
+      enemy_range(e, &d[i], &x, &y, &rx, &hy);
+      const Body *h = &g_hero.body;
+      return !g_hero.hidden && fabsf(h->x + h->ox - e->body.x - x) < rx + h->hx && fabsf(h->y + h->oy - e->body.y - y) < hy + h->hy;
+    }
+  return false;
+}
+static bool mk_attack_range(const Enemy *e) { return mk_in(e, STR_ATTACK_RANGE); }
+static bool mk_evade_range(const Enemy *e) { return e->t1 > 0 && mk_in(e, STR_EVADE_RANGE); }
+static bool mk_spit_range(const Enemy *e) { return e->t0 > 0 && mk_in(e, STR_SPIT_RANGE); }
+/* (LineOfSightDetector: the Knight in any of its ranges, nothing between) */
+static bool mk_sees(const Enemy *e) {
+  if (!(e->in_alert || mk_attack_range(e) || mk_evade_range(e) || mk_spit_range(e))) return false;
+  float dx = hero_x() - e->body.x, dy = hero_y() - e->body.y, l = sqrtf(dx * dx + dy * dy);
+  return l < 1e-4f || !phys_ray(e->body.x, e->body.y, dx / l, dy / l, l, CF_TERRAIN, NULL);
+}
+
+static const Ent *mk_vars(const Enemy *e) {
+  const Ent *v = enemy_rec(e, ET_VARS);
+  return v;
+}
+
+/* SendRandomEventV2: of two, by weight, neither more than its most in a row (2-bit counts in *ct) */
+static int random_v2(uint8_t *ct, float w0, int max0, int max1) {
+  for (;;) {
+    int k = rand_range(0, 1) < w0 ? 0 : 1, n = (*ct >> (2 * k)) & 3;
+    if (n < (k ? max1 : max0)) {
+      *ct = (uint8_t)((n + 1) << (2 * k));
+      return k;
+    }
+  }
+}
+
+static void mk_slash_effect(Enemy *e, int clip, int kind) {
+  anim_play_from_frame(&e->sub, clip, 0);
+  e->fx = (uint8_t)(kind + 1);
+}
+
+/* a child's Randomise: its collider on for a while, then off (on: t > 0, the time left; off: t < 0) */
+static void randomise(float *t, float on0, float on1, float off0, float off1) {
+  if (*t > 0) {
+    if ((*t -= DT) <= 0) *t = -rand_range(off0, off1);
+  } else if ((*t += DT) >= 0)
+    *t = rand_range(on0, on1);
+}
+
+static void mk_hitbox(Enemy *e, int name, bool on) {
+  for (int k = 0; k < 8; k++) {
+    const Ent *h = hitbox_rec(e, k);
+    if (!h) break;
+    if (h->s0 == name) e->hb_on = on ? (uint8_t)(e->hb_on | 1 << k) : (uint8_t)(e->hb_on & ~(1 << k));
+  }
+}
+
+/* Reset: the shield's directions gone (its invincibility as it was), walking; Detect */
+static void mk_reset(Enemy *e) {
+  e->inv_dir = 0;
+  e->st = MK_DETECT;
+  walker_start(e);
+}
+
+/* the shield its stance shows (Shield Right / Left, High / Low) */
+static void mk_shield(Enemy *e, int s) {
+  static const uint8_t inv[4] = {6, 4, 4, 5};
+  bool right = s == MKS_RIGHT_LOW || s == MKS_RIGHT_HIGH, high = s == MKS_RIGHT_HIGH || s == MKS_LEFT_HIGH;
+  e->st = MK_SHIELD, e->c0 = (uint8_t)s;
+  e->c4 = (uint8_t)((e->c4 & ~MKF_LOW6) | (right ? MKF_LOW6 : 0));
+  e->inv_dir = inv[s];
+  e->wk_facing = right ? 1 : -1;   /* (SetWalkerFacing) */
+  anim_play_from_frame(&e->anim, high ? CLIP_MOSSKNIGHT_SHIELD_TOP : CLIP_MOSSKNIGHT_SHIELD_FRONT, 0);
+  e->qy = right ? 11 : -11;
+  set_scale_x(e, right ? -fabsf(e->sx) : fabsf(e->sx));
+}
+
+/* (where the Knight is: right of it, above its middle) */
+static bool mk_hero_right(const Enemy *e) { return hero_x() > e->body.x; }
+static bool mk_hero_left(const Enemy *e) { return hero_x() < e->body.x; }
+static bool mk_hero_high(const Enemy *e) { return hero_y() > e->body.y + 2.5f; }
+
+static void mk_attack1(Enemy *e) {
+  /* Attack 1 Antic: its slash (or the quick one) and its effect; its shield's low side still up */
+  bool quick = (e->c4 & MKF_QUICK) != 0;
+  e->st = MK_A1_ANTIC;
+  anim_play_from_frame(&e->anim, quick ? CLIP_MOSSKNIGHT_SLASH_QUICK : CLIP_MOSSKNIGHT_SLASH, 0);
+  mk_slash_effect(e, quick ? CLIP_MOSSKNIGHT_SLASH_EFFECT_QUICK : CLIP_MOSSKNIGHT_SLASH_EFFECT, 0);
+  e->inv_dir = (e->c4 & MKF_LOW6) ? 6 : 5;
+}
+
+/* Attack Choice: a slash, or a jump back (then a spit or a slash) */
+static void mk_evade_check(Enemy *e);
+static void mk_attack_choice(Enemy *e) {
+  e->body.vx = 0;
+  e->c4 &= (uint8_t)~MKF_QUICK;
+  if (random_v2(&e->c2, 0.75f, 3, 2) == 0) mk_attack1(e);
+  else {
+    /* After Evade Choice: then a spit or a slash, even odds */
+    if (rand_range(0, 2) < 1) e->c4 |= MKF_SPIT;
+    else e->c4 &= (uint8_t)~MKF_SPIT;
+    mk_evade_check(e);
+  }
+}
+
+/* Shoot Check: not invincible; a spit at the Knight, facing him */
+static void mk_shoot_check(Enemy *e) {
+  e->flags &= (uint8_t)~4;
+  e->c1--;
+  anim_play_from_frame(&e->anim, CLIP_MOSSKNIGHT_SHOOT, 0);
+  if (mk_hero_right(e)) set_scale_x(e, -fabsf(e->sx));
+  else if (mk_hero_left(e)) set_scale_x(e, fabsf(e->sx));
+  /* Shoot Antic: where it aims */
+  float x = (hero_x() - e->body.x) * 1.1f + rand_range(-1, 1);
+  e->ay = x < -15 ? -15 : x > 15 ? 15 : x;
+  e->st = MK_SHOOT_ANTIC;
+}
+
+static void mk_set_repeater(Enemy *e) {
+  e->body.vx = 0;
+  walker_stop(e, STOP_CONTROLLED);
+  e->c1 = 2;
+  mk_shoot_check(e);
+}
+
+/* Evade Check: not invincible; away from the Knight, unless a wall is behind (Evade Cancel) */
+static void mk_evade_check(Enemy *e) {
+  e->body.vx = 0;
+  e->flags &= (uint8_t)~4;
+  anim_play_from_frame(&e->anim, CLIP_MOSSKNIGHT_EVADE, 0);
+  bool right = mk_hero_right(e);
+  if (!right && !mk_hero_left(e)) {
+    e->st = MK_EVADE_ANTIC;   /* (neither: it stays there) */
+    return;
+  }
+  bool wall = phys_ray(e->body.x, e->body.y, -1, 0, 4, CF_TERRAIN, NULL);   /* (from its Centre Point, to its own left) */
+  set_scale_x(e, right ? -fabsf(e->sx) : fabsf(e->sx));
+  e->ax = right ? -28 : 28;
+  e->qy = right ? 13 : -13;
+  if (wall) {
+    /* Evade Cancel: a spit's evade slashes; a slash's evades all the same */
+    if (e->c4 & MKF_SPIT) mk_attack1(e);
+    else e->st = MK_EVADE_ANTIC;
+    return;
+  }
+  e->st = MK_EVADE_ANTIC;
+}
+
+static void mossknight_wake(Enemy *e) {
+  /* Shake, then Wake */
+  if (e->st != MK_SLEEP) return;
+  e->st = MK_SHAKE, e->wait = 1;
+  anim_play(&e->anim, CLIP_MOSSKNIGHT_SHAKE);
+}
+
+static void mossknight_start(Enemy *e) {
+  walker_init(e);
+  e->t0 = rand_range(1, 2), e->t1 = rand_range(2, 2.5f);   /* (its ranges' Randomise: On) */
+  const Ent *v = mk_vars(e);
+  if (v && (v->a & MK_DORMANT)) {
+    /* Sleep: kinematic, harmless, untouchable, in the moss */
+    e->st = MK_SLEEP;
+    walker_stop(e, STOP_CONTROLLED);
+    anim_play(&e->anim, rand_range(0, 2) < 1 ? CLIP_MOSSKNIGHT_DORMANT_1 : CLIP_MOSSKNIGHT_DORMANT_2);
+    e->flags |= 4 | 1;
+    e->inv_dir = 0;
+    e->damage = 0;
+    e->body.vx = e->body.vy = 0, e->body.gravity_scale = 0;
+  } else
+    e->st = MK_PAUSE;
+}
+
+/* (its Wake Box struck by the nail, the Knight near it: it wakes, or its battle starts) */
+static void mossknight_nailed(Enemy *e) {
+  if (e->st != MK_SLEEP || fabsf(hero_x() - e->body.x) >= 8) return;
+  const Ent *v = mk_vars(e);
+  if (v && (v->a & MK_START_BATTLE)) arena_start();   /* (BATTLE EARLY START) */
+  else mossknight_wake(e);
+}
+
+static void mossknight_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0, trig = (e->anim.events & ANIM_TRIGGER) != 0;
+  /* its Spit and Evade Ranges' Randomise: on 1-2 s, off 1-2 s; on 2-2.5 s, off 2.5-3.5 s */
+  randomise(&e->t0, 1, 2, 1, 2);
+  randomise(&e->t1, 2, 2.5f, 2.5f, 3.5f);
+  if (e->fx) {
+    e->sub.events = 0;
+    anim_update(&e->sub, DT);
+    if (!e->sub.playing) e->fx = 0;
+  }
+  switch (e->st) {
+    case MK_PAUSE:
+      e->st = MK_DETECT;   /* (Pause Frame, Initialise) */
+      break;
+    case MK_DETECT: {
+      walker_update(e);
+      bool see = mk_sees(e), spit = mk_spit_range(e), evade = mk_evade_range(e), attack = see && mk_attack_range(e);
+      /* (the frame's last event wins: ATTACK, EVADE, SPIT) */
+      if (attack) {
+        /* Shield Start: its pause before it attacks, still and invincible; then its stance */
+        e->qx = rand_range(0.75f, 1.1f);
+        walker_stop(e, STOP_CONTROLLED);
+        e->body.vx = 0;
+        e->flags |= 4;
+        bool right = mk_hero_right(e), high = mk_hero_high(e);
+        mk_shield(e, high && right ? MKS_RIGHT_HIGH : high ? MKS_LEFT_HIGH : right ? MKS_RIGHT_LOW : MKS_LEFT_LOW);
+      } else if (evade) {
+        walker_stop(e, STOP_CONTROLLED);
+        e->c4 &= (uint8_t)~MKF_SPIT, e->c4 |= MKF_QUICK;   /* (Evade Hero: then a quick slash) */
+        mk_evade_check(e);
+      } else if (spit)
+        mk_set_repeater(e);
+      break;
+    }
+    case MK_SHIELD: {
+      if (e->rc_flags & RF_BLOCKED) {
+        /* Block: its shield bumped, then its attack */
+        bool high = e->c0 == MKS_RIGHT_HIGH || e->c0 == MKS_LEFT_HIGH;
+        anim_play_from_frame(&e->anim, high ? CLIP_MOSSKNIGHT_SHIELD_TOP_BUMP : CLIP_MOSSKNIGHT_SHIELD_FRONT_BUMP, 0);
+        e->st = MK_BLOCK, e->wait = 0.4f;
+        break;
+      }
+      bool left = mk_hero_left(e), right = mk_hero_right(e), high = mk_hero_high(e), low = !high;
+      int s = e->c0, to = -1;
+      /* (the other stances' events, in its actions' order; the last of the frame wins) */
+      if (s != MKS_LEFT_HIGH && high && left) to = MKS_LEFT_HIGH;
+      if (s != MKS_RIGHT_HIGH && high && right) to = MKS_RIGHT_HIGH;
+      if (s != MKS_LEFT_LOW && low && left) to = MKS_LEFT_LOW;
+      if (s != MKS_RIGHT_LOW && low && right) to = MKS_RIGHT_LOW;
+      int ev = to >= 0 ? 1 : 0;   /* (1 a stance, 2 COUNTER END, 3 LEFT RANGE, 4 EVADE) */
+      if ((e->qx -= DT) <= 0) ev = 2;
+      if (!(mk_attack_range(e) && mk_sees(e))) ev = 3;
+      if (mk_evade_range(e)) ev = 4;
+      if (ev == 1) mk_shield(e, to);
+      else if (ev == 2) mk_attack_choice(e);
+      else if (ev == 3) {
+        /* Unshield: its shield down, then Reset */
+        bool hi = s == MKS_RIGHT_HIGH || s == MKS_LEFT_HIGH;
+        anim_play_from_frame(&e->anim, hi ? CLIP_MOSSKNIGHT_UNSHIELD_TOP : CLIP_MOSSKNIGHT_UNSHIELD_FRONT, 0);
+        e->st = MK_UNSHIELD;
+      } else if (ev == 4) {
+        e->c4 &= (uint8_t)~MKF_SPIT, e->c4 |= MKF_QUICK;
+        mk_evade_check(e);
+      }
+      break;
+    }
+    case MK_BLOCK:
+      if ((e->wait -= DT) <= 0) mk_attack_choice(e);
+      break;
+    case MK_UNSHIELD:
+      if (!e->anim.playing) mk_reset(e);
+      break;
+    case MK_A1_ANTIC:
+      if (trig) {
+        /* Attack1 Lunge: vulnerable, lunging at the Knight */
+        e->flags &= (uint8_t)~4, e->inv_dir = 0;
+        e->body.vx = e->qy;
+        e->st = MK_A1_LUNGE;
+      }
+      break;
+    case MK_A1_LUNGE:
+      if (trig) mk_hitbox(e, STR_SLASH_HITBOX, true), e->st = MK_A1_ON;
+      break;
+    case MK_A1_ON:
+      if (trig) mk_hitbox(e, STR_SLASH_HITBOX, false), e->st = MK_A1_OFF;
+      break;
+    case MK_A1_OFF:
+      if (trig) e->body.vx = 0, e->st = MK_A1_END;
+      break;
+    case MK_A1_END:
+      if (!e->anim.playing) {
+        /* Slash 2?: facing the Knight still, a second slash or not */
+        bool face_right = e->sx < 0, hero_right = mk_hero_right(e);
+        if (hero_right != face_right || random_v2(&e->c3, 0.5f, 2, 2) == 1) {
+          e->st = MK_SLASH_END;
+          anim_play_from_frame(&e->anim, CLIP_MOSSKNIGHT_SLASH_END, 0);
+        } else {
+          e->st = MK_A2_ANTIC;
+          anim_play_from_frame(&e->anim, CLIP_MOSSKNIGHT_SLASH_2, 0);
+          mk_slash_effect(e, CLIP_MOSSKNIGHT_SLASH_2_EFFECT, MK_EFFECT_SLASH2);
+        }
+      }
+      break;
+    case MK_A2_ANTIC:
+      if (trig) {
+        mk_hitbox(e, STR_SLASH2_HITBOX, true);
+        e->body.vx = e->qy;
+        e->st = MK_A2_SLASH;
+      }
+      break;
+    case MK_A2_SLASH:
+      if (trig) {
+        mk_hitbox(e, STR_SLASH2_HITBOX, false);
+        e->body.vx = 0;
+        e->st = MK_A2_END;
+      }
+      break;
+    case MK_A2_END:
+    case MK_SLASH_END:
+    case MK_SHOT_END:
+      if (!e->anim.playing) mk_reset(e);
+      break;
+    case MK_EVADE_ANTIC:
+      if (trig) e->body.vx = e->ax, e->st = MK_EVADE;
+      break;
+    case MK_EVADE:
+      if (trig) e->body.vx = 0, e->st = MK_EVADE_END;
+      break;
+    case MK_EVADE_END:
+      if (!e->anim.playing) {
+        /* Evade Move Check: its After Evade */
+        if (e->c4 & MKF_SPIT) mk_set_repeater(e);
+        else mk_attack1(e);
+      }
+      break;
+    case MK_SHOOT_ANTIC:
+      if (trig) {
+        /* Shoot: a grass ball from its Shot Point, up and at the Knight */
+        grass_ball_spawn(e->body.x + (e->sx < 0 ? 2.07f : -2.07f), e->body.y + 1.17f, e->ay, 20);
+        e->st = MK_SHOOT;
+      }
+      break;
+    case MK_SHOOT:
+      if (!e->anim.playing) {
+        /* Repeat Check */
+        if (e->c1 == 0 || rand_range(0, 1) < 0.6f) {
+          e->st = MK_SHOT_END;
+          anim_play_from_frame(&e->anim, CLIP_MOSSKNIGHT_SHOOT_END, 0);
+        } else
+          mk_shoot_check(e);
+      }
+      break;
+    case MK_SLEEP:
+      break;
+    case MK_SHAKE:
+      if ((e->wait -= DT) <= 0) {
+        /* Wake: up, harmless no more; its Spit Range off a while (To Off) */
+        e->st = MK_WAKE;
+        cam_shake(SHAKE_ENEMY_KILL);
+        e->t0 = -1 - rand_range(1, 2);
+        anim_play_from_frame(&e->anim, CLIP_MOSSKNIGHT_WAKE, 0);
+        e->flags &= (uint8_t)~(4 | 1);
+        e->c4 |= 0x80;   /* (Spell Vulnerable) */
+        e->damage = 1;
+        e->body.gravity_scale = 1;
+      }
+      break;
+    case MK_WAKE:
+      if (done) mk_reset(e);
+      break;
+  }
+}
+
+static void mossknight_fixed(Enemy *e) {
+  if (e->st == MK_DETECT && e->wk_state == WK_WALKING) {
+    const Ent *w = walker_rec(e);
+    if (w) e->body.vx = e->wk_facing > 0 ? w->y0 : w->x0;
+  }
+}
+
 /* the collisions a step brought (Collision2dEvent, ObjectBounce): the kinds that want them */
 static BodyEvent body_events[MAX_EVENTS];
 static bool wants_contacts(const Enemy *e) { return FSM(e) == EF_MOSQUITO || FSM(e) == EF_FATFLY || FSM(e) == EF_MOSSCHARGER; }
@@ -4841,6 +5270,7 @@ static void enemy_fsm_start(Enemy *e, const Ent *d) {
   else if (FSM(e) == EF_MOSQUITO) mosquito_start(e, d);
   else if (FSM(e) == EF_FATFLY) fatfly_start(e);
   else if (FSM(e) == EF_MOSSCHARGER) mosscharger_start(e);
+  else if (FSM(e) == EF_MOSSKNIGHT) mossknight_start(e);
 }
 
 /* ActiveRegion (a 50 by 35 box round the camera) meets its collider: FSMActivator turns its FSMs on */
@@ -4882,7 +5312,9 @@ void enemies_summon(void) {
 }
 
 void enemies_battle_start(void) {
-  /* (BATTLE START: no kind of a plain arena's listens yet; the False Knight's arena is its own) */
+  /* (BATTLE START, to all: sleeping Moss Knights wake) */
+  for (int i = 0; i < MAX_ENEMIES; i++)
+    if (en[i].mode == EM_ALIVE && FSM(&en[i]) == EF_MOSSKNIGHT) mossknight_wake(&en[i]);
 }
 
 static void summons_tick(void) {
@@ -5050,6 +5482,7 @@ void enemies_fixed(void) {
       else if (FSM(e) == EF_MOSQUITO) mosquito_fixed(e);
       else if (FSM(e) == EF_FATFLY) fatfly_fixed(e);
       else if (FSM(e) == EF_MOSSCHARGER) mosscharger_fixed(e);
+      else if (FSM(e) == EF_MOSSKNIGHT) mossknight_fixed(e);
       recoil_fixed(e);
       if (wants_contacts(e)) {
         float pvx = e->body.vx, pvy = e->body.vy, box[4];
@@ -5147,10 +5580,13 @@ void enemies_update(void) {
       else if (FSM(e) == EF_MOSQUITO) mosquito_update(e);
       else if (FSM(e) == EF_FATFLY) fatfly_update(e);
       else if (FSM(e) == EF_MOSSCHARGER) mosscharger_update(e);
+      else if (FSM(e) == EF_MOSSKNIGHT) mossknight_update(e);
       if (FSM(e) == EF_FK) {
         /* (its Hitter: on till its FSM turns it off) */
         e->sub.events = 0;
         if (e->sub_hb) anim_update(&e->sub, DT);
+      } else if (FSM(e) == EF_MOSSKNIGHT) {
+        /* (its hitboxes its own; its effect updated with it) */
       } else
         hitbox_tick(e);
       e->flags &= (uint8_t)~8;
@@ -5190,6 +5626,13 @@ void enemies_draw(void) {
       sprite_inst(e->sub.sprite, e->body.x, e->body.y, z - 0.001f, e->sx, sy, flash_tint(e, 2 + i % 5), &in);
       gfx_actor(&in, SORT_KEY(0, 0));
     }
+    if (FSM(e) == EF_MOSSKNIGHT && e->fx && e->sub.sprite >= 0 && e->mode == EM_ALIVE) {
+      /* (Slash Effect at it; Slash2 Effect at its child's place and scale) */
+      bool s2 = e->fx == 1 + MK_EFFECT_SLASH2;
+      sprite_inst(e->sub.sprite, e->body.x + (s2 ? (e->sx < 0 ? 1.14f : -1.14f) : 0), e->body.y + (s2 ? -0.59f : 0), z - 0.001f,
+                  e->sx * (s2 ? 0.7655f : 1), sy, flash_tint(e, 2 + i % 5), &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
     if (FSM(e) == EF_SHADE && sh.slash_on) {
       sprite_inst(sh.slash.sprite, e->body.x - 0.0486f * e->sx, e->body.y - 0.0117f, z - 0.001f, 1.27f * e->sx, 1, 0, &in);
       gfx_actor(&in, SORT_KEY(0, 0));
@@ -5226,8 +5669,58 @@ void enemies_hero_cast_spell(void) {
 }
 
 /* the slash's shape: enemies it touches are hit, once a swing -> HB_* */
-int enemies_nail(const float *pts, int npts, float direction, int damage) {
+/* the slash's shape's bounds */
+static void shape_bounds(const float *pts, int n, float *x0, float *y0, float *x1, float *y1) {
+  *x0 = *x1 = pts[0], *y0 = *y1 = pts[1];
+  for (int k = 1; k < n; k++) {
+    *x0 = fminf(*x0, pts[2 * k]), *x1 = fmaxf(*x1, pts[2 * k]);
+    *y0 = fminf(*y0, pts[2 * k + 1]), *y1 = fmaxf(*y1, pts[2 * k + 1]);
+  }
+}
+
+/* the Moss Knights' own: its Wake Box struck, its slash met (a parry: the Knight thrown back, unhurt a moment) */
+static int mossknights_nail(const float *pts, int npts) {
   int out = 0;
+  float x0, y0, x1, y1;
+  shape_bounds(pts, npts, &x0, &y0, &x1, &y1);
+  for (int i = 0; i < MAX_ENEMIES; i++) {
+    Enemy *e = &en[i];
+    if (e->mode != EM_ALIVE || FSM(e) != EF_MOSSKNIGHT) continue;
+    if (e->st == MK_SLEEP) {
+      const Ent *d = ent_at(e->ent);
+      for (int k = 1; k <= d->s0; k++)
+        if (d[k].type == ENT_BOX && d[k].flags == ET_RANGE && d[k].s0 == STR_WAKE_BOX) {
+          float cx, cy, rx, hy;
+          enemy_range(e, &d[k], &cx, &cy, &rx, &hy);
+          cx += e->body.x, cy += e->body.y;
+          if (box_meets_shape(cx - rx, cy - hy, cx + rx, cy + hy, pts, npts)) mossknight_nailed(e);
+        }
+      continue;
+    }
+    if (e->hb_on && hitbox_touch(e, x0, y0, x1, y1)) {
+      FREEZE_MOMENT_1();
+      cam_shake(SHAKE_ENEMY_KILL);
+      hero_nail_parry();
+      out |= HB_BOUNCE | HB_RECOIL;
+    }
+  }
+  return out;
+}
+
+/* grass balls the nail or a spell meets: Break */
+static void grass_balls_hit(float x0, float y0, float x1, float y1) {
+  for (int i = 0; i < MAX_BULLETS; i++) {
+    Bullet *b = &bullets[i];
+    float r = GRASS_BALL_R * b->scale;
+    if (b->on && b->kind == 1 && x1 > b->x - r && x0 < b->x + r && y1 > b->y - r && y0 < b->y + r) bullet_impact(b);
+  }
+}
+
+int enemies_nail(const float *pts, int npts, float direction, int damage) {
+  int out = mossknights_nail(pts, npts);
+  float bx0, by0, bx1, by1;
+  shape_bounds(pts, npts, &bx0, &by0, &bx1, &by1);
+  grass_balls_hit(bx0, by0, bx1, by1);
   barrels_nail(pts, npts, direction);
   for (int i = 0; i < MAX_ENEMIES; i++) {
     Enemy *e = &en[i];
@@ -5245,6 +5738,7 @@ int enemies_nail(const float *pts, int npts, float direction, int damage) {
 
 uint32_t enemies_spell(float x0, float y0, float x1, float y1, float direction, int damage, float magnitude, uint32_t done) {
   uint32_t out = 0;
+  grass_balls_hit(x0, y0, x1, y1);
   for (int i = 0; i < MAX_ENEMIES; i++) {
     Enemy *e = &en[i];
     if (e->mode != EM_ALIVE || (e->flags & 17) || (done >> i & 1)) continue;

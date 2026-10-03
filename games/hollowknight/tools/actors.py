@@ -77,6 +77,12 @@ ENEMY_KINDS = [
     ("fatfly", "Fatty Fly Attack", ("sharedassets147.assets", 98), "FATFLY", {"IDLE": "Fly", "A1": "Attack"}),
     ("mosscharger", "Mossy Control", ("sharedassets139.assets", 37), "MOSSCHARGER",
      {"A1": "Appear", "A2": "Charge", "A3": "Disappear", "A4": "Stun", "A5": "Get Up", "A6": "TurnRun", "A7": "Escape"}),
+    # (Moss Knight: its code plays its clips by name, CLIP_MOSSKNIGHT_*)
+    ("mossknight", "Moss Knight Control", ("sharedassets149.assets", 104), "MOSSKNIGHT",
+     {"IDLE": "Idle", "WALK": "Walk", "TURN": "Turn"},
+     ["Shield Front", "Shield Front Bump", "Shield Top", "Shield Top Bump", "Unshield Front", "Unshield Top", "Slash",
+      "Slash Quick", "Slash Effect", "Slash Effect Quick", "Slash 2", "Slash 2 Effect", "Slash End", "Evade", "Shoot",
+      "Shoot End", "Wake", "Dormant 1", "Dormant 2", "Shake"]),
 ]
 ENEMY_CORPSE_LIBS = {}   # (name -> its corpse's library, if not its own)
 

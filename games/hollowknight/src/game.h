@@ -198,6 +198,7 @@ typedef struct {
   bool touching_wall_l, touching_wall_r;
   bool hidden, hit_buffered, enter_without_input;
   float prevent_cast;   /* (PreventCastByDialogueEnd: casts kept back a moment) */
+  float parry_t;        /* (NailParry: unhurt by enemies a moment) */
   int16_t entry_gate;   /* the record of the gate it came in by (-1: none) */
   int8_t buffered_side, buffered_damage, buffered_hazard;
   float invuln_freeze, invuln_time, pulse_t, recoil_timer2, respawn_timer, wake_timer;
@@ -218,6 +219,7 @@ void hero_update(void);           /* then Update and the animations */
 void hero_draw(void);
 bool hero_touching_ground(void);
 void hero_recoil_left(void);
+void hero_nail_parry(void);   /* (NailParry) */
 void hero_recoil_right(void);
 void hero_recoil_down(void);
 void hero_bounce(void);

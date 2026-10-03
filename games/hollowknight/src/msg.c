@@ -24,7 +24,11 @@ static struct {
   uint32_t prev_keys;
 } m;
 
+static void notices_off(void);
+static void notices_tick(void);
+
 void msg_show(int item) {
+  notices_off();
   memset(&m, 0, sizeof m);
   m.item = (uint8_t)item;
   for (int i = 0; i < NF; i++) m.t_up[i] = -1;
@@ -62,6 +66,7 @@ static void white_blanker_tick(void) {
 
 void msg_tick(void) {
   white_blanker_tick();
+  notices_tick();
   if (m.st == MS_OFF) return;
   uint32_t pressed = g_hero.keys & ~m.prev_keys;
   m.prev_keys = g_hero.keys;
@@ -135,11 +140,110 @@ static float blank_alpha;
 static bool blank_on;
 void blanker_set(float alpha, bool on) { blank_alpha = alpha, blank_on = on; }
 
+/* ---------------------------------------------------------------- notices, the charm tutorial */
+/* (Relic Msg, Charm Msg: at (-11.91, -6.22) on the HUD, up 4.25 s then down; their parts fade up in 0.3 s, down in 0.2.
+ * Charm Tute Msg: at (0, 2.77); its parts (color_fader) up in 1 s after their delays, its stop at 5 s, down in 1 s as
+ * it is closed. A new one sends the others away: DESTROY JOURNAL MSG) */
+typedef struct {
+  int16_t sprite;
+  float kx, ky;   /* (its x and y scales from the one it was made at) */
+} Piece;
+static const Piece notice_bb = NOTICE_BACKBOARD, tute_fleur = TUTE_FLEUR, tute_bb = TUTE_BACKBOARD, tute_image = TUTE_IMAGE,
+                   tute_stop = TUTE_STOP;
+static const int16_t notice_icons[] = NOTICE_ICONS, charm_icons[41] = CHARM_ICONS, charm_names[41] = CHARM_NAMES;
+enum { NT_OFF, NT_RELIC, NT_CHARM, NT_TUTE };
+static struct {
+  uint8_t kind;
+  int16_t icon, text, next_icon;
+  float t, t_down;   /* (time up; time since it went down: -1 not yet) */
+} nt = {NT_OFF, -1, -1, -1, 0, -1};
+
+static void notices_off(void) { nt.kind = NT_OFF; }
+
+void notice_icon(int k) { nt.next_icon = k >= 0 && k < (int)(sizeof notice_icons / sizeof notice_icons[0]) ? notice_icons[k] : -1; }
+
+static void notice_start(int kind, int icon, int text) {
+  m.st = MS_OFF;   /* (the item message: gone, as a new one shows) */
+  nt.kind = (uint8_t)kind, nt.icon = (int16_t)icon, nt.text = (int16_t)text, nt.t = 0, nt.t_down = -1;
+}
+
+void notice_show(int text) { notice_start(NT_RELIC, nt.next_icon, text); }
+
+void charm_notice(int id) {
+  if (id < 0 || id > 40) return;
+  /* (in a tutorial just made: its own Charm Get Msg's charm) */
+  if (nt.kind == NT_TUTE && nt.t == 0) nt.icon = charm_icons[id], nt.text = charm_names[id];
+  else notice_start(NT_CHARM, charm_icons[id], charm_names[id]);
+}
+
+void charm_tute(void) { notice_start(NT_TUTE, -1, -1); }
+
+void charm_tute_close(void) {
+  if (nt.kind == NT_TUTE && nt.t_down < 0) nt.t_down = 0;
+}
+
+static void notices_tick(void) {
+  if (nt.kind == NT_OFF) return;
+  nt.t += DT;
+  if (nt.t_down >= 0) nt.t_down += DT;
+  if (nt.kind != NT_TUTE) {
+    if (nt.t >= 4.25f && nt.t_down < 0) nt.t_down = 0;
+    if (nt.t_down >= 1) nt.kind = NT_OFF;
+  } else if (nt.t_down >= 1)
+    nt.kind = NT_OFF;
+}
+
+/* a part's alpha: up over `up` after `delay`, down over `down` once it went down */
+static float fader(float delay, float up, float down) {
+  float a = (nt.t - delay) / up;
+  a = a < 0 ? 0 : a > 1 ? 1 : a;
+  if (nt.t_down >= 0) {
+    float d = 1 - nt.t_down / down;
+    if (d < a) a = d < 0 ? 0 : d;
+  }
+  return a;
+}
+
+static void piece(const Piece *p, float x, float y, float a, int slot) {
+  uint8_t al = (uint8_t)(a * 255 + 0.5f);
+  if (!al || p->sprite < 0) return;
+  Inst in;
+  sprite_inst(p->sprite, x, y, 0, p->kx, p->ky, gfx_dyn_tint(slot, 255, 255, 255, al), &in);
+  gfx_hud(&in, 0);
+}
+
+static void notices_draw(void) {
+  if (nt.kind == NT_OFF) return;
+  if (nt.kind != NT_TUTE) {
+    const float x = -11.91f, y = -6.22f;
+    float a = fader(0, 0.3f, 0.2f);
+    piece(&notice_bb, x + 2.82f, y - 0.12f, a * 0.797f, 22);
+    if (nt.icon >= 0) sprite(nt.icon, x - 0.46f, y - 0.05f, a, 23);
+    /* (its Text: left-aligned in its box, 6.12 wide about (3.64, -0.03)) */
+    line(nt.text, STYLE_NOTICE, x + 3.64f - 3.06f, y - 0.03f, 2, false, a);
+    return;
+  }
+  const float x = 0, y = 2.77f;
+  float a0 = fader(0, 1, 1), a1 = fader(1, 1, 1), a3 = fader(3, 1, 1);
+  piece(&tute_bb, x, y - 0.53f, a0, 22);
+  piece(&tute_fleur, x, y + 2.06f, a0, 24);
+  /* (its Charm Get Msg: no backboard) */
+  if (nt.icon >= 0) sprite(nt.icon, x - 2.9f, y + 0.83f, a0, 23);
+  line(nt.text, STYLE_NOTICE, x + 1.2f - 3.06f, y + 0.85f, 2, false, a0);
+  /* (Title, Subtitle, Text: their tops at their rects' tops, 4.02 high) */
+  line(TXT_CHARM_TUTE_TITLE, STYLE_TUTE_TITLE, x, y + 1.55f + 2.01f, 0, true, a0);
+  line(TXT_CHARM_TUTE_SUB, STYLE_TUTE, x, y - 2.29f + 2.01f, 0, true, a1);
+  piece(&tute_image, x, y - 4.51f, a3, 25);
+  line(TXT_CHARM_REMINDER, STYLE_TUTE, x, y - 9.59f + 2.01f, 0, true, a3);
+  if (nt.t >= 5 && nt.t_down < 0) piece(&tute_stop, x + 0.05f, y - 9.19f, 1, 26);
+}
+
 void msg_draw(void) {
   if (wb.on && wb.alpha > 0)
     gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(28, 255, 255, 255, (uint8_t)(wb.alpha * 255 + 0.5f)));
   if (blank_on && blank_alpha > 0)
     gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(27, 0, 0, 0, (uint8_t)(blank_alpha * 255 + 0.5f)));
+  notices_draw();
   if (m.st == MS_OFF) return;
   const int16_t *t = table[m.item];
   /* (BG: black, at 0.766 of its color's alpha) */

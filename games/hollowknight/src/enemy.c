@@ -2712,7 +2712,8 @@ static void fk_update(Enemy *e) {
       break;
     case FK_READY:
       if (e->t0 >= 1) {
-        /* Blow: the maggot out, the staff flung */
+        /* Blow: FK DEATH, the maggot out, the staff flung */
+        vm_broadcast(VMEV_FK_DEATH);
         Enemy *h = fk_head();
         if (h) h->mode = EM_OFF;
         fk.head_shown = false;

@@ -166,8 +166,9 @@ def black_sprite(s):
 FIT = {}   # room -> texture scale factor (fit.py: so that every view's tiles fit the calculator's cache)
 
 
-def build_variants(rooms, vis_of):
-    """Assign every instance a texture variant. vis_of(room) -> (weights, cells)."""
+def build_variants(rooms, vis_of, owned=lambda r: ()):
+    """Assign every instance a texture variant. vis_of(room) -> (weights, cells); owned(room) -> the (scene, object id)
+    drawn by others (left out)."""
     variants = {}
     per_room = {}
     for r in rooms:
@@ -176,7 +177,10 @@ def build_variants(rooms, vis_of):
         w, cells = vis_of(r)
         bz = st["blur_z"] if st["blur_z"] is not None else 1e9
         keep = []
+        mine = set(owned(r))
         for it in inst:
+            if (it.scene, it.obj["id"]) in mine:
+                continue
             if it.solid:
                 keep.append(it)
                 continue

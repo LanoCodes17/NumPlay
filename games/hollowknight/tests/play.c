@@ -98,6 +98,8 @@ int main(int argc, char **argv) {
           dialogue_start(atoi(strchr(getenv("HKTALK"), ':') + 1));
         }
         if (getenv("HKKILL") && atoi(getenv("HKKILL")) == tick) hero_take_damage(SIDE_LEFT, 99, HAZ_NORMAL);
+        /* (HKREENTER=tick: the room entered again then, as it was left) */
+        if (getenv("HKREENTER") && atoi(getenv("HKREENTER")) == tick) game_enter(id, px, py, true);
         if (getenv("HKGOD")) g_pd.health = g_pd.max_health;
         if (getenv("HKHIT") && atoi(getenv("HKHIT")) <= tick &&
             tick % (getenv("HKHITN") ? atoi(getenv("HKHITN")) : 10) == 0) {
@@ -164,7 +166,10 @@ int main(int argc, char **argv) {
       printf("pd:");
       for (int i = 0; i < PDF_COUNT; i++)
         if (pd_flag(i)) printf(" %d", i);
-      printf(" hornet_greenpath %d\n", g_pd.hornet_greenpath);
+      int np = 0;
+      for (int i = 0; i < MAX_PERSIST; i++) np += persist_get(i);
+      printf(" hornet_greenpath %d trinkets %d %d %d %d charms %d saved %d\n", g_pd.hornet_greenpath, g_pd.trinkets[0],
+             g_pd.trinkets[1], g_pd.trinkets[2], g_pd.trinkets[3], g_pd.charms_owned, np);
     }
     return 0;
   }

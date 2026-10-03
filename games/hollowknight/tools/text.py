@@ -92,6 +92,11 @@ STYLES = {
     # the message as an item is taken (UI Msg Get Item: its lines, a third bigger; its item's name)
     "MSG": _style("Perpetua", 3.73 * 1.4407, HUD_PX, 134.0625, 0, 117, 95.9375, -38.1875),
     "MSG_NAME": _style("TrajanPro-Bold", 9.32 * 1.4407, HUD_PX, *TRAJAN, k=1, phases=1),
+    # the notices as a relic or a charm is taken (Relic Get Msg, Charm Get Msg: Perpetua 8), the charm tutorial's title
+    # (9) and its lines (6)
+    "NOTICE": _style("Perpetua", 8, HUD_PX, 134.0625, 0, 117, 95.9375, -38.1875),
+    "TUTE_TITLE": _style("Perpetua", 9, HUD_PX, 134.0625, 0, 117, 95.9375, -38.1875, phases=1),
+    "TUTE": _style("Perpetua", 6, HUD_PX, 134.0625, 0, 117, 95.9375, -38.1875),
     # the menus (Menu_Title's UI canvas, 1920 x 1200 for 320 x 200 pixels; their text bigger: menu.MENU_K): the
     # buttons (Trajan bold, 54 at 0.549 and 45 at 0.7), the screens' titles and slot numbers, the slots' details
     "MENU": _style("TrajanPro-Bold", 31 / 6 * 1.6 * 10, 1, *TRAJAN, k=1),

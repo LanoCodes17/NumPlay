@@ -17,7 +17,7 @@
 #define NONE 0xFFFF
 #define OWNER 0xFF0F
 enum { O_HERO = 0xFF00, O_HERO_LIGHT, O_DIALOGUE_MANAGER, O_DIALOGUE_TEXT, O_AREA_TITLE, O_CAMERA_PARENT, O_MAIN_CAMERA,
-       O_GAME_MANAGER, O_HUD_BLANKER, O_HORNET = 0xFF0C, O_WHITE_BLANKER };
+       O_GAME_MANAGER, O_HUD_BLANKER, O_HORNET = 0xFF0C, O_WHITE_BLANKER, O_CHARM_TUTE };
 #define O_GATE 0xFD00   /* (+ k: a battle gate, obj.c's) */
 #define O_ENT 0xF000    /* (+ i: a room record (a camera lock area), the game's) */
 enum { OF_ACTIVE = 1, OF_RENDERER = 2, OF_ANIMATOR = 4, OF_TRIGGER = 8, OF_COLLIDER = 16,
@@ -50,11 +50,21 @@ typedef struct {
 } Obj;
 typedef struct {
   int16_t obj;          /* (-1: none) */
-  float vx, vy, g;      /* (one the scripts set moving: velocity, gravity scale) */
-  /* (iTweenMoveBy: by, how much of it so far (eased), time so far, its time, ease; 1 going, 2 over; its loop: none,
-   * again, back and forth. It moves by steps, with what else moves it: Translate) */
-  float tdx, tdy, te, tt, ttime;
   uint8_t ease, tween, loop;
+  uint8_t nc, ccol[2];  /* (flung: its body's contacts) */
+  float vx, vy, g;      /* (one the scripts set moving: velocity, gravity scale) */
+  union {
+    /* (iTweenMoveBy: by, how much of it so far (eased), time so far, its time, ease; 1 going, 2 over; its loop: none,
+     * again, back and forth. It moves by steps, with what else moves it: Translate. (tween 3: flung, below)) */
+    struct {
+      float tdx, tdy, te, tt, ttime;
+    };
+    /* (flung (FlingObject): a body, as Box2D moves it; its box, bounce and friction as the action has them) */
+    struct {
+      const uint8_t *box;
+      float cnx[2], cny[2];
+    };
+  };
 } Mover;
 
 typedef struct {
@@ -75,6 +85,8 @@ static struct {
   Fsm fsms[MAX_VM_FSMS];
   uint32_t vars[MAX_VM_VARS];
   Mover movers[MAX_MOVERS];
+  const uint8_t *persist;   /* (what the save keeps: FSM, slot, bit) */
+  int npersist;
   Fsm *executing;       /* (the FSM whose action runs: its events to itself wait) */
   int depth;
   /* the area title's variables as scripts set them (title.c starts it from them) */
@@ -162,6 +174,11 @@ static uint16_t rv(Rd *r) {
   return s;
 }
 static uint8_t rb(Rd *r) { return *r->p++; }
+static float rdf(const uint8_t *p) {
+  float x;
+  memcpy(&x, p, 4);
+  return x;
+}
 
 /* ---------------------------------------------------------------- PlayerData */
 static bool pd_bool(uint16_t s) {
@@ -194,6 +211,10 @@ static int pd_int(int i) {
     case 10: return g_pd.nail_damage;
     case 11: return g_pd.hornet_greenpath;
     case 12: return g_pd.quirrel_egg_temple;
+    case 13: return g_pd.charms_owned;
+    case 14: case 15: case 16: case 17: return g_pd.trinkets[i - 14];
+    case 18: return g_pd.rancid_eggs;
+    case 19: return g_pd.ore;
     default: return 0;
   }
 }
@@ -207,6 +228,10 @@ static void pd_set_int(int i, int v) {
     case 8: g_pd.elderbug = (uint8_t)v; break;
     case 11: g_pd.hornet_greenpath = (uint8_t)v; break;
     case 12: g_pd.quirrel_egg_temple = (uint8_t)v; break;
+    case 13: g_pd.charms_owned = (uint8_t)v; break;
+    case 14: case 15: case 16: case 17: g_pd.trinkets[i - 14] = (uint8_t)v; break;
+    case 18: g_pd.rancid_eggs = (uint8_t)v; break;
+    case 19: g_pd.ore = (uint8_t)v; break;
   }
 }
 
@@ -318,7 +343,8 @@ static void obj_set_active(int o, bool on) {
   if (on) vm.objs[o].flags |= OF_ACTIVE;
   else vm.objs[o].flags &= (uint16_t)~OF_ACTIVE;
   if (!was && on) anims_start();
-  if (!was && on && (vm.rec[o].flags & (OF_WAVE | OF_FADE))) vm.objs[o].anim.time = 0;   /* (its wave, its fade, from the start) */
+  /* (its wave, its fade, from the start; a wave's speed (anim.fps) its first) */
+  if (!was && on && (vm.rec[o].flags & (OF_WAVE | OF_FADE))) vm.objs[o].anim.time = 0, vm.objs[o].anim.fps = vm.rec[o].bx;
   /* (an FSM starts again as its object comes on: RestartOnEnable; the first time, on its Start, the next frame) */
   if (!was && on)
     for (int i = 0; i < vm.nfsms; i++) {
@@ -396,6 +422,10 @@ static void obj_event(int o, int ev, uint16_t fsm_name) {
   }
   if (o == O_WHITE_BLANKER) {
     if (ev == VMEV_FADE_IN || ev == VMEV_FADE_OUT) white_blanker_fade(ev == VMEV_FADE_IN);
+    return;
+  }
+  if (o == O_CHARM_TUTE) {
+    if (ev == VMEV_CLOSE) charm_tute_close();
     return;
   }
   if (o == O_HERO) {
@@ -647,6 +677,36 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       pd_set_int(i, ival(f, rv(&r)));
       return true;
     }
+    case VMOP_INCREMENTPLAYERDATAINT: {
+      int i = rb(&r);
+      pd_set_int(i, pd_int(i) + 1);
+      return true;
+    }
+    case VMOP_FLINGOBJECT: {
+      int o = oval(f, rv(&r));
+      float smin = fval(f, rv(&r)), smax = fval(f, rv(&r)), amin = fval(f, rv(&r)), amax = fval(f, rv(&r));
+      Mover *m = obj_ok(o) ? mover(o, true) : NULL;
+      if (m) {
+        float s = rand_range(smin, smax), a = rand_range(amin, amax) * (float)M_PI / 180;
+        m->vx = s * cosf(a), m->vy = s * sinf(a);
+        m->box = r.p, m->nc = 0, m->tween = 3;
+      }
+      return true;
+    }
+    case VMOP_GETSPEED2D: {
+      int o = oval(f, rv(&r));
+      uint8_t st = rb(&r);
+      bool every = rb(&r);
+      Mover *m = mover(o, false);
+      set_f(f, st, o == O_HERO ? sqrtf(g_hero.body.vx * g_hero.body.vx + g_hero.body.vy * g_hero.body.vy)
+                   : m ? sqrtf(m->vx * m->vx + m->vy * m->vy) : 0);
+      return !every;
+    }
+    case VMOP_SENDRANDOMEVENT: {
+      int n = rb(&r);
+      if (n) fsm_event(f, r.p[(int)rand_range(0, (float)n - 0.001f)]);
+      return true;
+    }
     case VMOP_ACTIVATEGAMEOBJECT: {
       int o = oval(f, rv(&r));
       bool on = val(f, rv(&r)) != 0;
@@ -847,12 +907,13 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
     case VMOP_LISTENFORRIGHT:
     case VMOP_LISTENFORATTACK:
     case VMOP_LISTENFORJUMP:
-    case VMOP_LISTENFORCAST: {
+    case VMOP_LISTENFORCAST:
+    case VMOP_LISTENFORINVENTORY: {
       int ev = rb(&r);
       if (mode != M_UPDATE) return false;
       uint32_t k = op == VMOP_LISTENFORUP ? K_UP : op == VMOP_LISTENFORDOWN ? K_DOWN : op == VMOP_LISTENFORLEFT ? K_LEFT
                  : op == VMOP_LISTENFORRIGHT ? K_RIGHT : op == VMOP_LISTENFORATTACK ? K_ATTACK : op == VMOP_LISTENFORJUMP ? K_JUMP
-                 : K_SPELL;
+                 : op == VMOP_LISTENFORINVENTORY ? K_INV : K_SPELL;
       if (pressed_keys() & k) fsm_event(f, ev);
       return false;
     }
@@ -904,6 +965,18 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
     }
     case VMOP_STARTCONVERSATION:
       dialogue_start(rv(&r));
+      return true;
+    case VMOP_NOTICEICON:
+      notice_icon(rb(&r));
+      return true;
+    case VMOP_NOTICETEXT:
+      notice_show((int)val(f, rv(&r)));
+      return true;
+    case VMOP_CHARMNOTICE:
+      charm_notice((int)val(f, rv(&r)));
+      return true;
+    case VMOP_CHARMTUTE:
+      charm_tute();
       return true;
     case VMOP_STARTCONVERSATIONOF: {
       /* (the conversation its key and sheet name now) */
@@ -1045,6 +1118,7 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       Mover *m = mover(o, enter);
       if (enter) {
         if (!m) return true;
+        m->nc = 0;
         m->tdx = has(vec) ? fval(f, vec) : 0, m->tdy = has(vec) ? fval(f, (uint16_t)(vec + 1)) : 0;
         m->te = 0, m->tt = 0, m->ttime = t, m->ease = (uint8_t)ease, m->tween = 1, m->loop = (uint8_t)loop;
         return false;
@@ -1231,6 +1305,7 @@ void vm_enter(void) {
         (r->cond2 != NONE && pd_flag(r->cond2 & 0x7FFF) == ((r->cond2 & 0x8000) != 0)))
       o->flags = OF_COND_OFF;
     o->anim.clip = -1, o->anim.sprite = -1;
+    if (r->flags & OF_WAVE) o->anim.fps = r->bx;
     o->alpha = 255;
   }
   const uint8_t *p = vm.map + 4 * nmap;
@@ -1246,6 +1321,10 @@ void vm_enter(void) {
     f->next = 255;
   }
   vm.nfsms = nfsms;
+  /* (PersistentBoolItem's Start: its FSM's Activated as the save has it) */
+  vm.persist = p, vm.npersist = rd16(b + 6);
+  for (int i = 0; i < vm.npersist; i++, p += 4)
+    if (p[0] < nfsms && persist_get(rd16(p + 2))) set_var(&vm.fsms[p[0]], p[1], 1);
   vm.prev_keys = g_hero.keys;
   /* (what it holds within the condition's: off too) */
   for (int i = 0; i < nobjs; i++)
@@ -1272,8 +1351,12 @@ void vm_tick(void) {
     o->flags = (uint16_t)((in ? o->flags | OF_INSIDE : o->flags & ~OF_INSIDE) & ~OF_SPELL_HIT);
     o->flags = (uint16_t)(spell ? o->flags | OF_SPELL_IN : o->flags & ~OF_SPELL_IN);
     if (vm.rec[i].flags & OF_WAVE) {
-      /* (WaveEffectControl: its timer at its speed; past 1, off) */
-      if (obj_active(i) && (o->anim.time += DT * vm.rec[i].bx) > 1) obj_set_active(i, false);
+      /* (WaveEffectControl: its speed down by a twentieth a step, to a half at least; its timer at that speed; past 1,
+       * off) */
+      if (obj_active(i)) {
+        o->anim.fps = o->anim.fps * 0.95f < 0.5f ? 0.5f : o->anim.fps * 0.95f;
+        if ((o->anim.time += DT * o->anim.fps) > 1) obj_set_active(i, false);
+      }
       continue;
     }
     if (vm.rec[i].flags & OF_FADE) {
@@ -1290,16 +1373,34 @@ void vm_tick(void) {
     Mover *m = &vm.movers[k];
     if (m->obj < 0) continue;
     Obj *o = &vm.objs[m->obj];
+    if (m->tween == 3) {
+      /* (flung: its body; ObjectBounce as it hits, from the speed it had) */
+      Body b;
+      memset(&b, 0, sizeof b);
+      b.x = o->x, b.y = o->y, b.vx = m->vx, b.vy = m->vy;
+      b.ox = rdf(m->box), b.oy = rdf(m->box + 4), b.hx = rdf(m->box + 8), b.hy = rdf(m->box + 12);
+      b.gravity_scale = m->g, b.friction = rdf(m->box + 20), b.mask = CF_TERRAIN;
+      b.ncontacts = m->nc;
+      for (int c = 0; c < m->nc; c++) b.ccol[c] = m->ccol[c], b.cnx[c] = m->cnx[c], b.cny[c] = m->cny[c];
+      float pvx = b.vx, pvy = b.vy;
+      int had = b.ncontacts;
+      body_step(&b, DT);
+      if (b.ncontacts > had) body_bounce(&b, pvx, pvy, had, rdf(m->box + 16));
+      m->vx = b.vx, m->vy = b.vy;
+      m->nc = (uint8_t)(b.ncontacts < 2 ? b.ncontacts : 2);
+      for (int c = 0; c < m->nc; c++) m->ccol[c] = b.ccol[c], m->cnx[c] = b.cnx[c], m->cny[c] = b.cny[c];
+      obj_move(m->obj, b.x, b.y);
+      continue;
+    }
+    float nx = o->x + m->vx * DT, ny = o->y;
     if (m->g > 0) {
       m->vy -= 60 * m->g * DT;
-      float ny = o->y + m->vy * DT;
+      ny = o->y + m->vy * DT;
       PhysHit hit;
       if (m->vy < 0 && phys_ray(o->x, o->y, 0, -1, o->y - ny + 0.76f, CF_TERRAIN, &hit) && hit.dist <= o->y - ny + 0.76f)
-        o->y = o->y - hit.dist + 0.76f, m->vy = 0;
-      else
-        o->y = ny;
+        ny = o->y - hit.dist + 0.76f, m->vy = 0;
     }
-    o->x += m->vx * DT;
+    obj_move(m->obj, nx, ny);
   }
   for (int i = 0; i < vm.nfsms; i++) fsm_step(&vm.fsms[i], M_FIXED);
   /* (tweens: iTween's Update) */
@@ -1322,6 +1423,12 @@ void vm_tick(void) {
   }
   for (int i = 0; i < vm.nfsms; i++) fsm_step(&vm.fsms[i], M_UPDATE);
   vm.prev_keys = g_hero.keys;
+  /* (SaveState: Activated into the save) */
+  for (int i = 0; i < vm.npersist; i++) {
+    const uint8_t *p = vm.persist + 4 * i;
+    const Fsm *f = &vm.fsms[p[0]];
+    if (p[1] < f->nvars && vm.vars[f->var0 + p[1]] && !persist_get(rd16(p + 2))) persist_set(rd16(p + 2));
+  }
   if (vm.title_start) {
     vm.title_start = false;
     if (vm.title >= 0)

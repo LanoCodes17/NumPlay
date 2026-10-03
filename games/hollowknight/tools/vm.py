@@ -17,7 +17,12 @@ ROOMS = {
     "Fungus1_04": ["Hornet Infected Knight Encounter", "Hornet Saver", "Cloak Corpse", "Dream Scene Activate",
                    "Dreamer Scene 1"],
     "Crossroads_ShamanTemple": ["_Props/Shaman Meeting", "_Props/Shaman Trapped", "_Props/Shaman Killed Blocker",
-                                "_Props/Knight Get Fireball", "Battle Scene/Reminder Cast"],
+                                "_Props/Knight Get Fireball", "Battle Scene/Reminder Cast", "Shiny Item"],
+    # items lying about (Shiny Item: a relic, a charm), the City Crest the False Knight leaves
+    "Crossroads_01": ["Shiny Item"],
+    "Tutorial_01": ["_Props/Chest/Item"],   # (its chest: src/obj.c, which turns on what is in it)
+    "Fungus1_22": ["Shiny Item"],
+    "Crossroads_10": ["Key Giver"],
     # Hornet seen in Greenpath before her arena
     "Fungus1_02": ["Hornet Encounter GP1"],
     "Fungus1_03": ["Set Hornet Encounter"],
@@ -40,7 +45,8 @@ SPECIAL = {"Hero": 0xFF00, "HeroLight": 0xFF01, "DialogueManager": 0xFF02, "Dial
 O_NONE = 0xFFFF
 # PlayerData ints (src/vm.c: pd_int)
 PD_INTS = ["MPCharge", "health", "maxHealth", "geo", "fireballLevel", "quakeLevel", "screamLevel", "shaman", "elderbug",
-           "permadeathMode", "nailDamage", "hornetGreenpath", "quirrelEggTemple"]
+           "permadeathMode", "nailDamage", "hornetGreenpath", "quirrelEggTemple", "charmsOwned", "trinket1", "trinket2",
+           "trinket3", "trinket4", "rancidEggs", "ore"]
 # PlayerData bools kept elsewhere (src/vm.c)
 PD_SPECIAL = {"disablePause": 0xFFF0, "hasSpell": 0xFFF1, "canDash": 0xFFF2}
 # PlayerData bools that keep their new game value all through this part of the game
@@ -75,7 +81,7 @@ EVENTS = Strings()
 for e in ("FINISHED", "CONVO_FINISH", "CONVO START", "CONVO END", "BIG TITLE START", "BIG TITLE END", "HERO DAMAGED",
           "NPC TITLE DOWN", "NPC CONVO START", "BOX UP", "BOX DOWN", "LEAVING SCENE", "TAKE DAMAGE", "GET ITEM MSG END",
           "HORNET LEAVE", "BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY", "WAKE", "BOX UP DREAM",
-          "BOX DOWN DREAM", "FADE IN", "FADE OUT", "FSM CANCEL"):
+          "BOX DOWN DREAM", "FADE IN", "FADE OUT", "FSM CANCEL", "CLOSE", "FK DEATH"):
     EVENTS.id(e)
 FIXED_EVENTS = len(EVENTS.list)   # (src/data.h: VMEV_*)
 
@@ -196,7 +202,18 @@ op("TextAlign", ("centre", "n"))
 op("ObjAlpha", ("gameObject", "o"), ("alpha", "f"), ("everyFrame", "n"))
 op("BuildString")   # (custom: its parts, the strings they can make, where it keeps it)
 op("StartConversationOf")   # (custom: its key and sheet, then the conversations they can name)
+op("NoticeIcon", ("icon", "n"))
+op("NoticeText", ("text", "i"))
+op("CharmNotice", ("id", "i"))
+op("CharmTute")
 op("GetObjAlpha", ("gameObject", "o"), ("store", "F"))
+# (flung: its box, from the position; its bounce (ObjectBounce, -1 none), its friction)
+op("FlingObject", ("flungObject", "o"), ("speedMin", "f"), ("speedMax", "f"), ("angleMin", "f"), ("angleMax", "f"),
+   ("ox", "k"), ("oy", "k"), ("hx", "k"), ("hy", "k"), ("bounce", "k"), ("friction", "k"))
+op("GetSpeed2d", ("gameObject", "o"), ("storeResult", "F"), ("everyFrame", "n"))
+op("SendRandomEvent", ("events", "e*"))
+op("IncrementPlayerDataInt", ("intName", "q"))
+op("ListenForInventory", ("wasPressed", "e"))
 
 # HeroController's methods the scripts call (HeroCall's method)
 HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "StartAnimationControl", "FaceLeft",
@@ -209,8 +226,17 @@ PROMPT_PREFAB = ("resources.assets", 6142)
 PREFAB_SPAWNS = {("sharedassets76.assets", 69), ("sharedassets133.assets", 23), ("sharedassets6.assets", 509)}
 # prefabs the pool gives (SpawnObjectFromGlobalPool) that the scripts show (made beforehand, off)
 POOL_SPAWNS = {("resources.assets", 5267)}
+# the notices' prefabs (made by the C code: msg.c): a relic's, a charm's, the charm tutorial
+NOTICE_PREFABS = {("resources.assets", 4251): "relic", ("sharedassets6.assets", 446): "charm",
+                  ("sharedassets6.assets", 491): "tute"}
+# the icons the scripts set on a notice (SetSpriteRendererSprite): (scene or prefab document, sprite ref), as NoticeIcon
+# numbers them (pack.py makes the sprites)
+NOTICE_ICONS = []
+# the charms this part of the game has (their icons and names: msg.c, the inventory)
+CHARMS = [1, 2, 3, 4, 6, 7, 8, 14, 18, 19, 20]
 # the game's objects the scripts find by name that are not theirs (enemies): what they are to them
 GAME_OBJECTS = {"Hornet Boss 1": 0xFF0C}
+O_CHARM_TUTE = 0xFF0E   # (src/vm.c)
 # what a trigger's Trigger2dEvent hears, by collideTag: the Knight (any), a spell
 TRIGGER_TAGS = {None: 0, "": 0, "Player": 0, "Untagged": 0, "Hero Spell": 1}
 # the items the message shows (text.MSGS's order), by Msg Control's Item
@@ -248,6 +274,7 @@ class Room:
                 self.by_path.setdefault(q["path"], c)
         self.objs, self.obj_index = [], {}
         self.fsms = []
+        self.persist, self.persist_objs = [], []   # (PersistentBoolItem: FSM, its Activated's slot, its object)
         self.problems = []
 
     # ------------------------------------------------------------ objects
@@ -365,13 +392,49 @@ def _active_chain(rm, o):
 
 
 # ---------------------------------------------------------------- compiling an FSM
-def _slots(vars_):
-    """Its variables -> {name: (slot, type)}, the number of slots (vectors take 3, colors 4)."""
+def _slots(vars_, keep=None):
+    """Its variables (those in keep) -> {name: (slot, type)}, the number of slots (vectors take 3, colors 4)."""
     out, n = {}, 0
     for name, (t, _) in vars_.items():
+        if keep is not None and name not in keep:
+            continue
         out[name] = (n, t)
         n += {"vector3": 3, "vector2": 2, "color": 4, "rect": 4}.get(t, 1)
     return out, n
+
+
+def _dollars(v):
+    """the variables a parameter names ($name), however deep"""
+    if isinstance(v, str):
+        return [v[1:]] if v.startswith("$") else []
+    if isinstance(v, dict):
+        return [n for q in v.values() for n in _dollars(q)]
+    if isinstance(v, (list, tuple)):
+        return [n for q in v for n in _dollars(q)]
+    return []
+
+
+SCALARS = ("int", "bool", "float", "string", "gameObject")
+
+
+def _layout(f, external):
+    """Its variables as the VM keeps them: those an action may change (or another FSM: external), in slots; those
+    only read, constants (their values as they start); the rest, nothing -> (slots, their number, the constants'
+    names). (By what its actions are, all of them: the same for each FSM made the same)"""
+    reads, other = set(), set()
+    for st in f["states"]:
+        for a in st["actions"]:
+            if not a.get("enabled", True):
+                continue
+            schema = dict(OPS[a["name"]][1]) if a["name"] in OPS else {}
+            for k, v in a["params"]:
+                kind = schema.get(k)
+                (reads if kind and kind[0].islower() else other).update(_dollars(v))
+    vars_ = f["vars"]
+    inline = {n for n in reads - other - set(external) if n in vars_ and vars_[n][0] in SCALARS}
+    keep = {n for n in reads | other if n in vars_} - inline
+    slots, n = _slots(vars_, keep)
+    return slots, n, inline
 
 
 def _u32(v):
@@ -388,7 +451,7 @@ OWNER = 0xFF0F
 class Compiler:
     def __init__(self, rm, o, f):
         self.rm, self.o, self.f = rm, o, f
-        self.slots, self.nvars = _slots(f["vars"])
+        self.slots, self.nvars, self.inline = _layout(f, rm.external_vars())
         self.consts = []
         self.states = {s["name"]: i for i, s in enumerate(f["states"])}
         self.where = ""
@@ -436,13 +499,18 @@ class Compiler:
         return bytes([OPS["BuildString"][0], len(body)]) + body
 
     def fsm_slot(self, fsm_name, var):
-        """another FSM's variable, by its FSM's name and its own (one of the room's): its slot, 255 not known"""
+        """another FSM's variable, by its FSM's name and its own (one of the room's): its slot, 255 not known or not
+        kept (nothing reads it)"""
+        found = set()
         for o in list(self.rm.by_id.values()):
             for c in o["c"]:
                 q = c.get("fsm")
                 if q and q["name"] == fsm_name and var in q["vars"]:
-                    return _slots(q["vars"])[0][var][0]
-        return 255
+                    s = _layout(q, self.rm.external_vars())[0]
+                    found.add(s[var][0] if var in s else 255)
+        if len(found) > 1:
+            self.problem("%s's %s: in different slots %s" % (fsm_name, var, sorted(found)))
+        return min(found) if found else 255
 
     def problem(self, msg):
         self.rm.problems.append("%s: %s: %s: %s: %s" % (self.rm.name, self.o["path"], self.f["name"], self.where, msg))
@@ -460,6 +528,20 @@ class Compiler:
             return self.rm.ref_obj(v, self.o.get("_key"))
         return O_NONE
 
+    def init_value(self, t, v):
+        """a variable's value as it starts (a number; a list for vectors, colors)"""
+        if t == "gameObject":
+            return self.obj_value(v) if v else O_NONE
+        if t == "string":
+            return STR.id(v or "")
+        if t in ("vector3", "vector2", "color", "rect"):
+            return [_u32(float(q)) for q in v or []]
+        if t == "float":
+            return _u32(float(v or 0))
+        if t in ("int", "bool"):
+            return _u32(int(v or 0))
+        return 0
+
     def value(self, v, kind):
         """an input operand -> its slot (u16)"""
         if v is None:
@@ -468,6 +550,9 @@ class Compiler:
             n = v[1:]
             if n in self.slots:
                 return self.slots[n][0]
+            if n in self.inline:
+                t, iv = self.f["vars"][n]
+                return self.const(self.init_value(t, iv))
             if n in SPECIAL:
                 return self.const(SPECIAL[n])
             self.problem("variable %s unknown" % n)
@@ -662,6 +747,30 @@ class Compiler:
             return self.emit("TextAlign", {"centre": 1 if P.get("topCentre") else 0})
         if n == "SetFsmFloat":
             return self.emit(n, dict(P, slot=self.fsm_slot(P.get("fsmName"), P.get("variableName"))))
+        if n == "SetFsmInt" and P.get("fsmName") == "Charm Msg" and P.get("variableName") == "ID":
+            return self.emit("CharmNotice", {"id": P.get("setValue")})
+        if n == "SetSpriteRendererSprite" and P.get("gameObject") == "$Msg Icon":
+            r = P.get("sprite")
+            if not (isinstance(r, (list, tuple)) and r and r[0] == "ref"):
+                self.problem("notice icon %r" % (r,))
+                return None
+            key = (self.o.get("_doc") or self.rm.d, (r[1], r[2]))
+            k = next((i for i, (dd, rr) in enumerate(NOTICE_ICONS) if dd is key[0] and rr == key[1]), None)
+            if k is None:
+                k = len(NOTICE_ICONS)
+                NOTICE_ICONS.append(key)
+            return self.emit("NoticeIcon", {"icon": k})
+        if n == "GetLanguageString":
+            # (a text of the game's: its number, in the notices' style)
+            import text
+            sh, key = P.get("sheetName"), P.get("convName")
+            if not (isinstance(key, str) and not key.startswith("$") and key in text.sheets().get(sh, {})):
+                self.problem("language string %s %s" % (sh, key))
+                return None
+            return self.emit("SetIntValue", {"intVariable": P.get("storeValue"),
+                                             "intValue": self.rm.texts.add(text.clean(text.sheets()[sh][key]), "NOTICE")})
+        if n == "SetTextMeshProText" and P.get("gameObject") == "$Msg Text":
+            return self.emit("NoticeText", {"text": P.get("textString")})
         if n == "BuildString":
             return self.build_string(P)
         if n == "SetMaterialColor" and P.get("gameObject") == "$HUD Blanker":
@@ -695,12 +804,20 @@ class Compiler:
                     obj = self.rm.add_prefab(f, pid, (self.o["id"], self.where, P.get("storeObject")))
                     return self.emit("CreateObject", {"gameObject": ("objindex", obj), "x": pos[0], "y": pos[1],
                                                       "storeObject": P.get("storeObject")})
+                if NOTICE_PREFABS.get((f, pid)) == "tute":
+                    # (the charm tutorial: the C code's, as an object the scripts close)
+                    return self.emit("CharmTute", {}) + self.emit("SetGameObject", {
+                        "variable": P.get("storeObject"), "gameObject": ("objindex", O_CHARM_TUTE)})
+                if (f, pid) in NOTICE_PREFABS:
+                    return None   # (its parts set below: CharmNotice)
             return None   # (effects)
         if n == "SpawnObjectFromGlobalPool":
             r = P.get("gameObject")
             if isinstance(r, (list, tuple)) and r and r[0] == "ref":
                 import ents
                 f, pid = ents._ref_file(self.o.get("_doc") or self.rm.d, [r[1], r[2]])
+                if (f, pid) in NOTICE_PREFABS:
+                    return None   # (a relic's notice: its icon and text set below, NoticeIcon, NoticeText)
                 if (f, pid) in POOL_SPAWNS:
                     pos = P.get("position") or [None, None, None]
                     obj = self.rm.add_prefab(f, pid, (self.o["id"], self.where, P.get("storeObject")))
@@ -798,10 +915,43 @@ class Compiler:
         if n in ("Collision2dEvent", "Collision2dEventLayer"):
             return self.emit("Collision2dEvent", P)
         if n in ("ListenForUp", "ListenForDown", "ListenForLeft", "ListenForRight", "ListenForAttack", "ListenForJump",
-                 "ListenForCast"):
+                 "ListenForCast", "ListenForInventory"):
             if P.get("eventTarget") not in (None, "Self"):
                 self.problem("%s to another" % n)
             return self.emit(n, P)
+        if n == "GetTag":
+            # (an object's tag: what it always is)
+            o = self.o if P.get("gameObject") in ("Owner", "$Self") else None
+            if o is None or P.get("everyFrame"):
+                self.problem("GetTag %r" % P.get("gameObject"))
+                return None
+            return self.emit("SetStringValue", {"stringVariable": P.get("storeResult"),
+                                                "stringValue": unity.tag_name(o.get("tag", 0)), "everyFrame": 0})
+        if n == "SendRandomEvent":
+            w = [x for x in P.get("weights") or []]
+            if len(set(w)) > 1 or (P.get("delay") or 0) >= 0.001:
+                self.problem("SendRandomEvent %r" % P)
+            return self.emit(n, P)
+        if n == "FlingObject":
+            o = self.o if P.get("flungObject") == "Owner" else None
+            if o is None:
+                self.problem("FlingObject %r" % P.get("flungObject"))
+                return None
+            import ents
+            doc = o.get("_doc") or self.rm.d
+            box = next((ents._box(o, c) for c in o["c"] if c["type"] == "BoxCollider2D" and c.get("v") and
+                        not c["v"].get("m_IsTrigger")), None)
+            if not box:
+                self.problem("FlingObject: no box")
+                return None
+            ob = next((c["v"] for c in o["c"] if c.get("class") == "ObjectBounce" and c.get("v")), None)
+            mat = next((c["v"].get("m_Material") for c in o["c"] if c["type"] == "BoxCollider2D" and c.get("v")), None)
+            friction = 0.4   # (Unity's default material)
+            if mat and mat[1]:
+                friction = unity.physics_material(unity.ref_path(doc, mat[0]), mat[1]).get("friction", 0.4)
+            return self.emit(n, dict(P, ox=(box[0] + box[2]) / 2 - o["pos"][0], oy=(box[1] + box[3]) / 2 - o["pos"][1],
+                                     hx=(box[2] - box[0]) / 2, hy=(box[3] - box[1]) / 2,
+                                     bounce=ob.get("bounceFactor", 0) if ob else -1, friction=friction))
         if n in OPS:
             return self.emit(n, P)
         self.problem("action %s" % n)
@@ -853,20 +1003,11 @@ class Compiler:
         assert len(body) < 65536
         init = [0] * self.nvars
         for name, (slot, t) in self.slots.items():
-            v = f["vars"][name][1]
-            if t == "gameObject":
-                init[slot] = self.obj_value(v) if v else O_NONE
-            elif t == "string":
-                init[slot] = STR.id(v or "")
-            elif t in ("vector3", "vector2", "color", "rect"):
-                for k, q in enumerate(v or []):
-                    init[slot + k] = _u32(float(q))
-            elif t == "float":
-                init[slot] = _u32(float(v or 0))
-            elif t in ("int", "bool"):
-                init[slot] = _u32(int(v or 0))
+            v = self.init_value(t, f["vars"][name][1])
+            if isinstance(v, list):
+                init[slot:slot + len(v)] = v
             else:
-                init[slot] = 0
+                init[slot] = v
         return bytes(body), init
 
 
@@ -909,6 +1050,15 @@ def prepare(rooms, sprites, texts):
                     DEF_INDEX[body] = len(DEFS)
                     DEFS.append(body)
                 rm.fsms.append((DEF_INDEX[body], rm.obj_index[o["id"]], init, STR.id(f["name"])))
+                # (PersistentBoolItem: the save keeps its object's first FSM with an Activated bool's Activated)
+                pbi = next((c2.get("v") for c2 in o["c"] if c2.get("class") == "PersistentBoolItem"), None)
+                if pbi is not None and f["vars"].get("Activated", [None])[0] == "bool" and \
+                        not any(p[0] == len(rm.fsms) - 1 for p in rm.persist) and \
+                        not any(q[1] == rm.obj_index[o["id"]] for q in rm.persist_objs):
+                    assert not pbi.get("semiPersistent"), o["path"]
+                    if "Activated" in cp.slots:
+                        rm.persist.append((len(rm.fsms) - 1, cp.slots["Activated"][0], o))
+                    rm.persist_objs.append((len(rm.fsms) - 1, rm.obj_index[o["id"]]))
         for p in rm.problems:
             print("vm:", p)
         nvars = sum(len(i) for _, _, i, _ in rm.fsms)
@@ -971,8 +1121,9 @@ OBJ = "<fffffffffHHHHHBBHHhHBBBBBBH"   # x y z, sx sy, its trigger (center from 
 OF_ACTIVE, OF_RENDERER, OF_ANIMATOR, OF_TRIGGER, OF_COLLIDER, OF_ANIM_OFF, OF_WAVE, OF_FADE = 1, 2, 4, 8, 16, 32, 64, 128
 
 
-def room_blob(name, clip_index, sprites, owners=()):
-    """A room's VM data (src/vm.c): counts, its objects, their clip maps, its FSMs (definition, owner, name, variables).
+def room_blob(name, clip_index, sprites, owners=(), persist=None):
+    """A room's VM data (src/vm.c): counts, its objects, their clip maps, its FSMs (definition, owner, name, variables),
+    what the save keeps (FSM, slot, its bit: PersistentBoolItem's Activated).
     owners: each collider's (scene, object id): the colliders an object has, the scripts turn on and off with it."""
     import actors, ents, tk2d
     rm = BUILT.get(name)
@@ -1074,7 +1225,9 @@ def room_blob(name, clip_index, sprites, owners=()):
     fsms = bytearray()
     for di, owner, init, fname in rm.fsms:
         fsms += struct.pack("<HHHH", di, owner, fname, len(init)) + b"".join(struct.pack("<I", v) for v in init)
-    head = struct.pack("<HHHH", len(rm.objs), len(rm.fsms), nmap, 0)
+    for fi, slot, o in rm.persist:
+        fsms += struct.pack("<BBH", fi, slot, persist.id(o.get("_scene", name), o["path"]))
+    head = struct.pack("<HHHH", len(rm.objs), len(rm.fsms), nmap, len(rm.persist))
     return bytes(head + objs + clipmap + fsms)
 
 
@@ -1123,6 +1276,12 @@ def _pd_code(name):
 PD_INT_CONST = {"permadeathMode": 0, "quakeLevel": 0, "screamLevel": 0}
 
 
+def owned(room):
+    """the room's objects the scripts have (and draw): (scene, object id)"""
+    rm = BUILT.get(room)
+    return [(o.get("_scene", room), o.get("_raw", o["id"])) for o in rm.objs] if rm else []
+
+
 def _const_bool(name):
     if name in PD_CONST:
         return PD_CONST[name]
@@ -1132,7 +1291,8 @@ def _const_bool(name):
 
 
 def _const_vars(f, external=()):
-    """its bool variables nothing changes (none of its actions write them, no other FSM sets them): their values"""
+    """its bool variables nothing changes (none of its actions write them, no other FSM sets them), and its int
+    variables only read: their values"""
     written = set(external)
     for st in f["states"]:
         for a in st["actions"]:
@@ -1140,7 +1300,10 @@ def _const_vars(f, external=()):
                 if isinstance(v, str) and v.startswith("$") and (k.startswith("store") or k.endswith("Bool") and k != "boolName" or
                                                                  (a["name"] in ("SetBoolValue", "BoolFlip") and k == "boolVariable")):
                     written.add(v[1:])
-    return {n: bool(val) for n, (t, val) in f["vars"].items() if t == "bool" and n not in written}
+    out = {n: bool(val) for n, (t, val) in f["vars"].items() if t == "bool" and n not in written}
+    _, _, inline = _layout(f, external)
+    out.update({n: int(f["vars"][n][1] or 0) for n in inline if f["vars"][n][0] == "int"})
+    return out
 
 
 def _events_of_state(f, s, consts=None, where=False):
@@ -1221,6 +1384,20 @@ def _events_of_state(f, s, consts=None, where=False):
                             (ev(P.get("greaterThan")), lambda x, y: x > y)):
                 if e and (a1 is None or a2 is None or test(a1, a2)):
                     out.add(e)
+                    if a1 is not None and a2 is not None and not P.get("everyFrame") and e in takes:
+                        return (out, True, ai) if where else (out, True)
+            continue
+        if n == "IntSwitch":
+            x = known.get(var(P.get("intVariable"))) if var(P.get("intVariable")) else P.get("intVariable")
+            for c, e in zip(P.get("compareTo") or [], P.get("sendEvent") or []):
+                e = ev(e)
+                c = known.get(var(c)) if var(c) else c
+                if e and (x is None or c is None or x == c):
+                    out.add(e)
+                    if x is not None and c is not None and not P.get("everyFrame") and e in takes:
+                        return (out, True, ai) if where else (out, True)
+                if x is not None and c is not None and x == c:
+                    break
             continue
         if n in ("IntCompareToBool", "IntTestToBool"):
             k1, k2 = ("integer1", "integer2") if n == "IntCompareToBool" else ("int1", "int2")

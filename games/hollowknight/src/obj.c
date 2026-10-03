@@ -284,13 +284,22 @@ static void chest_hit(Obj *o, const Ent *e) {
 
 static void chest_tick(Obj *o, const Ent *e) {
   if (o->state == CH_OPEN && (o->anim.events & ANIM_TRIGGER)) {
-    /* Spawn Items: the geo, the item */
+    /* Spawn Items: the geo, the item (its Item's children: the scripts'). (The item starts inside the chest's box,
+     * which the game's physics pushes it out of by its top: the box off now, the item flies free as it does there) */
+    for (int c = e->a; c < e->a + e->group; c++) phys_collider_enable(c, false);
+    vm_activate_children(VMSTR_ITEM, true);
+    o->hits = 1;
     geo_fling_at(0, (int)e->p0, e->x0, e->y0, 25, 38, 78, 102, 1);
     geo_fling_at(1, (int)e->p1, e->x0, e->y0, 25, 38, 78, 102, 1);
     geo_fling_at(2, (int)e->p2, e->x0, e->y0, 25, 38, 78, 102, 1);
     o->state = CH_SPAWNED;
   } else if (o->state == CH_SPAWNED && (o->anim.events & ANIM_DONE))
     chest_opened(o, e);
+  else if (o->state == CH_OPENED && !o->hits) {
+    /* (Activated: what it held, on; taken, it goes) */
+    vm_activate_children(VMSTR_ITEM, true);
+    o->hits = 1;
+  }
 }
 
 static void chest_draw(const Obj *o, const Ent *e) {

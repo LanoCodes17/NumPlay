@@ -240,6 +240,10 @@ def pd_flags():
         if n in PD_RAW_NAMES:
             out[PD_RAW_NAMES[n]] = i
             continue
+        m = re.match(r"PDF_(GOT|EQUIPPED)_CHARM_(\d+)$", n)
+        if m:
+            out[("gotCharm_" if m.group(1) == "GOT" else "equippedCharm_") + m.group(2)] = i
+            continue
         # (Cornifer's: "corn_greenpathLeft")
         c = camel(n[9:]) if n.startswith("PDF_CORN_") else camel(n[4:])
         out[("corn_" if n.startswith("PDF_CORN_") else "") + c[0].lower() + c[1:]] = i

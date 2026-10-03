@@ -13,7 +13,25 @@ enum {
   PDF_ELDERBUG_HISTORY1, PDF_ELDERBUG_SPEECH_SLY, PDF_ELDERBUG_SPEECH_STATION, PDF_ELDERBUG_SPEECH_EGG_TEMPLE,
   PDF_ELDERBUG_SPEECH_MAP_SHOP, PDF_ELDERBUG_FIRST_CALL, PDF_SLY_RESCUED, PDF_OPENED_TOWN_BUILDING,
   PDF_EGG_TEMPLE_VISITED, PDF_OPENED_MAPPER_SHOP, PDF_DREAMER_SCENE1, PDF_CORN_GREENPATH_LEFT,
-  PDF_HORNET_F19, PDF_MET_QUIRREL, PDF_TISO_ENCOUNTERED_BENCH, PDF_COUNT
+  PDF_HORNET_F19, PDF_MET_QUIRREL, PDF_TISO_ENCOUNTERED_BENCH, PDF_FOUND_TRINKET1, PDF_FOUND_TRINKET2,
+  PDF_FOUND_TRINKET3, PDF_FOUND_TRINKET4, PDF_HAS_CITY_KEY,
+  /* (gotCharm_1 .. 40, equippedCharm_1 .. 40: the charm numbers the game's) */
+  PDF_GOT_CHARM_1, PDF_GOT_CHARM_2, PDF_GOT_CHARM_3, PDF_GOT_CHARM_4, PDF_GOT_CHARM_5, PDF_GOT_CHARM_6,
+  PDF_GOT_CHARM_7, PDF_GOT_CHARM_8, PDF_GOT_CHARM_9, PDF_GOT_CHARM_10, PDF_GOT_CHARM_11, PDF_GOT_CHARM_12,
+  PDF_GOT_CHARM_13, PDF_GOT_CHARM_14, PDF_GOT_CHARM_15, PDF_GOT_CHARM_16, PDF_GOT_CHARM_17, PDF_GOT_CHARM_18,
+  PDF_GOT_CHARM_19, PDF_GOT_CHARM_20, PDF_GOT_CHARM_21, PDF_GOT_CHARM_22, PDF_GOT_CHARM_23, PDF_GOT_CHARM_24,
+  PDF_GOT_CHARM_25, PDF_GOT_CHARM_26, PDF_GOT_CHARM_27, PDF_GOT_CHARM_28, PDF_GOT_CHARM_29, PDF_GOT_CHARM_30,
+  PDF_GOT_CHARM_31, PDF_GOT_CHARM_32, PDF_GOT_CHARM_33, PDF_GOT_CHARM_34, PDF_GOT_CHARM_35, PDF_GOT_CHARM_36,
+  PDF_GOT_CHARM_37, PDF_GOT_CHARM_38, PDF_GOT_CHARM_39, PDF_GOT_CHARM_40,
+  PDF_EQUIPPED_CHARM_1, PDF_EQUIPPED_CHARM_2, PDF_EQUIPPED_CHARM_3, PDF_EQUIPPED_CHARM_4, PDF_EQUIPPED_CHARM_5,
+  PDF_EQUIPPED_CHARM_6, PDF_EQUIPPED_CHARM_7, PDF_EQUIPPED_CHARM_8, PDF_EQUIPPED_CHARM_9, PDF_EQUIPPED_CHARM_10,
+  PDF_EQUIPPED_CHARM_11, PDF_EQUIPPED_CHARM_12, PDF_EQUIPPED_CHARM_13, PDF_EQUIPPED_CHARM_14, PDF_EQUIPPED_CHARM_15,
+  PDF_EQUIPPED_CHARM_16, PDF_EQUIPPED_CHARM_17, PDF_EQUIPPED_CHARM_18, PDF_EQUIPPED_CHARM_19, PDF_EQUIPPED_CHARM_20,
+  PDF_EQUIPPED_CHARM_21, PDF_EQUIPPED_CHARM_22, PDF_EQUIPPED_CHARM_23, PDF_EQUIPPED_CHARM_24, PDF_EQUIPPED_CHARM_25,
+  PDF_EQUIPPED_CHARM_26, PDF_EQUIPPED_CHARM_27, PDF_EQUIPPED_CHARM_28, PDF_EQUIPPED_CHARM_29, PDF_EQUIPPED_CHARM_30,
+  PDF_EQUIPPED_CHARM_31, PDF_EQUIPPED_CHARM_32, PDF_EQUIPPED_CHARM_33, PDF_EQUIPPED_CHARM_34, PDF_EQUIPPED_CHARM_35,
+  PDF_EQUIPPED_CHARM_36, PDF_EQUIPPED_CHARM_37, PDF_EQUIPPED_CHARM_38, PDF_EQUIPPED_CHARM_39, PDF_EQUIPPED_CHARM_40,
+  PDF_COUNT
 };
 typedef struct {
   /* (saved: the layout only ever grows into reserved) */
@@ -37,7 +55,10 @@ typedef struct {
   uint8_t hornet_greenpath;   /* (hornetGreenpath: her encounters in Greenpath) */
   uint8_t quirrel_egg_temple;   /* (quirrelEggTemple: his talks at the Black Egg) */
   uint8_t map_zone;       /* (mapZone: the room's, as it is entered; the save profiles show its area) */
-  uint8_t reserved[58];
+  uint8_t charms_owned;   /* (charmsOwned) */
+  uint8_t trinkets[4];    /* (trinket1 .. 4: Wanderer's Journals, Hallownest Seals, King's Idols, Arcane Eggs) */
+  uint8_t rancid_eggs, ore;
+  uint8_t reserved[51];
   /* (saved apart, by the objects' names: their states) */
   uint8_t persist[MAX_PERSIST / 8];
   /* (not saved) */
@@ -304,6 +325,12 @@ void blanker_set(float alpha, bool on);
 void white_blanker_fade(bool in);   /* HUD Blanker White: FADE IN, FADE OUT (over its Fade Time) */
 void white_blanker_time(float t);
 void white_blanker_reset(void);
+/* the notices (Relic Get Msg, Charm Get Msg) and the charm tutorial (Charm Tutorial Msg) */
+void notice_icon(int k);     /* (the next notice's icon: the scripts' NOTICE_ICONS) */
+void notice_show(int text);  /* a relic's notice: its icon, its name */
+void charm_notice(int id);   /* a charm's (in the tutorial, as it is made: its charm) */
+void charm_tute(void);
+void charm_tute_close(void);
 bool bench_respawn(const char *name);   /* RESPAWN: the Knight asleep on the bench so named */
 
 /* the Spell Control FSM (spell.c): focus, spells */

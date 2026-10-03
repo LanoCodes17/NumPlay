@@ -448,11 +448,12 @@ def main():
     if os.path.exists(fp):
         import json
         art.FIT.update(json.load(open(fp)))
-    variants, per_room = art.build_variants(ROOMS, visible.compute)
-    print("variants", len(variants), "%.0fs" % (time.time() - t0), flush=True)
-    jobs = [art.Job(v) for v in variants]
     actors.add_props(ALL_ROOMS)
     vm.prepare(ROOMS, SPRITES, TEXTS)   # (the characters' scripts, and their libraries as actors)
+    # (the scripts' objects: drawn by them, not with the room)
+    variants, per_room = art.build_variants(ROOMS, visible.compute, vm.owned)
+    print("variants", len(variants), "%.0fs" % (time.time() - t0), flush=True)
+    jobs = [art.Job(v) for v in variants]
     sprites, clips = actors.build()
     ents.CLIP_INDEX.update({c["id"]: i for i, c in enumerate(clips)})
     # the rooms' objects, and the sprites they show (after the actors')
@@ -490,6 +491,32 @@ def main():
     pgb = unity.prefab("sharedassets149.assets", 34)
     fleurs["SPRITE_GRASS_BALL"] = SPRITES.id(pgb, next(c["v"] for c in pgb["objects"][0]["c"] if c["type"] == "SpriteRenderer")["m_Sprite"], 1)
     fleurs["MSG_TABLE"] = "{%s}" % ", ".join(msgs)
+    # the notices (Relic Get Msg, Charm Get Msg) and the charm tutorial (Charm Tutorial Msg): their pieces, the icons the
+    # scripts set, the charms' icons (CharmIconList) and names
+    def piece(doc, o, scale=None):
+        """a prefab object's sprite at its scale: (sprite, its x scale / y scale as drawn)"""
+        sr = next(c["v"] for c in o["c"] if c["type"] == "SpriteRenderer")
+        sx, sy = (scale or o["lscale"])[:2]
+        return SPRITES.id(doc, sr["m_Sprite"], max(sx, sy), hud_res), sx / max(sx, sy), sy / max(sx, sy)
+    prel, ptute = unity.prefab("resources.assets", 4251), unity.prefab("sharedassets6.assets", 491)
+    by_rel = {o["path"]: o for o in prel["objects"]}
+    by_tute = {o["path"]: o for o in ptute["objects"]}
+    s, kx, ky = piece(prel, by_rel["Relic Get Msg/pop_up_backboard"])
+    fleurs["NOTICE_BACKBOARD"] = "{%d, %.4ff, %.4ff}" % (s, kx, ky)
+    for name, path in (("FLEUR", "Warning_Fleur0008"), ("BACKBOARD", "backboard"), ("IMAGE", "Image"), ("STOP", "Stop")):
+        s, kx, ky = piece(ptute, by_tute["Charm Tutorial Msg/" + path])
+        fleurs["TUTE_" + name] = "{%d, %.4ff, %.4ff}" % (s, kx, ky)
+    fleurs["NOTICE_ICONS"] = "{%s}" % ", ".join(str(SPRITES.id(dd, list(rr), 1.0, hud_res)) for dd, rr in vm.NOTICE_ICONS) \
+        if vm.NOTICE_ICONS else "{-1}"
+    pmenu = unity.scene("Menu_Title")
+    icl = next(c["v"] for o in pmenu["objects"] for c in o["c"] if c.get("class") == "CharmIconList")["spriteList"]
+    fleurs["CHARM_ICONS"] = "{%s}" % ", ".join(str(SPRITES.id(pmenu, icl[i], 1.0, hud_res)) if i in vm.CHARMS else "-1"
+                                               for i in range(41))
+    fleurs["CHARM_NAMES"] = "{%s}" % ", ".join(
+        str(TEXTS.add(text.clean(text.sheets()["UI"]["CHARM_NAME_%d" % i]), "NOTICE")) if i in vm.CHARMS else "-1"
+        for i in range(41))
+    for key, style in (("CHARM_TUTE_TITLE", "TUTE_TITLE"), ("CHARM_TUTE_SUB", "TUTE"), ("CHARM_REMINDER", "TUTE")):
+        fleurs["TXT_" + key] = TEXTS.add(text.clean(text.sheets()["Prompts"][key]), style)
     # the title screen, the save profiles, the pause menu; each room's map zone (the save slots' area)
     import menu
     fleurs.update(menu.build(SPRITES, TEXTS))
@@ -501,10 +528,10 @@ def main():
         if r in VARIANT_ROOMS:
             room_data(r, 1)
     clip_index = {c["id"]: i for i, c in enumerate(clips)}
-    vm_rooms = [vm.room_blob(r, clip_index, SPRITES, ROOM_OWNERS.get((r, 0), [])) for r in ROOMS]
+    vm_rooms = [vm.room_blob(r, clip_index, SPRITES, ROOM_OWNERS.get((r, 0), []), PERSIST) for r in ROOMS]
     sheet = text.sheets()["Prompts"]
     vm_prompts = {s: TEXTS.id("Prompts", s.upper(), "PROMPT") for s in vm.STR.list if s.upper() in sheet}
-    for s in ("NPC Title", "Visited", "Display Right", "Hornet Saver"):
+    for s in ("NPC Title", "Visited", "Display Right", "Hornet Saver", "Item"):
         vm.STR.id(s)
     sprites += actors.unity_sprites(SPRITES.list)
     # the HUD's geo count: TrajanPro-Bold digits (TextMesh: size 45, character size 1, scale 0.1527)
@@ -711,7 +738,7 @@ def main():
             f.write("#define VMOP_%s %d\n" % (name.upper(), code))
         for i, e in enumerate(vm.EVENTS.list[:vm.FIXED_EVENTS]):
             f.write("#define VMEV_%s %d\n" % (e.upper().replace(" ", "_"), i))
-        for name in ("NPC Title", "Visited", "Display Right", "Hornet Saver"):
+        for name in ("NPC Title", "Visited", "Display Right", "Hornet Saver", "Item"):
             f.write("#define VMSTR_%s %d\n" % (name.upper().replace(" ", "_"), vm.STR.index[name]))
         for name, i in str_ids.items():
             f.write("#define STR_%s %d\n" % (name.upper().replace(" ", "_"), i))

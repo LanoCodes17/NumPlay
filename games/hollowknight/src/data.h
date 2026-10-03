@@ -567,7 +567,7 @@
 #define SPRITE_CORPSE_NAIL 2234
 #define SPRITE_FK_BARREL 2235
 #define SPRITE_FK_STAFF 2236
-#define SPRITE_DIGIT0 2460
+#define SPRITE_DIGIT0 2481
 #define STYLE_DIALOGUE 0
 #define STYLE_PROMPT 1
 #define STYLE_TITLE_L 2
@@ -575,9 +575,12 @@
 #define STYLE_TITLE_SUB 4
 #define STYLE_MSG 5
 #define STYLE_MSG_NAME 6
-#define STYLE_MENU 7
-#define STYLE_MENU_TITLE 8
-#define STYLE_MENU_SMALL 9
+#define STYLE_NOTICE 7
+#define STYLE_TUTE_TITLE 8
+#define STYLE_TUTE 9
+#define STYLE_MENU 10
+#define STYLE_MENU_TITLE 11
+#define STYLE_MENU_SMALL 12
 #define TEXT_K 1.333333f
 #define FONT_PHASES 4
 #define EK_CRAWLER 1
@@ -611,20 +614,20 @@
 #define EK_HORNET 29
 #define NUM_KINDS 30
 #define KIND_TABLE {{0}, {EF_CRAWLER, {-1, 162, 161, -1, -1, -1, -1, -1, -1, -1, -1, 164, 165}}, {EF_BUZZER, {167, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 169, 170}}, {EF_SHADE, {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}}, {EF_CLIMBER, {-1, -1, 177, 176, -1, -1, -1, -1, -1, -1, -1, 174, 175}}, {EF_BOUNCER, {-1, -1, -1, 180, -1, -1, -1, -1, -1, -1, -1, 178, 179}}, {EF_SPITTER, {-1, -1, -1, 183, 184, 182, -1, -1, -1, -1, -1, 181, -1}}, {EF_ROLLER, {187, -1, -1, 189, 188, 190, -1, -1, -1, -1, -1, 185, 186}}, {EF_BLOCKER, {197, -1, -1, 193, 198, 191, 192, 199, 200, 196, 195, -1, 194}}, {EF_HUSK, {206, 207, 208, 201, 203, 202, -1, -1, -1, -1, -1, 204, 205}}, {EF_HUSK, {214, 215, 216, 209, 211, 210, -1, -1, -1, -1, -1, 212, 213}}, {EF_HUSK, {222, 223, 224, 217, 219, 218, -1, -1, -1, -1, -1, 220, 221}}, {EF_HUSK, {230, 231, 232, 225, 227, 226, -1, -1, -1, -1, -1, 228, 229}}, {EF_LEAPER, {236, 238, 239, 233, 237, -1, -1, -1, -1, -1, -1, 234, 235}}, {EF_GUARD, {245, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 242, 243}}, {EF_FK, {267, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 265}}, {EF_FKHEAD, {287, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 285}}, {EF_HATCHER, {-1, -1, -1, 292, 291, -1, -1, -1, -1, -1, -1, 289, 290}}, {EF_HATCHLING, {-1, -1, -1, 293, -1, -1, -1, -1, -1, -1, -1, -1, -1}}, {EF_SLUG, {299, -1, -1, 297, 298, 301, 300, 294, -1, -1, -1, 295, 296}}, {EF_GFLY, {314, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}}, {EF_MOSSWALKER, {-1, 323, 324, 322, 318, 319, -1, -1, -1, -1, -1, 320, 321}}, {EF_PIGEON, {-1, -1, -1, 326, 327, 328, 325, -1, -1, -1, -1, -1, -1}}, {EF_PLANTTRAP, {330, -1, -1, 333, 332, 331, -1, -1, -1, -1, -1, 329, -1}}, {EF_SHAKER, {337, 338, 339, 334, -1, -1, -1, -1, -1, -1, -1, 335, 336}}, {EF_MOSQUITO, {344, -1, -1, 346, 345, 341, 340, -1, -1, -1, -1, 342, 343}}, {EF_FATFLY, {350, -1, -1, 347, -1, -1, -1, -1, -1, -1, -1, 348, 349}}, {EF_MOSSCHARGER, {-1, -1, -1, 351, 352, 355, 358, 357, 359, 356, -1, 353, 354}}, {EF_MOSSKNIGHT, {365, 380, 384, -1, -1, -1, -1, -1, -1, -1, -1, 360, 361}}, {EF_HORNET, {400, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 388, -1}}}
-#define TXT_PROMPT_LISTEN 47
-#define TXT_PROMPT_REST 48
-#define TXT_PROMPT_INSPECT 49
-#define TXT_PROMPT_ENTER 50
-#define TXT_PROMPT_SIT 51
-#define TXT_PROMPT_SHOP 52
-#define TXT_PROMPT_TRAVEL 53
-#define TXT_PROMPT_ASCEND 54
-#define TXT_PROMPT_DESCEND 55
-#define TXT_PROMPT_EXIT 56
-#define TXT_PROMPT_ACCEPT 57
-#define TXT_PROMPT_TRADE 58
-#define TXT_PROMPT_WATCH 59
-#define TXT_PROMPT_CHALLENGE 60
+#define TXT_PROMPT_LISTEN 50
+#define TXT_PROMPT_REST 51
+#define TXT_PROMPT_INSPECT 52
+#define TXT_PROMPT_ENTER 53
+#define TXT_PROMPT_SIT 54
+#define TXT_PROMPT_SHOP 55
+#define TXT_PROMPT_TRAVEL 56
+#define TXT_PROMPT_ASCEND 57
+#define TXT_PROMPT_DESCEND 58
+#define TXT_PROMPT_EXIT 59
+#define TXT_PROMPT_ACCEPT 60
+#define TXT_PROMPT_TRADE 61
+#define TXT_PROMPT_WATCH 62
+#define TXT_PROMPT_CHALLENGE 63
 #define PROMPT_SORT 884737u
 #define DIGIT_ADV {0.4182f, 0.4182f, 0.4182f, 0.4182f, 0.4182f, 0.4182f, 0.4182f, 0.4182f, 0.4182f, 0.4182f}
 #define VMOP_NOP 1
@@ -718,7 +721,16 @@
 #define VMOP_OBJALPHA 89
 #define VMOP_BUILDSTRING 90
 #define VMOP_STARTCONVERSATIONOF 91
-#define VMOP_GETOBJALPHA 92
+#define VMOP_NOTICEICON 92
+#define VMOP_NOTICETEXT 93
+#define VMOP_CHARMNOTICE 94
+#define VMOP_CHARMTUTE 95
+#define VMOP_GETOBJALPHA 96
+#define VMOP_FLINGOBJECT 97
+#define VMOP_GETSPEED2D 98
+#define VMOP_SENDRANDOMEVENT 99
+#define VMOP_INCREMENTPLAYERDATAINT 100
+#define VMOP_LISTENFORINVENTORY 101
 #define VMEV_FINISHED 0
 #define VMEV_CONVO_FINISH 1
 #define VMEV_CONVO_START 2
@@ -745,10 +757,13 @@
 #define VMEV_FADE_IN 23
 #define VMEV_FADE_OUT 24
 #define VMEV_FSM_CANCEL 25
+#define VMEV_CLOSE 26
+#define VMEV_FK_DEATH 27
 #define VMSTR_NPC_TITLE 14
-#define VMSTR_VISITED 240
-#define VMSTR_DISPLAY_RIGHT 241
+#define VMSTR_VISITED 258
+#define VMSTR_DISPLAY_RIGHT 259
 #define VMSTR_HORNET_SAVER 104
+#define VMSTR_ITEM 226
 #define STR_ATTACK_RANGE 23
 #define STR_EVADE_RANGE 50
 #define STR_SPIT_RANGE 51
@@ -776,7 +791,7 @@
 #define TITLE_TISO_NC 18
 #define TITLE_CHARM_SLUG 19
 #define NUM_TITLES 20
-#define TITLE_TABLE {{61, 62, -1, -1}, {63, 64, 65, -1}, {66, 67, -1, 68}, {69, 70, -1, 71}, {72, 73, -1, 74}, {75, 76, -1, -1}, {77, 78, 79, -1}, {80, 81, -1, -1}, {82, 83, -1, -1}, {84, 85, -1, -1}, {86, 87, -1, -1}, {88, 89, -1, -1}, {90, 91, -1, -1}, {92, 93, -1, -1}, {94, 95, -1, 96}, {97, 98, -1, 99}, {97, 98, -1, 100}, {101, 102, 103, -1}, {101, 102, -1, -1}, {104, 105, -1, 106}}
+#define TITLE_TABLE {{64, 65, -1, -1}, {66, 67, 68, -1}, {69, 70, -1, 71}, {72, 73, -1, 74}, {75, 76, -1, 77}, {78, 79, -1, -1}, {80, 81, 82, -1}, {83, 84, -1, -1}, {85, 86, -1, -1}, {87, 88, -1, -1}, {89, 90, -1, -1}, {91, 92, -1, -1}, {93, 94, -1, -1}, {95, 96, -1, -1}, {97, 98, -1, 99}, {100, 101, -1, 102}, {100, 101, -1, 103}, {104, 105, 106, -1}, {104, 105, -1, -1}, {107, 108, -1, 109}}
 #define SPRITE_FLEUR_TOP 2237
 #define FLEUR_TOP_RECTS {{0.781f, -0.844f, 0.953f, -0.688f}, {-1.078f, -0.984f, 1.141f, -0.531f}, {-1.281f, -1.016f, 1.313f, -0.484f}, {-1.359f, -1.016f, 1.969f, -0.141f}, {-2.141f, -1.031f, 2.531f, 0.047f}, {-2.250f, -1.078f, 2.766f, 0.266f}, {-2.797f, -1.203f, 3.094f, 0.578f}, {-2.938f, -1.219f, 3.219f, 0.859f}, {-3.203f, -1.234f, 3.469f, 1.141f}, {-3.312f, -1.234f, 3.766f, 1.281f}, {-3.547f, -1.250f, 4.000f, 1.328f}, {-3.844f, -1.250f, 4.016f, 1.328f}, {-4.016f, -1.250f, 4.031f, 1.344f}, {-4.031f, -1.250f, 4.031f, 1.344f}, {-4.047f, -1.250f, 4.031f, 1.359f}, {-4.047f, -1.250f, 4.031f, 1.359f}, {-4.047f, -1.266f, 4.031f, 1.359f}, {-4.047f, -1.266f, 4.031f, 1.359f}, {-4.062f, -1.266f, 4.047f, 1.375f}, {-4.062f, -1.266f, 4.047f, 1.375f}, {-4.062f, -1.266f, 4.047f, 1.375f}, {-4.062f, -1.266f, 4.047f, 1.375f}}
 #define FLEUR_FRAMES 22
@@ -790,38 +805,49 @@
 #define SPRITE_MSG_ICON_FIREBALL 2243
 #define SPRITE_MSG_ICON_DASH 2244
 #define SPRITE_GRASS_BALL 2245
-#define MSG_TABLE {{107, 108, 109, 110, 111, 112}, {113, 114, 115, 116, 117, 118}}
-#define MENU_LOGO {2246, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
+#define MSG_TABLE {{110, 111, 112, 113, 114, 115}, {116, 117, 118, 119, 120, 121}}
+#define NOTICE_BACKBOARD {2246, 1.0000f, 0.6931f}
+#define TUTE_FLEUR {2241, 1.0000f, 1.0000f}
+#define TUTE_BACKBOARD {2247, 1.0000f, 0.9560f}
+#define TUTE_IMAGE {2248, 1.0000f, 1.0000f}
+#define TUTE_STOP {2240, 1.0000f, 1.0000f}
+#define NOTICE_ICONS {2249, 2250, 2251}
+#define CHARM_ICONS {-1, 2252, 2253, 2254, 2255, -1, 2256, 2257, 2258, -1, -1, -1, -1, -1, 2259, -1, -1, -1, 2260, 2261, 2262, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
+#define CHARM_NAMES {-1, 122, 123, 124, 125, -1, 126, 127, 128, -1, -1, -1, -1, -1, 129, -1, -1, -1, 130, 131, 132, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
+#define TXT_CHARM_TUTE_TITLE 133
+#define TXT_CHARM_TUTE_SUB 134
+#define TXT_CHARM_REMINDER 135
+#define MENU_LOGO {2263, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
 #define MENU_LOGO_Y 3.6585f
 #define MENU_START_Y -1.4181f
 #define MENU_QUIT_Y -2.3582f
-#define MENU_POINTER {2247, 0.0000f, 0.0000f, 1.0023f, 1.0000f}
+#define MENU_POINTER {2264, 0.0000f, 0.0000f, 1.0023f, 1.0000f}
 #define MENU_POINTER_GAP 0.7525f
 #define MENU_PROFILES_TITLE_Y 6.4481f
-#define MENU_PROFILES_FLEUR {2248, 0.0000f, 0.0000f, 1.0000f, 1.0807f}
+#define MENU_PROFILES_FLEUR {2265, 0.0000f, 0.0000f, 1.0000f, 1.0807f}
 #define MENU_PROFILES_FLEUR_Y 5.4077f
 #define MENU_SLOT_X -2.8186f
 #define MENU_SLOT_Y 3.1252f
 #define MENU_SLOT_DY -2.3269f
-#define MENU_SLOT_ZONES {{2, {2249, 0.0000f, 0.0000f, 1.0000f, 1.0000f}}, {4, {2250, 0.0000f, 0.0000f, 1.0000f, 1.0000f}}, {5, {2251, 0.0000f, 0.0000f, 1.0000f, 1.0000f}}, {6, {2252, 0.0000f, 0.0000f, 1.0000f, 1.0000f}}, {22, {2253, 0.0000f, 0.0000f, 1.0000f, 1.0000f}}}
+#define MENU_SLOT_ZONES {{2, {2266, 0.0000f, 0.0000f, 1.0000f, 1.0000f}}, {4, {2267, 0.0000f, 0.0000f, 1.0000f, 1.0000f}}, {5, {2268, 0.0000f, 0.0000f, 1.0000f, 1.0000f}}, {6, {2269, 0.0000f, 0.0000f, 1.0000f, 1.0000f}}, {22, {2270, 0.0000f, 0.0000f, 1.0000f, 1.0000f}}}
 #define MENU_SLOT_NZONES 5
 #define MENU_SLOT_BG_DY 0.0102f
-#define MENU_SLOT_FLEUR {2254, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
+#define MENU_SLOT_FLEUR {2271, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
 #define MENU_SLOT_FLEUR_X 0.0000f
 #define MENU_SLOT_FLEUR_Y 0.4512f
-#define MENU_SLOT_SELECTOR {2255, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
+#define MENU_SLOT_SELECTOR {2272, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
 #define MENU_SLOT_SELECTOR_X -0.1626f
 #define MENU_SLOT_SELECTOR_Y 0.0813f
-#define MENU_SLOT_CURSOR {2256, 0.0000f, 0.0000f, 1.0000f, 1.0025f}
+#define MENU_SLOT_CURSOR {2273, 0.0000f, 0.0000f, 1.0000f, 1.0025f}
 #define MENU_SLOT_CURSOR_X -8.2367f
 #define MENU_SLOT_CURSOR_Y 0.0000f
-#define MENU_SLOT_ORB {2257, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
+#define MENU_SLOT_ORB {2274, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
 #define MENU_SLOT_ORB_X -4.3089f
 #define MENU_SLOT_ORB_Y 0.1230f
-#define MENU_SLOT_GEO {2258, 0.0000f, 0.0000f, 1.0039f, 1.0000f}
+#define MENU_SLOT_GEO {2275, 0.0000f, 0.0000f, 1.0039f, 1.0000f}
 #define MENU_SLOT_GEO_X -3.6961f
 #define MENU_SLOT_GEO_Y -0.5395f
-#define MENU_SLOT_HEALTH {2259, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
+#define MENU_SLOT_HEALTH {2276, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
 #define MENU_SLOT_HEALTH_X -3.5916f
 #define MENU_SLOT_HEALTH_Y 0.3577f
 #define MENU_SLOT_CURSOR_X2 8.0334f
@@ -839,25 +865,25 @@
 #define MENU_SLOT_YES_X 2.5813f
 #define MENU_SLOT_NO_X 6.2296f
 #define MENU_BACK_Y -5.5406f
-#define MENU_PAUSE_TOP {2260, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
+#define MENU_PAUSE_TOP {2277, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
 #define MENU_PAUSE_TOP_Y 2.3653f
-#define MENU_PAUSE_BOT {2261, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
+#define MENU_PAUSE_BOT {2278, 0.0000f, 0.0000f, 1.0000f, 1.0000f}
 #define MENU_PAUSE_BOT_Y -1.8877f
 #define MENU_PAUSE_CONTINUE_Y 0.6428f
 #define MENU_PAUSE_QUIT_Y -0.4548f
-#define TXT_MAIN_START 119
-#define TXT_MAIN_QUIT 120
-#define TXT_PROFILE_NEW_GAME 121
-#define TXT_PROFILE_CLEAR_BUTTON 122
-#define TXT_PROFILE_CLEAR_PROMPT 123
-#define TXT_NAV_YES 124
-#define TXT_NAV_NO 125
-#define TXT_NAV_BACK 126
-#define TXT_PAUSE_CONTINUE 127
-#define TXT_PAUSE_MAIN 128
-#define TXT_PROFILE_CORRUPTED 129
-#define TXT_SCREEN_SAVE_PROFILES 130
-#define TXT_ZONES {131, 132, 133, 134, 135}
+#define TXT_MAIN_START 136
+#define TXT_MAIN_QUIT 137
+#define TXT_PROFILE_NEW_GAME 138
+#define TXT_PROFILE_CLEAR_BUTTON 139
+#define TXT_PROFILE_CLEAR_PROMPT 140
+#define TXT_NAV_YES 141
+#define TXT_NAV_NO 142
+#define TXT_NAV_BACK 143
+#define TXT_PAUSE_CONTINUE 144
+#define TXT_PAUSE_MAIN 145
+#define TXT_PROFILE_CORRUPTED 146
+#define TXT_SCREEN_SAVE_PROFILES 147
+#define TXT_ZONES {148, 149, 150, 151, 152}
 #define ROOM_ZONES {2, 4, 5, 4, 4, 5, 5, 5, 5, 5, 5, 5, 22, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6}
 #define MSG_FIREBALL 0
 #define MSG_DASH 1

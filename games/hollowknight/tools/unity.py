@@ -362,5 +362,26 @@ def material(path, pid):
     return (m.m_Name, shn)
 
 
+@functools.lru_cache(maxsize=None)
+def physics_material(path, pid):
+    """A PhysicsMaterial2D's values (friction, bounciness)"""
+    f = asset_file(path)
+    if f is None or pid not in f.objects:
+        return {}
+    with in_data():
+        return dict(f.objects[pid].read_typetree())
+
+
+@functools.lru_cache(maxsize=None)
+def tag_name(i):
+    """A GameObject's tag (m_Tag) -> its name (Unity's own; the game's, TagManager's from 20000)"""
+    if i >= 20000:
+        for o in asset_file("globalgamemanagers").objects.values():
+            if o.type.name == "TagManager":
+                return o.read_typetree()["tags"][i - 20000]
+    return {0: "Untagged", 1: "Respawn", 2: "Finish", 3: "EditorOnly", 5: "MainCamera", 6: "Player",
+            7: "GameController"}.get(i, "Untagged")
+
+
 def ref_path(d, fid):
     return d["externals"][fid - 1] if fid > 0 else d["level"]

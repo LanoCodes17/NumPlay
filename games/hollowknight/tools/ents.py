@@ -10,8 +10,10 @@ ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_M
 # objects (ENT_OBJ's flags: src/obj.c)
 OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH = 1, 2, 3, 4, 5, 6
 # enemies (an OK_ENEMY's a: src/enemy.c), by their FSM and animation library
-EK_CRAWLER, EK_BUZZER = 1, 2
-ENEMIES = {("Crawler", 1113): EK_CRAWLER, ("chaser", 1150): EK_BUZZER}
+EK_CRAWLER, EK_BUZZER, EK_SHADE, EK_HUSK = 1, 2, 3, 4
+ENEMIES = {("Crawler", 1113): EK_CRAWLER, ("chaser", 1150): EK_BUZZER, ("Zombie Swipe", 149): EK_HUSK}
+# what follows an enemy's record: ENT_BOX records, tagged
+ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE = 0, 1, 2, 3, 4, 5
 EF_START, EF_STARTLES = 1, 2   # (FSM bools: First Crawler or Start Alert; Startles)
 # the layers the nail's slashes touch (Physics2D's collision matrix, layer 17 Attack)
 ATTACK_HITS = {3, 6, 7, 8, 11, 12, 17, 19, 20, 21, 25, 31}
@@ -287,19 +289,42 @@ def _pieces(d, o, ids, by_id, sprites):
     return out
 
 
-def _enemy(o, by_id, persist, name):
+def _ref_file(d, ref):
+    """A scene's (or prefab's) reference -> (asset file, path id)."""
+    fid, pid = ref
+    return (d["level"] if fid == 0 else d["externals"][fid - 1].split("/")[-1], pid)
+
+
+def _alert_range(q):
+    """An alert range's trigger (circle or box) -> (cx, cy, r or hx, hy or -1) in its owner's units, or None."""
+    k = (abs(q["lscale"][0]), abs(q["lscale"][1]))
+    for c in q["c"]:
+        v = c.get("v")
+        if not v or not v.get("m_Enabled", 1):
+            continue
+        if c["type"] == "CircleCollider2D":
+            r = v["m_Radius"] * max(k)
+            return (q["lpos"][0] + v["m_Offset"]["x"] * k[0], q["lpos"][1] + v["m_Offset"]["y"] * k[1], r, -1)
+        if c["type"] == "BoxCollider2D":
+            return (q["lpos"][0] + v["m_Offset"]["x"] * k[0], q["lpos"][1] + v["m_Offset"]["y"] * k[1],
+                    v["m_Size"]["x"] / 2 * k[0], v["m_Size"]["y"] / 2 * k[1])
+    return None
+
+
+def _enemy(o, by_id, persist, name, d=None, strings=None):
     """An enemy -> its records: ENT_OBJ (OK_ENEMY: its kind, place (x, y, z, x scale), hp, damage, small and medium
-    geo; large geo in group), then ENT_BOX its collider (local offset and half size, scaled) and ENT_BOX its alert
-    range (a circle: local center and radius), or None."""
+    geo; large geo in group; s0 how many records follow), then ENT_BOX records each tagged (flags, ET_*): its
+    collider, alert ranges, Walker, Recoil, corpse; or None."""
     an = next((c.get("v") for c in o["c"] if c.get("class") == "tk2dSpriteAnimator" and c.get("v")), None)
     hm = next((c.get("v") for c in o["c"] if c.get("class") == "HealthManager" and c.get("v")), None)
     if not an or not hm:
         return None
-    kind = None
+    kind, fsm = None, {}
     for c in o["c"]:
         f = c.get("fsm")
-        if f and (f["name"], an["library"][1]) in ENEMIES:
-            kind, fsm = ENEMIES[(f["name"], an["library"][1])], f
+        key = (f["name"] if f else c.get("class"), an["library"][1])
+        if key in ENEMIES:
+            kind, fsm = ENEMIES[key], f or {}
     if kind is None:
         return None
     dh = next((c.get("v") or {} for c in o["c"] if c.get("class") == "DamageHero"), {})
@@ -313,16 +338,61 @@ def _enemy(o, by_id, persist, name):
         fl |= EF_START
     if (var.get("Startles") or [0, False])[1]:
         fl |= EF_STARTLES
-    out = [rec(ENT_BOX, box=(box["m_Offset"]["x"] * abs(sx), box["m_Offset"]["y"] * abs(sy),
-                             box["m_Size"]["x"] / 2 * abs(sx), box["m_Size"]["y"] / 2 * abs(sy)))]
+    rb = next((c["v"] for c in o["c"] if c["type"] == "Rigidbody2D" and c.get("v")), {})
+    out = [rec(ENT_BOX, ET_COLLIDER, box=(box["m_Offset"]["x"] * abs(sx), box["m_Offset"]["y"] * abs(sy),
+                                          box["m_Size"]["x"] / 2 * abs(sx), box["m_Size"]["y"] / 2 * abs(sy)),
+               p=(rb.get("m_GravityScale", 1), 0, 0, 0))]
+    # its alert ranges (children with AlertRange): "Alert Range New" the main one, others by name
     for ch in o.get("children", []):
         q = by_id[ch]
+        if not any(c.get("class") == "AlertRange" for c in q["c"]) and q["name"] != "Alert Range New":
+            continue
+        r = _alert_range(q)
+        if r is None:
+            continue
         if q["name"] == "Alert Range New":
-            cc = next((c["v"] for c in q["c"] if c["type"] == "CircleCollider2D" and c.get("v")), None)
-            if cc:
-                k = max(abs(q["lscale"][0]), abs(q["lscale"][1]))
-                out.append(rec(ENT_BOX, box=(q["lpos"][0] + cc["m_Offset"]["x"] * k, q["lpos"][1] + cc["m_Offset"]["y"] * k,
-                                             cc["m_Radius"] * k, 0)))
+            out.append(rec(ENT_BOX, ET_ALERT, box=r))
+        else:
+            out.append(rec(ENT_BOX, ET_RANGE, box=r, s0=strings.id(q["name"]) if strings else 0))
+    w = next((c.get("v") for c in o["c"] if c.get("class") == "Walker" and c.get("v")), None)
+    if w:
+        wf = (1 if w.get("pauses") else 0) | (2 if w.get("ignoreHoles") else 0) | \
+            (4 if w.get("preventTurningToFaceHero") else 0) | (8 if w.get("startInactive") else 0) | \
+            (16 if w.get("ambush") else 0) | (32 if w.get("waitForHeroX") else 0) | (64 if w.get("preventTurn") else 0) | \
+            (128 if w.get("preventScaleChange") else 0) | (256 if w.get("rightScale", 1) < 0 else 0)
+        out.append(rec(ENT_BOX, ET_WALKER, box=(w.get("walkSpeedL", 0), w.get("walkSpeedR", 0), w.get("pauseTimeMin", 0),
+                                                 w.get("pauseTimeMax", 0)),
+                       p=(w.get("pauseWaitMin", 0), w.get("pauseWaitMax", 0), w.get("turnPause", 0), w.get("edgeXAdjuster", 0)),
+                       group=w.get("turnAfterIdlePercentage", 0), a=wf,
+                       s1=max(0, min(65535, int(round(w.get("waitHeroX", 0) * 16))))))
+    rc = next((c.get("v") for c in o["c"] if c.get("class") == "Recoil" and c.get("v")), None)
+    if rc:
+        out.append(rec(ENT_BOX, ET_RECOIL, box=(rc.get("recoilSpeedBase", 15), rc.get("recoilDuration", 0.15), 0, 0),
+                       a=(1 if rc.get("stopVelocityXWhenRecoilingUp") else 0) | (2 if rc.get("freezeInPlace") else 0) |
+                       (4 if rc.get("preventRecoilUp") else 0)))
+    de = next((c.get("v") for c in o["c"] if c.get("class") == "EnemyDeathEffects" and c.get("v")), None)
+    if de and de.get("corpsePrefab") and d is not None:
+        try:
+            import unity
+            cf, cp = _ref_file(d, de["corpsePrefab"])
+            cd = unity.prefab(cf, cp)
+            co = cd["objects"][0]
+            cb = next((c["v"] for c in co["c"] if c["type"] == "BoxCollider2D" and c.get("v")), None)
+            rb = next((c["v"] for c in co["c"] if c["type"] == "Rigidbody2D" and c.get("v")), {})
+            ob = next((c["v"] for c in co["c"] if c.get("class") == "ObjectBounce" and c.get("v")), None)
+            cc = next((c for c in co["c"] if (c.get("class") or "").startswith("Corpse")), None)
+            cv = (cc or {}).get("v") or {}
+            k = (abs(co["lscale"][0]), abs(co["lscale"][1]))
+            sp = de.get("corpseSpawnPoint") or {"y": 0}
+            cfl = (1 if cv.get("breaker") else 0) | (2 if de.get("corpseFacesRight") else 0) | \
+                (4 if de.get("lowCorpseArc") else 0) | (8 if cv.get("instantChunker") else 0) | (16 if cv.get("massless") else 0)
+            if cb:
+                out.append(rec(ENT_BOX, ET_CORPSE, box=(cb["m_Offset"]["x"] * k[0], cb["m_Offset"]["y"] * k[1],
+                                                        cb["m_Size"]["x"] / 2 * k[0], cb["m_Size"]["y"] / 2 * k[1]),
+                               p=(rb.get("m_GravityScale", 1), ob.get("bounceFactor", -1) if ob else -1,
+                                  de.get("corpseFlingSpeed", 15), sp.get("y", 0)), a=cfl))
+        except Exception as e:
+            print("ents: %s: corpse %s" % (o["path"], e))
     persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
     head = rec(ENT_OBJ, OK_ENEMY, (o["pos"][0], o["pos"][1], o["pos"][2], sx),
                (hm.get("hp", 1), dh.get("damageDealt", 0), hm.get("smallGeoDrops", 0), hm.get("mediumGeoDrops", 0)),
@@ -467,7 +537,7 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
                             group=g_lit, group2=g_light, s0=strings.id(o["name"])))
             recs.append(rec(ENT_BOX, 0, box))
             recs.append(rec(ENT_BOX, 0, dr or box))
-        en = _enemy(o, by_id, persist, name) or _props(d, o, by_id, rooms, strings, persist, sprites, owners, name)
+        en = _enemy(o, by_id, persist, name, d, strings) or _props(d, o, by_id, rooms, strings, persist, sprites, owners, name)
         if en:
             recs += en
         br = next((c for c in o["c"] if c.get("class") == "Breakable" and c.get("v") is not None), None)

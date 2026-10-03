@@ -9,24 +9,22 @@
 #define TERRAIN_FRICTION 0.2f   /* (the Terrain material; with another, their geometric mean) */
 
 /* ---------------------------------------------------------------- what each kind is */
-enum { EK_CRAWLER = 1, EK_BUZZER, EK_SHADE };
+enum { EK_CRAWLER = 1, EK_BUZZER, EK_SHADE, EK_HUSK };
 #define NO_ENT 0xFFFF   /* (an enemy spawned, not one of the room's) */
+/* the records after an enemy's (tools/ents.py: ET_*) */
+enum { ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE };
+enum { CF_BREAKER = 1, CF_FACES_RIGHT = 2, CF_LOW_ARC = 4 };   /* a corpse's (ET_CORPSE) */
+enum { WF_PAUSES = 1, WF_IGNORE_HOLES = 2, WF_NO_TURN_TO_HERO = 4, WF_START_INACTIVE = 8, WF_AMBUSH = 16, WF_WAIT_HERO_X = 32,
+       WF_PREVENT_TURN = 64, WF_NO_SCALE = 128, WF_RIGHT_NEG = 256 };   /* a Walker's (ET_WALKER) */
 typedef struct {
-  /* Recoil */
-  float recoil_speed, recoil_time;
-  bool stop_vx_up;
-  /* the corpse (EnemyDeathEffects, its Corpse prefab) */
-  float corpse_spawn_y, corpse_fling, corpse_gravity, corpse_ox, corpse_oy, corpse_hx, corpse_hy, corpse_bounce;
-  bool breaker;
-  int clip_death_air, clip_death_land;
-  float gravity, friction;   /* its Rigidbody2D, its collider's material with the terrain's */
+  int clip_death_air, clip_death_land;   /* its corpse's (Corpse: Death Air, Death Land) */
+  int clip_idle, clip_turn, clip_walk;   /* (Walker's) */
 } Kind;
 static const Kind kinds[] = {
-    [EK_CRAWLER] = {15, 0.15f, true, 0.5f, 15, 0.8f, 0.0078f, -0.3906f, 1.4219f / 2, 0.9062f / 2, 0.3f, false,
-                    CLIP_CRAWLER_DEATH_AIR, CLIP_CRAWLER_DEATH_LAND, 1, 0.2828f},
-    [EK_BUZZER] = {15, 0.25f, false, 0, 15, 0.7f, 0.1016f, -0.2188f, 1.1406f / 2, 1.3125f / 2, -1, true,
-                   CLIP_BUZZER_DEATH_AIR, CLIP_BUZZER_DEATH_LAND, 0, 0.2828f},
-    [EK_SHADE] = {15, 0.15f, false, 0, 0, 0, 0, 0, 0, 0, -1, false, -1, -1, 0, 0.2828f},
+    [EK_CRAWLER] = {CLIP_CRAWLER_DEATH_AIR, CLIP_CRAWLER_DEATH_LAND, -1, -1, -1},
+    [EK_BUZZER] = {CLIP_BUZZER_DEATH_AIR, CLIP_BUZZER_DEATH_LAND, -1, -1, -1},
+    [EK_SHADE] = {-1, -1, -1, -1, -1},
+    [EK_HUSK] = {CLIP_HUSK_DEATH_AIR, CLIP_HUSK_DEATH_LAND, CLIP_HUSK_IDLE, CLIP_HUSK_TURN, CLIP_HUSK_WALK},
 };
 
 /* ---------------------------------------------------------------- an enemy */
@@ -45,18 +43,23 @@ typedef struct {
   int16_t hp;
   float evasion;
   /* Recoil */
-  uint8_t rc_state;
+  uint8_t rc_state, rc_flags;
   int8_t rc_dir;
   bool rc_sweep;
-  float rc_time, rc_speed;
+  float rc_time, rc_speed, rc_base, rc_dur;
+  /* Walker */
+  uint8_t wk_state, wk_stop;
+  int8_t wk_facing, wk_turning;
+  float wk_walk, wk_pause, wk_turn_cd;
+  uint16_t wk_rec;   /* its record (0: none) */
   /* SpriteFlash (flashInfected) */
   float flash_t;
   bool flashing;
   /* the FSM's state */
   float t0, t1, wait, start_x, start_y, ax, ay, pause0, pause1, jx, jy;
   bool b0, b1;
-  /* alert range (local circle) and sight */
-  float ar_x, ar_y, ar_r;
+  /* alert range (local circle, or box: ar_hy >= 0) and sight */
+  float ar_x, ar_y, ar_r, ar_hy;
   bool in_alert, can_see;
   float cbox_ox, cbox_oy, cbox_hx, cbox_hy;   /* its collider */
 } Enemy;
@@ -72,6 +75,15 @@ static void set_scale_x(Enemy *e, float sx) {
 static const Ent *ent_at(int i) {
   int n;
   return &room_ents(&n)[i];
+}
+
+/* an enemy's record of a tag (ET_*), or NULL */
+static const Ent *enemy_rec(const Enemy *e, int tag) {
+  if (e->ent == NO_ENT) return NULL;
+  const Ent *d = ent_at(e->ent);
+  for (int i = 1; i <= d->s0; i++)
+    if (d[i].type == ENT_BOX && d[i].flags == tag) return &d[i];
+  return NULL;
 }
 
 /* the collider's world box */
@@ -178,13 +190,14 @@ static uint8_t flash_tint(const Enemy *e, int slot) {
 
 /* ---------------------------------------------------------------- Recoil */
 static void recoil_by_direction(Enemy *e, int dir, float magnitude) {
-  const Kind *k = &kinds[e->kind];
   if (e->rc_state != RC_READY) return;
+  if (dir == 1 && (e->rc_flags & 4)) return;   /* (preventRecoilUp) */
   e->rc_state = RC_RECOILING;
-  e->rc_speed = k->recoil_speed * magnitude;
+  e->rc_speed = e->rc_base * magnitude;
   e->rc_dir = (int8_t)dir;
   e->rc_sweep = true;
-  e->rc_time = k->recoil_time;
+  e->rc_time = e->rc_dur;
+  if (dir == 0 || dir == 2) e->flags |= 2;   /* (RECOIL HORIZONTAL to its FSM) */
 }
 
 /* Sweep.Check: three rays from the collider's side, the distance clipped by the terrain */
@@ -210,12 +223,17 @@ static void recoil_fixed(Enemy *e) {
 /* ---------------------------------------------------------------- death */
 static void corpse_start(Enemy *e, float direction, bool has_direction) {
   const Kind *k = &kinds[e->kind];
+  const Ent *c = enemy_rec(e, ET_CORPSE);
+  if (!c || k->clip_death_air < 0) {
+    e->mode = EM_OFF;   /* (no corpse) */
+    return;
+  }
   e->mode = EM_CORPSE, e->st = CS_AIR;
-  e->body.y += k->corpse_spawn_y;
-  e->body.ox = k->corpse_ox, e->body.oy = k->corpse_oy, e->body.hx = k->corpse_hx, e->body.hy = k->corpse_hy;
-  e->body.gravity_scale = k->corpse_gravity, e->body.friction = 0.2f, e->body.mask = CF_SOLID;
+  e->body.y += c->p3;
+  e->body.ox = c->x0, e->body.oy = c->y0, e->body.hx = c->x1, e->body.hy = c->y1;
+  e->body.gravity_scale = c->p0, e->body.friction = 0.2f, e->body.mask = CF_SOLID;
   e->body.ncontacts = 0;
-  float speed = k->corpse_fling, angle = 90, sign = e->sx < 0 ? -1.0f : 1.0f;
+  float speed = c->p2, angle = 90, sign = e->sx < 0 ? -1.0f : 1.0f;
   switch (cardinal(direction)) {
     case 0: angle = 60, e->sx = sign; break;    /* (corpseFacesRight: no) */
     case 2: angle = 120, e->sx = -sign; break;
@@ -255,7 +273,7 @@ static void enemy_hit(Enemy *e, float direction, int damage) {
   if (e->kind != EK_SHADE) hero_soul_gain();   /* (enemyType 3, a shade: no soul) */
   e->flashing = true, e->flash_t = 0;
   e->hp = (int16_t)(e->hp - damage < -50 ? -50 : e->hp - damage);
-  if ((e->kind == EK_BUZZER || e->kind == EK_SHADE) && e->st == 0) e->b1 = true;   /* (TOOK DAMAGE, in Idle) */
+  if ((e->kind == EK_BUZZER || e->kind == EK_SHADE || e->kind == EK_HUSK) && e->st == 0) e->b1 = true;   /* (TOOK DAMAGE, in Idle / Ready) */
   if (e->hp > 0)
     e->evasion = 0.2f;
   else
@@ -285,10 +303,15 @@ static void face_direction(Enemy *e, float *pause, int clip) {
 static void sight_update(Enemy *e) {
   float cx = g_hero.body.x + g_hero.body.ox, cy = g_hero.body.y + g_hero.body.oy;
   float ax = e->body.x + e->ar_x, ay = e->body.y + e->ar_y;
-  /* circle against the Knight's box */
-  float qx = ax < cx - g_hero.body.hx ? cx - g_hero.body.hx : ax > cx + g_hero.body.hx ? cx + g_hero.body.hx : ax;
-  float qy = ay < cy - g_hero.body.hy ? cy - g_hero.body.hy : ay > cy + g_hero.body.hy ? cy + g_hero.body.hy : ay;
-  e->in_alert = !g_hero.hidden && e->ar_r > 0 && (qx - ax) * (qx - ax) + (qy - ay) * (qy - ay) < e->ar_r * e->ar_r;
+  if (e->ar_hy >= 0) {
+    /* a box against the Knight's */
+    e->in_alert = !g_hero.hidden && fabsf(cx - ax) < e->ar_r + g_hero.body.hx && fabsf(cy - ay) < e->ar_hy + g_hero.body.hy;
+  } else {
+    /* a circle against the Knight's box */
+    float qx = ax < cx - g_hero.body.hx ? cx - g_hero.body.hx : ax > cx + g_hero.body.hx ? cx + g_hero.body.hx : ax;
+    float qy = ay < cy - g_hero.body.hy ? cy - g_hero.body.hy : ay > cy + g_hero.body.hy ? cy + g_hero.body.hy : ay;
+    e->in_alert = !g_hero.hidden && e->ar_r > 0 && (qx - ax) * (qx - ax) + (qy - ay) * (qy - ay) < e->ar_r * e->ar_r;
+  }
   if (!e->in_alert) {
     e->can_see = false;
     return;
@@ -447,6 +470,230 @@ static void buzzer_update(Enemy *e, const Ent *d) {
   }
 }
 
+/* ---------------------------------------------------------------- Walker */
+enum { WK_NOT_READY, WK_WAITING, WK_STOPPED, WK_WALKING, WK_TURNING };
+enum { STOP_BORED, STOP_CONTROLLED };
+
+static const Ent *walker_rec(const Enemy *e) {
+  int n;
+  return e->wk_rec ? &room_ents(&n)[e->wk_rec] : NULL;
+}
+
+/* (its transform's x scale: facing times rightScale) */
+static void walker_scale(Enemy *e, int facing) {
+  const Ent *w = walker_rec(e);
+  if (w->a & WF_NO_SCALE) return;
+  float rs = (w->a & WF_RIGHT_NEG) ? -1.0f : 1.0f;
+  set_scale_x(e, (float)facing * rs * fabsf(e->sx));
+}
+
+static void walker_begin_walking(Enemy *e, int facing) {
+  const Ent *w = walker_rec(e);
+  e->wk_state = WK_WALKING;
+  anim_play(&e->anim, kinds[e->kind].clip_walk);
+  walker_scale(e, facing);
+  e->wk_walk = rand_range(w->p0, w->p1);
+  e->body.vx = facing > 0 ? w->y0 : w->x0;
+}
+
+static void walker_begin_turning(Enemy *e, int facing) {
+  const Ent *w = walker_rec(e);
+  e->wk_state = WK_TURNING;
+  e->wk_turning = (int8_t)facing;
+  if (w->a & WF_PREVENT_TURN) {
+    e->wk_facing = e->wk_turning;
+    walker_begin_walking(e, e->wk_facing);
+    return;
+  }
+  e->wk_turn_cd = w->p2;
+  e->body.vx = 0;
+  anim_play_from_frame(&e->anim, kinds[e->kind].clip_turn, 0);
+}
+
+static void walker_walk_or_turn(Enemy *e, int facing) {
+  if (e->wk_facing == facing) walker_begin_walking(e, facing);
+  else walker_begin_turning(e, facing);
+}
+
+static void walker_end_stopping(Enemy *e) {
+  const Ent *w = walker_rec(e);
+  if (e->wk_facing == 0) walker_walk_or_turn(e, rand_range(0, 2) < 1 ? 1 : -1);
+  else if (rand_range(0, 100) < w->group) walker_begin_turning(e, -e->wk_facing);
+  else walker_begin_walking(e, e->wk_facing);
+}
+
+static void walker_stop(Enemy *e, int reason) {
+  const Ent *w = walker_rec(e);
+  e->wk_state = WK_STOPPED, e->wk_stop = (uint8_t)reason;
+  if (reason == STOP_BORED) {
+    anim_play(&e->anim, kinds[e->kind].clip_idle);
+    e->body.vx = 0;
+    if (w->a & WF_PAUSES) e->wk_pause = rand_range(w->x1, w->y1);
+    else walker_end_stopping(e);
+  }
+}
+
+static void walker_update(Enemy *e);
+/* StartMoving */
+static void walker_start(Enemy *e) {
+  if (e->wk_state == WK_STOPPED || e->wk_state == WK_WAITING) {
+    int facing = e->wk_facing ? e->wk_facing : (rand_range(0, 2) < 1 ? 1 : -1);
+    walker_walk_or_turn(e, facing);
+  }
+  walker_update(e);
+}
+
+/* (Start: its facing from its scale, then waiting for its conditions) */
+static void walker_init(Enemy *e) {
+  const Ent *w = walker_rec(e);
+  float rs = (w->a & WF_RIGHT_NEG) ? -1.0f : 1.0f;
+  e->wk_facing = e->sx * rs >= 0 ? 1 : -1;
+  e->wk_turn_cd = -1e-6f;
+  e->wk_state = WK_WAITING;
+}
+
+/* Sweep.Check: rays from a side of the collider, from (x, y), along a cardinal direction: is there terrain within? */
+static bool sweep(const Enemy *e, float x, float y, int dir, float dist) {
+  float dx = (float)(dir == 0) - (float)(dir == 2), dy = (float)(dir == 1) - (float)(dir == 3);
+  float bx = e->body.ox + e->body.hx * dx, by = e->body.oy + e->body.hy * dy;
+  for (int i = 0; i < 3; i++) {
+    float f = (float)i - 1;
+    float rx = x + bx + e->body.hx * fabsf(dy) * f - dx * 0.1f, ry = y + by + e->body.hy * fabsf(dx) * f - dy * 0.1f;
+    PhysHit hit;
+    if (phys_ray(rx, ry, dx, dy, dist + 0.1f, CF_TERRAIN, &hit) && hit.dist - 0.1f < dist) return true;
+  }
+  return false;
+}
+
+static void walker_update(Enemy *e) {
+  const Ent *w = walker_rec(e);
+  if (!w) return;
+  e->wk_turn_cd -= DT;
+  switch (e->wk_state) {
+    case WK_WAITING: {
+      /* (near the camera; at the hero's x if it waits for that; not an ambush nor inactive) */
+      bool hero_x_ok = !(w->a & WF_WAIT_HERO_X) || fabsf(hero_x() - w->s1 / 16.0f) < 1;
+      if (hero_x_ok && !(w->a & (WF_START_INACTIVE | WF_AMBUSH))) {
+        walker_stop(e, STOP_BORED);
+        walker_start(e);
+      }
+      break;
+    }
+    case WK_STOPPED:
+      if (e->wk_stop == STOP_BORED && (e->wk_pause -= DT) <= 0) walker_end_stopping(e);
+      break;
+    case WK_WALKING:
+      if (e->wk_turn_cd <= 0) {
+        float ext = e->body.hx;
+        if (sweep(e, e->body.x, e->body.y, 1 - e->wk_facing, ext + 0.5f)) {
+          walker_begin_turning(e, -e->wk_facing);
+          return;
+        }
+        if (!(w->a & WF_NO_TURN_TO_HERO) && (hero_x() > e->body.x) != (e->wk_facing > 0) && e->can_see && e->in_alert) {
+          walker_begin_turning(e, -e->wk_facing);
+          return;
+        }
+        if (!(w->a & WF_IGNORE_HOLES) &&
+            !sweep(e, e->body.x + (ext + 0.5f + w->p3) * e->wk_facing, e->body.y, 3, 0.25f)) {
+          walker_begin_turning(e, -e->wk_facing);
+          return;
+        }
+      }
+      if ((w->a & WF_PAUSES) && (e->wk_walk -= DT) <= 0) {
+        walker_stop(e, STOP_BORED);
+        return;
+      }
+      e->body.vx = e->wk_facing > 0 ? w->y0 : w->x0;
+      break;
+    case WK_TURNING:
+      e->body.vx = 0;
+      if (!e->anim.playing) {
+        e->wk_facing = e->wk_turning;
+        walker_begin_walking(e, e->wk_facing);
+      }
+      break;
+  }
+}
+
+/* ---------------------------------------------------------------- Husks: the Zombie Swipe FSM, a Walker */
+enum { ZS_READY, ZS_ANTICIPATE, ZS_LUNGE, ZS_COOLDOWN, ZS_IDLE };
+#define ZS_LUNGE_SPEED 6.0f
+#define ZS_IDLE_TIME 0.25f
+
+static void husk_start(Enemy *e) {
+  walker_init(e);
+  e->st = ZS_READY;
+}
+
+static void husk_ready(Enemy *e) {
+  /* Reset: StartWalker; (Coward: no) Ready */
+  e->st = ZS_READY;
+  walker_start(e);
+}
+
+static void husk_attack(Enemy *e) {
+  /* Left or Right?: the walker stopped, facing the hero (Face Left / Face Right) */
+  walker_stop(e, STOP_CONTROLLED);
+  bool right = hero_x() > e->body.x;
+  e->ax = right ? ZS_LUNGE_SPEED : -ZS_LUNGE_SPEED;
+  set_scale_x(e, right ? -fabsf(e->sx) : fabsf(e->sx));
+  e->wk_facing = right ? 1 : -1;   /* (SetWalkerFacing: ChangeFacing) */
+  /* Anticipate */
+  e->body.vx = e->body.vy = 0;
+  anim_play_from_frame(&e->anim, CLIP_HUSK_ATTACK_ANTICIPATE, 0);
+  e->st = ZS_ANTICIPATE;
+}
+
+static void husk_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0;
+  if (e->flags & 2) {   /* (RECOIL HORIZONTAL: Reset) */
+    e->flags &= (uint8_t)~2;
+    if (e->st != ZS_READY) {
+      husk_ready(e);
+      return;
+    }
+  }
+  switch (e->st) {
+    case ZS_READY:
+      walker_update(e);
+      if ((e->can_see && e->in_alert) || e->b1) {
+        e->b1 = false;
+        husk_attack(e);
+      }
+      break;
+    case ZS_ANTICIPATE:
+      if (done) {
+        e->st = ZS_LUNGE;
+        anim_play_from_frame(&e->anim, CLIP_HUSK_ATTACK_LUNGE, 0);
+      }
+      break;
+    case ZS_LUNGE:
+      if (done) {
+        e->st = ZS_COOLDOWN;
+        anim_play_from_frame(&e->anim, CLIP_HUSK_ATTACK_COOLDOWN, 0);
+        e->body.vx = 0;
+      }
+      break;
+    case ZS_COOLDOWN:
+      if (done) {
+        e->st = ZS_IDLE, e->t0 = 0;
+        anim_play(&e->anim, CLIP_HUSK_IDLE);
+      }
+      break;
+    case ZS_IDLE:
+      if ((e->t0 += DT) >= ZS_IDLE_TIME) husk_ready(e);
+      break;
+  }
+}
+
+static void husk_fixed(Enemy *e) {
+  if (e->st == ZS_LUNGE) e->body.vx = e->ax;   /* (SetVelocity2d every frame) */
+  else if (e->st == ZS_READY && e->wk_state == WK_WALKING) {
+    const Ent *w = walker_rec(e);
+    if (w) e->body.vx = e->wk_facing > 0 ? w->y0 : w->x0;
+  }
+}
+
 /* ---------------------------------------------------------------- the Hollow Shade: its Shade Control FSM */
 enum {
   SH_IDLE, SH_STARTLE, SH_FLY, SH_POSITION, SH_SLASH_ANTIC, SH_SLASH, SH_SLASH_BOX, SH_SLASH_CD, SH_FIREBALL_POS,
@@ -545,6 +792,7 @@ static void shade_spawn(void) {
   sh.on = true;
   e->mode = EM_ALIVE, e->kind = EK_SHADE, e->ent = NO_ENT;
   e->damage = 1, e->z = 0.006f;
+  e->rc_base = 15, e->rc_dur = 0.15f;
   /* (Init: its hp the shade's health in nail hits) */
   e->hp = (int16_t)(g_pd.nail_damage * g_pd.shade_health);
   sh.sp = (int8_t)g_pd.shade_mp;
@@ -552,7 +800,7 @@ static void shade_spawn(void) {
   b->x = g_pd.shade_x, b->y = g_pd.shade_y;
   b->ox = 0, b->oy = -0.37f, b->hx = 0.25f, b->hy = 0.57f;
   b->gravity_scale = 0, b->mask = CF_SOLID;
-  e->ar_r = 7.27f;
+  e->ar_r = 7.27f, e->ar_hy = -1;
   e->sx = 1;
   e->start_x = b->x, e->start_y = b->y;
   shade_face_hero(e, -1);
@@ -812,12 +1060,20 @@ void enemies_enter(void) {
     e->hp = (int16_t)d->p0;
     Body *b = &e->body;
     b->x = d->x0, b->y = d->y0;
-    const Ent *box = d + 1;
-    b->ox = box->x0 * (e->sx < 0 ? -1 : 1), b->oy = box->y0, b->hx = box->x1, b->hy = box->y1;
-    b->gravity_scale = kinds[e->kind].gravity, b->friction = kinds[e->kind].friction, b->mask = CF_SOLID;
-    if (d->s0 > 1) e->ar_x = (d + 2)->x0 * (e->sx < 0 ? -1 : 1), e->ar_y = (d + 2)->y0, e->ar_r = (d + 2)->x1;
+    const Ent *box = enemy_rec(e, ET_COLLIDER);
+    if (box) b->ox = box->x0 * (e->sx < 0 ? -1 : 1), b->oy = box->y0, b->hx = box->x1, b->hy = box->y1, b->gravity_scale = box->p0;
+    b->friction = 0.2828f, b->mask = CF_SOLID;   /* (the default material with the terrain's) */
+    /* its sight: the alert range, else its first other range */
+    const Ent *ar = enemy_rec(e, ET_ALERT);
+    if (!ar) ar = enemy_rec(e, ET_RANGE);
+    if (ar) e->ar_x = ar->x0 * (e->sx < 0 ? -1 : 1), e->ar_y = ar->y0, e->ar_r = ar->x1, e->ar_hy = ar->y1;
+    const Ent *rc = enemy_rec(e, ET_RECOIL);
+    e->rc_base = rc ? rc->x0 : 15, e->rc_dur = rc ? rc->y0 : 0.5f, e->rc_flags = rc ? (uint8_t)rc->a : 0;
+    const Ent *wk = enemy_rec(e, ET_WALKER);
+    e->wk_rec = wk ? (uint16_t)(wk - room_ents(&n)) : 0;
     if (e->kind == EK_CRAWLER) crawler_start(e, d);
     else if (e->kind == EK_BUZZER) buzzer_start(e, d);
+    else if (e->kind == EK_HUSK) husk_start(e);
   }
   memset(&sh, 0, sizeof sh);
   memset(balls, 0, sizeof balls);
@@ -838,11 +1094,15 @@ void enemies_fixed(void) {
     if (e->mode == EM_ALIVE) {
       if (e->kind == EK_CRAWLER) crawler_fixed(e);
       else if (e->kind == EK_BUZZER) buzzer_fixed(e);
+      else if (e->kind == EK_HUSK) husk_fixed(e);
       recoil_fixed(e);
       body_step(&e->body, DT);
     } else {
       /* Corpse: falls, lands (or smashes, a breaker) and stays */
       const Kind *k = &kinds[e->kind];
+      const Ent *cr = enemy_rec(e, ET_CORPSE);
+      bool breaker = cr && (cr->a & CF_BREAKER);
+      float cbounce = cr ? cr->p1 : -1;
       float pvx = e->body.vx, pvy = e->body.vy;
       int had = e->body.ncontacts;
       if (e->st != CS_LANDED || e->body.vx || e->body.vy) body_step(&e->body, DT);
@@ -850,17 +1110,17 @@ void enemies_fixed(void) {
         bool ground = false;
         for (int c = 0; c < e->body.ncontacts; c++) ground |= e->body.cny[c] > 0.5f;
         if (ground) {
-          if (k->breaker) {
+          if (breaker) {
             anim_play(&e->anim, k->clip_death_land);
             e->body.vx = e->body.vy = 0;
             e->st = CS_DEATH_ANIM;
           } else {
-            bounce(&e->body, pvx, pvy, had, k->corpse_bounce);
+            bounce(&e->body, pvx, pvy, had, cbounce);
             anim_play(&e->anim, k->clip_death_land);
             e->st = CS_LANDED;
           }
         } else
-          bounce(&e->body, pvx, pvy, had, k->corpse_bounce);
+          bounce(&e->body, pvx, pvy, had, cbounce);
         if (e->body.y < -10) e->mode = EM_OFF;
       }
     }
@@ -882,6 +1142,7 @@ void enemies_update(void) {
       if (e->ar_r > 0) sight_update(e);
       if (e->kind == EK_BUZZER) buzzer_update(e, ent_at(e->ent));
       else if (e->kind == EK_SHADE) shade_update(e);
+      else if (e->kind == EK_HUSK) husk_update(e);
     } else if (e->kind == EK_SHADE)
       shade_update(e);
     else if (e->st == CS_DEATH_ANIM && !e->anim.playing)

@@ -24,6 +24,7 @@ KNIGHT = ("resources.assets", 20600, [
 ACTORS = {"knight": KNIGHT,
           "crawler": ("sharedassets6.assets", 1113, None),
           "buzzer": ("sharedassets6.assets", 1150, None),
+          "husk": ("sharedassets37.assets", 149, None),
           "georock": ("sharedassets6.assets", 1149, None),
           "chest": ("sharedassets6.assets", 1148, None),
           # the HUD: drawn by its own camera, 11.48 pixels a unit (scenes: K0), masks at 0.7135

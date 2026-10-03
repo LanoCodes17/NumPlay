@@ -20,11 +20,56 @@ KNIGHT = ("resources.assets", 20600, [
     "Collect Heart Piece", "Collect Heart Piece End", "Collect StandToIdle", "GetUpToIdle", "Death Head Cracked",
 ])
 
-# enemies: their libraries (all their clips)
+# enemy kinds: name, the FSM (or component) that runs them, their library, the C code for that FSM, and the clips each
+# role plays (src/enemy.c: R_*); the corpse's from its library (by default the enemy's)
+ROLES = ["IDLE", "TURN", "WALK", "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "DEATH_AIR", "DEATH_LAND"]
+ENEMY_KINDS = [
+    ("crawler", "Crawler", ("sharedassets6.assets", 1113), "CRAWLER", {"WALK": "Walk", "TURN": "Turn"}),
+    ("buzzer", "chaser", ("sharedassets6.assets", 1150), "BUZZER", {"IDLE": "Idle"}),
+    ("shade", None, ("resources.assets", 22801), "SHADE", {}),
+    ("tiktik", "Climber", ("sharedassets37.assets", 146), "CLIMBER", {"WALK": "Walk", "A1": "Stun"}),
+    ("gruzzer", "Bouncer Control", ("sharedassets40.assets", 208), "BOUNCER", {"A1": "Fly"}),
+    ("aspid", "spitter", ("sharedassets39.assets", 104), "SPITTER", {"A1": "Fly", "A2": "TurnToFly", "A3": "Fire Long"}),
+    ("husk", "Zombie Swipe", ("sharedassets37.assets", 149), "HUSK",
+     {"IDLE": "Idle", "TURN": "Turn", "WALK": "Walk", "A1": "Attack Anticipate", "A2": "Attack Lunge", "A3": "Attack Cooldown"}),
+    ("barger", "Zombie Swipe", ("sharedassets40.assets", 198), "HUSK",
+     {"IDLE": "Idle", "TURN": "Turn", "WALK": "Walk", "A1": "Attack Anticipate", "A2": "Attack Lunge", "A3": "Attack Cooldown"}),
+    ("hornhead", "Zombie Swipe", ("sharedassets40.assets", 192), "HUSK",
+     {"IDLE": "Idle", "TURN": "Turn", "WALK": "Walk", "A1": "Attack Anticipate", "A2": "Attack Lunge", "A3": "Attack Cooldown"}),
+]
+ENEMY_CORPSE_LIBS = {}   # (name -> its corpse's library, if not its own)
+
+
+def enemy_kind_id(name):
+    return 1 + [k[0] for k in ENEMY_KINDS].index(name)
+
+
+def _enemy_actors():
+    out = {}
+    for name, fsm, (f, pid), code, roles in ENEMY_KINDS:
+        if name in ("crawler", "buzzer"):
+            out[name] = (f, pid, None)
+            continue
+        if name == "shade":
+            continue
+        have = {unity.S(c["name"]) for c in tk2d.animation(f, pid)["clips"]}
+        out[name] = (f, pid, sorted((set(roles.values()) | {"Death Air", "Death Land"}) & have))
+    return out
+
+
+def kind_table(clip_ids):
+    """src/data.h's KIND_TABLE: each kind's FSM code and its roles' clips (-1: none)"""
+    rows = []
+    for name, fsm, lib, code, roles in ENEMY_KINDS:
+        ids = []
+        for r in ROLES:
+            clip = roles.get(r) or {"DEATH_AIR": "Death Air", "DEATH_LAND": "Death Land"}.get(r)
+            ids.append(clip_ids.get(clip_id(name, clip), -1) if clip else -1)
+        rows.append("{EF_%s, {%s}}" % (code, ", ".join(str(i) for i in ids)))
+    return "{{0}, " + ", ".join(rows) + "}"
+
+
 ACTORS = {"knight": KNIGHT,
-          "crawler": ("sharedassets6.assets", 1113, None),
-          "buzzer": ("sharedassets6.assets", 1150, None),
-          "husk": ("sharedassets37.assets", 149, None),
           "georock": ("sharedassets6.assets", 1149, None),
           "chest": ("sharedassets6.assets", 1148, None),
           # the HUD: drawn by its own camera, 11.48 pixels a unit (scenes: K0), masks at 0.7135
@@ -43,6 +88,9 @@ ACTORS = {"knight": KNIGHT,
                                                  "Slash CD", "Slash Effect", "Cast Antic", "Cast Charge", "Cast",
                                                  "Retreat Start", "Retreat End", "Death Start", "Death", "Depart",
                                                  "Appear", "Fireball", "Fireball End", "Cast Ring"])}
+ACTORS.update(_enemy_actors())
+# enemies' shots (EnemyBullet)
+ACTORS["bullet"] = ("sharedassets32.assets", 745, ["Idle", "Impact"])
 
 # sprites of prefab objects the game draws itself: name -> (file, prefab, object, resolution)
 NAMED = {

@@ -10,10 +10,14 @@ ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_M
 # objects (ENT_OBJ's flags: src/obj.c)
 OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH = 1, 2, 3, 4, 5, 6
 # enemies (an OK_ENEMY's a: src/enemy.c), by their FSM and animation library
-EK_CRAWLER, EK_BUZZER, EK_SHADE, EK_HUSK = 1, 2, 3, 4
-ENEMIES = {("Crawler", 1113): EK_CRAWLER, ("chaser", 1150): EK_BUZZER, ("Zombie Swipe", 149): EK_HUSK}
+import actors as _actors
+# enemies: by the FSM (or component) that runs them and their animation library -> their kind (actors.ENEMY_KINDS)
+ENEMIES = {(fsm, f, pid): i + 1 for i, (name, fsm, (f, pid), code, roles) in enumerate(_actors.ENEMY_KINDS) if fsm}
+# their FSMs' variables an enemy's record keeps (ET_VARS: up to four numbers, then bools as bits)
+ENEMY_VARS = {"Zombie Swipe": (["Lunge Speed", "Idle Time"], ["Coward"]),
+              "Bouncer Control": (["Speed"], ["Starts Inactive", "Start Up"])}
 # what follows an enemy's record: ENT_BOX records, tagged
-ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE = 0, 1, 2, 3, 4, 5
+ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS = 0, 1, 2, 3, 4, 5, 6
 EF_START, EF_STARTLES = 1, 2   # (FSM bools: First Crawler or Start Alert; Startles)
 # the layers the nail's slashes touch (Physics2D's collision matrix, layer 17 Attack)
 ATTACK_HITS = {3, 6, 7, 8, 11, 12, 17, 19, 20, 21, 25, 31}
@@ -320,9 +324,10 @@ def _enemy(o, by_id, persist, name, d=None, strings=None):
     if not an or not hm:
         return None
     kind, fsm = None, {}
+    lib = _ref_file(d, an["library"]) if d is not None else ("", an["library"][1])
     for c in o["c"]:
         f = c.get("fsm")
-        key = (f["name"] if f else c.get("class"), an["library"][1])
+        key = (f["name"] if f else c.get("class"),) + lib
         if key in ENEMIES:
             kind, fsm = ENEMIES[key], f or {}
     if kind is None:
@@ -345,7 +350,7 @@ def _enemy(o, by_id, persist, name, d=None, strings=None):
     # its alert ranges (children with AlertRange): "Alert Range New" the main one, others by name
     for ch in o.get("children", []):
         q = by_id[ch]
-        if not any(c.get("class") == "AlertRange" for c in q["c"]) and q["name"] != "Alert Range New":
+        if not any(c.get("class") == "AlertRange" for c in q["c"]) and q["name"] not in ("Alert Range New", "Unalert Range"):
             continue
         r = _alert_range(q)
         if r is None:
@@ -365,6 +370,17 @@ def _enemy(o, by_id, persist, name, d=None, strings=None):
                        p=(w.get("pauseWaitMin", 0), w.get("pauseWaitMax", 0), w.get("turnPause", 0), w.get("edgeXAdjuster", 0)),
                        group=w.get("turnAfterIdlePercentage", 0), a=wf,
                        s1=max(0, min(65535, int(round(w.get("waitHeroX", 0) * 16))))))
+    cl = next((c.get("v") for c in o["c"] if c.get("class") == "Climber" and c.get("v")), None)
+    if cl:
+        # (Climber: speed, spin time, wall ray padding, min turn distance; start right; its start angle's quarter)
+        ang = int(round(_angle(o) / 90)) % 4
+        out.append(rec(ENT_BOX, ET_VARS, p=(cl.get("speed", 2), cl.get("spinTime", 0.25), cl.get("wallRayPadding", 0.1),
+                                            cl.get("minTurnDistance", 0.25)), a=1 if cl.get("startRight", 1) else 0, s1=ang))
+    nums, bools = ENEMY_VARS.get(fsm.get("name"), ([], []))
+    if nums or bools:
+        vals = [float((var.get(k) or [0, 0])[1] or 0) for k in nums] + [0.0] * (4 - len(nums))
+        bits = sum(1 << i for i, k in enumerate(bools) if (var.get(k) or [0, False])[1])
+        out.append(rec(ENT_BOX, ET_VARS, p=tuple(vals[:4]), a=bits))
     rc = next((c.get("v") for c in o["c"] if c.get("class") == "Recoil" and c.get("v")), None)
     if rc:
         out.append(rec(ENT_BOX, ET_RECOIL, box=(rc.get("recoilSpeedBase", 15), rc.get("recoilDuration", 0.15), 0, 0),
@@ -386,11 +402,12 @@ def _enemy(o, by_id, persist, name, d=None, strings=None):
             sp = de.get("corpseSpawnPoint") or {"y": 0}
             cfl = (1 if cv.get("breaker") else 0) | (2 if de.get("corpseFacesRight") else 0) | \
                 (4 if de.get("lowCorpseArc") else 0) | (8 if cv.get("instantChunker") else 0) | (16 if cv.get("massless") else 0)
-            if cb:
-                out.append(rec(ENT_BOX, ET_CORPSE, box=(cb["m_Offset"]["x"] * k[0], cb["m_Offset"]["y"] * k[1],
-                                                        cb["m_Size"]["x"] / 2 * k[0], cb["m_Size"]["y"] / 2 * k[1]),
-                               p=(rb.get("m_GravityScale", 1), ob.get("bounceFactor", -1) if ob else -1,
-                                  de.get("corpseFlingSpeed", 15), sp.get("y", 0)), a=cfl))
+            # (a corpse with no collider falls through all: flag 32)
+            box = (cb["m_Offset"]["x"] * k[0], cb["m_Offset"]["y"] * k[1], cb["m_Size"]["x"] / 2 * k[0],
+                   cb["m_Size"]["y"] / 2 * k[1]) if cb else (0, 0, 0, 0)
+            out.append(rec(ENT_BOX, ET_CORPSE, box=box, p=(rb.get("m_GravityScale", 1), ob.get("bounceFactor", -1) if ob else -1,
+                                                           de.get("corpseFlingSpeed", 15), sp.get("y", 0)),
+                           a=cfl | (0 if cb else 32)))
         except Exception as e:
             print("ents: %s: corpse %s" % (o["path"], e))
     persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])

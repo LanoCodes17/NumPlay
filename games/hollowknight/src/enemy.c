@@ -9,27 +9,26 @@
 #define TERRAIN_FRICTION 0.2f   /* (the Terrain material; with another, their geometric mean) */
 
 /* ---------------------------------------------------------------- what each kind is */
-enum { EK_CRAWLER = 1, EK_BUZZER, EK_SHADE, EK_HUSK };
+/* (data.h: EK_* each kind, KIND_TABLE: the FSM each runs and the clips its roles play) */
+enum { EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER };
+enum { R_IDLE, R_TURN, R_WALK, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, R_A7, R_A8, R_DEATH_AIR, R_DEATH_LAND, NUM_ROLES };
+typedef struct {
+  uint8_t fsm;
+  int16_t clip[NUM_ROLES];
+} Kind;
+static const Kind kinds[NUM_KINDS] = KIND_TABLE;
+#define CLIP(e, role) (kinds[(e)->kind].clip[role])
+#define FSM(e) (kinds[(e)->kind].fsm)
 #define NO_ENT 0xFFFF   /* (an enemy spawned, not one of the room's) */
 /* the records after an enemy's (tools/ents.py: ET_*) */
-enum { ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE };
-enum { CF_BREAKER = 1, CF_FACES_RIGHT = 2, CF_LOW_ARC = 4 };   /* a corpse's (ET_CORPSE) */
+enum { ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS };
+enum { CF_BREAKER = 1, CF_FACES_RIGHT = 2, CF_LOW_ARC = 4, CF_NO_COLLIDER = 32 };   /* a corpse's (ET_CORPSE) */
 enum { WF_PAUSES = 1, WF_IGNORE_HOLES = 2, WF_NO_TURN_TO_HERO = 4, WF_START_INACTIVE = 8, WF_AMBUSH = 16, WF_WAIT_HERO_X = 32,
        WF_PREVENT_TURN = 64, WF_NO_SCALE = 128, WF_RIGHT_NEG = 256 };   /* a Walker's (ET_WALKER) */
-typedef struct {
-  int clip_death_air, clip_death_land;   /* its corpse's (Corpse: Death Air, Death Land) */
-  int clip_idle, clip_turn, clip_walk;   /* (Walker's) */
-} Kind;
-static const Kind kinds[] = {
-    [EK_CRAWLER] = {CLIP_CRAWLER_DEATH_AIR, CLIP_CRAWLER_DEATH_LAND, -1, -1, -1},
-    [EK_BUZZER] = {CLIP_BUZZER_DEATH_AIR, CLIP_BUZZER_DEATH_LAND, -1, -1, -1},
-    [EK_SHADE] = {-1, -1, -1, -1, -1},
-    [EK_HUSK] = {CLIP_HUSK_DEATH_AIR, CLIP_HUSK_DEATH_LAND, CLIP_HUSK_IDLE, CLIP_HUSK_TURN, CLIP_HUSK_WALK},
-};
 
 /* ---------------------------------------------------------------- an enemy */
 enum { EM_OFF, EM_ALIVE, EM_CORPSE };
-enum { RC_READY, RC_RECOILING };
+enum { RC_READY, RC_RECOILING, RC_FROZEN };
 enum { CS_AIR, CS_DEATH_ANIM, CS_LANDED };
 typedef struct {
   uint8_t mode, kind, st, flags;
@@ -57,6 +56,7 @@ typedef struct {
   bool flashing;
   /* the FSM's state */
   float t0, t1, wait, start_x, start_y, ax, ay, pause0, pause1, jx, jy;
+  float ang, qx, qy, tx, ty;   /* (its rotation, degrees; a tween's from and to) */
   bool b0, b1;
   /* alert range (local circle, or box: ar_hy >= 0) and sight */
   float ar_x, ar_y, ar_r, ar_hy;
@@ -189,8 +189,15 @@ static uint8_t flash_tint(const Enemy *e, int slot) {
 }
 
 /* ---------------------------------------------------------------- Recoil */
+static void climber_stun(Enemy *e);
 static void recoil_by_direction(Enemy *e, int dir, float magnitude) {
   if (e->rc_state != RC_READY) return;
+  if (e->rc_flags & 2) {
+    /* freezeInPlace: a climber is stunned (its own handling); others stop still a while */
+    if (FSM(e) == EF_CLIMBER) climber_stun(e);
+    else e->rc_state = RC_FROZEN, e->rc_time = e->rc_dur, e->body.vx = e->body.vy = 0;
+    return;
+  }
   if (dir == 1 && (e->rc_flags & 4)) return;   /* (preventRecoilUp) */
   e->rc_state = RC_RECOILING;
   e->rc_speed = e->rc_base * magnitude;
@@ -202,6 +209,11 @@ static void recoil_by_direction(Enemy *e, int dir, float magnitude) {
 
 /* Sweep.Check: three rays from the collider's side, the distance clipped by the terrain */
 static void recoil_fixed(Enemy *e) {
+  if (e->rc_state == RC_FROZEN) {
+    e->body.vx = e->body.vy = 0;
+    if ((e->rc_time -= DT) <= 0) e->rc_state = RC_READY;
+    return;
+  }
   if (e->rc_state != RC_RECOILING) return;
   if (e->rc_sweep) {
     float dx = (float)(e->rc_dir == 0) - (float)(e->rc_dir == 2), dy = (float)(e->rc_dir == 1) - (float)(e->rc_dir == 3);
@@ -222,16 +234,15 @@ static void recoil_fixed(Enemy *e) {
 
 /* ---------------------------------------------------------------- death */
 static void corpse_start(Enemy *e, float direction, bool has_direction) {
-  const Kind *k = &kinds[e->kind];
   const Ent *c = enemy_rec(e, ET_CORPSE);
-  if (!c || k->clip_death_air < 0) {
+  if (!c || kinds[e->kind].clip[R_DEATH_AIR] < 0) {
     e->mode = EM_OFF;   /* (no corpse) */
     return;
   }
   e->mode = EM_CORPSE, e->st = CS_AIR;
   e->body.y += c->p3;
   e->body.ox = c->x0, e->body.oy = c->y0, e->body.hx = c->x1, e->body.hy = c->y1;
-  e->body.gravity_scale = c->p0, e->body.friction = 0.2f, e->body.mask = CF_SOLID;
+  e->body.gravity_scale = c->p0, e->body.friction = 0.2f, e->body.mask = (c->a & CF_NO_COLLIDER) ? 0 : CF_SOLID;
   e->body.ncontacts = 0;
   float speed = c->p2, angle = 90, sign = e->sx < 0 ? -1.0f : 1.0f;
   switch (cardinal(direction)) {
@@ -243,14 +254,14 @@ static void corpse_start(Enemy *e, float direction, bool has_direction) {
   if (!has_direction) speed = 0;
   float a = angle * (float)M_PI / 180;
   e->body.vx = cosf(a) * speed, e->body.vy = sinf(a) * speed;
-  anim_play(&e->anim, k->clip_death_air);
+  anim_play(&e->anim, kinds[e->kind].clip[R_DEATH_AIR]);
   e->flashing = true, e->flash_t = 0;   /* (EmitInfectedEffects: the corpse flashes) */
 }
 
 /* HealthManager.Die, EnemyDeathEffects */
 static void shade_killed(Enemy *e);
 static void enemy_die(Enemy *e, float direction, bool has_direction) {
-  if (e->kind == EK_SHADE) {
+  if (FSM(e) == EF_SHADE) {
     shade_killed(e);
     return;
   }
@@ -270,10 +281,10 @@ static void enemy_hit(Enemy *e, float direction, int damage) {
   if (e->mode != EM_ALIVE || e->evasion > 0 || damage <= 0) return;
   int dir = cardinal(direction);
   recoil_by_direction(e, dir, 1);
-  if (e->kind != EK_SHADE) hero_soul_gain();   /* (enemyType 3, a shade: no soul) */
+  if (FSM(e) != EF_SHADE) hero_soul_gain();   /* (enemyType 3, a shade: no soul) */
   e->flashing = true, e->flash_t = 0;
   e->hp = (int16_t)(e->hp - damage < -50 ? -50 : e->hp - damage);
-  if ((e->kind == EK_BUZZER || e->kind == EK_SHADE || e->kind == EK_HUSK) && e->st == 0) e->b1 = true;   /* (TOOK DAMAGE, in Idle / Ready) */
+  if ((FSM(e) == EF_BUZZER || FSM(e) == EF_SHADE || FSM(e) == EF_HUSK) && e->st == 0) e->b1 = true;   /* (TOOK DAMAGE, in Idle / Ready) */
   if (e->hp > 0)
     e->evasion = 0.2f;
   else
@@ -490,7 +501,7 @@ static void walker_scale(Enemy *e, int facing) {
 static void walker_begin_walking(Enemy *e, int facing) {
   const Ent *w = walker_rec(e);
   e->wk_state = WK_WALKING;
-  anim_play(&e->anim, kinds[e->kind].clip_walk);
+  anim_play(&e->anim, CLIP(e, R_WALK));
   walker_scale(e, facing);
   e->wk_walk = rand_range(w->p0, w->p1);
   e->body.vx = facing > 0 ? w->y0 : w->x0;
@@ -507,7 +518,7 @@ static void walker_begin_turning(Enemy *e, int facing) {
   }
   e->wk_turn_cd = w->p2;
   e->body.vx = 0;
-  anim_play_from_frame(&e->anim, kinds[e->kind].clip_turn, 0);
+  anim_play_from_frame(&e->anim, CLIP(e, R_TURN), 0);
 }
 
 static void walker_walk_or_turn(Enemy *e, int facing) {
@@ -526,7 +537,7 @@ static void walker_stop(Enemy *e, int reason) {
   const Ent *w = walker_rec(e);
   e->wk_state = WK_STOPPED, e->wk_stop = (uint8_t)reason;
   if (reason == STOP_BORED) {
-    anim_play(&e->anim, kinds[e->kind].clip_idle);
+    anim_play(&e->anim, CLIP(e, R_IDLE));
     e->body.vx = 0;
     if (w->a & WF_PAUSES) e->wk_pause = rand_range(w->x1, w->y1);
     else walker_end_stopping(e);
@@ -615,6 +626,402 @@ static void walker_update(Enemy *e) {
   }
 }
 
+/* ---------------------------------------------------------------- Tiktiks: Climber, round the terrain's edges */
+enum { CL_WALK, CL_TURN, CL_STUN };
+enum { DIR_RIGHT, DIR_DOWN, DIR_LEFT, DIR_UP };
+
+/* its collider at its rotation (quarter turns) */
+static void climber_box(Enemy *e) {
+  const Ent *c = enemy_rec(e, ET_COLLIDER);
+  if (!c) return;
+  float ox = c->x0 * (e->sx < 0 ? -1 : 1), oy = c->y0;
+  int q = ((int)lrintf(e->ang / 90) % 4 + 4) % 4;
+  float rx = q == 0 ? ox : q == 1 ? -oy : q == 2 ? -ox : oy, ry = q == 0 ? oy : q == 1 ? ox : q == 2 ? -oy : -ox;
+  e->body.ox = rx, e->body.oy = ry;
+  e->body.hx = q & 1 ? c->y1 : c->x1, e->body.hy = q & 1 ? c->x1 : c->y1;
+}
+
+/* FireRayLocal: from its collider's center along a direction of its own */
+static bool climber_ray(const Enemy *e, float lx, float ly, float len) {
+  const Ent *c = enemy_rec(e, ET_COLLIDER);
+  float a = e->ang * (float)M_PI / 180, ca = cosf(a), sa = sinf(a);
+  float ox = c ? c->x0 * (e->sx < 0 ? -1 : 1) : 0, oy = c ? c->y0 : 0;
+  float x = e->body.x + ox * ca - oy * sa, y = e->body.y + ox * sa + oy * ca;
+  return phys_ray(x, y, lx * ca - ly * sa, lx * sa + ly * ca, len, CF_TERRAIN, NULL);
+}
+
+static void climber_velocity(Enemy *e) {
+  const Ent *v = enemy_rec(e, ET_VARS);
+  float sp = v ? v->p0 : 2;
+  int d = e->wk_facing;
+  e->body.vx = d == DIR_RIGHT ? sp : d == DIR_LEFT ? -sp : 0;
+  e->body.vy = d == DIR_UP ? sp : d == DIR_DOWN ? -sp : 0;
+}
+
+static void climber_walk(Enemy *e) {
+  e->st = CL_WALK;
+  anim_play(&e->anim, CLIP(e, R_WALK));
+  climber_velocity(e);
+}
+
+static void climber_start(Enemy *e) {
+  const Ent *v = enemy_rec(e, ET_VARS);
+  e->ang = v ? 90.0f * v->s1 : 0;
+  climber_box(e);
+  /* StickToGround: onto the ground below, within 2 */
+  const Ent *c = enemy_rec(e, ET_COLLIDER);
+  float a = e->ang * (float)M_PI / 180, ca = cosf(a), sa = sinf(a);
+  float ox = c ? c->x0 * (e->sx < 0 ? -1 : 1) : 0, oy = c ? c->y0 : 0;
+  PhysHit hit;
+  if (phys_ray(e->body.x + ox * ca - oy * sa, e->body.y + ox * sa + oy * ca, sa, -ca, 2, CF_TERRAIN, &hit))
+    e->body.x = hit.x, e->body.y = hit.y;
+  float k = e->sx < 0 ? -1.0f : 1.0f;
+  if (v && !(v->a & 1)) k = -k;
+  e->b0 = k > 0;   /* (clockwise) */
+  float r = fmodf(e->ang, 360);
+  if (r < 0) r += 360;
+  if (r >= 45 && r <= 135) e->wk_facing = e->b0 ? DIR_UP : DIR_DOWN;
+  else if (r >= 135 && r <= 225) e->wk_facing = e->b0 ? DIR_LEFT : DIR_RIGHT;
+  else if (r >= 225 && r <= 315) e->wk_facing = e->b0 ? DIR_DOWN : DIR_UP;
+  else e->wk_facing = e->b0 ? DIR_RIGHT : DIR_LEFT;
+  e->start_x = e->body.x, e->start_y = e->body.y;
+  e->ax = e->body.x, e->ay = e->body.y;   /* (previousTurnPos: none yet, its place) */
+  e->ax = 1e9f;
+  climber_walk(e);
+}
+
+static void climber_turn(Enemy *e, bool cw, bool tween) {
+  const Ent *c = enemy_rec(e, ET_COLLIDER), *v = enemy_rec(e, ET_VARS);
+  float w = c ? c->x1 : 0.5f, h = c ? c->y1 : 0.5f, pad = v ? v->p2 : 0.1f;   /* (half sizes) */
+  e->st = CL_TURN, e->t0 = 0;
+  e->body.vx = e->body.vy = 0;
+  e->pause0 = e->ang, e->pause1 = e->ang + (cw ? -90.0f : 90.0f);
+  e->qx = e->body.x, e->qy = e->body.y, e->b1 = tween;
+  float tx = 0, ty = 0;   /* GetTweenPos */
+  switch (e->wk_facing) {
+    case DIR_RIGHT: tx = w + pad, ty = e->b0 ? h : -h; break;
+    case DIR_UP: tx = e->b0 ? -w : w, ty = h + pad; break;
+    case DIR_DOWN: tx = e->b0 ? w : -w, ty = -h - pad; break;
+    case DIR_LEFT: tx = -w - pad, ty = e->b0 ? -h : h; break;
+  }
+  e->tx = e->body.x + tx, e->ty = e->body.y + ty;
+  e->wait = cw ? 1 : -1;
+}
+
+static void climber_stun(Enemy *e) {
+  if (e->st == CL_TURN) return;
+  e->st = CL_STUN;
+  e->body.vx = e->body.vy = 0;
+  anim_play_from_frame(&e->anim, CLIP(e, R_A1), 0);
+}
+
+static void climber_update(Enemy *e) {
+  const Ent *v = enemy_rec(e, ET_VARS);
+  switch (e->st) {
+    case CL_WALK: {
+      /* (constrain: held to its line) */
+      bool moved = false;
+      if (fabsf(e->body.x - e->start_x) > 0.1f) e->body.x = e->start_x, moved = true;
+      if (fabsf(e->body.y - e->start_y) > 0.1f) e->body.y = e->start_y, moved = true;
+      if (!moved) e->start_x = e->body.x, e->start_y = e->body.y;
+      float dx = e->body.x - e->ax, dy = e->body.y - e->ay;
+      if (e->ax > 1e8f || dx * dx + dy * dy >= (v ? v->p3 * v->p3 : 0.0625f)) {
+        const Ent *c = enemy_rec(e, ET_COLLIDER);
+        float w = c ? c->x1 : 0.5f, pad = v ? v->p2 : 0.1f;
+        if (!climber_ray(e, 0, -1, 1)) climber_turn(e, e->b0, false);
+        else if (climber_ray(e, e->b0 ? 1 : -1, 0, w + pad)) climber_turn(e, !e->b0, true);
+      }
+      break;
+    }
+    case CL_TURN: {
+      float spin = v ? v->p1 : 0.25f;
+      e->t0 += DT;
+      float t = e->t0 >= spin ? 1 : e->t0 / spin;
+      e->ang = e->pause0 + (e->pause1 - e->pause0) * t;
+      if (e->b1) e->body.x = e->qx + (e->tx - e->qx) * t, e->body.y = e->qy + (e->ty - e->qy) * t;
+      if (e->t0 >= spin) {
+        e->ang = e->pause1;
+        e->wk_facing = (int8_t)((e->wk_facing + (e->wait > 0 ? 1 : -1) + 4) % 4);
+        climber_box(e);
+        e->start_x = e->ax = e->body.x, e->start_y = e->ay = e->body.y;
+        climber_walk(e);
+      }
+      break;
+    }
+    case CL_STUN:
+      if (e->anim.events & ANIM_DONE) climber_walk(e);
+      break;
+  }
+}
+
+/* ---------------------------------------------------------------- Gruzzers: the Bouncer Control FSM */
+enum { BO_WAIT, BO_FLY, BO_STOPPED };
+
+static void bouncer_aim(Enemy *e, float lo, float hi) {
+  e->wait = rand_range(lo, hi);   /* (Angle) */
+  float a = fmodf(e->wait, 360);
+  if (a < 0) a += 360;
+  e->b0 = a < 90 || a >= 270;     /* (Left or Right?: Facing Right) */
+  e->st = BO_FLY;
+}
+
+static void bouncer_start(Enemy *e) {
+  const Ent *v = enemy_rec(e, ET_VARS);
+  e->st = v && (v->a & 1) ? BO_STOPPED : BO_WAIT;
+  anim_play(&e->anim, CLIP(e, R_A1));
+}
+
+/* CheckCollisionSide: short rays from its sides, top first: the side it bumped */
+static int bouncer_side(const Enemy *e) {
+  float x0, y0, x1, y1;
+  enemy_box(e, &x0, &y0, &x1, &y1);
+  float cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const float d = 0.08f;
+  if (phys_ray(x0, y1, 0, 1, d, CF_TERRAIN, NULL) || phys_ray(cx, y1, 0, 1, d, CF_TERRAIN, NULL) || phys_ray(x1, y1, 0, 1, d, CF_TERRAIN, NULL)) return 1;
+  if (phys_ray(x1, y1, 1, 0, d, CF_TERRAIN, NULL) || phys_ray(x1, cy, 1, 0, d, CF_TERRAIN, NULL) || phys_ray(x1, y0, 1, 0, d, CF_TERRAIN, NULL)) return 0;
+  if (phys_ray(x1, y0, 0, -1, d, CF_TERRAIN, NULL) || phys_ray(cx, y0, 0, -1, d, CF_TERRAIN, NULL) || phys_ray(x0, y0, 0, -1, d, CF_TERRAIN, NULL)) return 3;
+  if (phys_ray(x0, y0, -1, 0, d, CF_TERRAIN, NULL) || phys_ray(x0, cy, -1, 0, d, CF_TERRAIN, NULL) || phys_ray(x0, y1, -1, 0, d, CF_TERRAIN, NULL)) return 2;
+  return -1;
+}
+
+static void bouncer_fixed(Enemy *e) {
+  if (e->st != BO_FLY) return;
+  const Ent *v = enemy_rec(e, ET_VARS);
+  float sp = v ? v->p0 : 5.2f, a = e->wait * (float)M_PI / 180;
+  e->body.vx = cosf(a) * sp, e->body.vy = sinf(a) * sp;   /* (SetVelocityAsAngle) */
+}
+
+static void bouncer_update(Enemy *e) {
+  switch (e->st) {
+    case BO_WAIT: {
+      float dx = e->body.x - g_cam_x, dy = e->body.y - g_cam_y;
+      if (dx * dx + dy * dy < 44 * 44) {
+        const Ent *v = enemy_rec(e, ET_VARS);
+        if (v && (v->a & 2)) bouncer_aim(e, 90, 90);   /* (Start Up) */
+        else bouncer_aim(e, 0, 360);
+      }
+      break;
+    }
+    case BO_FLY: {
+      /* FaceDirection (sprite facing left), no pause */
+      float want = e->body.vx > 0 ? -fabsf(e->sx) : fabsf(e->sx);
+      if (e->body.vx != 0 && e->sx != want) set_scale_x(e, want);
+      if (!e->body.ncontacts) break;
+      float a = fmodf(e->wait, 360);
+      if (a < 0) a += 360;
+      switch (bouncer_side(e)) {
+        case 1: if (e->b0) bouncer_aim(e, 320, 350); else bouncer_aim(e, 190, 220); break;   /* (Hit Up) */
+        case 3: if (e->b0) bouncer_aim(e, 10, 40); else bouncer_aim(e, 140, 170); break;     /* (Hit Down) */
+        case 0: if (a < 180) bouncer_aim(e, 140, 170); else bouncer_aim(e, 190, 220); break;  /* (Hit Right) */
+        case 2: if (a < 180) bouncer_aim(e, 10, 40); else bouncer_aim(e, 320, 350); break;    /* (Hit Left) */
+      }
+      break;
+    }
+  }
+}
+
+/* DistanceFly: keeps a distance from the hero (targeting its height, or its distance in y too) */
+static void distance_fly(Enemy *e, float dist, float vmax, float accel, bool height) {
+  float vx = e->body.vx, vy = e->body.vy;
+  float dx = e->body.x - hero_x(), dy = e->body.y - hero_y(), d = sqrtf(dx * dx + dy * dy);
+  bool left = e->body.x < hero_x(), below = e->body.y < hero_y();
+  vx += (d > dist) == left ? accel : -accel;
+  if (!height) vy += (d > dist) == below ? accel : -accel;
+  else {
+    if (e->body.y < hero_y()) vy += accel;
+    if (e->body.y > hero_y()) vy -= accel;
+  }
+  e->body.vx = vx > vmax ? vmax : vx < -vmax ? -vmax : vx;
+  e->body.vy = vy > vmax ? vmax : vy < -vmax ? -vmax : vy;
+}
+
+/* ---------------------------------------------------------------- enemies' shots (EnemyBullet) */
+#define MAX_BULLETS 8
+typedef struct {
+  bool on, active;
+  float x, y, vx, vy, scale, ang;
+  Anim anim;
+} Bullet;
+static Bullet bullets[MAX_BULLETS];
+#define BULLET_HX (0.6406f / 2)
+#define BULLET_HY (0.5625f / 2)
+
+/* FireAtTarget: from (x, y) at the hero, at a speed */
+static void bullet_fire(float x, float y, float speed) {
+  Bullet *b = NULL;
+  for (int i = 0; i < MAX_BULLETS && !b; i++)
+    if (!bullets[i].on) b = &bullets[i];
+  if (!b) return;
+  memset(b, 0, sizeof *b);
+  b->on = b->active = true;
+  b->x = x, b->y = y;
+  b->scale = rand_range(1.15f, 1.45f) * 0.7f;   /* (its random scale, on the prefab's) */
+  float dx = hero_x() - x, dy = hero_y() - y, l = sqrtf(dx * dx + dy * dy);
+  if (l < 1e-4f) l = 1, dx = 1;
+  b->vx = dx / l * speed, b->vy = dy / l * speed;
+  anim_play(&b->anim, CLIP_BULLET_IDLE);
+}
+
+static void bullet_impact(Bullet *b) {
+  b->active = false;
+  b->vx = b->vy = 0;
+  anim_play_from_frame(&b->anim, CLIP_BULLET_IMPACT, 0);
+}
+
+static void bullets_tick(void) {
+  for (int i = 0; i < MAX_BULLETS; i++) {
+    Bullet *b = &bullets[i];
+    if (!b->on) continue;
+    b->anim.events = 0;
+    anim_update(&b->anim, DT);
+    if (!b->active) {
+      if (b->anim.events & ANIM_DONE) b->on = false;
+      continue;
+    }
+    b->vy += -60 * 0.05f * DT;   /* (its Rigidbody2D: gravity 0.05) */
+    float dx = b->vx * DT, dy = b->vy * DT, l = sqrtf(dx * dx + dy * dy);
+    PhysHit hit;
+    if (l > 0 && phys_ray(b->x, b->y, dx / l, dy / l, l + BULLET_HX, CF_SOLID, &hit)) {
+      b->x = hit.x - dx / l * BULLET_HX, b->y = hit.y - dy / l * BULLET_HX;
+      b->ang = atan2f(hit.ny, hit.nx) * 180 / (float)M_PI + 90;
+      bullet_impact(b);
+      continue;
+    }
+    b->x += dx, b->y += dy;
+    b->ang = atan2f(b->vy, b->vx) * 180 / (float)M_PI;
+    if (b->y < -10) b->on = false;
+  }
+}
+
+/* (a shot that touched the HeroBox bursts there) */
+static int bullets_touch_hero(float x0, float y0, float x1, float y1, int *side) {
+  for (int i = 0; i < MAX_BULLETS; i++) {
+    Bullet *b = &bullets[i];
+    if (!b->on || !b->active) continue;
+    float hx = BULLET_HX * b->scale, hy = BULLET_HY * b->scale;
+    if (x1 > b->x - hx && x0 < b->x + hx && y1 > b->y - hy && y0 < b->y + hy) {
+      *side = b->vx < 0 ? SIDE_RIGHT : SIDE_LEFT;
+      bullet_impact(b);
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static void bullets_draw(void) {
+  for (int i = 0; i < MAX_BULLETS; i++) {
+    const Bullet *b = &bullets[i];
+    if (!b->on) continue;
+    /* (stretched along its flight) */
+    float sp = sqrtf(b->vx * b->vx + b->vy * b->vy), sy = 1 - sp * 1.2f * 0.01f, sx = 1 + sp * 1.2f * 0.01f;
+    if (!b->active) sx = sy = 1;
+    Inst in;
+    sprite_inst_rot(b->anim.sprite, b->x, b->y, -0.01f, sx * b->scale, sy * b->scale, b->ang, 0, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+  }
+}
+
+/* ---------------------------------------------------------------- Aspid Hunters: the spitter FSM */
+enum { SP_IDLE, SP_DISTANCE_FLY, SP_RAYCAST, SP_FLY_BACK, SP_FIRE_ANTIC, SP_FIRE, SP_DRIBBLE };
+
+static bool spitter_unalert_range(const Enemy *e) {
+  /* the hero in its Unalert Range (its circle) */
+  const Ent *d = ent_at(e->ent);
+  for (int i = 1; i <= d->s0; i++) {
+    const Ent *r = &d[i];
+    if (r->type != ENT_BOX || r->flags != ET_RANGE) continue;
+    float dx = hero_x() - (e->body.x + r->x0 * (e->sx < 0 ? -1 : 1)), dy = hero_y() - (e->body.y + r->y0);
+    return dx * dx + dy * dy < r->x1 * r->x1;
+  }
+  return true;
+}
+
+static void spitter_idle(Enemy *e) {
+  e->st = SP_IDLE;
+  anim_play_from_frame(&e->anim, CLIP(e, R_A1), 2);
+  e->start_x = e->body.x, e->start_y = e->body.y;
+  e->wait = 0, e->ax = e->ay = 0;
+}
+
+static void spitter_distance_fly(Enemy *e) {
+  e->st = SP_DISTANCE_FLY;
+  anim_play_from_frame(&e->anim, CLIP(e, R_A1), 2);
+  e->t0 = rand_range(1.5f, 2.25f);
+}
+
+static void spitter_start(Enemy *e, const Ent *d) {
+  spitter_idle(e);
+  if (d->s1 & 1) spitter_distance_fly(e);   /* (startAlert) */
+}
+
+static void spitter_face(Enemy *e, bool turn_clip) {
+  float want = hero_x() > e->body.x ? -fabsf(e->sx) : fabsf(e->sx);
+  if (e->sx != want) {
+    set_scale_x(e, want);
+    if (turn_clip) anim_play_from_frame(&e->anim, CLIP(e, R_A2), 0);
+  }
+}
+
+static void spitter_fixed(Enemy *e) {
+  switch (e->st) {
+    case SP_IDLE: idle_buzz(e); break;
+    case SP_DISTANCE_FLY:
+    case SP_RAYCAST: distance_fly(e, 7, 4, 0.1f, false); break;
+    case SP_FLY_BACK: distance_fly(e, 8.25f, 4, 0.1f, false); break;
+    case SP_FIRE_ANTIC: distance_fly(e, 9, 2, 0.1f, false); break;
+    default: break;
+  }
+}
+
+static void spitter_update(Enemy *e) {
+  /* the range out timer: out of its unalert range 8 s, it gives up */
+  if (e->st >= SP_DISTANCE_FLY && e->st <= SP_RAYCAST) {
+    if (spitter_unalert_range(e)) e->t1 = 0;
+    else if ((e->t1 += DT) > 8) {
+      spitter_idle(e);
+      return;
+    }
+  }
+  switch (e->st) {
+    case SP_IDLE:
+      face_direction(e, &e->pause0, CLIP(e, R_A2));
+      if (e->can_see && e->in_alert) spitter_distance_fly(e);
+      break;
+    case SP_DISTANCE_FLY:
+      spitter_face(e, true);
+      if ((e->t0 -= DT) <= 0) {
+        /* Raycast: near enough, nothing between: fire */
+        float dx = hero_x() - e->body.x, dy = hero_y() - e->body.y, l = sqrtf(dx * dx + dy * dy);
+        if (l > 14) spitter_distance_fly(e);
+        else {
+          bool blocked = l > 1e-4f && phys_ray(e->body.x, e->body.y, dx / l, dy / l, l, CF_TERRAIN, NULL);
+          if (blocked) spitter_distance_fly(e);
+          else e->st = SP_FLY_BACK, e->t0 = 0.5f;
+        }
+      }
+      break;
+    case SP_FLY_BACK:
+      spitter_face(e, true);
+      if ((e->t0 -= DT) <= 0) {
+        e->st = SP_FIRE_ANTIC;
+        anim_play_from_frame(&e->anim, CLIP(e, R_A3), 0);
+      }
+      break;
+    case SP_FIRE_ANTIC:
+      spitter_face(e, false);
+      if (e->anim.events & ANIM_TRIGGER) {
+        /* Fire: its shot at the hero */
+        bullet_fire(e->body.x, e->body.y, 15);
+        spitter_face(e, false);
+        e->st = SP_DRIBBLE;
+      }
+      break;
+    case SP_DRIBBLE:
+      if ((e->anim.events & ANIM_DONE) || !e->anim.playing) spitter_distance_fly(e);
+      break;
+  }
+}
+
 /* ---------------------------------------------------------------- Husks: the Zombie Swipe FSM, a Walker */
 enum { ZS_READY, ZS_ANTICIPATE, ZS_LUNGE, ZS_COOLDOWN, ZS_IDLE };
 #define ZS_LUNGE_SPEED 6.0f
@@ -635,12 +1042,14 @@ static void husk_attack(Enemy *e) {
   /* Left or Right?: the walker stopped, facing the hero (Face Left / Face Right) */
   walker_stop(e, STOP_CONTROLLED);
   bool right = hero_x() > e->body.x;
-  e->ax = right ? ZS_LUNGE_SPEED : -ZS_LUNGE_SPEED;
+  const Ent *v = enemy_rec(e, ET_VARS);
+  float speed = v ? v->p0 : ZS_LUNGE_SPEED;
+  e->ax = right ? speed : -speed;
   set_scale_x(e, right ? -fabsf(e->sx) : fabsf(e->sx));
   e->wk_facing = right ? 1 : -1;   /* (SetWalkerFacing: ChangeFacing) */
   /* Anticipate */
   e->body.vx = e->body.vy = 0;
-  anim_play_from_frame(&e->anim, CLIP_HUSK_ATTACK_ANTICIPATE, 0);
+  anim_play_from_frame(&e->anim, CLIP(e, R_A1), 0);
   e->st = ZS_ANTICIPATE;
 }
 
@@ -664,24 +1073,27 @@ static void husk_update(Enemy *e) {
     case ZS_ANTICIPATE:
       if (done) {
         e->st = ZS_LUNGE;
-        anim_play_from_frame(&e->anim, CLIP_HUSK_ATTACK_LUNGE, 0);
+        anim_play_from_frame(&e->anim, CLIP(e, R_A2), 0);
       }
       break;
     case ZS_LUNGE:
       if (done) {
         e->st = ZS_COOLDOWN;
-        anim_play_from_frame(&e->anim, CLIP_HUSK_ATTACK_COOLDOWN, 0);
+        anim_play_from_frame(&e->anim, CLIP(e, R_A3), 0);
         e->body.vx = 0;
       }
       break;
     case ZS_COOLDOWN:
       if (done) {
         e->st = ZS_IDLE, e->t0 = 0;
-        anim_play(&e->anim, CLIP_HUSK_IDLE);
+        anim_play(&e->anim, CLIP(e, R_IDLE));
       }
       break;
-    case ZS_IDLE:
-      if ((e->t0 += DT) >= ZS_IDLE_TIME) husk_ready(e);
+    case ZS_IDLE: {
+      const Ent *v = enemy_rec(e, ET_VARS);
+      if ((e->t0 += DT) >= (v ? v->p1 : ZS_IDLE_TIME)) husk_ready(e);
+      break;
+    }
       break;
   }
 }
@@ -737,17 +1149,6 @@ static float hero_dist(const Enemy *e) {
 static bool roamed_off(const Enemy *e) {
   float dx = e->body.x - e->start_x, dy = e->body.y - e->start_y;
   return dx * dx + dy * dy > SHADE_MAX_ROAM * SHADE_MAX_ROAM;
-}
-
-/* DistanceFly (targets height): keeps a distance from the hero, at its height */
-static void distance_fly(Enemy *e, float dist, float vmax, float accel) {
-  float vx = e->body.vx, vy = e->body.vy, d = hero_dist(e);
-  bool left = e->body.x < hero_x();
-  vx += (d > dist) == left ? accel : -accel;
-  if (e->body.y < hero_y()) vy += accel;
-  if (e->body.y > hero_y()) vy -= accel;
-  e->body.vx = vx > vmax ? vmax : vx < -vmax ? -vmax : vx;
-  e->body.vy = vy > vmax ? vmax : vy < -vmax ? -vmax : vy;
 }
 
 static void shade_retreat(Enemy *e) {
@@ -834,7 +1235,7 @@ static void shade_killed(Enemy *e) {
 void enemies_hero_leave(void) {
   for (int i = 0; i < MAX_ENEMIES; i++) {
     Enemy *e = &en[i];
-    if (e->kind != EK_SHADE || e->mode != EM_ALIVE) continue;
+    if (FSM(e) != EF_SHADE || e->mode != EM_ALIVE) continue;
     e->mode = EM_CORPSE, e->flags |= 1, sh.slash_on = false;
     anim_play(&e->anim, CLIP_SHADE_FLY);
     shade_face_hero(e, CLIP_SHADE_TURNTOFLY);
@@ -855,8 +1256,8 @@ static void shade_fixed(Enemy *e) {
       break;
     }
     case SH_POSITION:
-    case SH_SLASH_ANTIC: distance_fly(e, 3, 4, 0.2f); break;
-    case SH_FIREBALL_POS: distance_fly(e, 12, 4, 0.2f); break;
+    case SH_SLASH_ANTIC: distance_fly(e, 3, 4, 0.2f, true); break;
+    case SH_FIREBALL_POS: distance_fly(e, 12, 4, 0.2f, true); break;
     case SH_CAST_ANTIC: e->body.vx *= 0.8f, e->body.vy *= 0.8f; break;
     case SH_DECEL:
     case SH_COOLDOWN:
@@ -1071,12 +1472,16 @@ void enemies_enter(void) {
     e->rc_base = rc ? rc->x0 : 15, e->rc_dur = rc ? rc->y0 : 0.5f, e->rc_flags = rc ? (uint8_t)rc->a : 0;
     const Ent *wk = enemy_rec(e, ET_WALKER);
     e->wk_rec = wk ? (uint16_t)(wk - room_ents(&n)) : 0;
-    if (e->kind == EK_CRAWLER) crawler_start(e, d);
-    else if (e->kind == EK_BUZZER) buzzer_start(e, d);
-    else if (e->kind == EK_HUSK) husk_start(e);
+    if (FSM(e) == EF_CRAWLER) crawler_start(e, d);
+    else if (FSM(e) == EF_BUZZER) buzzer_start(e, d);
+    else if (FSM(e) == EF_HUSK) husk_start(e);
+    else if (FSM(e) == EF_CLIMBER) climber_start(e);
+    else if (FSM(e) == EF_BOUNCER) bouncer_start(e);
+    else if (FSM(e) == EF_SPITTER) spitter_start(e, d);
   }
   memset(&sh, 0, sizeof sh);
   memset(balls, 0, sizeof balls);
+  memset(bullets, 0, sizeof bullets);
   shade_spawn_check();
 }
 
@@ -1085,21 +1490,28 @@ void enemies_fixed(void) {
   for (int i = 0; i < MAX_ENEMIES; i++) {
     Enemy *e = &en[i];
     if (e->mode == EM_OFF) continue;
-    if (e->kind == EK_SHADE) {
+    if (FSM(e) == EF_SHADE) {
       if (e->mode == EM_ALIVE) shade_fixed(e), recoil_fixed(e);
       else shade_fixed(e);
       if (e->st != SH_RETREAT) body_step(&e->body, DT);
       continue;
     }
+    if (e->mode == EM_ALIVE && FSM(e) == EF_CLIMBER) {
+      /* (a kinematic body: its velocity, nothing in its way) */
+      recoil_fixed(e);
+      e->body.x += e->body.vx * DT, e->body.y += e->body.vy * DT;
+      continue;
+    }
     if (e->mode == EM_ALIVE) {
-      if (e->kind == EK_CRAWLER) crawler_fixed(e);
-      else if (e->kind == EK_BUZZER) buzzer_fixed(e);
-      else if (e->kind == EK_HUSK) husk_fixed(e);
+      if (FSM(e) == EF_CRAWLER) crawler_fixed(e);
+      else if (FSM(e) == EF_BUZZER) buzzer_fixed(e);
+      else if (FSM(e) == EF_HUSK) husk_fixed(e);
+      else if (FSM(e) == EF_BOUNCER) bouncer_fixed(e);
+      else if (FSM(e) == EF_SPITTER) spitter_fixed(e);
       recoil_fixed(e);
       body_step(&e->body, DT);
     } else {
       /* Corpse: falls, lands (or smashes, a breaker) and stays */
-      const Kind *k = &kinds[e->kind];
       const Ent *cr = enemy_rec(e, ET_CORPSE);
       bool breaker = cr && (cr->a & CF_BREAKER);
       float cbounce = cr ? cr->p1 : -1;
@@ -1111,12 +1523,12 @@ void enemies_fixed(void) {
         for (int c = 0; c < e->body.ncontacts; c++) ground |= e->body.cny[c] > 0.5f;
         if (ground) {
           if (breaker) {
-            anim_play(&e->anim, k->clip_death_land);
+            anim_play(&e->anim, kinds[e->kind].clip[R_DEATH_LAND]);
             e->body.vx = e->body.vy = 0;
             e->st = CS_DEATH_ANIM;
           } else {
             bounce(&e->body, pvx, pvy, had, cbounce);
-            anim_play(&e->anim, k->clip_death_land);
+            anim_play(&e->anim, kinds[e->kind].clip[R_DEATH_LAND]);
             e->st = CS_LANDED;
           }
         } else
@@ -1127,6 +1539,7 @@ void enemies_fixed(void) {
   }
   geo_tick();
   balls_tick();
+  bullets_tick();
 }
 
 /* Update: the FSMs' every-frame actions, the animations, the timers */
@@ -1140,10 +1553,13 @@ void enemies_update(void) {
     if (e->mode == EM_ALIVE) {
       if (e->evasion > 0) e->evasion -= DT;
       if (e->ar_r > 0) sight_update(e);
-      if (e->kind == EK_BUZZER) buzzer_update(e, ent_at(e->ent));
-      else if (e->kind == EK_SHADE) shade_update(e);
-      else if (e->kind == EK_HUSK) husk_update(e);
-    } else if (e->kind == EK_SHADE)
+      if (FSM(e) == EF_BUZZER) buzzer_update(e, ent_at(e->ent));
+      else if (FSM(e) == EF_SHADE) shade_update(e);
+      else if (FSM(e) == EF_HUSK) husk_update(e);
+      else if (FSM(e) == EF_CLIMBER) climber_update(e);
+      else if (FSM(e) == EF_BOUNCER) bouncer_update(e);
+      else if (FSM(e) == EF_SPITTER) spitter_update(e);
+    } else if (FSM(e) == EF_SHADE)
       shade_update(e);
     else if (e->st == CS_DEATH_ANIM && !e->anim.playing)
       e->mode = EM_OFF;
@@ -1155,15 +1571,19 @@ void enemies_draw(void) {
     const Enemy *e = &en[i];
     if (e->mode == EM_OFF) continue;
     Inst in;
-    float z = e->mode == EM_CORPSE && e->kind != EK_SHADE ? 0.0085f : e->z;
-    if (e->kind == EK_SHADE && e->st == SH_DISSIPATE) continue;   /* (its renderer off) */
-    sprite_inst(e->anim.sprite, e->body.x + e->jx, e->body.y + e->jy, z, e->sx, 1, flash_tint(e, 2 + i % 5), &in);
+    float z = e->mode == EM_CORPSE && FSM(e) != EF_SHADE ? 0.0085f : e->z;
+    if (FSM(e) == EF_SHADE && e->st == SH_DISSIPATE) continue;   /* (its renderer off) */
+    if (e->ang != 0 && e->mode == EM_ALIVE)
+      sprite_inst_rot(e->anim.sprite, e->body.x, e->body.y, z, e->sx, 1, e->ang, flash_tint(e, 2 + i % 5), &in);
+    else
+      sprite_inst(e->anim.sprite, e->body.x + e->jx, e->body.y + e->jy, z, e->sx, 1, flash_tint(e, 2 + i % 5), &in);
     gfx_actor(&in, SORT_KEY(0, 0));
-    if (e->kind == EK_SHADE && sh.slash_on) {
+    if (FSM(e) == EF_SHADE && sh.slash_on) {
       sprite_inst(sh.slash.sprite, e->body.x - 0.0486f * e->sx, e->body.y - 0.0117f, z - 0.001f, 1.27f * e->sx, 1, 0, &in);
       gfx_actor(&in, SORT_KEY(0, 0));
     }
   }
+  bullets_draw();
   for (int i = 0; i < MAX_BALLS; i++) {
     const Ball *b = &balls[i];
     if (!b->on) continue;
@@ -1211,7 +1631,7 @@ int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side) {
       *side = e->body.x > g_hero.body.x ? SIDE_RIGHT : SIDE_LEFT;
       return e->damage;
     }
-    if (e->kind == EK_SHADE && sh.slash_on) {
+    if (FSM(e) == EF_SHADE && sh.slash_on) {
       /* its Slash's polygon */
       float pts[10];
       for (int k = 0; k < 5; k++)
@@ -1222,6 +1642,8 @@ int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side) {
       }
     }
   }
+  int dmg = bullets_touch_hero(x0, y0, x1, y1, side);
+  if (dmg) return dmg;
   for (int i = 0; i < MAX_BALLS; i++) {
     const Ball *b = &balls[i];
     if (!b->on || b->ending) continue;

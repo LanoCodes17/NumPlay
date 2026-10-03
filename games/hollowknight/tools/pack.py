@@ -423,6 +423,10 @@ def main():
         for i, k in enumerate(text.STYLES):
             f.write("#define STYLE_%s %d\n" % (k, i))
         f.write("#define TEXT_K %.6ff\n#define FONT_PHASES %d\n" % (text.TEXT_K, text.PHASES))
+        for i, k in enumerate(actors.ENEMY_KINDS):
+            f.write("#define EK_%s %d\n" % (k[0].upper(), i + 1))
+        f.write("#define NUM_KINDS %d\n" % (len(actors.ENEMY_KINDS) + 1))
+        f.write("#define KIND_TABLE %s\n" % actors.kind_table({c["id"]: i for i, c in enumerate(clips)}))
         for k, v in prompt_ids.items():
             f.write("#define TXT_PROMPT_%s %d\n" % (k.upper(), v))
         f.write("#define PROMPT_SORT %du\n" % ((scene.layer_index(-349214895) << 16) | (1 + 32768)))

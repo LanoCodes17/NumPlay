@@ -55,7 +55,7 @@ PD_CONST = {"backerCredits": False, "equippedCharm_10": False, "elderbugGaveFlow
             "visitedCrossroadsInfected": False, "defeatedNightmareGrimm": False, "jijiDoorUnlocked": False,
             "visitedCliffs": False, "mineLiftOpened": False, "brettaRescued": False, "elderbugHistory2": False,
             "shamanFireball2Convo": False, "shamanScreamConvo": False, "shamanScream2Convo": False,
-            "shamanQuakeConvo": False, "shamanQuake2Convo": False, "hasDreamNail": False, "equippedCharm_19": False,
+            "shamanQuakeConvo": False, "shamanQuake2Convo": False, "hasDreamNail": False,
             "equippedCharm_11": False, "dungDefenderEncounterReady": False, "elderbugSpeechBretta": False,
             "elderbugSpeechJiji": False, "elderbugSpeechKingsPass": False, "elderbugSpeechMinesLift": False,
             "elderbugSpeechInfectedCrossroads": False, "elderbugSpeechFinalBossDoor": False, "hasDoubleJump": False,

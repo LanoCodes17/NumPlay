@@ -72,6 +72,8 @@ typedef struct {
 #define PD_SAVED offsetof(PlayerData, persist)
 extern PlayerData g_pd;
 static inline bool pd_flag(int f) { return g_pd.flags[f >> 3] >> (f & 7) & 1; }
+/* (equippedCharm_N) */
+static inline bool charm_on(int id) { return pd_flag(PDF_EQUIPPED_CHARM_1 + id - 1); }
 static inline void pd_set_flag(int f, bool on) {
   if (on) g_pd.flags[f >> 3] |= (uint8_t)(1 << (f & 7));
   else g_pd.flags[f >> 3] &= (uint8_t)~(1 << (f & 7));
@@ -216,6 +218,7 @@ enum { ATK_NORMAL, ATK_UP, ATK_DOWN };
 enum { SLASH_NORMAL, SLASH_ALT, SLASH_UP, SLASH_DOWN };
 enum { DAMAGE_FULL, DAMAGE_HAZARD_ONLY, DAMAGE_NONE };
 #define RECOIL_DURATION 0.2f
+#define RECOIL_DURATION_STAL 0.08f   /* (Stalwart Shell) */
 
 typedef struct {   /* HeroControllerStates */
   bool facing_right, on_ground, jumping, dashing, falling, attacking, up_attacking, down_attacking, alt_attack;
@@ -249,6 +252,7 @@ typedef struct {
   bool invuln_routine, pulsing, pulse_reverse, respawning;
   int8_t thunk_dir;
   bool thunk_hit;
+  bool fury;            /* (Charm Effects' Fury: on at one mask, with Fury of the Fallen) */
   float thunk_timer;
   /* HeroAnimationController */
   Anim anim;

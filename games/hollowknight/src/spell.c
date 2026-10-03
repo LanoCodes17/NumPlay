@@ -5,7 +5,8 @@
 #define DT 0.02f
 #define BUTTON_DOWN_TIME 0.25f
 #define FOCUS_START_TIME 0.25f
-#define TIME_PER_MP_DRAIN 0.027f   /* (Time Per MP Drain UnCH: no charm) */
+#define TIME_PER_MP_DRAIN 0.027f      /* (Time Per MP Drain UnCH: no charm) */
+#define TIME_PER_MP_DRAIN_CH 0.018f   /* (Time Per MP Drain CH: Quick Focus) */
 #define GRACE_TIME 0.45f
 #define MP_COST 33
 
@@ -23,7 +24,7 @@ static struct {
   int start_mp;
   /* (HeroController's MP drain) */
   bool drain;
-  float drain_timer;
+  float drain_timer, drain_time;
   int drained;
 } sp;
 
@@ -37,7 +38,11 @@ void spell_reset(void) {
 }
 
 /* StartMPDrain, StopMPDrain; the drain itself is HeroController.Update's */
-static void drain_start(void) { sp.drain = true, sp.drain_timer = 0, sp.drained = 0; }
+/* (StartMPDrain, at the Time Per MP Drain that Set Focus Speed chose) */
+static void drain_start(void) {
+  sp.drain = true, sp.drain_timer = 0, sp.drained = 0;
+  sp.drain_time = charm_on(7) ? TIME_PER_MP_DRAIN_CH : TIME_PER_MP_DRAIN;
+}
 
 static void focus_end_common(void) {
   sp.drain = false;
@@ -95,9 +100,9 @@ void spell_update(void) {
   /* HeroController.Update's MP drain */
   if (sp.drain) {
     sp.drain_timer += DT;
-    while (sp.drain_timer >= TIME_PER_MP_DRAIN) {
+    while (sp.drain_timer >= sp.drain_time) {
       sp.drained++;
-      sp.drain_timer -= TIME_PER_MP_DRAIN;
+      sp.drain_timer -= sp.drain_time;
       if (g_pd.mp > 0) g_pd.mp--;
       if (sp.drained == MP_COST && sp.state == SP_FOCUS) {
         /* FOCUS COMPLETED: Spore Cloud, Set HP Amount, Focus Heal */
@@ -236,16 +241,17 @@ void spell_cast(bool up, bool down) {
 /* ---------------------------------------------------------------- Vengeful Spirit (Fireball Top, Fireball) */
 #define MAX_FIREBALLS 2
 #define FIRE_SPEED 40.0f
-#define FB_SX 1.3f             /* (Set Damage: its scale) */
+#define FB_SX 1.3f             /* (Set Damage: its scale with Shaman Stone; 1 without) */
 #define FB_SY 1.6f
 #define FB_DAMAGE 15
+#define FB_DAMAGE_SHAMAN 20
 #define FB_MAGNITUDE 1.5f      /* (damages_enemy: magnitudeMult) */
 enum { FB_OFF, FB_PAUSE, FB_IDLE, FB_DISSIPATE, FB_GONE, FB_WALL };
 
 typedef struct {
   uint8_t st;
   bool right;
-  float t;
+  float t, sx, sy;        /* (its scale) */
   Body body;              /* (its Terrain Checker's box: what stops it) */
   Anim anim, blast, impact;
   float bx, by;           /* the blast's place (Fireball Top's child) */
@@ -266,6 +272,7 @@ static void fireball_spawn(void) {
     }
   const Hero *h = &g_hero;
   memset(f, 0, sizeof *f);
+  f->sx = charm_on(19) ? FB_SX : 1, f->sy = charm_on(19) ? FB_SY : 1;   /* (Set Damage) */
   /* Fireball Top, at the Knight: its blast ahead of him, the camera shaken, the fireball sent off */
   f->right = h->cs.facing_right;
   float k = f->right ? 1.0f : -1.0f;
@@ -277,7 +284,7 @@ static void fireball_spawn(void) {
   b->x = h->body.x + 1.1683f * k, b->y = h->body.y - 0.5428f;
   b->vx = FIRE_SPEED * k;
   /* (the Terrain Checker's box, at the fireball's scale) */
-  b->ox = 0.513f * k, b->oy = -0.032f, b->hx = 0.887f, b->hy = 0.504f;
+  b->ox = 0.3948f * f->sx * k, b->oy = -0.02f * f->sy, b->hx = 0.68255f * f->sx, b->hy = 0.315f * f->sy;
   b->mask = CF_TERRAIN;
   anim_play(&f->anim, CLIP_FIREBALL_BALL);
   f->st = FB_PAUSE;
@@ -285,10 +292,11 @@ static void fireball_spawn(void) {
 
 static void fireball_hit_things(Fireball *f) {
   /* (its trigger box: 2.61 x 2.12 about (0.53, -0.02), at its scale) */
-  float k = f->right ? 1.0f : -1.0f, cx = f->body.x + 0.5344f * FB_SX * k, cy = f->body.y - 0.0179f * FB_SY;
-  float hx = 2.6111f / 2 * FB_SX, hy = 2.1246f / 2 * FB_SY;
+  float k = f->right ? 1.0f : -1.0f, cx = f->body.x + 0.5344f * f->sx * k, cy = f->body.y - 0.0179f * f->sy;
+  float hx = 2.6111f / 2 * f->sx, hy = 2.1246f / 2 * f->sy;
   float dir = f->right ? 0 : 180;
-  f->hit_enemies |= enemies_spell(cx - hx, cy - hy, cx + hx, cy + hy, dir, FB_DAMAGE, FB_MAGNITUDE, f->hit_enemies);
+  int damage = f->sx > 1 ? FB_DAMAGE_SHAMAN : FB_DAMAGE;
+  f->hit_enemies |= enemies_spell(cx - hx, cy - hy, cx + hx, cy + hy, dir, damage, FB_MAGNITUDE, f->hit_enemies);
   obj_spell(cx - hx, cy - hy, cx + hx, cy + hy, dir, f->hit_objs);
   vm_spell(cx - hx, cy - hy, cx + hx, cy + hy);
 }
@@ -357,12 +365,12 @@ void fireballs_draw(void) {
       gfx_actor(&in, SORT_KEY(0, 0));
     }
     if (f->st == FB_PAUSE || f->st == FB_IDLE || f->st == FB_DISSIPATE) {
-      sprite_inst(f->anim.sprite, f->body.x, f->body.y, -0.002f, FB_SX * k, FB_SY, 0, &in);
+      sprite_inst(f->anim.sprite, f->body.x, f->body.y, -0.002f, f->sx * k, f->sy, 0, &in);
       gfx_actor(&in, SORT_KEY(0, 0));
     }
     if (f->impact_on) {
       /* (Wall Impact: its child, 1.71 ahead, at 2.5 its scale) */
-      sprite_inst(f->impact.sprite, f->body.x + 1.7094f * FB_SX * k, f->body.y, -0.002f, 2.5f * FB_SX * k, 2.5f * FB_SY, 0, &in);
+      sprite_inst(f->impact.sprite, f->body.x + 1.7094f * f->sx * k, f->body.y, -0.002f, 2.5f * f->sx * k, 2.5f * f->sy, 0, &in);
       gfx_actor(&in, SORT_KEY(0, 0));
     }
   }

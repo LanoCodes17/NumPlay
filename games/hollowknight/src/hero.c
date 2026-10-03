@@ -290,7 +290,7 @@ void hero_nail_parry(void) { g_hero.parry_t = 0.25f; }
 
 void hero_recoil_left(void) {
   Hero *h = &g_hero;
-  if (!h->cs.recoiling_left && !h->cs.recoiling_right && !h->control_relinquished) {
+  if (!h->cs.recoiling_left && !h->cs.recoiling_right && !charm_on(14) && !h->control_relinquished) {
     cancel_dash();
     h->recoil_steps = 0;
     h->cs.recoiling_left = true, h->cs.recoiling_right = false;
@@ -300,7 +300,7 @@ void hero_recoil_left(void) {
 }
 void hero_recoil_right(void) {
   Hero *h = &g_hero;
-  if (!h->cs.recoiling_left && !h->cs.recoiling_right && !h->control_relinquished) {
+  if (!h->cs.recoiling_left && !h->cs.recoiling_right && !charm_on(14) && !h->control_relinquished) {
     cancel_dash();
     h->recoil_steps = 0;
     h->cs.recoiling_right = true, h->cs.recoiling_left = false;
@@ -329,7 +329,7 @@ static void terrain_thunk(void) {
   Hero *h = &g_hero;
   if (h->thunk_timer <= 0) return;
   if (!h->thunk_hit) {
-    float len = h->thunk_dir == ATK_NORMAL ? 2.0f : 1.5f;
+    float len = (h->thunk_dir == ATK_NORMAL ? 2.0f : 1.5f) * (charm_on(18) ? 1.2f : 1.0f);   /* (Longnail) */
     float hs = 0.225f;   /* the 0.45 box cast */
     float ox = bcx(), oy = bcy() + 0.25f, dx = 0, dy = 0;
     if (h->thunk_dir == ATK_NORMAL) dx = h->cs.facing_right ? 1 : -1;
@@ -595,7 +595,7 @@ static void update(void) {
     if (h->hard_landing_timer > HARD_LANDING_TIME) set_state(HS_GROUNDED), back_on_ground();
   } else if (h->state == HS_NO_INPUT) {
     if (h->cs.recoiling) {
-      if (h->recoil_timer < RECOIL_DURATION) h->recoil_timer += DT;
+      if (h->recoil_timer < (charm_on(4) ? RECOIL_DURATION_STAL : RECOIL_DURATION)) h->recoil_timer += DT;
       else {
         h->cs.recoiling = false, h->recoil_timer = 0, reset_motion(), affected_by_gravity(true);
         h->damage_mode = DAMAGE_FULL;
@@ -642,12 +642,13 @@ static void update(void) {
   if (h->attack_cooldown > 0) h->attack_cooldown -= DT;
   if (h->dash_cooldown_timer > 0) h->dash_cooldown_timer -= DT;
   terrain_thunk();
+  if (h->fury && g_pd.health != 1) h->fury = false;   /* (Fury: Recheck, healed; Deactivate) */
 }
 
 /* ---------------------------------------------------------------- HeroAnimationController */
 static void play_idle(void) {
   Hero *h = &g_hero;
-  if (g_pd.health == 1 && g_pd.health_blue < 1) anim_play(&h->anim, CLIP_KNIGHT_IDLE_HURT);
+  if (g_pd.health == 1 && g_pd.health_blue < 1) anim_play(&h->anim, charm_on(6) ? CLIP_KNIGHT_IDLE : CLIP_KNIGHT_IDLE_HURT);
   else if (anim_is_playing(&h->anim, CLIP_KNIGHT_LOOKUP)) anim_play(&h->anim, CLIP_KNIGHT_LOOKUPEND);
   else if (anim_is_playing(&h->anim, CLIP_KNIGHT_LOOKDOWN)) anim_play(&h->anim, CLIP_KNIGHT_LOOKDOWNEND);
   else anim_play(&h->anim, CLIP_KNIGHT_IDLE);
@@ -852,16 +853,18 @@ void hero_die(void) {
 
 /* ---------------------------------------------------------------- NailSlash: the slash effect, a child of the Knight */
 static const struct {
-  int clip;
+  int clip, fury;          /* (its animation; " F": while the Fury is on) */
   float x, y, z, sx, sy;   /* its place and scale on the Knight */
 } slashes[4] = {
-    {CLIP_KNIGHT_SLASHEFFECT, -0.01f, -0.41f, -0.001f, 1.6010780f, 1.6452440f},
-    {CLIP_KNIGHT_SLASHEFFECTALT, 0.08f, -0.436f, -0.001f, 1.2569700f, 1.4224339f},
-    {CLIP_KNIGHT_UPSLASHEFFECT, 0.0f, 0.69f, -0.001f, 1.15f, 1.4f},
-    {CLIP_KNIGHT_DOWNSLASHEFFECT, 0.16f, -1.59f, 0.0f, 1.125f, 1.28002f},
+    {CLIP_KNIGHT_SLASHEFFECT, CLIP_KNIGHT_SLASHEFFECT_F, -0.01f, -0.41f, -0.001f, 1.6010780f, 1.6452440f},
+    {CLIP_KNIGHT_SLASHEFFECTALT, CLIP_KNIGHT_SLASHEFFECTALT_F, 0.08f, -0.436f, -0.001f, 1.2569700f, 1.4224339f},
+    {CLIP_KNIGHT_UPSLASHEFFECT, CLIP_KNIGHT_UPSLASHEFFECT_F, 0.0f, 0.69f, -0.001f, 1.15f, 1.4f},
+    {CLIP_KNIGHT_DOWNSLASHEFFECT, CLIP_KNIGHT_DOWNSLASHEFFECT_F, 0.16f, -1.59f, 0.0f, 1.125f, 1.28002f},
 };
+#define LONGNAIL 1.15f   /* (NailSlash.StartSlash: Longnail's scale) */
 static struct {
   int kind;
+  float k;   /* (its scale: Longnail's) */
   bool slashing, shown, anim_completed;
   int step_counter, poly_counter;
   bool poly;
@@ -870,8 +873,10 @@ static struct {
 
 void slash_start(int kind) {
   sl.kind = kind;
-  anim_play(&sl.anim, slashes[kind].clip);
-  anim_play_from_frame(&sl.anim, slashes[kind].clip, 0);
+  sl.k = charm_on(18) ? LONGNAIL : 1;
+  int clip = g_hero.fury ? slashes[kind].fury : slashes[kind].clip;
+  anim_play(&sl.anim, clip);
+  anim_play_from_frame(&sl.anim, clip, 0);
   sl.step_counter = sl.poly_counter = 0;
   sl.poly = false;
   sl.anim_completed = false;
@@ -918,8 +923,8 @@ static void slash_hits(void) {
   const typeof(slashes[0]) *s = &slashes[sl.kind];
   float pts[12];
   for (int i = 0; i < 6; i++) {
-    pts[2 * i] = h->body.x + k * (s->x + s->sx * slash_poly[sl.kind][2 * i]);
-    pts[2 * i + 1] = h->body.y + s->y + s->sy * slash_poly[sl.kind][2 * i + 1];
+    pts[2 * i] = h->body.x + k * (s->x + s->sx * sl.k * slash_poly[sl.kind][2 * i]);
+    pts[2 * i + 1] = h->body.y + s->y + s->sy * sl.k * slash_poly[sl.kind][2 * i + 1];
   }
   float direction = sl.kind == SLASH_UP ? 90 : sl.kind == SLASH_DOWN ? 270 : h->cs.facing_right ? 0 : 180;
   int fl = obj_nail(pts, 6, direction);
@@ -946,7 +951,7 @@ void slash_draw(void) {
   float k = h->cs.facing_right ? -1.0f : 1.0f;   /* the Knight's x scale */
   const typeof(slashes[0]) *s = &slashes[sl.kind];
   Inst in;
-  sprite_inst(sl.anim.sprite, h->body.x + k * s->x, h->body.y + s->y, 0.004f + s->z, k * s->sx, s->sy, 0, &in);
+  sprite_inst(sl.anim.sprite, h->body.x + k * s->x, h->body.y + s->y, 0.004f + s->z, k * s->sx * sl.k, s->sy * sl.k, 0, &in);
   gfx_actor(&in, SORT_KEY(0, 0));
 }
 
@@ -1156,6 +1161,7 @@ void hero_finished_entering_scene(bool set_hazard_marker) {
 /* ---------------------------------------------------------------- damage (TakeDamage, StartRecoil, Invulnerable) */
 #define RECOIL_VELOCITY 15.0f
 #define INVUL_TIME 1.3f
+#define INVUL_TIME_STAL 1.75f   /* (Stalwart Shell) */
 #define DAMAGE_FREEZE_DOWN 0.001f
 #define PULSE_DURATION 0.1f
 
@@ -1232,13 +1238,25 @@ static void start_recoil(int side) {
     h->recoil_vx = h->recoil_vy = 0;
   set_state(HS_NO_INPUT);
   h->cs.recoil_frozen = true;
-  start_invulnerable(INVUL_TIME);
+  start_invulnerable(charm_on(4) ? INVUL_TIME_STAL : INVUL_TIME);
   game_freeze_moment();   /* (then hero_recoil_unfreeze) */
 }
 
 void hero_recoil_unfreeze(void) {
   g_hero.cs.recoil_frozen = false;
   g_hero.cs.recoiling = true;
+}
+
+/* TakeDamageCharmEffects: Grubsong's soul */
+#define GRUB_SOUL_MP 15
+static void add_mp_charge(int amount);
+static void take_damage_charm_effects(int damage) {
+  if (charm_on(3) && damage > 0) add_mp_charge(GRUB_SOUL_MP);
+}
+
+/* the Fury FSM (Charm Effects) as the Knight is hurt: Fury of the Fallen on at one mask (none of them lifeblood) */
+static void fury_check(void) {
+  if (!g_hero.fury) g_hero.fury = charm_on(6) && g_pd.health == 1;
 }
 
 /* PlayerData.TakeHealth: lifeblood first */
@@ -1263,7 +1281,9 @@ void hero_take_damage(int side, int damage, int hazard) {
     cancel_attack();
     if (h->cs.recoiling_left || h->cs.recoiling_right) cancel_recoil_horizontal();
     if (h->cs.bouncing) cancel_bounce(), h->body.vy = 0;
-    take_health(damage);
+    take_health(pd_flag(PDF_OVERCHARMED) ? damage * 2 : damage);
+    take_damage_charm_effects(damage);
+    fury_check();
     if (g_pd.health == 0) {
       hero_die();
       return;
@@ -1273,6 +1293,9 @@ void hero_take_damage(int side, int damage, int hazard) {
   } else if (h->cs.invulnerable && !h->cs.hazard_death && (hazard == HAZ_SPIKES || hazard == HAZ_ACID)) {
     /* (spikes and acid hurt even through invulnerability) */
     take_health(damage);
+    take_damage_charm_effects(damage);
+    vm_broadcast(VMEV_HERO_DAMAGED);   /* (HeroCtrl-HeroDamaged) */
+    fury_check();
     if (g_pd.health == 0) hero_die();
     else die_from_hazard();
   }
@@ -1326,10 +1349,10 @@ void hero_face(bool right) {
   else face_left();
 }
 void hero_gravity(bool on) { affected_by_gravity(on); }
-/* MaxHealth: whole again, the lifeblood gone (UpdateBlueHealth) */
+/* MaxHealth: whole again, the lifeblood as the charms give it (UpdateBlueHealth: Lifeblood Heart's two) */
 void hero_max_health(void) {
   g_pd.health = g_pd.max_health;
-  g_pd.health_blue = 0;
+  g_pd.health_blue = charm_on(8) ? 2 : 0;
 }
 
 /* ADD BLUE HEALTH (Blue Health Control) */
@@ -1410,7 +1433,10 @@ static void add_mp_charge(int amount) {
     p->mp = (int16_t)(p->mp + amount);
 }
 
-void hero_soul_gain(void) { add_mp_charge(g_pd.mp < g_pd.max_mp ? 11 : 6); }
+void hero_soul_gain(void) {
+  if (g_pd.mp < g_pd.max_mp) add_mp_charge(charm_on(20) ? 14 : 11);   /* (Soul Catcher: more) */
+  else add_mp_charge(charm_on(20) ? 8 : 6);
+}
 void hero_add_mp_charge(int amount) { add_mp_charge(amount); }
 
 void hero_add_geo(int amount) { g_pd.geo += amount; }
@@ -1444,8 +1470,8 @@ void hero_relinquish_control_not_velocity(void) {
   h->touching_wall_l = h->touching_wall_r = false;
 }
 
-/* CharmUpdate: the Knight as his charms make him (charm effects: hero.c's own as they are read) */
-void hero_charm_update(void) {}
+/* CharmUpdate: the Knight as his charms make him, whole again (the other charms' effects: where they are read) */
+void hero_charm_update(void) { hero_max_health(); }
 
 void hero_regain_control(void) {
   Hero *h = &g_hero;

@@ -156,6 +156,7 @@ bool anim_is_playing(const Anim *a, int clip);
 void anim_update(Anim *a, float dt);
 float clip_duration(int clip);
 int clip_frames_count(int clip);
+int clip_frame_sprite(int clip, int frame);
 uint16_t to_f16(float f);
 void sprite_inst(int sprite, float x, float y, float z, float sx, float sy, uint8_t tint, Inst *out);
 void sprite_inst_rot(int sprite, float x, float y, float z, float sx, float sy, float degrees, uint8_t tint, Inst *out);

@@ -174,10 +174,11 @@ typedef struct {
   bool on;
   uint8_t type;   /* 0 small (1), 1 medium (5), 2 large (25) */
   uint8_t ncontacts, ccol[GEO_CONTACTS];
+  uint8_t getter;   /* (Gathering Swarm: its bug's chances, 1 + a number; 0: none) */
   float x, y, vx, vy;
   float cnx[GEO_CONTACTS], cny[GEO_CONTACTS];
   Anim anim;
-  float pickup_t;
+  float age;      /* (since it was flung: picked up after 0.25 s) */
 } Geo;
 static Geo geo[MAX_GEO];
 static const struct {
@@ -207,9 +208,22 @@ void geo_fling_at(int type, int n, float x, float y, float smin, float smax, flo
     float s = rand_range(smin, smax), a = rand_range(amin, amax) * (float)M_PI / 180;
     g->vx = cosf(a) * s, g->vy = sinf(a) * s;
     anim_play(&g->anim, geo_kinds[type].air);
-    g->pickup_t = 0.25f;
+    /* (GeoControl.OnEnable: the Getter with Gathering Swarm, but at the Grubfather's) */
+    if (charm_on(1) && strcmp(room_name(g_room.id), "Crossroads_38")) g->getter = (uint8_t)(1 + rand_range(0, 254.999f));
   }
 }
+
+/* the Getter's chances, from its number: the wait before the bug comes, its ease time, where it comes from */
+static float getter_rand(const Geo *g, int k, float lo, float hi) {
+  uint32_t h = (uint32_t)g->getter * 2654435761u + (uint32_t)k * 40503u;
+  h ^= h >> 13, h *= 0x5bd1e995u, h ^= h >> 15;
+  return lo + (hi - lo) * (float)(h & 0xffff) / 65535.0f;
+}
+#define GETTER_X (-0.06624349f)   /* (the bug's place on the geo) */
+#define GETTER_Y 0.1932119f
+static float getter_wait(const Geo *g) { return getter_rand(g, 0, 1, 1.7f); }
+static float getter_ease(const Geo *g) { return getter_rand(g, 1, 0.3f, 0.5f); }
+static bool geo_attracted(const Geo *g) { return g->getter && g->age >= getter_wait(g) + getter_ease(g); }
 
 /* ObjectBounce: off what it hit, at its speed before, times the bounce factor (and a little chance) */
 void body_bounce(Body *b, float pvx, float pvy, int had, float factor) {
@@ -229,31 +243,44 @@ static void geo_tick(void) {
   for (int i = 0; i < MAX_GEO; i++) {
     Geo *g = &geo[i];
     if (!g->on) continue;
-    Body b;
-    memset(&b, 0, sizeof b);
-    b.x = g->x, b.y = g->y, b.vx = g->vx, b.vy = g->vy;
-    b.ox = geo_kinds[g->type].ox * GEO_SCALE, b.oy = geo_kinds[g->type].oy * GEO_SCALE;
-    b.hx = geo_kinds[g->type].hx * GEO_SCALE, b.hy = geo_kinds[g->type].hy * GEO_SCALE;
-    b.gravity_scale = geo_kinds[g->type].gravity, b.friction = 0.2f, b.mask = CF_TERRAIN;
-    b.ncontacts = g->ncontacts;
-    for (int c = 0; c < g->ncontacts; c++) b.ccol[c] = g->ccol[c], b.cnx[c] = g->cnx[c], b.cny[c] = g->cny[c];
-    float pvx = b.vx, pvy = b.vy;
-    int had = b.ncontacts;
-    body_step(&b, DT);
-    bool hit = b.ncontacts > had;
-    if (hit) body_bounce(&b, pvx, pvy, had, geo_kinds[g->type].bounce);
-    g->x = b.x, g->y = b.y, g->vx = b.vx, g->vy = b.vy;
-    g->ncontacts = (uint8_t)(b.ncontacts < GEO_CONTACTS ? b.ncontacts : GEO_CONTACTS);
-    for (int c = 0; c < g->ncontacts; c++) g->ccol[c] = b.ccol[c], g->cnx[c] = b.cnx[c], g->cny[c] = b.cny[c];
-    if (hit) {
-      /* (OnCollisionEnter2D: the idle animation from a random frame) */
-      anim_play_from_frame(&g->anim, geo_kinds[g->type].idle, (int)rand_range(0, (float)clip_frames_count(geo_kinds[g->type].idle) - 0.001f));
+    g->age += DT;
+    float ox = geo_kinds[g->type].ox * GEO_SCALE, oy = geo_kinds[g->type].oy * GEO_SCALE;
+    float bhx = geo_kinds[g->type].hx * GEO_SCALE, bhy = geo_kinds[g->type].hy * GEO_SCALE;
+    if (geo_attracted(g)) {
+      /* (Gathering Swarm, attracted: no gravity, a trigger through all; pulled to below the Knight, at most 20 a
+       * second) */
+      float dx = h->body.x - g->x, dy = h->body.y - 0.5f - g->y, d = sqrtf(dx * dx + dy * dy);
+      if (d > 1) dx /= d, dy /= d;
+      g->vx += dx * 150 * DT, g->vy += dy * 150 * DT;
+      float v = sqrtf(g->vx * g->vx + g->vy * g->vy);
+      if (v > 20) g->vx *= 20 / v, g->vy *= 20 / v;
+      g->x += g->vx * DT, g->y += g->vy * DT;
+      g->ncontacts = 0;
+    } else {
+      Body b;
+      memset(&b, 0, sizeof b);
+      b.x = g->x, b.y = g->y, b.vx = g->vx, b.vy = g->vy;
+      b.ox = ox, b.oy = oy, b.hx = bhx, b.hy = bhy;
+      b.gravity_scale = geo_kinds[g->type].gravity, b.friction = 0.2f, b.mask = CF_TERRAIN;
+      b.ncontacts = g->ncontacts;
+      for (int c = 0; c < g->ncontacts; c++) b.ccol[c] = g->ccol[c], b.cnx[c] = g->cnx[c], b.cny[c] = g->cny[c];
+      float pvx = b.vx, pvy = b.vy;
+      int had = b.ncontacts;
+      body_step(&b, DT);
+      bool hit = b.ncontacts > had;
+      if (hit) body_bounce(&b, pvx, pvy, had, geo_kinds[g->type].bounce);
+      g->x = b.x, g->y = b.y, g->vx = b.vx, g->vy = b.vy;
+      g->ncontacts = (uint8_t)(b.ncontacts < GEO_CONTACTS ? b.ncontacts : GEO_CONTACTS);
+      for (int c = 0; c < g->ncontacts; c++) g->ccol[c] = b.ccol[c], g->cnx[c] = b.cnx[c], g->cny[c] = b.cny[c];
+      if (hit) {
+        /* (OnCollisionEnter2D: the idle animation from a random frame) */
+        anim_play_from_frame(&g->anim, geo_kinds[g->type].idle, (int)rand_range(0, (float)clip_frames_count(geo_kinds[g->type].idle) - 0.001f));
+      }
     }
     g->anim.events = 0;
     anim_update(&g->anim, DT);
-    if (g->pickup_t > 0) g->pickup_t -= DT;
-    float x0 = b.x + b.ox - b.hx, x1 = b.x + b.ox + b.hx, y0 = b.y + b.oy - b.hy, y1 = b.y + b.oy + b.hy;
-    if (g->pickup_t <= 0 && !h->hidden && x1 > hx - 0.2277069f && x0 < hx + 0.2277069f && y1 > hy - 0.5848932f &&
+    float x0 = g->x + ox - bhx, x1 = g->x + ox + bhx, y0 = g->y + oy - bhy, y1 = g->y + oy + bhy;
+    if (g->age >= 0.25f && !h->hidden && x1 > hx - 0.2277069f && x0 < hx + 0.2277069f && y1 > hy - 0.5848932f &&
         y0 < hy + 0.5848932f) {
       hero_add_geo(geo_kinds[g->type].value);
       g->on = false;
@@ -6669,6 +6696,17 @@ void enemies_draw(void) {
     if (!g->on) continue;
     Inst in;
     sprite_inst(g->anim.sprite, g->x, g->y, 0.0015f, GEO_SCALE, GEO_SCALE, 0, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+    /* (Gathering Swarm: its bug, eased in from above it to its place, then carrying it; Lamp_Bug_idle from its
+     * start) */
+    float t = g->getter ? g->age - getter_wait(g) : -1;
+    if (t < 0) continue;
+    float e = getter_ease(g), q = t >= e ? 1 : sinf(t / e * 1.5707964f);
+    float sx = GETTER_X + getter_rand(g, 2, -1, 1), sy = GETTER_Y + getter_rand(g, 3, 0.5f, 1.5f);
+    float bx = sx + (GETTER_X - sx) * q, by = sy + (GETTER_Y - sy) * q;
+    int n = clip_frames_count(CLIP_GEOBUG_LAMP_BUG_IDLE);
+    sprite_inst(clip_frame_sprite(CLIP_GEOBUG_LAMP_BUG_IDLE, (int)(t * 12) % n), g->x + bx * GEO_SCALE,
+                g->y + by * GEO_SCALE, 0.0005f, GEO_SCALE * 1.4838f, GEO_SCALE * 1.4838f, 0, &in);
     gfx_actor(&in, SORT_KEY(0, 0));
   }
 }

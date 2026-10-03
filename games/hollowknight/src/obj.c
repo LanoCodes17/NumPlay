@@ -846,7 +846,8 @@ void obj_swing_start(void) {
 /* the slash's shape this step (world, convex): what it touches is hit (once a swing), the direction (degrees) the
  * blow goes; -> what the Knight does (HB_*: bounce, recoil) */
 int obj_nail(const float *pts, int npts, float direction) {
-  int out = enemies_nail(pts, npts, direction, g_pd.nail_damage);
+  /* (damages_enemy: the nail's damage, at its Multiplier; Fury's 1.75) */
+  int out = enemies_nail(pts, npts, direction, g_hero.fury ? (int)rintf(g_pd.nail_damage * 1.75f) : g_pd.nail_damage);
   for (int k = 0; k < nobjs; k++) {
     Obj *o = &objs[k];
     const Ent *e = ent_at(o->ent);

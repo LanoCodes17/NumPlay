@@ -102,7 +102,12 @@ int main(int argc, char **argv) {
           dialogue_start(atoi(strchr(getenv("HKTALK"), ':') + 1));
         }
         if (getenv("HKKILL") && atoi(getenv("HKKILL")) == tick) hero_take_damage(SIDE_LEFT, 99, HAZ_NORMAL);
-        if (getenv("HKHURT") && atoi(getenv("HKHURT")) == tick) hero_take_damage(SIDE_LEFT, 1, HAZ_NORMAL);
+        /* (HKFLING=tick: geo flung up, a way to the Knight's right) */
+        if (getenv("HKFLING") && atoi(getenv("HKFLING")) == tick)
+          geo_fling_at(1, 4, g_hero.body.x + 6, g_hero.body.y + 1, 8, 12, 60, 120, 0);
+        /* (HKHURT=tick[:damage]) */
+        if (getenv("HKHURT") && atoi(getenv("HKHURT")) == tick)
+          hero_take_damage(SIDE_LEFT, strchr(getenv("HKHURT"), ':') ? atoi(strchr(getenv("HKHURT"), ':') + 1) : 1, HAZ_NORMAL);
         /* (HKREENTER=tick: the room entered again then, as it was left) */
         if (getenv("HKREENTER") && atoi(getenv("HKREENTER")) == tick) game_enter(id, px, py, true);
         if (getenv("HKGOD")) g_pd.health = g_pd.max_health;
@@ -173,8 +178,9 @@ int main(int argc, char **argv) {
         if (pd_flag(i)) printf(" %d", i);
       int np = 0;
       for (int i = 0; i < MAX_PERSIST; i++) np += persist_get(i);
-      printf(" hornet_greenpath %d trinkets %d %d %d %d charms %d saved %d\n", g_pd.hornet_greenpath, g_pd.trinkets[0],
-             g_pd.trinkets[1], g_pd.trinkets[2], g_pd.trinkets[3], g_pd.charms_owned, np);
+      printf(" hornet_greenpath %d trinkets %d %d %d %d charms %d saved %d health %d+%d mp %d geo %d\n", g_pd.hornet_greenpath,
+             g_pd.trinkets[0], g_pd.trinkets[1], g_pd.trinkets[2], g_pd.trinkets[3], g_pd.charms_owned, np, g_pd.health,
+             g_pd.health_blue, g_pd.mp, (int)g_pd.geo);
     }
     return 0;
   }

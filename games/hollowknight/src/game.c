@@ -68,7 +68,7 @@ bool game_respawn(void) {
     }
   hero_init(x, y, right);
   g_hero.body.y = hero_ground_y(x, y);
-  g_pd.health = g_pd.max_health;
+  hero_charm_update();   /* (CharmUpdate, MaxHealth) */
   g_pd.mp = 0;   /* (ClearMP) */
   g_game.hazard_x = g_hero.body.x, g_game.hazard_y = g_hero.body.y, g_game.hazard_facing_right = right;
   world_hero_in_position();

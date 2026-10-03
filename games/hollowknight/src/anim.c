@@ -33,6 +33,7 @@ float clip_duration(int clip) {
   return c->n / c->fps;
 }
 int clip_frames_count(int clip) { return clip_rec(clip)->n; }
+int clip_frame_sprite(int clip, int frame) { return clip_frames(clip_rec(clip))[frame] & 0x7FFF; }
 
 static uint32_t rng = 0x9E3779B9u;
 static int rand_below(int n) {

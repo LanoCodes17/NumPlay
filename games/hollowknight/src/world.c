@@ -47,6 +47,10 @@ static EntState es[MAX_ENTS];
 static bool hero_in_position;
 
 bool persist_get(int i) { return i != NO_PERSIST && (g_pd.persist[i >> 3] >> (i & 7) & 1); }
+void persist_clear(int i) {
+  if (i != NO_PERSIST) g_pd.persist[i >> 3] &= (uint8_t)~(1 << (i & 7));
+}
+
 void persist_set(int i) {
   if (i != NO_PERSIST) g_pd.persist[i >> 3] |= (uint8_t)(1 << (i & 7));
 }

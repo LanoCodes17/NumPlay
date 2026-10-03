@@ -99,6 +99,7 @@ static void respawn_tick(void);
 static void die_from_hazard(void);
 static void slash_fixed(void);
 static void slash_hits(void);
+static void entering_tick(void);
 void hero_die(void);
 
 static bool can_exit_no_input(void) { return !g_hero.doing_hazard_respawn && !g_hero.cs.dead; }
@@ -472,7 +473,7 @@ static void on_enter(const BodyEvent *e) {
       else if (!(f & CF_STEEP) && h->state != HS_HARD_LANDING) back_on_ground();
     }
   } else if (h->transition_state == TS_DROPPING_DOWN && (h->gate_position == GATE_BOTTOM || h->gate_position == GATE_TOP))
-    hero_finished_entering_scene();
+    hero_finished_entering_scene(true);
 }
 
 static void on_stay(const BodyEvent *e) {
@@ -753,6 +754,7 @@ void hero_init(float x, float y, bool facing_right) {
   Hero *h = &g_hero;
   static BodyEvent events[MAX_EVENTS];
   memset(h, 0, sizeof *h);
+  h->entry_gate = -1;
   h->body.events = events;
   h->body.x = x, h->body.y = y;
   h->body.ox = 0, h->body.oy = -0.75f, h->body.hx = 0.25f, h->body.hy = 0.640625f;   /* the Knight's BoxCollider2D */
@@ -794,6 +796,7 @@ void hero_update(void) {
   update();
   invulnerable_tick();
   respawn_tick();
+  entering_tick();
   if (h->anim_control) animation();
   h->anim.events = 0;
   anim_update(&h->anim, DT);
@@ -930,9 +933,173 @@ void slash_draw(void) {
 
 void fx_dash_burst(float x, float y, bool facing_right, bool on_ground) { (void)x, (void)y, (void)facing_right, (void)on_ground; }
 
-/* FinishedEnteringScene */
-void hero_finished_entering_scene(void) {
+/* ---------------------------------------------------------------- scenes: LeaveScene, EnterScene */
+#define SPEED_TO_ENTER_SCENE_HOR 6.0f
+#define SPEED_TO_ENTER_SCENE_UP 9.4f
+#define SPEED_TO_ENTER_SCENE_DOWN (-12.0f)
+#define TIME_TO_ENTER_SCENE_BOT 0.1f
+#define MIN_JUMP_SPEED 3.0f
+
+void hero_leave_scene(int gate) {
   Hero *h = &g_hero;
+  h->accepting_input = false;   /* (IgnoreInputWithoutReset) */
+  h->hard_landing_timer = 0;
+  set_state(HS_NO_INPUT);
+  h->damage_mode = DAMAGE_NONE;
+  h->transition_state = TS_EXITING_SCENE;
+  h->transition_vx = h->transition_vy = 0;
+  if (gate == GATE_TOP) h->transition_vy = MIN_JUMP_SPEED, h->cs.on_ground = false;
+  else if (gate == GATE_RIGHT) h->transition_vx = RUN_SPEED;
+  else if (gate == GATE_BOTTOM) h->cs.on_ground = false;
+  else if (gate == GATE_LEFT) h->transition_vx = -RUN_SPEED;
+  h->cs.transitioning = true;
+}
+
+/* FindGroundPointY: the Knight's place standing on the ground below (x, y) */
+static float ground_point_y(float x, float y, float dist) {
+  Hero *h = &g_hero;
+  PhysHit hit;
+  if (!phys_ray(x, y, 0, -1, dist, CF_TERRAIN, &hit)) hit.y = 0;
+  return hit.y + h->body.hy - h->body.oy + 0.01f;
+}
+
+/* the EnterScene coroutine: its steps, each after a wait */
+static struct {
+  int8_t step;
+  uint8_t gate, flags;
+  float t, delay, gx, gy, ox, oy;
+  int gate_ent;
+} en;
+
+static void entering_wait(float t) { en.t = t; }
+
+void hero_enter_scene(int gate_ent, int gate, float gx, float gy, float ox, float oy, uint8_t flags, float delay) {
+  Hero *h = &g_hero;
+  h->accepting_input = false;
+  reset_motion();
+  h->air_dashed = false;
+  h->hard_landing_timer = 0;
+  reset_attacks();
+  affected_by_gravity(false);
+  set_state(HS_NO_INPUT);
+  h->transition_state = TS_WAITING_TO_ENTER_LEVEL;
+  h->cs.transitioning = true;
+  h->gate_position = (uint8_t)gate;
+  memset(&en, 0, sizeof en);
+  en.gate = (uint8_t)gate, en.flags = flags, en.gx = gx, en.gy = gy, en.ox = ox, en.oy = oy, en.delay = delay;
+  en.gate_ent = gate_ent;
+  en.step = 1;
+  h->entry_gate = (int16_t)gate_ent;
+  if (gate == GATE_TOP) {
+    h->cs.on_ground = false;
+    h->hidden = true;
+    h->body.x = gx + ox, h->body.y = gy + oy;
+    world_hero_in_position(), cam_init();
+    entering_wait(0.165f);
+  } else if (gate == GATE_BOTTOM) {
+    h->cs.on_ground = false;
+    if (flags & G_ENTER_RIGHT) face_right();
+    if (flags & G_ENTER_LEFT) face_left();
+    h->body.x = gx + ox, h->body.y = gy + oy + 3;
+    world_hero_in_position(), cam_init();
+    entering_wait(0.165f);
+  } else if (gate == GATE_LEFT || gate == GATE_RIGHT) {
+    float k = gate == GATE_LEFT ? 1.0f : -1.0f;
+    h->cs.on_ground = true;
+    h->body.x = gx + ox - k;
+    h->body.y = ground_point_y(h->body.x + 2 * k, gy, 10);
+    world_hero_in_position(), cam_init();
+    if (gate == GATE_LEFT) face_right();
+    else face_left();
+    entering_wait(0.165f);
+  } else {
+    /* a door */
+    if (flags & G_ENTER_RIGHT) face_right();
+    if (flags & G_ENTER_LEFT) face_left();
+    h->cs.on_ground = true;
+    anim_play(&h->anim, CLIP_KNIGHT_IDLE);
+    h->body.x = gx, h->body.y = ground_point_y(gx, gy, 10);
+    world_hero_in_position(), cam_init();
+    entering_wait(0);
+  }
+  h->body.ncontacts = 0;
+}
+
+static void entering_tick(void) {
+  Hero *h = &g_hero;
+  if (!en.step) return;
+  if (en.t > 0) {
+    en.t -= DT;
+    if (en.t > 0) return;
+  }
+  int step = en.step++;
+  float wait_delays = en.delay;   /* (the delay before entering, then the gate's entry delay) */
+  switch (en.gate) {
+    case GATE_TOP:
+      if (step == 1) game_fade_scene_in(), entering_wait(wait_delays + 0.2f);
+      else if (step == 2) {
+        h->hidden = false;
+        h->body.vy = SPEED_TO_ENTER_SCENE_DOWN;
+        h->transition_state = TS_DROPPING_DOWN;
+        affected_by_gravity(true);
+        if (en.flags & G_HARD_LAND) h->cs.will_hard_land = true;
+        entering_wait(0.33f);
+      } else {
+        en.step = 0;
+        h->transition_state = TS_ENTERING_SCENE;
+        hero_finished_entering_scene(true);
+      }
+      break;
+    case GATE_BOTTOM:
+      if (step == 1) entering_wait(wait_delays + 0.2f);
+      else if (step == 2) {
+        game_fade_scene_in();
+        h->transition_vx = h->cs.facing_right ? SPEED_TO_ENTER_SCENE_HOR : -SPEED_TO_ENTER_SCENE_HOR;
+        h->transition_vy = SPEED_TO_ENTER_SCENE_UP;
+        h->transition_state = TS_ENTERING_SCENE;
+        h->body.x = en.gx + en.ox, h->body.y = en.gy + en.oy + 3;
+        entering_wait(TIME_TO_ENTER_SCENE_BOT);
+      } else {
+        en.step = 0;
+        h->transition_vx = h->body.vx, h->transition_vy = 0;
+        affected_by_gravity(true);
+        h->transition_state = TS_DROPPING_DOWN;   /* (finished as it lands) */
+      }
+      break;
+    case GATE_LEFT:
+    case GATE_RIGHT:
+      if (step == 1) game_fade_scene_in(), entering_wait(wait_delays + 0.2f);
+      else if (step == 2) {
+        h->transition_vx = en.gate == GATE_LEFT ? RUN_SPEED : -RUN_SPEED, h->transition_vy = 0;
+        h->transition_state = TS_ENTERING_SCENE;
+        entering_wait(0.33f + 1 / RUN_SPEED);
+      } else {
+        en.step = 0;
+        hero_finished_entering_scene(true);
+      }
+      break;
+    default:
+      if (step == 1) entering_wait(DT + wait_delays + 0.4f);   /* (WaitForEndOfFrame, then the waits) */
+      else if (step == 2) {
+        game_fade_scene_in();
+        if (en.flags & G_DONT_WALK_OUT) entering_wait(0.33f);
+        else {
+          anim_play(&h->anim, CLIP_KNIGHT_EXIT_DOOR_TO_IDLE);
+          float d = clip_duration(CLIP_KNIGHT_EXIT_DOOR_TO_IDLE);
+          entering_wait(d > 0 ? d : 0.33f);
+        }
+      } else {
+        en.step = 0;
+        hero_finished_entering_scene(true);
+      }
+      break;
+  }
+}
+
+/* FinishedEnteringScene */
+void hero_finished_entering_scene(bool set_hazard_marker) {
+  Hero *h = &g_hero;
+  en.step = 0;
   h->doing_hazard_respawn = false;
   h->cs.transitioning = false;
   h->transition_state = TS_WAITING_TO_TRANSITION;
@@ -949,8 +1116,20 @@ void hero_finished_entering_scene(void) {
   }
   anim_update_state(h->state);
   affected_by_gravity(true);
+  if (set_hazard_marker) {
+    /* (the room's first: where the Knight is; else the entry gate's marker, unless it is a non hazard gate) */
+    int n;
+    const Ent *es = room_ents(&n);
+    if (h->entry_gate < 0 || h->entry_gate >= n)
+      g_game.hazard_x = h->body.x, g_game.hazard_y = h->body.y, g_game.hazard_facing_right = h->cs.facing_right;
+    else if (!(es[h->entry_gate].flags & G_NON_HAZARD) && es[h->entry_gate].p3 > 0) {
+      const Ent *m = &es[(int)es[h->entry_gate].p3 - 1];
+      g_game.hazard_x = m->x0, g_game.hazard_y = m->y0, g_game.hazard_facing_right = m->flags & FACING_RIGHT;
+    }
+  }
   h->damage_mode = DAMAGE_FULL;
-  h->accepting_input = true;
+  if (h->enter_without_input) h->enter_without_input = false;   /* (something in the room gives control back) */
+  else h->accepting_input = true;
 }
 
 /* ---------------------------------------------------------------- damage (TakeDamage, StartRecoil, Invulnerable) */
@@ -1106,7 +1285,7 @@ static void respawn_tick(void) {
   h->respawning = false;
   h->cs.hazard_respawning = false;
   h->anim_control = true;
-  hero_finished_entering_scene();
+  hero_finished_entering_scene(false);
 }
 
 /* HeroBox: what touches the Knight's hurt box (hazards; enemies through world.c) */

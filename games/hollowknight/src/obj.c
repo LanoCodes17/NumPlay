@@ -10,6 +10,11 @@
 typedef struct {
   uint8_t kind, state;
   uint16_t ent;   /* its record */
+  int8_t hits;
+  bool shown;
+  int16_t sprite;
+  float t, t2, jx, jy;   /* (timers; a jitter) */
+  Anim anim;
 } Obj;
 static Obj objs[MAX_OBJS];
 static int nobjs;
@@ -138,6 +143,166 @@ static void breakable_hit(Obj *o, const Ent *e, float direction) {
   cam_shake(SHAKE_ENEMY_KILL);
 }
 
+/* ---------------------------------------------------------------- the Great Door (King's Pass): 13 blows open it */
+enum { GD_IDLE, GD_WAIT, GD_BREAK, GD_OPEN };
+
+static void great_door_enter(Obj *o, const Ent *e) {
+  o->sprite = (int16_t)e->p0, o->shown = true;
+  if (persist_get(e->persist)) {
+    /* Activate: its collider and sprite off */
+    o->state = GD_OPEN, o->shown = false;
+    for (int c = e->a; c < e->a + e->group; c++) phys_collider_enable(c, false);
+  }
+}
+
+static void great_door_hit(Obj *o, const Ent *e) {
+  if (o->state != GD_IDLE) return;
+  cam_shake(SHAKE_ENEMY_KILL);
+  /* Check Hits */
+  o->hits++;
+  if (o->hits == 4 || o->hits == 8) {
+    o->sprite = (int16_t)(o->hits == 4 ? e->p1 : e->p2);
+    cam_shake(SHAKE_AVERAGE);
+  }
+  if (o->hits == 13) {
+    /* Break: the screen black at once, then (a frame later) the Knight, without control, to Dirtmouth */
+    o->state = GD_BREAK, o->t = DT;
+    persist_set(e->persist);
+    game_fade(1, 0, 0);
+    return;
+  }
+  o->state = GD_WAIT, o->t = 0.15f;
+}
+
+static void great_door_tick(Obj *o, const Ent *e) {
+  if (o->state == GD_WAIT && (o->t -= DT) <= 0) o->state = GD_IDLE;
+  else if (o->state == GD_BREAK && (o->t -= DT) <= 0) {
+    o->state = GD_OPEN;
+    game_transition((int)e->p3, e->s0, GATE_UNKNOWN, 2.5f, false);   /* (its EnterWithoutInput goes to an object without it) */
+  }
+}
+
+/* ---------------------------------------------------------------- geo rocks (the Geo Rock FSM; GeoRock keeps its hits) */
+enum { GR_IDLE, GR_HIT, GR_RETURN, GR_DESTROY, GR_BROKEN };
+
+static int georock_clip(const Ent *e, int which) {   /* 0 gleam, 1 broken */
+  static const int clips[2][2] = {{CLIP_GEOROCK_GLEAM_1, CLIP_GEOROCK_BROKEN_1}, {CLIP_GEOROCK_GLEAM_2, CLIP_GEOROCK_BROKEN_2}};
+  return clips[e->p3 == 2][which];
+}
+
+static void georock_broken(Obj *o, const Ent *e) {
+  anim_play(&o->anim, georock_clip(e, 1));
+  o->state = GR_BROKEN;
+  o->jx = o->jy = 0;
+}
+
+static void georock_save(const Obj *o, const Ent *e) {
+  /* (4 bits: the hits left, plus one; none: as the room has it) */
+  for (int b = 0; b < 4; b++)
+    if ((o->hits + 1) >> b & 1) persist_set(e->persist + b);
+    else persist_clear(e->persist + b);
+}
+
+static void georock_enter(Obj *o, const Ent *e) {
+  int saved = 0;
+  for (int b = 0; b < 4; b++) saved |= persist_get(e->persist + b) << b;
+  o->hits = (int8_t)(saved ? saved - 1 : (int)e->p0);
+  anim_play(&o->anim, e->p3 == 2 ? CLIP_GEOROCK_IDLE_2 : CLIP_GEOROCK_IDLE_1);
+  if (o->hits < 1) georock_broken(o, e);
+  else o->state = GR_IDLE, o->t = rand_range(1.5f, 4);
+}
+
+static void georock_hit(Obj *o, const Ent *e, float direction) {
+  if (o->state != GR_IDLE) return;
+  geo_fling_at(0, (int)e->p1, e->x0, e->y0, 23, 30, 80, 100, 0.25f);
+  o->hits--;
+  georock_save(o, e);
+  if (o->hits <= 0) {
+    o->state = GR_DESTROY, o->t = DT;   /* (Pause Frame) */
+    return;
+  }
+  o->state = GR_HIT, o->t = 0.1f;
+  (void)direction;
+}
+
+static void georock_tick(Obj *o, const Ent *e) {
+  switch (o->state) {
+    case GR_IDLE:
+      if ((o->t -= DT) <= 0) {
+        /* Gleam, then Idle again */
+        anim_play_from_frame(&o->anim, georock_clip(e, 0), 0);
+        o->t = rand_range(1.5f, 4);
+      }
+      break;
+    case GR_HIT:
+    case GR_RETURN:
+      /* ObjectJitter, as it recoils and comes back */
+      o->jx = rand_range(-0.05f, 0.05f), o->jy = rand_range(-0.05f, 0.05f);
+      if ((o->t -= DT) <= 0) {
+        if (o->state == GR_HIT) o->state = GR_RETURN, o->t = 0.1f;
+        else o->state = GR_IDLE, o->t = rand_range(1.5f, 4), o->jx = o->jy = 0;
+      }
+      break;
+    case GR_DESTROY:
+      if ((o->t -= DT) <= 0) {
+        cam_shake(SHAKE_ENEMY_KILL);
+        geo_fling_at(0, (int)e->p2, e->x0, e->y0, 23, 30, 80, 100, 0.25f);
+        georock_broken(o, e);
+      }
+      break;
+  }
+}
+
+/* ---------------------------------------------------------------- chests (Chest Control) */
+enum { CH_IDLE, CH_OPEN, CH_SPAWNED, CH_OPENED };
+
+static void chest_opened(Obj *o, const Ent *e) {
+  o->state = CH_OPENED;
+  for (int c = e->a; c < e->a + e->group; c++) phys_collider_enable(c, false);
+}
+
+static void chest_enter(Obj *o, const Ent *e) {
+  o->sprite = (int16_t)e->s0;
+  anim_play(&o->anim, CLIP_CHEST_IDLE);
+  o->state = CH_IDLE;
+  if (persist_get(e->persist)) chest_opened(o, e);
+}
+
+static void chest_hit(Obj *o, const Ent *e) {
+  if (o->state != CH_IDLE) return;
+  /* Open */
+  FREEZE_MOMENT_1();
+  cam_shake(SHAKE_ENEMY_KILL);
+  persist_set(e->persist);
+  anim_play(&o->anim, CLIP_CHEST_OPEN);
+  o->state = CH_OPEN;
+}
+
+static void chest_tick(Obj *o, const Ent *e) {
+  if (o->state == CH_OPEN && (o->anim.events & ANIM_TRIGGER)) {
+    /* Spawn Items: the geo, the item */
+    geo_fling_at(0, (int)e->p0, e->x0, e->y0, 25, 38, 78, 102, 1);
+    geo_fling_at(1, (int)e->p1, e->x0, e->y0, 25, 38, 78, 102, 1);
+    geo_fling_at(2, (int)e->p2, e->x0, e->y0, 25, 38, 78, 102, 1);
+    o->state = CH_SPAWNED;
+  } else if (o->state == CH_SPAWNED && (o->anim.events & ANIM_DONE))
+    chest_opened(o, e);
+}
+
+static void chest_draw(const Obj *o, const Ent *e) {
+  Inst in;
+  if (o->state != CH_OPENED) {
+    sprite_inst(o->anim.sprite, e->x0, e->y0, e->x1, 1, 1, 0, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+    return;
+  }
+  const Ent *p = e + 1 + e->s1;
+  for (int i = 0; i < (int)e->p3; i++, p++) {
+    sprite_inst(p->s0, e->x0 + p->x0, e->y0 + p->y0, p->y1, 1, 1, 0, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+  }
+}
+
 /* ---------------------------------------------------------------- the room */
 void obj_enter(void) {
   nobjs = 0;
@@ -149,18 +314,45 @@ void obj_enter(void) {
   const Ent *es = room_ents(&n);
   for (int i = 0; i < n && nobjs < MAX_OBJS; i++) {
     if (es[i].type != ENT_OBJ) continue;
+    if (es[i].flags == OK_ENEMY) continue;   /* (enemy.c's) */
     Obj *o = &objs[nobjs++];
-    o->kind = es[i].flags, o->state = 0, o->ent = (uint16_t)i;
+    memset(o, 0, sizeof *o);
+    o->kind = es[i].flags, o->ent = (uint16_t)i;
     if (o->kind == OK_BREAKABLE) breakable_enter(o, &es[i]);
+    else if (o->kind == OK_GREAT_DOOR) great_door_enter(o, &es[i]);
+    else if (o->kind == OK_GEO_ROCK) georock_enter(o, &es[i]);
+    else if (o->kind == OK_CHEST) chest_enter(o, &es[i]);
   }
 }
 
 void obj_tick(void) {
+  for (int k = 0; k < nobjs; k++) {
+    Obj *o = &objs[k];
+    const Ent *e = ent_at(o->ent);
+    o->anim.events = 0;
+    anim_update(&o->anim, DT);
+    if (o->kind == OK_GREAT_DOOR) great_door_tick(o, e);
+    else if (o->kind == OK_GEO_ROCK) georock_tick(o, e);
+    else if (o->kind == OK_CHEST) chest_tick(o, e);
+  }
   pieces_tick();
   enemies_update();
 }
 
 void obj_draw(void) {
+  for (int k = 0; k < nobjs; k++) {
+    const Obj *o = &objs[k];
+    const Ent *e = ent_at(o->ent);
+    Inst in;
+    if (o->kind == OK_GREAT_DOOR && o->shown && o->state != GD_OPEN) {
+      sprite_inst(o->sprite, e->x0, e->y0, e->x1, 1, 1, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    } else if (o->kind == OK_GEO_ROCK) {
+      sprite_inst_rot(o->anim.sprite, e->x0 + o->jx, e->y0 + o->jy, e->x1, 1, 1, e->y1, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    } else if (o->kind == OK_CHEST)
+      chest_draw(o, e);
+  }
   pieces_draw();
   enemies_draw();
 }
@@ -188,6 +380,9 @@ int obj_nail(const float *pts, int npts, float direction) {
     if (!touched || (swing_hit[k >> 5] >> (k & 31) & 1)) continue;
     swing_hit[k >> 5] |= 1u << (k & 31);
     if (o->kind == OK_BREAKABLE) breakable_hit(o, e, direction);
+    else if (o->kind == OK_GREAT_DOOR) great_door_hit(o, e);
+    else if (o->kind == OK_GEO_ROCK) georock_hit(o, e, direction);
+    else if (o->kind == OK_CHEST) chest_hit(o, e);
   }
   return out;
 }

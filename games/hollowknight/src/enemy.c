@@ -96,6 +96,10 @@ static const struct {
 
 /* FlingUtils.SpawnAndFling: n of a kind, each at a random speed and angle */
 static void geo_fling(int type, int n, float x, float y, float smin, float smax, float amin, float amax) {
+  geo_fling_at(type, n, x, y, smin, smax, amin, amax, 0);
+}
+
+void geo_fling_at(int type, int n, float x, float y, float smin, float smax, float amin, float amax, float spread) {
   for (int k = 0; k < n; k++) {
     Geo *g = NULL;
     for (int i = 0; i < MAX_GEO && !g; i++)
@@ -104,7 +108,7 @@ static void geo_fling(int type, int n, float x, float y, float smin, float smax,
     memset(g, 0, sizeof *g);
     g->on = true, g->type = (uint8_t)type;
     Body *b = &g->body;
-    b->x = x, b->y = y;
+    b->x = x + rand_range(-spread, spread), b->y = y + rand_range(-spread, spread);
     b->ox = geo_kinds[type].ox * GEO_SCALE, b->oy = geo_kinds[type].oy * GEO_SCALE;
     b->hx = geo_kinds[type].hx * GEO_SCALE, b->hy = geo_kinds[type].hy * GEO_SCALE;
     b->gravity_scale = geo_kinds[type].gravity, b->friction = 0.2f, b->mask = CF_TERRAIN;

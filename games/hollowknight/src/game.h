@@ -19,12 +19,12 @@ extern PlayerData g_pd;
 /* ---------------------------------------------------------------- the room's game objects (tools/ents.py) */
 enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE,
        ENT_BOX, ENT_OBJ, ENT_PIECE };   /* (shape, box, piece: more of the record before) */
-enum { OK_BREAKABLE = 1, OK_ENEMY };     /* objects (ENT_OBJ's flags) */
+enum { OK_BREAKABLE = 1, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST };   /* objects (ENT_OBJ's flags) */
 enum { HB_BOUNCE = 1, HB_RECOIL = 2 };    /* a hit box (ENT_BOX's flags): a down slash bounces off it, a slash recoils */
 enum { HAZ_NONE, HAZ_NORMAL, HAZ_SPIKES, HAZ_ACID, HAZ_LAVA, HAZ_PIT };   /* DamageHero.hazardType */
 enum { MK_SECRET = 1, MK_REMASK = 2, MK_SIMPLE = 4 };   /* masks: the unmasker, remasker and inverse FSMs */
 enum { CL_PREVENT_UP = 1, CL_PREVENT_DOWN = 2, CL_MAX_PRIORITY = 4 };
-enum { G_DOOR = 1, G_ENTER_RIGHT = 2, G_ENTER_LEFT = 4, G_DONT_WALK_OUT = 8, G_NON_HAZARD = 16 };
+enum { G_DOOR = 1, G_ENTER_RIGHT = 2, G_ENTER_LEFT = 4, G_DONT_WALK_OUT = 8, G_NON_HAZARD = 16, G_HARD_LAND = 32 };
 #define FACING_RIGHT 1
 typedef struct {
   uint8_t type, flags;
@@ -45,6 +45,7 @@ void world_send_hit(int ent);               /* HIT to an object's FSM (from anot
 void group_fade(int group, float alpha, float time);   /* iTweenFadeTo (linear) */
 bool persist_get(int bit);   /* an object's state in the save (PersistentBoolItem) */
 void persist_set(int bit);
+void persist_clear(int bit);
 
 /* the objects the Knight acts on (obj.c) */
 void obj_enter(void);
@@ -62,6 +63,8 @@ void enemies_draw(void);
 void enemies_swing_start(void);
 int enemies_nail(const float *pts, int npts, float direction, int damage);
 int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side);   /* -> its damage, 0: none */
+/* geo of a size (0 small, 1 medium, 2 large) flung from (x, y), each from a little about it (FlingUtils) */
+void geo_fling_at(int type, int n, float x, float y, float smin, float smax, float amin, float amax, float spread);
 int cardinal(float degrees);            /* DirectionUtils.GetCardinalDirection */
 const Ent *room_ents(int *n);
 #define MAX_ENTS 320
@@ -80,6 +83,11 @@ typedef struct {
   float freeze_t, freeze_from, freeze_down, freeze_wait, freeze_up, freeze_target;
   uint8_t hazard_phase;
   float hazard_t;
+  /* a scene transition */
+  uint8_t scene_phase;
+  int16_t next_room;
+  uint16_t next_entry;
+  float scene_t, next_delay;
   /* the camera's fade to black */
   float fade, fade_from, fade_to, fade_t, fade_time, fade_delay;
 } Game;
@@ -88,6 +96,10 @@ void game_freeze(float down, float wait, float up, float target, bool hero);   /
 #define FREEZE_MOMENT_1() game_freeze(0.04f, 0.03f, 0.04f, 0, false)              /* FreezeMoment(1): a kill */
 void game_player_dead_from_hazard(void);
 void game_fade(float to, float time, float delay);
+void game_fade_scene_in(void);   /* the camera's FADE SCENE IN */
+/* BeginSceneTransition: to the room's entry gate (a string), leaving by a gate kind (GATE_UNKNOWN: standing),
+ * entering after delay; without input: the Knight comes in without control */
+void game_transition(int room, int entry, int gate, float delay, bool without_input);
 extern Game g_game;
 
 /* ---------------------------------------------------------------- the Knight (hero.c) */
@@ -124,7 +136,8 @@ typedef struct {
   float transition_vx, transition_vy;
   bool accepting_input, control_relinquished, doing_hazard_respawn, landed_event;
   bool touching_wall_l, touching_wall_r;
-  bool hidden, hit_buffered;
+  bool hidden, hit_buffered, enter_without_input;
+  int16_t entry_gate;   /* the record of the gate it came in by (-1: none) */
   int8_t buffered_side, buffered_damage, buffered_hazard;
   float invuln_freeze, invuln_time, pulse_t, recoil_timer2, respawn_timer;
   bool invuln_routine, pulsing, pulse_reverse, respawning;
@@ -147,7 +160,10 @@ void hero_recoil_left(void);
 void hero_recoil_right(void);
 void hero_recoil_down(void);
 void hero_bounce(void);
-void hero_finished_entering_scene(void);
+void hero_finished_entering_scene(bool set_hazard_marker);
+void hero_leave_scene(int gate);   /* LeaveScene: walking, jumping or falling out through the gate */
+/* EnterScene: the Knight through the room's entry gate (its record, kind, place, entry offset, G_* flags) after delay */
+void hero_enter_scene(int gate_ent, int gate, float gx, float gy, float ox, float oy, uint8_t flags, float delay);
 void hero_take_damage(int side, int damage, int hazard);   /* (side: where the damage comes from, SIDE_LEFT/RIGHT) */
 void hero_recoil_unfreeze(void);       /* the end of StartRecoil, after the freeze */
 void hero_hazard_respawn(void);        /* HeroController.HazardRespawn */

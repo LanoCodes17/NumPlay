@@ -33,12 +33,91 @@ const Ent *room_ents(int *n) {
 
 /* ---------------------------------------------------------------- triggers: the Knight's box in the objects' */
 
+/* ---------------------------------------------------------------- scene transitions (TransitionPoint, BeginSceneTransition) */
+enum { SC_NONE, SC_LEAVING };
+
+/* TransitionPoint.GetGatePosition: by its name */
+static int gate_kind(const Ent *e) {
+  if (e->flags & G_DOOR) return GATE_DOOR;
+  const char *n = str_at(e->s0);
+  if (strstr(n, "top")) return GATE_TOP;
+  if (strstr(n, "right")) return GATE_RIGHT;
+  if (strstr(n, "left")) return GATE_LEFT;
+  if (strstr(n, "bot")) return GATE_BOTTOM;
+  return strstr(n, "door") ? GATE_DOOR : GATE_UNKNOWN;
+}
+
+void game_fade_scene_in(void) { game_fade(0, 0.5f, 0.1f); }
+
+void game_transition(int room, int entry, int gate, float delay, bool without_input) {
+  Game *g = &g_game;
+  if (g->scene_phase != SC_NONE || room < 0) return;
+  g->scene_phase = SC_LEAVING, g->scene_t = 0;
+  g->next_room = (int16_t)room, g->next_entry = (uint16_t)entry, g->next_delay = delay;
+  g_hero.enter_without_input = without_input;
+  hero_leave_scene(gate);
+  cam_freeze();
+  if (g->fade < 1) game_fade(1, 0.33f, 0);   /* (the camera's FADE OUT) */
+}
+
+/* TryDoTransition: the Knight through a gate (facing it, not recoiling), or pushed back out of it */
+static void gate_touched(const Ent *e) {
+  Hero *h = &g_hero;
+  if ((e->flags & G_DOOR) || g_game.scene_phase != SC_NONE) return;
+  int g = gate_kind(e);
+  bool back = h->cs.recoiling || (g == GATE_RIGHT && !h->cs.facing_right) || (g == GATE_LEFT && h->cs.facing_right) ||
+              e->a == 0xFFFF;   /* (or to a room this game leaves out) */
+  const Body *b = &h->body;
+  if (back && (g == GATE_RIGHT || g == GATE_LEFT)) {
+    h->body.vx = 0;
+    h->body.x += g == GATE_RIGHT ? e->x0 - (b->x + b->ox + b->hx) : e->x1 - (b->x + b->ox - b->hx);
+  } else if (back && (g == GATE_TOP || g == GATE_BOTTOM)) {
+    h->body.vy = 0;
+    h->body.y += g == GATE_TOP ? e->y0 - (b->y + b->oy + b->hy) : e->y1 - (b->y + b->oy - b->hy);
+  } else if (!back)
+    game_transition(e->a, e->s1, g, e->p0, false);
+}
+
+/* the new room, the Knight at its entry gate */
+static void scene_load(void) {
+  Game *g = &g_game;
+  g->scene_phase = SC_NONE;
+  if (!room_load(g->next_room)) return;
+  memset(inside, 0, sizeof inside);
+  world_enter();
+  int n;
+  const Ent *es = room_ents(&n);
+  const char *want = str_at(g->next_entry);
+  for (int i = 0; i < n; i++) {
+    const Ent *e = &es[i];
+    if (e->type != ENT_GATE || strcmp(str_at(e->s0), want)) continue;
+    float gx = (e->x0 + e->x1) / 2, gy = (e->y0 + e->y1) / 2;
+    for (int j = i + 1; j < n && es[j].type == ENT_BOX; j++)
+      if (es[j].flags & 1) gx = es[j].x0, gy = es[j].y0;
+    hero_enter_scene(i, gate_kind(e), gx, gy, e->p1, e->p2, e->flags, g->next_delay + e->p0);
+    return;
+  }
+  /* (no such gate: in the middle of the room) */
+  hero_enter_scene(-1, GATE_DOOR, g_room.h->w / 2, g_room.h->h / 2, 0, 0, 0, g->next_delay);
+}
+
+static void scene_tick(float real_dt) {
+  Game *g = &g_game;
+  if (g->scene_phase != SC_LEAVING) return;
+  /* (the scene loads once the camera has faded: half a second) */
+  g->scene_t += real_dt;
+  if (g->scene_t >= 0.5f) scene_load();
+}
+
 static void trigger_event(int i, const Ent *e, int kind) {
   Hero *h = &g_hero;
   switch (e->type) {
     case ENT_CAMLOCK:
       if (kind == EV_EXIT) cam_release(i);
       else cam_lock(i);   /* (Enter and Stay) */
+      break;
+    case ENT_GATE:
+      if (kind == EV_ENTER) gate_touched(e);
       break;
     case ENT_HAZARD_TRIGGER:
       if (kind == EV_ENTER) {
@@ -65,7 +144,7 @@ static void triggers_tick(void) {
     if (e->type != ENT_CAMLOCK && e->type != ENT_GATE && e->type != ENT_HAZARD_TRIGGER && e->type != ENT_MASK) continue;
     bool in = false;
     for (int j = i; j < n && (j == i || es[j].type == ENT_BOX); j++)
-      in |= x1 > es[j].x0 && x0 < es[j].x1 && y1 > es[j].y0 && y0 < es[j].y1;
+      if (j == i || !(es[j].flags & 1)) in |= x1 > es[j].x0 && x0 < es[j].x1 && y1 > es[j].y0 && y0 < es[j].y1;
     bool was = inside[i >> 3] >> (i & 7) & 1;
     if (in) inside[i >> 3] |= (uint8_t)(1 << (i & 7));
     else inside[i >> 3] &= (uint8_t)~(1 << (i & 7));
@@ -171,6 +250,7 @@ static void step(uint32_t keys) {
 void game_tick(uint32_t keys) {
   Game *g = &g_game;
   freeze_tick(0.02f);
+  scene_tick(0.02f);
   /* (game time runs at the time scale: frozen, no steps) */
   g->step_acc += 0.02f * g->time_scale;
   if (g->step_acc >= 0.02f - 1e-6f) {

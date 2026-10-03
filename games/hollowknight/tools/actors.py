@@ -24,6 +24,8 @@ KNIGHT = ("resources.assets", 20600, [
 ACTORS = {"knight": KNIGHT,
           "crawler": ("sharedassets6.assets", 1113, None),
           "buzzer": ("sharedassets6.assets", 1150, None),
+          "georock": ("sharedassets6.assets", 1149, None),
+          "chest": ("sharedassets6.assets", 1148, None),
           "geo": ("resources.assets", 23266, ["Small Idle", "Small Air", "Med Idle", "Med Air", "Large Idle", "Large Air"])}
 
 # sprites of prefab objects the game draws itself: name -> (file, prefab, object, resolution)
@@ -87,6 +89,16 @@ def unity_sprites(keys):
     object's scale."""
     out = []
     for level, exts, fid, pid, scale, res in keys:
+        if level == "tk2d":
+            path, col, name = exts, fid, pid
+            c = tk2d.collection(path, col)
+            sid = next(i for i, dd in enumerate(c["spriteDefinitions"]) if unity.S(dd["name"]) == name)
+            img, lx, ty, upp, (wu, hu) = tk2d.sprite_image(path, c, sid)
+            w, h = max(1, round(img.width * upp * K0 * scale)), max(1, round(img.height * upp * K0 * scale))
+            arr = np.asarray(img.resize((w, h), Image.BOX)).copy()
+            out.append({"key": (path, col, sid), "job": art.ImageJob(arr, "tk2d/%s" % name), "lx": lx * scale,
+                        "ty": ty * scale, "tu": wu * scale / w, "tv": hu * scale / h})
+            continue
         s = unity.sprite(level, list(exts), fid, pid)
         img = unity.sprite_image(s)
         wu, hu = s.w / s.ppu * scale, s.h / s.ppu * scale

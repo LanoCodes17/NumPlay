@@ -8,7 +8,7 @@ import numpy as np
 ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE, ENT_BOX, \
     ENT_OBJ, ENT_PIECE = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
 # objects (ENT_OBJ's flags: src/obj.c)
-OK_BREAKABLE, OK_ENEMY = 1, 2
+OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST = 1, 2, 3, 4, 5
 # enemies (an OK_ENEMY's a: src/enemy.c), by their FSM and animation library
 EK_CRAWLER, EK_BUZZER = 1, 2
 ENEMIES = {("Crawler", 1113): EK_CRAWLER, ("chaser", 1150): EK_BUZZER}
@@ -20,19 +20,23 @@ MAX_GROUPS = 256
 MK_SECRET, MK_REMASK, MK_SIMPLE = 1, 2, 4
 # flags
 CL_PREVENT_UP, CL_PREVENT_DOWN, CL_MAX_PRIORITY = 1, 2, 4
-G_DOOR, G_ENTER_RIGHT, G_ENTER_LEFT, G_DONT_WALK_OUT, G_NON_HAZARD = 1, 2, 4, 8, 16
+G_DOOR, G_ENTER_RIGHT, G_ENTER_LEFT, G_DONT_WALK_OUT, G_NON_HAZARD, G_HARD_LAND = 1, 2, 4, 8, 16, 32
 FACING_RIGHT = 1
 REC = "<BBBBHHffffffffHH"   # type, flags, group, group2, a, persist, box (x0, y0, x1, y1), p0..p3, s0, s1
 NO_PERSIST = 0xFFFF
 
 
 class Persist:
-    """The objects whose state a save keeps (PersistentBoolItem): one bit each."""
+    """The objects whose state a save keeps (PersistentBoolItem): one bit each (or a few: a number)."""
     def __init__(self):
-        self.keys = {}
+        self.keys, self.n = {}, 0
 
-    def id(self, room, path):
-        return self.keys.setdefault((room, path), len(self.keys))
+    def id(self, room, path, bits=1):
+        if (room, path) not in self.keys:
+            self.keys[(room, path)] = self.n
+            self.n += bits
+            assert self.n <= 1024, self.n   # (src/game.h: MAX_PERSIST)
+        return self.keys[(room, path)]
 
 
 class Strings:
@@ -60,7 +64,13 @@ class Sprites:
 
     def id(self, d, ref, scale, res=1.0):
         """(res: its texture's resolution, as a part of the screen's: smooth sprites can be stretched)"""
-        key = (d["level"], tuple(d["externals"]), ref[0], ref[1], round(scale, 3), res)
+        return self._add((d["level"], tuple(d["externals"]), ref[0], ref[1], round(scale, 3), res))
+
+    def tk2d(self, path, col, name, scale=1.0):
+        """A 2D Toolkit sprite of a collection (file, path id), by name."""
+        return self._add(("tk2d", path, col, name, round(scale, 3), 1.0))
+
+    def _add(self, key):
         if key not in self.index:
             self.index[key] = len(self.list)
             self.list.append(key)
@@ -308,6 +318,69 @@ def _enemy(o, by_id, persist, name):
     return [head] + out
 
 
+def _tk2d_sprite(d, o):
+    """An object's tk2dSprite -> (its collection's file, path id, the sprite's name) or None."""
+    import tk2d, unity
+    v = next((c.get("v") for c in o["c"] if c.get("class") == "tk2dSprite" and c.get("v")), None)
+    if not v or not v.get("collection"):
+        return None
+    fid, pid = v["collection"]
+    path = d["externals"][fid - 1] if fid else d["level"]
+    col = tk2d.collection(path, pid)
+    return path, pid, unity.S(col["spriteDefinitions"][v["_spriteId"]]["name"])
+
+
+def _angle(o):
+    m = np.array(o["m3"]).reshape(3, 3)
+    return float(np.degrees(np.arctan2(m[1, 0], m[0, 0])))
+
+
+def _props(d, o, by_id, rooms, strings, persist, sprites, owners, name):
+    """Objects run by their own FSMs (src/obj.c) -> records, or None."""
+    import coll
+    var = lambda f, k, dflt: (f.get("vars", {}).get(k) or [0, dflt])[1]
+    hits = _hit_boxes(o, by_id)
+    c0, cn = coll.subtree_colliders(d, owners, o["id"]) if owners else (0, 0)
+    persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
+    f = _fsm(o, ("Great Door",))
+    if f:
+        sp = _tk2d_sprite(d, o)
+        ids = [sprites.tk2d(sp[0], sp[1], "door_v%02d" % k) for k in (1, 2, 3)]
+        return [rec(ENT_OBJ, OK_GREAT_DOOR, (o["pos"][0], o["pos"][1], o["pos"][2], 1), (ids[0], ids[1], ids[2],
+                    rooms.index("Town") if "Town" in rooms else -1), a=c0, group=cn, s0=strings.id("left1"), s1=len(hits),
+                    persist=persist.id(name, o["path"]) if persistent else NO_PERSIST)] + \
+            [rec(ENT_BOX, fl, box=b) for b, fl in hits]
+    f = _fsm(o, ("Geo Rock",))
+    if f:
+        variant = 2 if str(var(f, "Gleam Anim", "Gleam 1")).endswith("2") else 1
+        return [rec(ENT_OBJ, OK_GEO_ROCK, (o["pos"][0], o["pos"][1], o["pos"][2], _angle(o)),
+                    (var(f, "Hits", 5), var(f, "Geo Per Hit", 2), var(f, "Final Payout", 5), variant), a=c0, group=cn,
+                    s1=len(hits), persist=persist.id(name, o["path"], 4))] + [rec(ENT_BOX, fl, box=b) for b, fl in hits]
+    f = _fsm(o, ("Chest Control",))
+    if f:
+        # (opened: its Opened child's front and back sprites; inside, geo or a shiny item)
+        opened = [q for q in (by_id[c] for c in o.get("children", [])) if q["name"] == "Opened"]
+        parts = []
+        for q in (by_id[c] for c in opened[0].get("children", [])) if opened else []:
+            sp = _tk2d_sprite(d, q)
+            if sp:
+                parts.append(rec(ENT_PIECE, 0, (q["lpos"][0], q["lpos"][1], 0, o["pos"][2] + q["lpos"][2]),
+                                 s0=sprites.tk2d(*sp)))
+        sp = _tk2d_sprite(d, o)
+        shiny = 0
+        for q in d["objects"]:
+            if q["path"].startswith(o["path"] + "/Item/"):
+                sf = _fsm(q, ("Shiny Control",))
+                if sf and var(sf, "Charm", False):
+                    shiny = var(sf, "Charm ID", 0)
+        return [rec(ENT_OBJ, OK_CHEST, (o["pos"][0], o["pos"][1], o["pos"][2], shiny),
+                    (var(f, "Geo Small", 0), var(f, "Geo Med", 0), var(f, "Geo Large", 0), len(parts)), a=c0, group=cn,
+                    s0=sprites.tk2d(*sp) if sp else 0, s1=len(hits),
+                    persist=persist.id(name, o["path"]) if persistent else NO_PERSIST)] + \
+            [rec(ENT_BOX, fl, box=b) for b, fl in hits] + parts
+    return None
+
+
 def room(d, rooms, strings, persist, name, sprites=None, owners=None):
     """-> (packed records, {object id: render group}). owners: each collider's object (coll.room); sprites: where the
     objects' own sprites go (Sprites)."""
@@ -358,7 +431,7 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
                                 persist=persist.id(name, o["path"]) if persistent else NO_PERSIST))
                 recs += _more_boxes(o)
         classes = {c.get("class") for c in o["c"]}
-        en = _enemy(o, by_id, persist, name)
+        en = _enemy(o, by_id, persist, name) or _props(d, o, by_id, rooms, strings, persist, sprites, owners, name)
         if en:
             recs += en
         br = next((c for c in o["c"] if c.get("class") == "Breakable" and c.get("v") is not None), None)
@@ -427,12 +500,20 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
                     continue
                 fl = (G_DOOR if v.get("isADoor") else 0) | (G_ENTER_RIGHT if v.get("alwaysEnterRight") else 0) | \
                     (G_ENTER_LEFT if v.get("alwaysEnterLeft") else 0) | (G_DONT_WALK_OUT if v.get("dontWalkOutOfDoor") else 0) | \
-                    (G_NON_HAZARD if v.get("nonHazardGate") else 0)
+                    (G_NON_HAZARD if v.get("nonHazardGate") else 0) | (G_HARD_LAND if v.get("hardLandOnExit") else 0)
                 target = v.get("targetScene") or ""
                 ti = rooms.index(target) if target in rooms else 0xFFFF
-                recs.append(rec(ENT_GATE, fl, box, (float(v.get("entryDelay", 0)), 0, 0, 0), a=ti, s0=strings.id(o["name"]),
-                                s1=strings.id(v.get("entryPoint") or "")))
+                # (its respawn marker: a component; the record of its object)
+                ref = v.get("respawnMarker")
+                mid = ref[1] if isinstance(ref, (list, tuple)) else None
+                marker = next((marker_index[oo["id"]] for oo in objs for cc in oo["c"] if cc.get("pid") == mid and
+                               oo["id"] in marker_index), -1)
+                off = v.get("entryOffset") or {"x": 0, "y": 0}
+                recs.append(rec(ENT_GATE, fl, box, (float(v.get("entryDelay", 0)), off["x"], off["y"], marker + 1), a=ti,
+                                s0=strings.id(o["name"]), s1=strings.id(v.get("entryPoint") or "")))
                 recs += _more_boxes(o)
+                # (the gate's own place, where the Knight comes in: a box record flagged 1, not part of its trigger)
+                recs.append(rec(ENT_BOX, 1, (o["pos"][0], o["pos"][1], o["pos"][0], o["pos"][1])))
             elif cls == "HazardRespawnTrigger":
                 box = _trigger(o)
                 ref = v.get("respawnMarker")

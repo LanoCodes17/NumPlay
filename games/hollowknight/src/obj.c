@@ -485,6 +485,14 @@ void obj_enter(void) {
   const Ent *es = room_ents(&n);
   for (int i = 0; i < n && nobjs < MAX_OBJS; i++) {
     if (es[i].type != ENT_OBJ) continue;
+    if (es[i].flags == OK_COND) {
+      /* DeactivateIfPlayerdataTrue / False: off as the room loads, its sprites and colliders */
+      if (pd_flag((int)es[i].p0) == (es[i].p1 != 0)) {
+        if (es[i].group2) group_fade(es[i].group2, 0, 0);
+        for (int c = es[i].a; c < es[i].a + es[i].group; c++) phys_collider_enable(c, false);
+      }
+      continue;
+    }
     if (es[i].flags == OK_ENEMY || es[i].flags == OK_BENCH || es[i].flags == OK_ARENA || es[i].flags == OK_EVENT ||
         es[i].flags == OK_SUMMON)
       continue;   /* (enemy.c's, npc.c's; below) */

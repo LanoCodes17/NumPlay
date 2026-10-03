@@ -9,7 +9,7 @@ ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_M
     ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
 # objects (ENT_OBJ's flags: src/obj.c)
 OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR, OK_BGATE, OK_ARENA, \
-    OK_EVENT, OK_SUMMON = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+    OK_EVENT, OK_SUMMON, OK_COND = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
 # the battle gates' events (src/game.h: BG_*)
 BG_EVENTS = ["BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY"]
 # battle gates (BG Control: OK_BGATE's s0): closed at first, the bone ones' clips, gone once a PlayerData bool is set
@@ -30,14 +30,15 @@ ENEMY_VARS = {"Zombie Swipe": (["Lunge Speed", "Idle Time"], ["Coward"]),
               "Zombie Leap": (["Idle Time"], []),
               "Zombie Guard": (["Chase Distance", "Roam Distance"], ["Start Facing Left"])}
 # what follows an enemy's record: ENT_BOX records, tagged
-ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX, ET_ZONE = \
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX, ET_ZONE, ET_COND, \
+    ET_CONTACT = 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
 # (FSM bools: First Crawler or Start Alert; Startles; one of an arena's Pre Battle Enemies; its death counts for its
 # arena (HealthManager.battleScene); gone once its arena's fight is over; spawned by its mother's burster (Fly Spawn);
 # there only once its arena's fight is over; its FSMs off till near the camera: FSMActivator)
 EF_START, EF_STARTLES, EF_PREBATTLE, EF_BATTLE, EF_ARENA_GONE, EF_SPAWNED, EF_ARENA_LATER, EF_DORMANT = \
     1, 2, 4, 8, 16, 32, 64, 128
 EF_DEATH_SHIFT = 8   # (bits 8-11: its enemyDeathType; 12-13: EnemyDeathEffects (0), Uninfected, NoEffect, BlackKnight)
+EF_CONTACT = 0x4000  # (off till the Knight touches its parent's trigger: ActivateChildrenOnContact; ET_CONTACT)
 # the layers the nail's slashes touch (Physics2D's collision matrix, layer 17 Attack)
 ATTACK_HITS = {3, 6, 7, 8, 11, 12, 17, 19, 20, 21, 25, 31}
 MAX_GROUPS = 256
@@ -672,6 +673,16 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
     objs = [o for o in d["objects"] if o["active"]]
     by_id = {o["id"]: o for o in d["objects"]}
     arena_gone, arena_counted, arena_later = _arenas(d, by_id)
+    import state
+    pdf = pd_flags()
+
+    def conds(o):
+        """(PlayerData flag, off if true) of the object and those above it, for the bools that change as one plays"""
+        out = []
+        while o is not None:
+            out += [(pdf[n], t) for n, t in state.conditions(o) if n in state.DYNAMIC]
+            o = by_id.get(o.get("parent"))
+        return out
     enemy_rec_of, summons = {}, []   # (enemies' records; summoners, to point at theirs)
 
     def subtree(oid, g):
@@ -795,6 +806,10 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
         g = _gate(d, o, owners)
         if g:
             recs.append(g)
+        for flag, off_if in [(pdf[n], t) for n, t in state.conditions(o) if n in state.DYNAMIC]:
+            # an object off as the room loads with a PlayerData bool so: its sprites (and what is under it), its colliders
+            c0, cn = _subcols(d, owners, o["id"]) if owners else (0, 0)
+            recs.append(rec(ENT_OBJ, OK_COND, p=(flag, 1 if off_if else 0, 0, 0), a=c0, group=cn, group2=new_group(o["id"])))
         ev = next((c.get("v") for c in o["c"] if c.get("class") == "SendPlaymakerEventOnEnable" and c.get("v")), None)
         if ev:
             # (an event broadcast as the room starts)
@@ -830,8 +845,27 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                             s0=len(extra)))
             recs += extra
         en = _enemy(o, by_id, persist, name, d, strings, owners) or _props(d, o, by_id, rooms, strings, persist, sprites, owners, name)
+        if not en and any(c.get("class") == "ActivateChildrenOnContact" for c in o["c"]):
+            # (its children, off till the Knight touches its trigger: an enemy, flagged, the trigger after its records)
+            for ch in o.get("children", []):
+                q = by_id[ch]
+                en = _enemy(q, by_id, persist, name, d, strings, owners) if not q["self_active"] else None
+                if en:
+                    en.append(rec(ENT_BOX, ET_CONTACT, box=_trigger(o) or (0, 0, 0, 0)))
+                    b = bytearray(en[0])
+                    struct.pack_into("<HH", b, 40, struct.unpack_from("<H", b, 40)[0] + 1,
+                                     struct.unpack_from("<H", b, 42)[0] | EF_CONTACT)
+                    en[0] = bytes(b)
+                    o = q
+                    break
         if en:
             if en[0][1] == OK_ENEMY:
+                for flag, off_if in conds(o):
+                    # (gone as the room loads, with the PlayerData bool so)
+                    en.append(rec(ENT_BOX, ET_COND, p=(flag, 1 if off_if else 0, 0, 0)))
+                    b = bytearray(en[0])
+                    struct.pack_into("<H", b, 40, struct.unpack_from("<H", b, 40)[0] + 1)
+                    en[0] = bytes(b)
                 enemy_rec_of[o["id"]] = len(recs)
                 fl = EF_PREBATTLE if o["id"] in prebattle else 0
                 fl |= EF_ARENA_LATER if o["id"] in arena_later else 0

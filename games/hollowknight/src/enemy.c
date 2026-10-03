@@ -28,7 +28,8 @@ static const Kind kinds[NUM_KINDS] = KIND_TABLE;
 #define FSM(e) (kinds[(e)->kind].fsm)
 #define NO_ENT 0xFFFF   /* (an enemy spawned, not one of the room's) */
 /* the records after an enemy's (tools/ents.py: ET_*) */
-enum { ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX, ET_ZONE };
+enum { ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX, ET_ZONE, ET_COND,
+       ET_CONTACT };
 enum { CF_BREAKER = 1, CF_FACES_RIGHT = 2, CF_LOW_ARC = 4, CF_NO_COLLIDER = 32 };   /* a corpse's (ET_CORPSE) */
 enum { WF_PAUSES = 1, WF_IGNORE_HOLES = 2, WF_NO_TURN_TO_HERO = 4, WF_START_INACTIVE = 8, WF_AMBUSH = 16, WF_WAIT_HERO_X = 32,
        WF_PREVENT_TURN = 64, WF_NO_SCALE = 128, WF_RIGHT_NEG = 256 };   /* a Walker's (ET_WALKER) */
@@ -38,7 +39,8 @@ enum { EM_OFF, EM_ALIVE, EM_CORPSE };
 enum { RC_READY, RC_RECOILING, RC_FROZEN };
 enum { CS_AIR, CS_DEATH_ANIM, CS_LANDED };
 /* (flags: 1 collider off, 2 RECOIL HORIZONTAL, 4 invincible, 8 TOOK DAMAGE: for its FSM this frame, 16 collider off
- * by its frame, 32 not drawn) */
+ * by its frame, 32 not drawn, 64 its FSMs off (FSMActivator), 128 its object off till the Knight touches a trigger
+ * (ActivateChildrenOnContact)) */
 typedef struct {
   uint8_t mode, kind, st, flags;
   uint16_t ent;                   /* its record (NO_ENT: spawned) */
@@ -3958,7 +3960,10 @@ void enemies_enter(void) {
   for (int i = 0; i < n && k < MAX_ENEMIES; i++) {
     const Ent *d = &es[i];
     if (d->type != ENT_OBJ || d->flags != OK_ENEMY) continue;
-    if (persist_get(d->persist) || ((d->s1 & EF_ARENA_GONE) && arena_done()) || ((d->s1 & EF_ARENA_LATER) && !arena_done())) {
+    bool off = false;   /* (DeactivateIfPlayerdata: ET_COND) */
+    for (int j = 1; j <= d->s0; j++)
+      if (d[j].type == ENT_BOX && d[j].flags == ET_COND && pd_flag((int)d[j].p0) == (d[j].p1 != 0)) off = true;
+    if (off || persist_get(d->persist) || ((d->s1 & EF_ARENA_GONE) && arena_done()) || ((d->s1 & EF_ARENA_LATER) && !arena_done())) {
       enemy_terrain_off(d);
       continue;
     }
@@ -3981,7 +3986,10 @@ void enemies_enter(void) {
     e->rc_base = rc ? rc->x0 : 15, e->rc_dur = rc ? rc->y0 : 0.5f, e->rc_flags = rc ? (uint8_t)rc->a : RF_NONE;
     const Ent *wk = enemy_rec(e, ET_WALKER);
     e->wk_rec = wk ? (uint16_t)(wk - room_ents(&n)) : 0;
-    if (d->s1 & EF_DORMANT) {
+    if (d->s1 & EF_CONTACT) {
+      /* (its object off: nothing of it there) */
+      e->flags |= 128 | 32 | 1;
+    } else if (d->s1 & EF_DORMANT) {
       /* (its FSMs off till the active region round the camera meets it: FSMActivator; its sprite still) */
       int c = CLIP(e, R_IDLE) >= 0 ? CLIP(e, R_IDLE) : CLIP(e, R_A1) >= 0 ? CLIP(e, R_A1) : CLIP(e, R_WALK);
       if (c >= 0) anim_play(&e->anim, c), e->anim.paused = true;
@@ -4028,7 +4036,7 @@ void enemies_fixed(void) {
       else body_step(&e->body, DT);
       continue;
     }
-    if (e->mode == EM_ALIVE && FSM(e) == EF_FKHEAD) continue;
+    if (e->mode == EM_ALIVE && (FSM(e) == EF_FKHEAD || (e->flags & 128))) continue;   /* (the head: its body's; off) */
     if (e->mode == EM_ALIVE && FSM(e) == EF_CLIMBER) {
       /* (a kinematic body: its velocity, nothing in its way) */
       recoil_fixed(e);
@@ -4101,6 +4109,17 @@ void enemies_update(void) {
       frame_collider(e);
       if (e->evasion > 0) e->evasion -= DT;
       if (e->ar_r > 0) sight_update(e);
+      if (e->flags & 128) {
+        /* ActivateChildrenOnContact: on as the Knight touches the trigger */
+        const Ent *t = enemy_rec(e, ET_CONTACT);
+        const Body *k = &g_hero.body;
+        if (t && !g_hero.hidden && k->x + k->ox + k->hx > t->x0 && k->x + k->ox - k->hx < t->x1 &&
+            k->y + k->oy + k->hy > t->y0 && k->y + k->oy - k->hy < t->y1) {
+          e->flags &= (uint8_t)~(128 | 32 | 1);
+          enemy_fsm_start(e, ent_at(e->ent));
+        }
+        continue;
+      }
       if (e->flags & 64) enemy_dormant_check(e);
       if (e->flags & 64) {}   /* (dormant) */
       else if (FSM(e) == EF_BUZZER) buzzer_update(e, ent_at(e->ent));

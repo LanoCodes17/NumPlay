@@ -254,15 +254,16 @@ def decode_fsm(f, v):
 
 @functools.lru_cache(maxsize=None)
 def scene(name):
-    """A scene as a dict (cached as JSON in tools/cache)."""
+    """A scene as a dict (cached as JSON in tools/cache), its objects that PlayerData keeps off turned off (state.py)."""
+    import state
     os.makedirs(CACHE, exist_ok=True)
     p = os.path.join(CACHE, name + ".json")
     if os.path.exists(p):
-        return json.load(open(p))
+        return state.apply(json.load(open(p)))
     with in_data():
         d = _dump(name)
     json.dump(d, open(p, "w"), separators=(",", ":"))
-    return d
+    return state.apply(d)
 
 
 @functools.lru_cache(maxsize=None)

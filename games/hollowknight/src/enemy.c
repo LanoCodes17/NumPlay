@@ -1408,8 +1408,15 @@ static void husk_start(Enemy *e) {
   e->st = ZS_READY;
 }
 
+/* (an older Zombie Swipe: no Coward state, Ready deaf to TOOK DAMAGE, Reset playing Idle) */
+static bool husk_old(const Enemy *e) {
+  const Ent *v = enemy_rec(e, ET_VARS);
+  return v && (v->a & 2);
+}
+
 static void husk_ready(Enemy *e) {
   /* Reset: StartWalker; (Coward: no) Ready */
+  if (husk_old(e)) anim_play(&e->anim, CLIP(e, R_IDLE));
   e->st = ZS_READY;
   walker_start(e);
 }
@@ -1441,10 +1448,11 @@ static void husk_update(Enemy *e) {
   switch (e->st) {
     case ZS_READY:
       walker_update(e);
-      if ((e->can_see && e->in_alert) || e->b1) {
+      if ((e->can_see && e->in_alert) || (e->b1 && !husk_old(e))) {
         e->b1 = false;
         husk_attack(e);
       }
+      e->b1 = false;
       break;
     case ZS_ANTICIPATE:
       if (done) {

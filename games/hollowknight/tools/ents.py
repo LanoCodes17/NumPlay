@@ -430,7 +430,8 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
     w = next((c.get("v") for c in o["c"] if c.get("class") == "Walker" and c.get("v")), None)
     if w:
         wf = (1 if w.get("pauses") else 0) | (2 if w.get("ignoreHoles") else 0) | \
-            (4 if w.get("preventTurningToFaceHero") else 0) | (8 if w.get("startInactive") else 0) | \
+            (4 if w.get("preventTurningToFaceHero") or not w.get("alertRange") else 0) | \
+            (8 if w.get("startInactive") else 0) | \
             (16 if w.get("ambush") else 0) | (32 if w.get("waitForHeroX") else 0) | (64 if w.get("preventTurn") else 0) | \
             (128 if w.get("preventScaleChange") else 0) | (256 if w.get("rightScale", 1) < 0 else 0)
         out.append(rec(ENT_BOX, ET_WALKER, box=(w.get("walkSpeedL", 0), w.get("walkSpeedR", 0), w.get("pauseTimeMin", 0),
@@ -449,6 +450,8 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
         # (up to eight numbers: p0..p3, then the box's)
         vals = [float((var.get(k) or [0, 0])[1] or 0) for k in nums] + [0.0] * (8 - len(nums))
         bits = sum(1 << i for i, k in enumerate(bools) if (var.get(k) or [0, False])[1])
+        if fsm.get("name") == "Zombie Swipe" and not _state(fsm, "Coward"):
+            bits |= 2   # (an older Zombie Swipe: Ready deaf to TOOK DAMAGE, Reset plays Idle)
         out.append(rec(ENT_BOX, ET_VARS, p=tuple(vals[:4]), box=tuple(vals[4:8]), a=bits))
     if fsm.get("name") == "Big Fly Control" and d is not None:
         # (Gruz Mother: where her young wait, Fly Spawn; her burster brings them there)

@@ -40,6 +40,8 @@ ENEMY_KINDS = [
      {"IDLE": "Idle", "TURN": "Turn", "WALK": "Walk", "A1": "Attack Anticipate", "A2": "Attack Lunge", "A3": "Attack Cooldown"}),
     ("hornhead", "Zombie Swipe", ("sharedassets40.assets", 192), "HUSK",
      {"IDLE": "Idle", "TURN": "Turn", "WALK": "Walk", "A1": "Attack Anticipate", "A2": "Attack Lunge", "A3": "Attack Cooldown"}),
+    ("mossrunner", "Zombie Swipe", ("sharedassets128.assets", 192), "HUSK",
+     {"IDLE": "Idle", "TURN": "Turn", "WALK": "Walk", "A1": "Attack Anticipate", "A2": "Attack Lunge", "A3": "Attack Cooldown"}),
     ("leaper", "Zombie Leap", ("sharedassets57.assets", 82), "LEAPER",
      {"IDLE": "Idle", "TURN": "Turn", "WALK": "Walk", "A1": "Attack", "A2": "Land"}),
     # (its own code plays its clips by name: CLIP_GUARD_*)

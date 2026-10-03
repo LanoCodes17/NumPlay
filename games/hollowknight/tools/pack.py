@@ -490,6 +490,10 @@ def main():
     pgb = unity.prefab("sharedassets149.assets", 34)
     fleurs["SPRITE_GRASS_BALL"] = SPRITES.id(pgb, next(c["v"] for c in pgb["objects"][0]["c"] if c["type"] == "SpriteRenderer")["m_Sprite"], 1)
     fleurs["MSG_TABLE"] = "{%s}" % ", ".join(msgs)
+    # the title screen, the save profiles, the pause menu; each room's map zone (the save slots' area)
+    import menu
+    fleurs.update(menu.build(SPRITES, TEXTS))
+    fleurs["ROOM_ZONES"] = "{%s}" % ", ".join(str(scene.settings(unity.scene(r)).get("map_zone") or 0) for r in ROOMS)
     for i, item in enumerate(text.MSGS):
         fleurs["MSG_" + item] = i
     for r in ROOMS:

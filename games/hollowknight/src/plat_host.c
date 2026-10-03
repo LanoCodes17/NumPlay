@@ -41,6 +41,11 @@ const uint8_t *plat_load(const char *name, uint32_t *len) {
   fclose(f);
   return loaded;
 }
+bool plat_remove(const char *name) {
+  char p[512];
+  snprintf(p, sizeof p, "%s/%s", save_dir, name);
+  return remove(p) == 0;
+}
 void plat_begin(void) {}
 int plat_end(void) { return 0; }
 

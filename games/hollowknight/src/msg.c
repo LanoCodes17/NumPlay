@@ -137,7 +137,7 @@ void blanker_set(float alpha, bool on) { blank_alpha = alpha, blank_on = on; }
 
 void msg_draw(void) {
   if (wb.on && wb.alpha > 0)
-    gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(8, 255, 255, 255, (uint8_t)(wb.alpha * 255 + 0.5f)));
+    gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(28, 255, 255, 255, (uint8_t)(wb.alpha * 255 + 0.5f)));
   if (blank_on && blank_alpha > 0)
     gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(27, 0, 0, 0, (uint8_t)(blank_alpha * 255 + 0.5f)));
   if (m.st == MS_OFF) return;

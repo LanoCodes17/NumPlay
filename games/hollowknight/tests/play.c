@@ -64,8 +64,16 @@ int main(int argc, char **argv) {
       while (*f && *f != ',') f++;
       if (*f) f++;
     }
+    /* (HKMENU: from the title screen, as the calculator starts; HKSAVES: the saves' folder) */
+    bool menu = getenv("HKMENU") != NULL;
+    if (getenv("HKSAVES")) {
+      extern void host_save_dir(const char *d);
+      host_save_dir(getenv("HKSAVES"));
+    }
+    if (menu)
+      menu_start();
     /* (HKLOAD=slot: that save loaded, the Knight at its respawn point) */
-    if (getenv("HKLOAD")) {
+    else if (getenv("HKLOAD")) {
       if (!save_load(atoi(getenv("HKLOAD"))) || (getenv("HKGEO") && (g_pd.geo = atoi(getenv("HKGEO")), 0)) || !game_respawn()) {
         printf("load failed\n");
         return 1;
@@ -77,7 +85,9 @@ int main(int argc, char **argv) {
       uint32_t keys = 0;
       for (; *p && *p != '*'; p++)
         keys |= *p == 'L' ? K_LEFT : *p == 'R' ? K_RIGHT : *p == 'U' ? K_UP : *p == 'D' ? K_DOWN : *p == 'J' ? K_JUMP
-              : *p == 'A' ? K_ATTACK : *p == 'S' ? K_DASH : *p == 'F' ? K_FOCUS | K_SPELL : 0;
+              : *p == 'A' ? K_ATTACK : *p == 'S' ? K_DASH : *p == 'F' ? K_FOCUS | K_SPELL
+              /* (the calculator's OK, Back, Backspace: also jump, attack) */
+              : *p == 'O' ? K_OK | K_JUMP : *p == 'B' ? K_BACK | K_ATTACK : *p == 'P' ? K_PAUSE : 0;
       int n = *p == '*' ? atoi(++p) : 1;
       while (*p && *p != ',') p++;
       if (*p == ',') p++;
@@ -96,7 +106,8 @@ int main(int argc, char **argv) {
         }
         if (getenv("HKPROMPT") && atoi(getenv("HKPROMPT")) == tick)
           prompt_show(-1, TXT_PROMPT_LISTEN, g_hero.body.x, g_hero.body.y + 1.5f);
-        game_tick(keys);
+        if (!menu || !menu_tick(keys)) game_tick(keys);
+        if (trace && menu) printf("   menu in game %d\n", menu_in_game());
         if (trace)
           printf("%4d keys %02x pos %.3f,%.3f v %.3f,%.3f state %d ground %d jump %d fall %d clip %d frame %d cam %.2f,%.2f\n", tick,
                  keys, g_hero.body.x, g_hero.body.y, g_hero.body.vx, g_hero.body.vy, g_hero.state, g_hero.cs.on_ground,
@@ -123,7 +134,16 @@ int main(int argc, char **argv) {
     }
     if (shot) {
       int nf = getenv("NF") ? atoi(getenv("NF")) : 3;
-      for (int i = 0; i < nf; i++) game_draw();   /* (the tile cache warm, as while playing) */
+      for (int i = 0; i < nf; i++) {   /* (the tile cache warm, as while playing) */
+        if (!menu) {
+          game_draw();
+          continue;
+        }
+        g_gfx_no_room = !menu_in_game();
+        if (menu_in_game()) game_draw_layers();
+        menu_draw();
+        gfx_frame();
+      }
       host_shot(shot);
     }
     if (getenv("HKGROUPS")) {

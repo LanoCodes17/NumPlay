@@ -95,7 +95,10 @@ static void make_luts(void) {
 }
 
 static bool grade_off;   /* (the HUD's tints: the room's grading not for them) */
-#define HUD_TINT 240      /* (dynamic tints from slot 16 on are the HUD's) */
+#define HUD_TINT 240      /* (dynamic tints from slot 16 on are the HUD's: 16 the HUD's white, 17 its soul, 18-20 the
+                             dialogue's, 21 the area title's, 22-26 the item message's, 27 and 28 the blankers, 29-31
+                             the menus'; below, the room's: 0 the Knight's, 1 his light, 2-6 and 10, 11, 15 the
+                             enemies', 7 the prompts', 8, 9, 12-14 the scripts' objects') */
 
 static uint32_t grade(float r, float g, float b, float a) {
   /* r g b a: 0..1 straight */
@@ -1239,8 +1242,11 @@ static bool add_item(const Inst *in, float blur_z) {
   return true;
 }
 
+bool g_gfx_no_room;
+
 void gfx_frame(void) {
-  if (lut_room != g_room.id) make_luts();
+  bool roomless = g_room.h == NULL || g_gfx_no_room;   /* (the title screen: the HUD's alone) */
+  if (!roomless && lut_room != g_room.id) make_luts();
   tex_frame();
   pal_frame++;
   if (!pal_frame) pal_frame = 1;
@@ -1248,16 +1254,15 @@ void gfx_frame(void) {
   arena_top = 0;
   bg_on = false;
   g_gfx_dropped = 0;
-  float blur_z = g_room.h->blur_z;
+  float blur_z = roomless ? 1e9f : g_room.h->blur_z;
   /* the instances near the camera, back to front, and the actors among them: what is behind the blur plane is drawn
    * now (small), the rest kept */
-  room_near(g_cam_x, g_cam_y);
-  room_first();
   Item cur;
   uint32_t group;
   int na = 0;
+  if (!roomless) room_near(g_cam_x, g_cam_y), room_first();
   /* (an actor behind the blur plane but in front of what is kept, by its sorting layer: kept too) */
-  while (room_next(&cur.in, &group)) {
+  while (!roomless && room_next(&cur.in, &group)) {
     while (na < nactors && (actors[na].group < group || (actors[na].group == group && actors[na].in.z > cur.in.z)))
       add_item(&actors[na++].in, nitems ? 1e9f : blur_z);
     add_item(&cur.in, blur_z);

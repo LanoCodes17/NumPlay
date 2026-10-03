@@ -319,6 +319,7 @@ static void step(uint32_t keys) {
 
 void game_tick(uint32_t keys) {
   Game *g = &g_game;
+  g_pd.play_time += 0.02f;   /* (GameManager: PlayerData's playTime, in real time) */
   freeze_tick(0.02f);
   scene_tick(0.02f);
   /* (game time runs at the time scale: frozen, no steps) */
@@ -329,7 +330,9 @@ void game_tick(uint32_t keys) {
   }
 }
 
-void game_draw(void) {
+bool game_changing_room(void) { return g_game.scene_phase != SP_NONE; }
+
+void game_draw_layers(void) {
   hud_draw();
   msg_draw();
   titles_draw();
@@ -340,5 +343,9 @@ void game_draw(void) {
   hero_draw();
   fireballs_draw();
   death_draw();
+}
+
+void game_draw(void) {
+  game_draw_layers();
   gfx_frame();
 }

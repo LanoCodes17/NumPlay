@@ -92,6 +92,11 @@ STYLES = {
     # the message as an item is taken (UI Msg Get Item: its lines, a third bigger; its item's name)
     "MSG": _style("Perpetua", 3.73 * 1.4407, HUD_PX, 134.0625, 0, 117, 95.9375, -38.1875),
     "MSG_NAME": _style("TrajanPro-Bold", 9.32 * 1.4407, HUD_PX, *TRAJAN, k=1, phases=1),
+    # the menus (Menu_Title's UI canvas, 1920 x 1200 for 320 x 200 pixels; their text bigger: menu.MENU_K): the
+    # buttons (Trajan bold, 54 at 0.549 and 45 at 0.7), the screens' titles and slot numbers, the slots' details
+    "MENU": _style("TrajanPro-Bold", 31 / 6 * 1.6 * 10, 1, *TRAJAN, k=1),
+    "MENU_TITLE": _style("TrajanPro-Bold", 53 / 6 * 1.35 * 10, 1, *TRAJAN, k=1, phases=1),
+    "MENU_SMALL": _style("TrajanPro-Regular", 27 / 6 * 1.6 * 10, 1, *TRAJAN, k=1),
 }
 
 # the items the message shows: (its name in the UI sheet, the Prompts sheet's prefix, tap or press, its two lines, the

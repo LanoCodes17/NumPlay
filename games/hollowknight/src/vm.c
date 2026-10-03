@@ -1330,8 +1330,9 @@ void vm_tick(void) {
   }
 }
 
-/* (a colour for an object this frame: the same colour, the same slot; slots no one else uses) */
-static const uint8_t tint_slots[] = {28, 29, 30, 31, 9, 12, 13, 14};
+/* (a colour for an object this frame: the same colour, the same slot; the room's slots no one else uses, graded with
+ * it: below the HUD's) */
+static const uint8_t tint_slots[] = {8, 9, 12, 13, 14};
 static uint32_t tint_used[sizeof tint_slots];
 static uint8_t obj_tint(int *n, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
   uint32_t c = (uint32_t)r | (uint32_t)g << 8 | (uint32_t)b << 16 | (uint32_t)a << 24;

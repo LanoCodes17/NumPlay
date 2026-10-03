@@ -36,5 +36,6 @@ void plat_fill(int x, int y, int w, int h, uint16_t c) {
 }
 bool plat_save(const char *name, const void *data, uint32_t len) { return ef_write(name, data, len); }
 const uint8_t *plat_load(const char *name, uint32_t *len) { return ef_read(name, len); }
+bool plat_remove(const char *name) { return ef_remove(name); }
 void plat_begin(void) { np_app_begin(); }
 int plat_end(void) { return np_app_end(); }

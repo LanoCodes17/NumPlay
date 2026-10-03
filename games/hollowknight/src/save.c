@@ -77,6 +77,28 @@ static const uint8_t *checked(int slot, uint32_t *count) {
   return p + sizeof h;
 }
 
+int save_stats(int slot, SaveStats *st) {
+  char name[8];
+  slot_name(slot, name);
+  uint32_t len, count;
+  if (!plat_load(name, &len)) return 0;
+  const uint8_t *p = checked(slot, &count);
+  if (!p) return -1;
+  /* (its PlayerData's fields, read where they are) */
+  memcpy(&st->max_health, p + offsetof(PlayerData, max_health), sizeof st->max_health);
+  memcpy(&st->mp_reserve_max, p + offsetof(PlayerData, mp_reserve_max), sizeof st->mp_reserve_max);
+  memcpy(&st->geo, p + offsetof(PlayerData, geo), sizeof st->geo);
+  memcpy(&st->play_time, p + offsetof(PlayerData, play_time), sizeof st->play_time);
+  st->zone = p[offsetof(PlayerData, map_zone)];
+  return 1;
+}
+
+bool save_clear(int slot) {
+  char name[8];
+  slot_name(slot, name);
+  return plat_remove(name);
+}
+
 bool save_exists(int slot) {
   uint32_t count;
   return checked(slot, &count) != NULL;

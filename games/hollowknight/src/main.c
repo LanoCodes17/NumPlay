@@ -45,33 +45,20 @@ int main(void) {
   return plat_end();
 }
 #else
-/* a new game: the Knight at King's Pass' respawn point */
-static void start(void) {
-  game_new();
-  room_load(ROOM_TUTORIAL_01);
-  int n;
-  const Ent *e = room_ents(&n);
-  float x = 35.46f, y = 11.37f;
-  bool right = true;
-  for (int i = 0; i < n; i++)
-    if (e[i].type == ENT_RESPAWN) x = e[i].x0, y = e[i].y0, right = e[i].flags & FACING_RIGHT;
-  game_enter(ROOM_TUTORIAL_01, x, y, right);
-}
-
 int main(void) {
   plat_begin();
   hk_bin = hk_data;
   plat_fill(0, 0, SCREEN_W, SCREEN_H, 0);
-  start();
+  menu_start();
   uint32_t last = plat_millis(), acc = 0;
   for (;;) {
     uint32_t keys = plat_keys();
-    if (keys & K_HOME) break;
+    if ((keys & K_HOME) || menu_quit()) break;
     uint32_t now = plat_millis();
     acc += now - last, last = now;
     int ticks = 0;
     while (acc >= TICK_MS && ticks < MAX_TICKS) {
-      game_tick(keys);
+      if (!menu_tick(keys)) game_tick(keys);
       acc -= TICK_MS, ticks++, perf_updates++;
     }
     if (ticks == MAX_TICKS) acc = 0;   /* (too slow to catch up: the game slows down instead) */
@@ -79,7 +66,11 @@ int main(void) {
       plat_sleep(TICK_MS - acc);
       continue;
     }
-    game_draw();
+    /* (the game, or the title screen and the save profiles alone; the pause menu over the game) */
+    g_gfx_no_room = !menu_in_game();
+    if (menu_in_game()) game_draw_layers();
+    menu_draw();
+    gfx_frame();
     perf_frames++;
   }
   return plat_end();

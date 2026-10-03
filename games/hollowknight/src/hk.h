@@ -33,6 +33,7 @@ void plat_push(int x, int y, int w, int h, const uint16_t *px);
 void plat_fill(int x, int y, int w, int h, uint16_t c);
 bool plat_save(const char *name, const void *data, uint32_t len);
 const uint8_t *plat_load(const char *name, uint32_t *len);
+bool plat_remove(const char *name);
 
 /* ---------------------------------------------------------------- data.bin */
 extern const uint8_t *hk_bin;
@@ -213,6 +214,7 @@ uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a);   /*
 /* the same, flashing: its colors towards (fr, fg, fb) by amount (SpriteFlash) */
 uint8_t gfx_dyn_flash(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a, uint8_t fr, uint8_t fg, uint8_t fb, uint8_t amount);
 extern uint8_t g_screen_fade;   /* 0 .. 255: the screen faded to black */
+extern bool g_gfx_no_room;      /* (the room not drawn: the menus') */
 /* a line of text (n glyphs of a style), its pen starting at (x, y) on the baseline (view pixels), of a color (0xAARRGGBB);
  * layer 0: the HUD's (in front of all), 1: the room's (in front of it, behind the HUD and the fade) */
 bool gfx_text(int style, float x, float y, const uint8_t *s, int n, uint32_t argb, int layer);

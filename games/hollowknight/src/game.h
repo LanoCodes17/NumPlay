@@ -36,7 +36,8 @@ typedef struct {
   uint8_t elderbug;       /* (Elderbug's state) */
   uint8_t hornet_greenpath;   /* (hornetGreenpath: her encounters in Greenpath) */
   uint8_t quirrel_egg_temple;   /* (quirrelEggTemple: his talks at the Black Egg) */
-  uint8_t reserved[59];
+  uint8_t map_zone;       /* (mapZone: the room's, as it is entered; the save profiles show its area) */
+  uint8_t reserved[58];
   /* (saved apart, by the objects' names: their states) */
   uint8_t persist[MAX_PERSIST / 8];
   /* (not saved) */
@@ -55,6 +56,16 @@ bool save_game(void);
 bool save_load(int slot);
 bool save_exists(int slot);
 void save_select(int slot);
+/* (SaveStats: what the save profiles show of a slot's game) */
+typedef struct {
+  int8_t max_health;
+  uint8_t zone;
+  int16_t mp_reserve_max;
+  int32_t geo;
+  float play_time;
+} SaveStats;
+int save_stats(int slot, SaveStats *st);   /* -> 0 no game, 1 a game, -1 a file that does not check out */
+bool save_clear(int slot);
 void save_set_respawn(const char *marker, bool facing_right);   /* (Bench Control's Rest Burst) */
 
 /* ---------------------------------------------------------------- the room's game objects (tools/ents.py) */
@@ -322,6 +333,14 @@ bool game_enter(int room, float x, float y, bool facing_right);
 bool game_respawn(void);   /* the Knight at the save's respawn point (a loaded game, after dying) */
 void game_tick(uint32_t keys);   /* 1/50 s */
 void game_draw(void);
+void game_draw_layers(void);   /* (what the game draws, before the frame is made) */
+bool game_changing_room(void);
+/* the title screen, the save profiles, the pause menu (menu.c) */
+void menu_start(void);
+bool menu_tick(uint32_t keys);   /* -> the game kept from ticking (a menu is up) */
+void menu_draw(void);
+bool menu_in_game(void);
+bool menu_quit(void);
 
 /* ---------------------------------------------------------------- text (text.c) */
 #define TEXT_BR 10     /* (in a text: a line break, a page break) */

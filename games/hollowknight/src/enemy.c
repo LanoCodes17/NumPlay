@@ -6490,7 +6490,7 @@ void enemies_fixed(void) {
       else if (FSM(e) == EF_MOSSKNIGHT) mossknight_fixed(e);
       recoil_fixed(e);
       if (wants_contacts(e)) {
-        float pvx = e->body.vx, pvy = e->body.vy, box[4];
+        float pvx = e->body.vx, pvy = e->body.vy, box[4] = {0};
         int had = e->body.ncontacts;
         e->body.events = body_events;
         if (FSM(e) == EF_MOSQUITO) mosquito_box(e, box);

@@ -24,7 +24,8 @@ enum { O_HERO = 0xFF00, O_HERO_LIGHT, O_DIALOGUE_MANAGER, O_DIALOGUE_TEXT, O_ARE
 enum { OF_ACTIVE = 1, OF_RENDERER = 2, OF_ANIMATOR = 4, OF_TRIGGER = 8, OF_COLLIDER = 16,
        OF_GONE = 32, OF_INSIDE = 64, OF_WAS_INSIDE = 128,
        OF_COND_OFF = 256,                                       /* (not there: its condition) */
-       OF_SPELL_HIT = 512, OF_SPELL_IN = 1024, OF_SPELL_WAS = 2048 };   /* (a spell in its trigger) */
+       OF_SPELL_HIT = 512, OF_SPELL_IN = 1024, OF_SPELL_WAS = 2048,    /* (a spell in its trigger) */
+       OF_NAIL_HIT = 4096, OF_NAIL_IN = 8192, OF_NAIL_WAS = 16384 };   /* (the nail's slash on its collider) */
 #define OF_ANIM_OFF 32   /* (its record's: off once its clip is over, DeactivateAfter2dtkAnimation) */
 #define OF_WAVE 64       /* (its record's: WaveEffectControl, grows and fades as it is on: bx its speed, by its scale) */
 #define OF_FADE 128      /* (its record's: SimpleSpriteFade, fades as it is on, then off: bx its time, by the alpha to) */
@@ -216,6 +217,8 @@ static int pd_int(int i) {
     case 14: case 15: case 16: case 17: return g_pd.trinkets[i - 14];
     case 18: return g_pd.rancid_eggs;
     case 19: return g_pd.ore;
+    case 20: return g_pd.grubs_collected;
+    case 21: return g_pd.grub_rewards;
     default: return 0;
   }
 }
@@ -233,6 +236,8 @@ static void pd_set_int(int i, int v) {
     case 14: case 15: case 16: case 17: g_pd.trinkets[i - 14] = (uint8_t)v; break;
     case 18: g_pd.rancid_eggs = (uint8_t)v; break;
     case 19: g_pd.ore = (uint8_t)v; break;
+    case 20: g_pd.grubs_collected = (uint8_t)v; break;
+    case 21: g_pd.grub_rewards = (uint8_t)v; break;
   }
 }
 
@@ -487,6 +492,46 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       }
       return false;
     }
+    case VMOP_WAITRANDOM: {
+      /* (a time between the two, the same all through this visit of its state) */
+      float lo = fval(f, rv(&r)), hi = fval(f, rv(&r));
+      int ev = rb(&r);
+      uint32_t h = (uint32_t)(f - vm.fsms) * 2654435761u ^ (uint32_t)f->epoch * 40503u;
+      h ^= h >> 15, h *= 0x2c1b3c6du, h ^= h >> 12;
+      float t = lo + (hi - lo) * (float)(h & 0xffff) / 65535.0f;
+      if (f->t >= t && mode == M_UPDATE) {
+        fsm_event(f, ev);
+        return true;
+      }
+      return false;
+    }
+    case VMOP_FLINGPIECE: {
+      int o = oval(f, rv(&r));
+      bool hide = rb(&r), snap = rb(&r);
+      uint16_t sprite = rv(&r);
+      uint8_t layer = rb(&r);
+      uint16_t order = rv(&r);
+      uint8_t pfl = rb(&r);
+      float k[8];
+      for (int i = 0; i < 8; i++) k[i] = rdf(r.p), r.p += 4;   /* dx dy z rot gravity bounce spin mirror */
+      uint16_t s0 = rv(&r), s1 = rv(&r), a0 = rv(&r), a1 = rv(&r);
+      float x, y;
+      if (!obj_ok(o) && o != O_HERO) return true;
+      obj_pos(o, &x, &y);
+      if (snap) {
+        /* (SnapToGround: on what is below, within 10) */
+        PhysHit hit;
+        if (phys_ray(x + k[0], y, 0, -1, 10, CF_TERRAIN, &hit)) y = hit.y + k[1];
+        else y += k[1];
+        piece_spawn(sprite, layer, order, pfl, x + k[0], y, k[2], k[3], k[4], k[5], k[6], k[7], 0, 0, true);
+      } else {
+        float s = rand_range(fval(f, s0), fval(f, s1)), a = rand_range(fval(f, a0), fval(f, a1)) * (float)M_PI / 180;
+        piece_spawn(sprite, layer, order, pfl, x + k[0], y + k[1], k[2], k[3], k[4], k[5], k[6], k[7], s * cosf(a),
+                    s * sinf(a), false);
+      }
+      if (hide) obj_set_active(o, false);
+      return true;
+    }
     case VMOP_NEXTFRAMEEVENT:
       if (enter) return false;
       if (mode != M_UPDATE) return false;
@@ -704,8 +749,35 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       return !every;
     }
     case VMOP_SENDRANDOMEVENT: {
+      /* (by their weights: shares of 255; none, alike) */
       int n = rb(&r);
-      if (n) fsm_event(f, r.p[(int)rand_range(0, (float)n - 0.001f)]);
+      const uint8_t *ev = r.p;
+      r.p += n;
+      int nw = rb(&r), i = 0;
+      if (!n) return true;
+      if (nw == n) {
+        float x = rand_range(0, 255), sum = 0;
+        for (i = 0; i < n - 1; i++)
+          if (x < (sum += r.p[i])) break;
+      } else
+        i = (int)rand_range(0, (float)n - 0.001f);
+      fsm_event(f, ev[i]);
+      return true;
+    }
+    case VMOP_INTTOSTRING: {
+      int v = ival(f, rv(&r));
+      uint8_t store = rb(&r);
+      int n = rb(&r);
+      set_var(f, store, v >= 0 && v < n ? rd16(r.p + 2 * v) : 0);
+      return true;
+    }
+    case VMOP_FLINGGEO: {
+      int type = rb(&r), n = rb(&r), o = oval(f, rv(&r));
+      float smin = fval(f, rv(&r)), smax = fval(f, rv(&r)), amin = fval(f, rv(&r)), amax = fval(f, rv(&r));
+      float x, y;
+      if (!obj_ok(o)) return true;
+      obj_pos(o, &x, &y);
+      geo_fling_at(type, n, x, y, smin, smax, amin, amax, 0);
       return true;
     }
     case VMOP_ACTIVATEGAMEOBJECT: {
@@ -894,11 +966,12 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       return !every;
     }
     case VMOP_TRIGGER2DEVENT: {
-      /* (the Knight, or a spell, against its owner's trigger: 0 entering, 1 in it, 2 leaving) */
+      /* (the Knight, a spell or the nail against its owner's trigger: 0 entering, 1 in it, 2 leaving) */
       int kind = rb(&r), ev = rb(&r), tag = rb(&r);
       if (mode != M_FIXED || !obj_ok(f->owner) || !(vm.objs[f->owner].flags & OF_COLLIDER)) return false;
       uint16_t fl = vm.objs[f->owner].flags;
-      bool in = fl & (tag ? OF_SPELL_IN : OF_INSIDE), was = fl & (tag ? OF_SPELL_WAS : OF_WAS_INSIDE);
+      bool in = fl & (tag == 2 ? OF_NAIL_IN : tag ? OF_SPELL_IN : OF_INSIDE);
+      bool was = fl & (tag == 2 ? OF_NAIL_WAS : tag ? OF_SPELL_WAS : OF_WAS_INSIDE);
       if ((kind == 0 && in && !was) || (kind == 1 && in) || (kind == 2 && !in && was)) fsm_event(f, ev);
       return false;
     }
@@ -1215,6 +1288,16 @@ void vm_activate_children(uint16_t name, bool on) {
         if (vm.rec[c].parent == o) obj_set_active(c, on);
 }
 
+/* (the nail's slash this step: the triggers it meets) */
+void vm_nail(const float *pts, int npts) {
+  for (int i = 0; i < vm.nobjs; i++) {
+    const ObjRec *r = &vm.rec[i];
+    float cx = vm.objs[i].x + r->bx, cy = vm.objs[i].y + r->by;
+    if ((r->flags & OF_TRIGGER) && box_meets_shape(cx - r->bhx, cy - r->bhy, cx + r->bhx, cy + r->bhy, pts, npts))
+      vm.objs[i].flags |= OF_NAIL_HIT;
+  }
+}
+
 /* (a spell's box: the triggers it is in, this step) */
 void vm_spell(float x0, float y0, float x1, float y1) {
   for (int i = 0; i < vm.nobjs; i++) {
@@ -1346,12 +1429,13 @@ void vm_tick(void) {
   /* the Knight in the objects' triggers */
   for (int i = 0; i < vm.nobjs; i++) {
     Obj *o = &vm.objs[i];
-    o->flags = (uint16_t)((o->flags & ~(OF_WAS_INSIDE | OF_SPELL_WAS)) | ((o->flags & OF_INSIDE) ? OF_WAS_INSIDE : 0) |
-                          ((o->flags & OF_SPELL_IN) ? OF_SPELL_WAS : 0));
+    o->flags = (uint16_t)((o->flags & ~(OF_WAS_INSIDE | OF_SPELL_WAS | OF_NAIL_WAS)) | ((o->flags & OF_INSIDE) ? OF_WAS_INSIDE : 0) |
+                          ((o->flags & OF_SPELL_IN) ? OF_SPELL_WAS : 0) | ((o->flags & OF_NAIL_IN) ? OF_NAIL_WAS : 0));
     bool on = (vm.rec[i].flags & OF_TRIGGER) && (o->flags & OF_COLLIDER) && obj_active(i);
-    bool in = on && hero_box_in(i), spell = on && (o->flags & OF_SPELL_HIT);
-    o->flags = (uint16_t)((in ? o->flags | OF_INSIDE : o->flags & ~OF_INSIDE) & ~OF_SPELL_HIT);
+    bool in = on && hero_box_in(i), spell = on && (o->flags & OF_SPELL_HIT), nail = on && (o->flags & OF_NAIL_HIT);
+    o->flags = (uint16_t)((in ? o->flags | OF_INSIDE : o->flags & ~OF_INSIDE) & ~(OF_SPELL_HIT | OF_NAIL_HIT));
     o->flags = (uint16_t)(spell ? o->flags | OF_SPELL_IN : o->flags & ~OF_SPELL_IN);
+    o->flags = (uint16_t)(nail ? o->flags | OF_NAIL_IN : o->flags & ~OF_NAIL_IN);
     if (vm.rec[i].flags & OF_WAVE) {
       /* (WaveEffectControl: its speed down by a twentieth a step, to a half at least; its timer at that speed; past 1,
        * off) */

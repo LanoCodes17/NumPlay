@@ -61,9 +61,10 @@ typedef struct {
   uint8_t rancid_eggs, ore;
   uint8_t charm_slots_filled;   /* (charmSlotsFilled: the notches the equipped charms take) */
   uint8_t heart_pieces, vessel_fragments, simple_keys;
+  uint8_t grubs_collected, grub_rewards;   /* (grubsCollected, grubRewards: the Grubfather's given) */
   uint8_t equipped[12];         /* (equippedCharms: in the order they were equipped; 0 ends it) */
   uint8_t current_inv_pane;     /* (currentInvPane) */
-  uint8_t reserved[34];
+  uint8_t reserved[32];
   /* (saved apart, by the objects' names: their states) */
   uint8_t persist[MAX_PERSIST / 8];
   /* (not saved) */
@@ -326,6 +327,9 @@ void vm_tick(void);
 void vm_draw(void);
 void vm_broadcast(int ev);
 void vm_spell(float x0, float y0, float x1, float y1);   /* (a spell's box: the triggers it is in) */
+void vm_nail(const float *pts, int npts);                /* (the nail's slash: the triggers it meets) */
+void piece_spawn(int sprite, int layer, int order, int flags, float x, float y, float z, float rot, float gravity,
+                 float bounce, float spin_factor, float mirror, float vx, float vy, bool resting);   /* (obj.c: debris) */
 void vm_activate_children(uint16_t name, bool on);       /* ActivateAllChildren of a script object, by name */
 /* the message as an item is taken (msg.c: MSG_*), the HUD Blanker (a white screen the scripts fade) */
 void msg_show(int item);

@@ -50,22 +50,30 @@ typedef struct {
 } Piece;
 static Piece pieces[MAX_PIECES];
 
-static void piece_fling(const Ent *p, float ox, float oy, float angle_offset, float amin, float amax, float smin, float smax,
-                        float mult) {
+/* a piece: its sprite, place, how it falls (gravity), bounces (ObjectBounce, -1 none) and spins (flags: 1 a push of
+ * torque, 2 turned at random first); resting: where it is, still */
+void piece_spawn(int sprite, int layer, int order, int flags, float x, float y, float z, float rot, float gravity,
+                 float bounce, float spin_factor, float mirror, float vx, float vy, bool resting) {
   Piece *q = NULL;
   for (int i = 0; i < MAX_PIECES && !q; i++)
     if (!pieces[i].on) q = &pieces[i];
   if (!q) return;   /* (all in use: this one is not seen) */
-  q->on = true, q->resting = false, q->steps = 0;
-  q->sprite = (int16_t)p->s0, q->layer = p->group, q->order = p->a;
-  q->x = ox + p->x0, q->y = oy + p->y0, q->z = p->y1;
-  q->spin = p->flags & 1;
+  q->on = true, q->resting = resting, q->steps = 0;
+  q->sprite = (int16_t)sprite, q->layer = (uint8_t)layer, q->order = (uint16_t)order;
+  q->x = x, q->y = y, q->z = z;
+  q->spin = flags & 1;
+  q->ang = flags & 2 ? rand_range(0, 360) : rot;
+  q->gravity = gravity, q->bounce = bounce, q->spin_factor = spin_factor, q->mirror = mirror;
+  q->vx = vx, q->vy = vy;
+  q->w = 0, q->speed = sqrtf(vx * vx + vy * vy);
+}
+
+static void piece_fling(const Ent *p, float ox, float oy, float angle_offset, float amin, float amax, float smin, float smax,
+                        float mult) {
   /* (Break turns it by the angle offset; SpinSelf.Start, after, at random) */
-  q->ang = q->spin ? rand_range(0, 360) : p->x1 + angle_offset;
-  q->gravity = p->p0, q->bounce = p->p1, q->spin_factor = p->p2, q->mirror = p->p3;
   float a = rand_range(amin, amax) * (float)M_PI / 180, s = rand_range(smin, smax) * mult;
-  q->vx = cosf(a) * s, q->vy = sinf(a) * s;
-  q->w = 0, q->speed = s;
+  piece_spawn(p->s0, p->group, p->a, p->flags & 1 ? 3 : 0, ox + p->x0, oy + p->y0, p->y1, p->x1 + angle_offset, p->p0,
+              p->p1, p->p2, p->p3, cosf(a) * s, sinf(a) * s, false);
 }
 
 static void pieces_tick(void) {
@@ -848,6 +856,7 @@ void obj_swing_start(void) {
 int obj_nail(const float *pts, int npts, float direction) {
   /* (damages_enemy: the nail's damage, at its Multiplier; Fury's 1.75) */
   int out = enemies_nail(pts, npts, direction, g_hero.fury ? (int)rintf(g_pd.nail_damage * 1.75f) : g_pd.nail_damage);
+  vm_nail(pts, npts);
   for (int k = 0; k < nobjs; k++) {
     Obj *o = &objs[k];
     const Ent *e = ent_at(o->ent);

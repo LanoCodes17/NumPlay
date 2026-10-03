@@ -23,12 +23,75 @@ ROOMS = {
     "Tutorial_01": ["_Props/Chest/Item"],   # (its chest: src/obj.c, which turns on what is in it)
     "Fungus1_22": ["Shiny Item"],
     "Crossroads_10": ["Key Giver"],
+    # the grubs in their jars; the Grubfather, his rewards, the grubs back home
+    "Crossroads_03": ["_Props/Grub Bottle"],
+    "Fungus1_21": ["Grub Bottle"],
+    "Crossroads_38": ["Grub King"] + ["Saved Grubs/Grub Saved %d" % n for n in range(1, 3)],
     # Hornet seen in Greenpath before her arena
     "Fungus1_02": ["Hornet Encounter GP1"],
     "Fungus1_03": ["Set Hornet Encounter"],
     "Fungus1_17": ["Set Hornet Encounter"],
     "Fungus1_31": ["Hornet Encounter Control"],
 }
+def _piece(doc, q, rigid=True):
+    """A piece of debris (a sprite with a Rigidbody2D: how it falls, bounces and spins) -> FlingPiece's operands."""
+    import scene
+    sr = next((c["v"] for c in q["c"] if c["type"] == "SpriteRenderer" and (c.get("v") or {}).get("m_Sprite")), None)
+    rb = next((c.get("v") or {} for c in q["c"] if c["type"] == "Rigidbody2D"), None)
+    if sr is None or (rigid and rb is None):
+        return None
+    m = np.array(q["m3"]).reshape(3, 3)
+    sx, sy = float(np.hypot(m[0, 0], m[1, 0])), float(np.hypot(m[0, 1], m[1, 1]))
+    mirror = -1.0 if np.linalg.det(m[:2, :2]) < 0 else 1.0
+    rot = float(np.degrees(np.arctan2(m[1, 0], m[0, 0]))) if mirror > 0 else float(np.degrees(np.arctan2(-m[1, 0], -m[0, 0])))
+    ob = next((c.get("v") or {} for c in q["c"] if c.get("class") == "ObjectBounce"), None)
+    sp = next((c.get("v") or {} for c in q["c"] if c.get("class") == "SpinSelf"), None)
+    ss = next((c.get("v") or {} for c in q["c"] if c.get("class") == "SpinSelfSimple"), None)
+    # (SpinSelf: a push of its speed times its factor, turned at random first; SpinSelfSimple: against its speed)
+    spin, flags = (sp.get("spinFactor", -7.5), 3) if sp is not None else (-ss.get("spinFactor", 0), 1 | (2 if ss.get("randomStartRotation") else 0)) if ss is not None else (0, 0)
+    return {"sprite": PIECE_SPRITES(doc, sr["m_Sprite"], max(sx, sy)), "layer": scene.layer_index(sr.get("m_SortingLayerID", 0)),
+            "order": (sr.get("m_SortingOrder", 0) + 32768) & 0xFFFF, "flags": flags, "z": q["pos"][2], "rot": rot,
+            "gravity": (rb or {}).get("m_GravityScale", 1), "bounce": ob.get("bounceFactor", 0) if ob else -1,
+            "spin": spin, "mirror": mirror}
+PIECE_SPRITES = None   # (prepare: the sprites' id maker)
+
+
+def _fsm(name, start, vars_, states):
+    """an FSM written here: states as (name, [(action, {params})], {event: state})"""
+    act = lambda a, p: {"name": a, "enabled": True, "params": list(p.items())}
+    evs = sorted({e for _, _, t in states for e in t})
+    return {"name": name, "start": start, "vars": vars_, "global": [], "events": evs,
+            "states": [{"name": n, "actions": [act(a, p) for a, p in acts], "transitions": [[e, t] for e, t in tr.items()]}
+                       for n, acts, tr in states]}
+
+
+def _behaviours(rm, o):
+    """The game's own components that are scripts here (as the FSMs they would be)."""
+    out = []
+    g = next((c.get("v") for c in o["c"] if c.get("class") == "GrubBGControl" and c.get("v")), None)
+    if g is not None:
+        # GrubBGControl: a grub back home, there once that many are saved
+        out.append({"fsm": _fsm("Grub BG", "Init", {"N": ["int", 0]}, [
+            ("Init", [("GetPlayerDataInt", {"intName": "grubsCollected", "storeValue": "$N"}),
+                      ("IntCompare", {"integer1": "$N", "integer2": g["grubNumber"], "lessThan": ["event", "HIDE"],
+                                      "equal": None, "greaterThan": None, "everyFrame": False})], {"HIDE": "Hide"}),
+            ("Hide", [("ActivateGameObject", {"gameObject": "Owner", "activate": False, "recursive": False,
+                                              "resetOnExit": False, "everyFrame": False})], {})])})
+    p = rm.by_id.get(o.get("parent"))
+    if o["name"] == "Wave Region" and p is not None and any(c.get("class") == "GrubBGControl" for c in p["c"]):
+        # (its wave as the Knight comes into its region; then its bounce again)
+        out.append({"fsm": _fsm("Grub BG Wave", "Init", {"Parent": ["gameObject", None]}, [
+            ("Init", [("GetParent", {"gameObject": "Owner", "storeResult": "$Parent"})], {"FINISHED": "Idle"}),
+            ("Idle", [("Tk2dPlayAnimation", {"gameObject": "$Parent", "animLibName": "", "clipName": "Home Bounce"}),
+                      ("Trigger2dEvent", {"trigger": 0, "collideTag": "", "collideLayer": "", "sendEvent": ["event", "WAVE"],
+                                          "storeCollider": None})], {"WAVE": "Wave"}),
+            ("Wave", [("Tk2dPlayAnimationWithEvents", {"gameObject": "$Parent", "clipName": "Home Wave",
+                                                       "animationTriggerEvent": None,
+                                                       "animationCompleteEvent": ["event", "FINISHED"]})],
+             {"FINISHED": "Idle"})])})
+    return out
+
+
 # FSMs left out (what this port does not have: the dream nail, sounds...)
 SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "Shop Open Voice"}
 # objects left out (effects drawn by the C code, or nothing at all; the dream nail's; Dreamer Scene 1's Knight Lift,
@@ -37,6 +100,10 @@ SKIP_CLASSES = {"SpellGetOrb", "ParticleSystem"}
 SKIP_NAMES = {"Dream Dialogue", "Dream Dialogue Flower", "Flower", "Flower Give", "white_light", "white_light 1",
               "Knight Lift"}
 MAX_OBJS, MAX_FSMS, MAX_VARS = 32, 24, 256   # (src/vm.c)
+# the grubs in this part of the game (Crossroads_03, Fungus1_21): the Grubfather's rewards past them never come
+GRUBS = 2
+# the ints ConvertIntToString turns into strings here (the Grubfather's rewards given)
+INT_STRINGS = range(0, GRUBS + 1)
 
 # the game's own objects
 SPECIAL = {"Hero": 0xFF00, "HeroLight": 0xFF01, "DialogueManager": 0xFF02, "DialogueText": 0xFF03, "AreaTitle": 0xFF04,
@@ -46,11 +113,11 @@ O_NONE = 0xFFFF
 # PlayerData ints (src/vm.c: pd_int)
 PD_INTS = ["MPCharge", "health", "maxHealth", "geo", "fireballLevel", "quakeLevel", "screamLevel", "shaman", "elderbug",
            "permadeathMode", "nailDamage", "hornetGreenpath", "quirrelEggTemple", "charmsOwned", "trinket1", "trinket2",
-           "trinket3", "trinket4", "rancidEggs", "ore"]
+           "trinket3", "trinket4", "rancidEggs", "ore", "grubsCollected", "grubRewards"]
 # PlayerData bools kept elsewhere (src/vm.c)
 PD_SPECIAL = {"disablePause": 0xFFF0, "hasSpell": 0xFFF1, "canDash": 0xFFF2}
 # PlayerData bools that keep their new game value all through this part of the game
-PD_CONST = {"backerCredits": False, "equippedCharm_10": False, "elderbugGaveFlower": False, "elderbugRequestedFlower": False,
+PD_CONST = {"backerCredits": False, "finalGrubRewardCollected": False, "equippedCharm_10": False, "elderbugGaveFlower": False, "elderbugRequestedFlower": False,
             "xunFlowerBroken": False, "hasXunFlower": False, "openedBlackEggDoor": False,
             "visitedCrossroadsInfected": False, "defeatedNightmareGrimm": False, "jijiDoorUnlocked": False,
             "visitedCliffs": False, "mineLiftOpened": False, "brettaRescued": False, "elderbugHistory2": False,
@@ -211,15 +278,29 @@ op("GetObjAlpha", ("gameObject", "o"), ("store", "F"))
 op("FlingObject", ("flungObject", "o"), ("speedMin", "f"), ("speedMax", "f"), ("angleMin", "f"), ("angleMax", "f"),
    ("ox", "k"), ("oy", "k"), ("hx", "k"), ("hy", "k"), ("bounce", "k"), ("friction", "k"))
 op("GetSpeed2d", ("gameObject", "o"), ("storeResult", "F"), ("everyFrame", "n"))
-op("SendRandomEvent", ("events", "e*"))
+op("SendRandomEvent", ("events", "e*"), ("weights", "w*"))
+# (FlingObjectsFromGlobalPool of geo: GeoControl's, the C code's (enemy.c), from a spawn point)
+# (ConvertIntToString: the string of each int it can be, here from 0)
+op("IntToString", ("intVariable", "i"), ("stringVariable", "S"), ("strings", "x*"))
+op("FlingGeo", ("type", "n"), ("count", "n"), ("spawnPoint", "o"), ("speedMin", "f"), ("speedMax", "f"),
+   ("angleMin", "f"), ("angleMax", "f"))
 op("IncrementPlayerDataInt", ("intName", "q"))
 op("ListenForInventory", ("wasPressed", "e"))
+op("WaitRandom", ("timeMin", "f"), ("timeMax", "f"), ("finishEvent", "e"))
+# (debris the C code flings (obj.c's pieces), from an object's place by (dx, dy): its sprite, how it falls, bounces and
+# spins (flags: 1 spun, 2 turned at random); hide: that object off as its piece goes; snap: set on the ground below,
+# dy above it (SnapToGround), not flung)
+op("FlingPiece", ("gameObject", "o"), ("hide", "n"), ("snap", "n"), ("sprite", "x"), ("layer", "n"), ("order", "x"),
+   ("flags", "n"), ("dx", "k"), ("dy", "k"), ("z", "k"), ("rot", "k"), ("gravity", "k"), ("bounce", "k"), ("spin", "k"),
+   ("mirror", "k"), ("speedMin", "f"), ("speedMax", "f"), ("angleMin", "f"), ("angleMax", "f"))
 
 # HeroController's methods the scripts call (HeroCall's method)
 HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "StartAnimationControl", "FaceLeft",
                 "FaceRight", "CanTalk", "PreventCastByDialogueEnd", "SetBackOnGround", "AddMPCharge",
                 "FindGroundPoint", "SetBenchRespawn", "SetHazardRespawn", "RelinquishControlNotVelocity",
                 "SetCState", "SaveGame", "AffectedByGravity", "ResetHardLandingTimer", "StopPlayingAudio", "CanInspect"]
+# the geo prefabs (Geo Small, Med, Large): GeoControl's types
+GEO_PREFABS = {("resources.assets", 5736): 0, ("resources.assets", 6395): 1, ("resources.assets", 6376): 2}
 # the prompt marker the pool gives (Arrow Prompt New): a script's own, shown and hidden as ShowPromptMarker's
 PROMPT_PREFAB = ("resources.assets", 6142)
 # prefabs CreateObject makes that the scripts go on with (made beforehand, off): (file, path id)
@@ -238,7 +319,7 @@ CHARMS = [1, 2, 3, 4, 6, 7, 8, 14, 18, 19, 20]
 GAME_OBJECTS = {"Hornet Boss 1": 0xFF0C}
 O_CHARM_TUTE = 0xFF0E   # (src/vm.c)
 # what a trigger's Trigger2dEvent hears, by collideTag: the Knight (any), a spell
-TRIGGER_TAGS = {None: 0, "": 0, "Player": 0, "Untagged": 0, "Hero Spell": 1}
+TRIGGER_TAGS = {None: 0, "": 0, "Player": 0, "Untagged": 0, "Hero Spell": 1, "Nail Attack": 2}
 # the items the message shows (text.MSGS's order), by Msg Control's Item
 MSG_ITEMS = {"Fireball": 0, "Dash": 1}
 # camera shake events
@@ -292,6 +373,8 @@ class Room:
 
     def want(self, o):
         cls = {c.get("class") or c["type"] for c in o["c"]}
+        if o["path"].startswith("Grub King/Rewards Parent/Reward ") and int(o["name"].split()[-1]) > GRUBS:
+            return False
         return not (cls & SKIP_CLASSES) and o["name"] not in SKIP_NAMES
 
     def add_tree(self, o):
@@ -369,6 +452,8 @@ def _string_values(rm, f, v, depth=0):
             P = dict(a["params"])
             if a["name"] == "SetStringValue" and P.get("stringVariable") == v and depth < 4:
                 out += _string_values(rm, f, P.get("stringValue"), depth + 1)
+            elif a["name"] == "ConvertIntToString" and P.get("stringVariable") == v:
+                out += [str(i) for i in INT_STRINGS]
             elif a["name"] == "BuildString" and P.get("storeResult") == v and depth < 4:
                 sep = P.get("separator") or ""
                 parts = [_string_values(rm, f, q, depth + 1) for q in P.get("stringParts") or []]
@@ -521,6 +606,18 @@ class Compiler:
             self.consts.append(v)
         return self.nvars + self.consts.index(v)
 
+    def static_child(self, v):
+        """a gameObject variable FindChild sets from its owner (always the same child) -> that child"""
+        if not (isinstance(v, str) and v.startswith("$")):
+            return None
+        for s in self.f["states"]:
+            for a in s["actions"]:
+                Q = dict(a["params"])
+                if a["name"] == "FindChild" and Q.get("storeResult") == v and Q.get("gameObject") == "Owner":
+                    return next((q for q in self.rm.by_id.values() if q.get("parent") == self.o["id"] and
+                                 q["name"] == Q.get("childName")), None)
+        return None
+
     def obj_value(self, v):
         if v == "Owner":
             return OWNER
@@ -658,6 +755,14 @@ class Compiler:
             return struct.pack("<f", float(v or 0))
         if kind == "x":
             return struct.pack("<H", v)
+        if kind == "w*":
+            # (weights: their shares of 255; none: all alike)
+            w = [float(x) for x in v or []]
+            if len(set(w)) <= 1:
+                return bytes([0])
+            return bytes([len(w)]) + bytes(int(round(255 * x / sum(w))) for x in w)
+        if kind == "x*":
+            return bytes([len(v)]) + b"".join(struct.pack("<H", q) for q in v)
         if kind in ("i*", "b*", "e*"):
             v = v or []
             out = bytes([len(v)])
@@ -686,7 +791,8 @@ class Compiler:
                  "ForceHeroFootstepSound", "SendEventToRegister", "AddTrackTrigger", "PlayVibration",
                  "VibrationPlayerStop", "TransitionToAudioSnapshot", "SetAudioPitch", "SetAudioVolume",
                  "AudioPlayInState", "FadeAudio", "PlayRandomSound", "SetRotation", "RandomFloat",
-                 "GetLastEvent", "SetBoxCollider2DSize", "Tk2dSpriteSetColor", "SetTextMeshProColor"):
+                 "GetLastEvent", "SetBoxCollider2DSize", "Tk2dSpriteSetColor", "SetTextMeshProColor",
+                 "AudioPlayRandom", "SetName", "GameObjectIsNull"):
             return None
         if n in ("PlayerDataBoolTest",):
             return self.emit(n, P)
@@ -794,11 +900,47 @@ class Compiler:
             if P.get("objectName"):
                 return self.emit("FindGameObject", P)
             return None   # (by tag: the main camera)
+        if n == "FlingObjects":
+            c = self.static_child(P.get("containerObject"))
+            if c is None:
+                self.problem("FlingObjects %r" % P.get("containerObject"))
+                return None
+            out = b""
+            for cid in c.get("children", []):
+                q = self.rm.by_id[cid]
+                pp = _piece(q.get("_doc") or self.rm.d, q)
+                if pp is not None:
+                    out += self.emit("FlingPiece", dict(pp, gameObject=("objindex", self.rm.obj(q)), hide=1,
+                                                        speedMin=P.get("speedMin"), speedMax=P.get("speedMax"),
+                                                        angleMin=P.get("angleMin"), angleMax=P.get("angleMax")))
+            return out or None
+        if n == "SpawnRandomObjects":
+            r = P.get("gameObject")
+            import ents
+            f, pid = ents._ref_file(self.o.get("_doc") or self.rm.d, [r[1], r[2]])
+            d2 = unity.prefab(f, pid)
+            pp = _piece(d2, d2["objects"][0])
+            if pp is None or (P.get("originVariation") or 0) != 0:
+                self.problem("SpawnRandomObjects %s %s" % (f, pid))
+                return None
+            pos = P.get("position") or [0, 0, 0]
+            one = self.emit("FlingPiece", dict(pp, gameObject=P.get("spawnPoint"), dx=pos[0], dy=pos[1],
+                                               speedMin=P.get("speedMin"), speedMax=P.get("speedMax"),
+                                               angleMin=P.get("angleMin"), angleMax=P.get("angleMax")))
+            return one * int(P.get("spawnMax") or 1)   # (spawnMin .. spawnMax: as many each time here)
         if n == "CreateObject":
             r = P.get("gameObject")
             if isinstance(r, (list, tuple)) and r and r[0] == "ref":
                 import ents
                 f, pid = ents._ref_file(self.o.get("_doc") or self.rm.d, [r[1], r[2]])
+                d2 = unity.prefab(f, pid)
+                q = d2["objects"][0]
+                if len(d2["objects"]) == 1 and any(c.get("class") == "SnapToGround" for c in q["c"]):
+                    # (a prop set on the ground where it is made: a piece that stays)
+                    pp, box = _piece(d2, q, rigid=False), next((ents._box(q, c) for c in q["c"] if c["type"] == "BoxCollider2D"), None)
+                    pos = P.get("position") or [0, 0, 0]
+                    return self.emit("FlingPiece", dict(pp, gameObject=P.get("spawnPoint"), snap=1, dx=pos[0],
+                                                        dy=q["pos"][1] - box[1]))
                 if (f, pid) in PREFAB_SPAWNS:
                     pos = P.get("position") or [None, None, None]
                     obj = self.rm.add_prefab(f, pid, (self.o["id"], self.where, P.get("storeObject")))
@@ -863,7 +1005,7 @@ class Compiler:
                 return self.emit("HeroCall", {"method": HERO_METHODS.index(fn), "store": None,
                                               "a": float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0})
             if fn in ("advanceTypewriter", "TimePasses", "StoryRecord_acquired", "StoryRecord_visited", "SetActionString",
-                      "RefreshButtonIcon", "StopBounce"):
+                      "RefreshButtonIcon", "StopBounce", "CheckGrubAchievements", "AddToGrubList"):
                 return None
             self.problem("SendMessage %s" % fn)
             return None
@@ -928,10 +1070,25 @@ class Compiler:
             return self.emit("SetStringValue", {"stringVariable": P.get("storeResult"),
                                                 "stringValue": unity.tag_name(o.get("tag", 0)), "everyFrame": 0})
         if n == "SendRandomEvent":
-            w = [x for x in P.get("weights") or []]
-            if len(set(w)) > 1 or (P.get("delay") or 0) >= 0.001:
+            if (P.get("delay") or 0) >= 0.001:
                 self.problem("SendRandomEvent %r" % P)
             return self.emit(n, P)
+        if n == "FlingObjectsFromGlobalPool":
+            import ents
+            r = P.get("gameObject")
+            ref = ents._ref_file(self.o.get("_doc") or self.rm.d, [r[1], r[2]]) if isinstance(r, (list, tuple)) else None
+            if ref not in GEO_PREFABS or P.get("spawnMin") != P.get("spawnMax") or P.get("originVariationX") or \
+                    P.get("originVariationY") or P.get("position"):
+                self.problem("FlingObjectsFromGlobalPool %r" % (ref,))
+                return None
+            return self.emit("FlingGeo", dict(P, type=GEO_PREFABS[ref], count=P.get("spawnMax")))
+        if n == "ConvertIntToString":
+            if P.get("format"):
+                self.problem("ConvertIntToString format %r" % P.get("format"))
+            return self.emit("IntToString", dict(P, strings=[STR.id(str(i)) for i in INT_STRINGS]))
+        if n == "CheckGeoCap":
+            # (the geo the Knight can hold: far more than there is here)
+            return self.emit("SendEvent", {"eventTarget": "Self", "sendEvent": P.get("IsUnderCapEvent"), "delay": 0})
         if n == "FlingObject":
             o = self.o if P.get("flungObject") == "Owner" else None
             if o is None:
@@ -1026,6 +1183,8 @@ def _animator(o):
 def prepare(rooms, sprites, texts):
     """Compiles the rooms' scripts; registers their characters' animation libraries as actors (before actors.build)."""
     import actors, ents, tk2d
+    global PIECE_SPRITES
+    PIECE_SPRITES = sprites.id
     for name, prefixes in ROOMS.items():
         if name not in rooms:
             continue
@@ -1040,7 +1199,7 @@ def prepare(rooms, sprites, texts):
         while done < len(rm.objs):
             o = rm.objs[done]
             done += 1
-            for c in o["c"]:
+            for c in o["c"] + _behaviours(rm, o):
                 f = c.get("fsm")
                 if not f or f["name"] in SKIP_FSMS:
                     continue
@@ -1140,10 +1299,13 @@ def room_blob(name, clip_index, sprites, owners=(), persist=None):
         sy = float(np.hypot(m[0, 1], m[1, 1])) * (1 if m[1, 1] >= 0 else -1)
         fl = (OF_ACTIVE if o.get("self_active", o["active"]) else 0)
         box = None
+        # (one its scripts hear the nail hit: its collider, a trigger or not, is what the nail's trigger meets)
+        nail = any(a["name"] == "Trigger2dEvent" and dict(a["params"]).get("collideTag") == "Nail Attack"
+                   for c in o["c"] if c.get("fsm") for s in c["fsm"]["states"] for a in s["actions"])
         for c in o["c"]:
             if c["type"] in ("BoxCollider2D", "CircleCollider2D", "PolygonCollider2D") and c.get("v"):
                 b = ents._box(o, c)
-                if b and c["v"].get("m_IsTrigger") and box is None:
+                if b and (c["v"].get("m_IsTrigger") or nail) and box is None:
                     box = b
                 if b and c["v"].get("m_Enabled", 1):
                     fl |= OF_COLLIDER

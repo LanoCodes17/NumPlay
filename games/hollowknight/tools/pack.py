@@ -59,17 +59,7 @@ SECTIONS = ["TEX", "TMAP", "PAL", "BIDX", "BLK", "ROOMS", "RBLOB", "PRIOR", "SOF
 
 
 def _pdf_flags():
-    """PlayerData's bools as the game numbers them (src/game.h: PDF_*), by their names in the game ("falseKnightDefeated")"""
-    import re
-    src = open(os.path.join(SRC, "game.h")).read()
-    names = re.search(r"enum \{\s*(PDF_AT_BENCH[^}]*)\}", src).group(1)
-    ids = [n.strip() for n in names.replace("\n", " ").split(",") if n.strip() and n.strip() != "PDF_COUNT"]
-    camel = lambda n: "".join(w.capitalize() for w in n[4:].lower().split("_"))
-    out = {}
-    for i, n in enumerate(ids):
-        c = camel(n)
-        out[c[0].lower() + c[1:]] = i
-    return out
+    return ents.pd_flags()
 BLENDS = {"alpha": 0, "add": 1, "screen": 2, "linearlight": 3, "overlay": 4, "multiply": 5}
 F_LIT, F_ROT, F_SOLID, F_DYN, F_GRASS = 8, 16, 32, 64, 128
 

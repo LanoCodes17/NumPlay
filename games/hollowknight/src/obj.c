@@ -2,6 +2,10 @@
  * breakables and the debris they fling. */
 #include <math.h>
 #include "game.h"
+#ifdef HOST
+#include <stdio.h>
+#include <stdlib.h>
+#endif
 
 #define DT 0.02f
 #define MAX_OBJS 64
@@ -303,19 +307,175 @@ static void chest_draw(const Obj *o, const Ent *e) {
   }
 }
 
+/* ---------------------------------------------------------------- battle gates (BG Control; or Control: closed till a
+ * PlayerData bool is set) */
+enum { BGF_START_CLOSED = 1, BGF_BONE = 2, BGF_PD = 4 };
+enum { GT_OPENED, GT_CLOSE1, GT_CLOSE2, GT_OPEN, GT_QUICK_CLOSE, GT_DOUBLE_CLOSE, GT_GONE };
+enum { GC_OPENED, GC_CLOSE1, GC_CLOSE2, GC_OPEN, GC_CLOSED };
+
+static int gate_clip(const Ent *e, int which) {
+  static const int16_t clips[2][5] = {
+      {CLIP_BGATE_BG_OPENED, CLIP_BGATE_BG_CLOSE_1, CLIP_BGATE_BG_CLOSE_2, CLIP_BGATE_BG_OPEN, CLIP_BGATE_BG_CLOSED},
+      {CLIP_BGATE_BONE_GATE_OPENED, CLIP_BGATE_BONE_GATE_CLOSE, CLIP_BGATE_BONE_GATE_CLOSED, CLIP_BGATE_BONE_GATE_OPEN,
+       CLIP_BGATE_BONE_GATE_CLOSED}};
+  return clips[(e->s0 & BGF_BONE) != 0][which];
+}
+
+static void gate_collider(const Ent *e, bool on) {
+  for (int c = e->a; c < e->a + e->group; c++) phys_collider_enable(c, on);
+}
+
+static void gate_set(Obj *o, const Ent *e, int state, int clip, bool solid) {
+  anim_play_from_frame(&o->anim, gate_clip(e, clip), 0);
+  gate_collider(e, solid);
+  o->state = (uint8_t)state;
+}
+
+static void gate_gone(Obj *o, const Ent *e) {
+  gate_collider(e, false);
+  o->state = GT_GONE;
+}
+
+static void gate_enter(Obj *o, const Ent *e) {
+  if (e->s0 & BGF_PD) {
+    gate_set(o, e, GT_DOUBLE_CLOSE, GC_CLOSED, true);
+    if (pd_flag((int)e->p1)) gate_gone(o, e);   /* (Check) */
+  } else if (e->s0 & BGF_START_CLOSED) {
+    gate_set(o, e, GT_QUICK_CLOSE, GC_CLOSED, true), o->t = 0.2f;
+  } else
+    gate_set(o, e, GT_OPENED, GC_OPENED, false);
+}
+
+static void gate_event(Obj *o, const Ent *e, int ev) {
+  if (o->state == GT_GONE) return;
+  if (e->s0 & BGF_PD) {
+    if (ev == BG_OPEN || ev == BG_QUICK_OPEN) gate_gone(o, e);
+    return;
+  }
+  if (ev == BG_DESTROY) gate_gone(o, e);
+  else if (ev == BG_QUICK_OPEN) gate_set(o, e, GT_OPENED, GC_OPENED, false);   /* (Quick Open: as Opened) */
+  else if (o->state == GT_OPENED || o->state == GT_OPEN) {
+    if (ev == BG_CLOSE) gate_set(o, e, GT_CLOSE1, GC_CLOSE1, true);
+    else if (ev == BG_QUICK_CLOSE) gate_set(o, e, GT_QUICK_CLOSE, GC_CLOSED, true), o->t = 0.2f;
+  } else if (ev == BG_OPEN && (o->state == GT_CLOSE2 || o->state == GT_QUICK_CLOSE || o->state == GT_DOUBLE_CLOSE))
+    gate_set(o, e, GT_OPEN, GC_OPEN, false);
+}
+
+static void gate_tick(Obj *o, const Ent *e) {
+  if (o->state == GT_CLOSE1 && (o->anim.events & ANIM_DONE)) {
+    /* Close 2: slammed shut */
+    anim_play_from_frame(&o->anim, gate_clip(e, GC_CLOSE2), 0);
+    cam_shake(SHAKE_ENEMY_KILL);
+    o->state = GT_CLOSE2;
+  } else if (o->state == GT_QUICK_CLOSE && (o->t -= DT) <= 0) {
+    anim_play_from_frame(&o->anim, gate_clip(e, GC_CLOSED), 0);   /* (Double Close) */
+    o->state = GT_DOUBLE_CLOSE;
+  }
+}
+
+void gates_event(int ev) {
+#ifdef HOST
+  if (getenv("HKOBJ")) fprintf(stderr, "gates event %d\n", ev);
+#endif
+  for (int k = 0; k < nobjs; k++)
+    if (objs[k].kind == OK_BGATE) gate_event(&objs[k], ent_at(objs[k].ent), ev);
+}
+
+/* ---------------------------------------------------------------- arenas (Battle Control; the False Knight's is enemy.c's) */
+enum { ARF_TRIGGER = 1, ARF_DESTROY_GATES = 2, ARF_QUICK_OPEN = 4 };
+enum { AR_DETECT, AR_FIGHT, AR_END_WAIT, AR_DONE };
+static struct {
+  int16_t ent;   /* (-1: none) */
+  uint8_t st;
+  int16_t count;   /* Battle Enemies */
+  float t;
+} arena;
+
+static const Ent *arena_rec(void) {
+  int n;
+  const Ent *es = room_ents(&n);
+  for (int i = 0; i < n; i++)
+    if (es[i].type == ENT_OBJ && es[i].flags == OK_ARENA) return &es[i];
+  return NULL;
+}
+
+bool arena_done(void) {
+  const Ent *e = arena_rec();
+  return e && persist_get(e->persist);
+}
+
+static void arena_enter(void) {
+  const Ent *e = arena_rec();
+  int n;
+  arena.ent = e ? (int16_t)(e - room_ents(&n)) : -1;
+  if (!e) return;
+  arena.count = (int16_t)e->p2;
+  /* Init: its camera lock off; Activate if its fight is over */
+  if (e->p0 >= 0) ent_set_enabled((int)e->p0, false);
+  if (persist_get(e->persist)) {
+    arena.st = AR_DONE;
+    if (e->a & ARF_DESTROY_GATES) gates_event(BG_DESTROY);
+    else if (e->a & ARF_QUICK_OPEN) gates_event(BG_QUICK_OPEN);
+  } else
+    arena.st = AR_DETECT;
+}
+
+void arena_start(void) {
+  if (arena.ent < 0 || arena.st != AR_DETECT) return;
+  const Ent *e = ent_at(arena.ent);
+  /* Start: BATTLE START, the gates shut, its camera lock on */
+  arena.count = (int16_t)e->p2;
+  gates_event(BG_CLOSE);
+  if (e->p0 >= 0) ent_set_enabled((int)e->p0, true);
+  arena.st = AR_FIGHT;
+}
+
+void arena_enemy_died(void) {
+  if (arena.ent >= 0) arena.count--;
+}
+
+void arena_set_activated(void) {
+  if (arena.ent >= 0) persist_set(ent_at(arena.ent)->persist);
+}
+
+static void arena_tick(void) {
+  if (arena.ent < 0) return;
+  const Ent *e = ent_at(arena.ent);
+  switch (arena.st) {
+    case AR_DETECT:
+      if (e->a & ARF_TRIGGER) {
+        const Body *k = &g_hero.body;
+        float x0 = k->x + k->ox - k->hx, x1 = k->x + k->ox + k->hx, y0 = k->y + k->oy - k->hy, y1 = k->y + k->oy + k->hy;
+        if (!g_hero.hidden && x1 > e->x0 && x0 < e->x1 && y1 > e->y0 && y0 < e->y1) arena_start();
+      }
+      break;
+    case AR_FIGHT:
+      if (arena.count <= 0) arena.st = AR_END_WAIT, arena.t = 0;
+      break;
+    case AR_END_WAIT:
+      if ((arena.t += DT) >= e->p3) {
+        /* End: Activated, the gates open, its camera lock off */
+        persist_set(e->persist);
+        gates_event(BG_OPEN);
+        if (e->p0 >= 0) ent_set_enabled((int)e->p0, false);
+        arena.st = AR_DONE;
+      }
+      break;
+  }
+}
+
 /* ---------------------------------------------------------------- the room */
 void obj_enter(void) {
   nobjs = 0;
   phys_colliders_reset();
-  enemies_enter();
-  benches_enter();
   memset(pieces, 0, sizeof pieces);
   memset(swing_hit, 0, sizeof swing_hit);
   int n;
   const Ent *es = room_ents(&n);
   for (int i = 0; i < n && nobjs < MAX_OBJS; i++) {
     if (es[i].type != ENT_OBJ) continue;
-    if (es[i].flags == OK_ENEMY || es[i].flags == OK_BENCH) continue;   /* (enemy.c's, npc.c's) */
+    if (es[i].flags == OK_ENEMY || es[i].flags == OK_BENCH || es[i].flags == OK_ARENA || es[i].flags == OK_EVENT)
+      continue;   /* (enemy.c's, npc.c's; below) */
     Obj *o = &objs[nobjs++];
     memset(o, 0, sizeof *o);
     o->kind = es[i].flags, o->ent = (uint16_t)i;
@@ -323,7 +483,21 @@ void obj_enter(void) {
     else if (o->kind == OK_GREAT_DOOR) great_door_enter(o, &es[i]);
     else if (o->kind == OK_GEO_ROCK) georock_enter(o, &es[i]);
     else if (o->kind == OK_CHEST) chest_enter(o, &es[i]);
+    else if (o->kind == OK_BGATE) gate_enter(o, &es[i]);
   }
+  /* (then what sends the gates their events: SendPlaymakerEventOnEnable, the arenas) */
+  for (int i = 0; i < n; i++)
+    if (es[i].type == ENT_OBJ && es[i].flags == OK_EVENT) gates_event(es[i].a);
+  enemies_enter();
+  benches_enter();
+  arena_enter();
+#ifdef HOST
+  if (getenv("HKOBJ"))
+    for (int k = 0; k < nobjs; k++) {
+      const Ent *e = ent_at(objs[k].ent);
+      fprintf(stderr, "obj %d kind %d state %d at %.2f,%.2f sprite %d\n", k, objs[k].kind, objs[k].state, e->x0, e->y0, objs[k].anim.sprite);
+    }
+#endif
 }
 
 void obj_tick(void) {
@@ -335,7 +509,9 @@ void obj_tick(void) {
     if (o->kind == OK_GREAT_DOOR) great_door_tick(o, e);
     else if (o->kind == OK_GEO_ROCK) georock_tick(o, e);
     else if (o->kind == OK_CHEST) chest_tick(o, e);
+    else if (o->kind == OK_BGATE) gate_tick(o, e);
   }
+  arena_tick();
   pieces_tick();
   enemies_update();
 }
@@ -353,6 +529,10 @@ void obj_draw(void) {
       gfx_actor(&in, SORT_KEY(0, 0));
     } else if (o->kind == OK_CHEST)
       chest_draw(o, e);
+    else if (o->kind == OK_BGATE && o->state != GT_GONE) {
+      sprite_inst(o->anim.sprite, e->x0, e->y0, e->x1, e->y1, e->p0, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
   }
   pieces_draw();
   enemies_draw();

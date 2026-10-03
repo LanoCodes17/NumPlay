@@ -52,8 +52,20 @@ void save_set_respawn(const char *marker, bool facing_right);   /* (Bench Contro
 /* ---------------------------------------------------------------- the room's game objects (tools/ents.py) */
 enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE,
        ENT_BOX, ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER };   /* (shape, box, piece: more of the record before) */
-enum { OK_BREAKABLE = 1, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR };   /* objects (ENT_OBJ's flags) */
-#define EF_PREBATTLE 4   /* (an enemy record's s1: one of an arena's Pre Battle Enemies) */
+enum { OK_BREAKABLE = 1, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR, OK_BGATE,
+       OK_ARENA, OK_EVENT };   /* objects (ENT_OBJ's flags) */
+/* an enemy record's s1: one of an arena's Pre Battle Enemies; its death counts for its arena; gone once its arena's
+ * fight is over; spawned by its mother's burster; then its death's effects (EF_DEATH_SHIFT: enemyDeathType, and
+ * 12-13: which EnemyDeathEffects) */
+enum { EF_PREBATTLE = 4, EF_BATTLE = 8, EF_ARENA_GONE = 16, EF_SPAWNED = 32 };
+#define EF_DEATH_SHIFT 8
+/* battle gates (BG Control: their events) and arenas (Battle Control: obj.c) */
+enum { BG_CLOSE, BG_QUICK_CLOSE, BG_OPEN, BG_QUICK_OPEN, BG_DESTROY };
+void gates_event(int ev);
+void arena_start(void);          /* START (sent by an enemy) */
+void arena_enemy_died(void);     /* (one it counts) */
+void arena_set_activated(void);  /* Activated: its fight over (and saved) */
+bool arena_done(void);
 enum { HB_BOUNCE = 1, HB_RECOIL = 2 };    /* a hit box (ENT_BOX's flags): a down slash bounces off it, a slash recoils */
 enum { HAZ_NONE, HAZ_NORMAL, HAZ_SPIKES, HAZ_ACID, HAZ_LAVA, HAZ_PIT };   /* DamageHero.hazardType */
 enum { MK_SECRET = 1, MK_REMASK = 2, MK_SIMPLE = 4 };   /* masks: the unmasker, remasker and inverse FSMs */

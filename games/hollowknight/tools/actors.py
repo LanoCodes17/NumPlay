@@ -52,6 +52,10 @@ ENEMY_KINDS = [
       "Stun Open", "Stun Hit", "Stun Recover", "Rage", "Death Fall", "Death Land", "Death Head 1", "Death Head 2",
       "Death Spaz", "Body", "Stun Opened"]),
     ("fkhead", "Health Check", ("sharedassets47.assets", 9), "FKHEAD", {"IDLE": "Head Idle"}, ["Head Hit", "Head Spaz"]),
+    # (Gruz Mother; her corpse's and its burster's clips are hers too)
+    ("gfly", "Big Fly Control", ("sharedassets32.assets", 765), "GFLY", {"IDLE": "Sleep"},
+     ["Wake", "Fly", "Charge Antic", "Charge", "Charge Recover", "Slam Down", "Slam Up", "Slam End", "Death", "Fall",
+      "Wiggle", "Stop", "Gurgle Once", "Gurgle Loop", "Burst"]),
 ]
 ENEMY_CORPSE_LIBS = {}   # (name -> its corpse's library, if not its own)
 
@@ -105,6 +109,9 @@ ACTORS = {"knight": KNIGHT,
                                                  "Retreat Start", "Retreat End", "Death Start", "Death", "Depart",
                                                  "Appear", "Fireball", "Fireball End", "Cast Ring"])}
 ACTORS.update(_enemy_actors())
+# battle gates (BG Control: the plain ones and the bone ones)
+ACTORS["bgate"] = ("sharedassets9.assets", 197, ["BG Opened", "BG Close 1", "BG Close 2", "BG Open", "BG Closed",
+                                                 "Bone Gate Opened", "Bone Gate Close", "Bone Gate Closed", "Bone Gate Open"])
 # enemies' shots (EnemyBullet)
 ACTORS["bullet"] = ("sharedassets32.assets", 745, ["Idle", "Impact", "Shockwave Spurt"])
 

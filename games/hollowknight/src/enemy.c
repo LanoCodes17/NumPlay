@@ -9,14 +9,14 @@
 
 #define DT 0.02f
 #define MAX_ENEMIES 24
-#define MAX_GEO 24
+#define MAX_GEO 64
 #define TERRAIN_FRICTION 0.2f   /* (the Terrain material; with another, their geometric mean) */
 
 /* ---------------------------------------------------------------- what each kind is */
 /* (data.h: EK_* each kind, KIND_TABLE: the FSM each runs and the clips its roles play) */
 enum {
   EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER, EF_ROLLER, EF_BLOCKER, EF_LEAPER, EF_GUARD,
-  EF_FK, EF_FKHEAD
+  EF_FK, EF_FKHEAD, EF_GFLY
 };
 enum { R_IDLE, R_TURN, R_WALK, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, R_A7, R_A8, R_DEATH_AIR, R_DEATH_LAND, NUM_ROLES };
 typedef struct {
@@ -28,7 +28,7 @@ static const Kind kinds[NUM_KINDS] = KIND_TABLE;
 #define FSM(e) (kinds[(e)->kind].fsm)
 #define NO_ENT 0xFFFF   /* (an enemy spawned, not one of the room's) */
 /* the records after an enemy's (tools/ents.py: ET_*) */
-enum { ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX };
+enum { ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX, ET_ZONE };
 enum { CF_BREAKER = 1, CF_FACES_RIGHT = 2, CF_LOW_ARC = 4, CF_NO_COLLIDER = 32 };   /* a corpse's (ET_CORPSE) */
 enum { WF_PAUSES = 1, WF_IGNORE_HOLES = 2, WF_NO_TURN_TO_HERO = 4, WF_START_INACTIVE = 8, WF_AMBUSH = 16, WF_WAIT_HERO_X = 32,
        WF_PREVENT_TURN = 64, WF_NO_SCALE = 128, WF_RIGHT_NEG = 256 };   /* a Walker's (ET_WALKER) */
@@ -127,12 +127,16 @@ static void enemy_box(const Enemy *e, float *x0, float *y0, float *x1, float *y1
 }
 
 /* ---------------------------------------------------------------- geo (GeoControl) */
+/* (kept small, many at once: its body's place, velocity and first two contacts; a whole Body only as it steps) */
+#define GEO_CONTACTS 2
 typedef struct {
-  bool on, landed;
+  bool on;
   uint8_t type;   /* 0 small (1), 1 medium (5), 2 large (25) */
-  Body body;
+  uint8_t ncontacts, ccol[GEO_CONTACTS];
+  float x, y, vx, vy;
+  float cnx[GEO_CONTACTS], cny[GEO_CONTACTS];
   Anim anim;
-  float pickup_t, bounce_speed;
+  float pickup_t;
 } Geo;
 static Geo geo[MAX_GEO];
 static const struct {
@@ -158,13 +162,9 @@ void geo_fling_at(int type, int n, float x, float y, float smin, float smax, flo
     if (!g) return;
     memset(g, 0, sizeof *g);
     g->on = true, g->type = (uint8_t)type;
-    Body *b = &g->body;
-    b->x = x + rand_range(-spread, spread), b->y = y + rand_range(-spread, spread);
-    b->ox = geo_kinds[type].ox * GEO_SCALE, b->oy = geo_kinds[type].oy * GEO_SCALE;
-    b->hx = geo_kinds[type].hx * GEO_SCALE, b->hy = geo_kinds[type].hy * GEO_SCALE;
-    b->gravity_scale = geo_kinds[type].gravity, b->friction = 0.2f, b->mask = CF_TERRAIN;
+    g->x = x + rand_range(-spread, spread), g->y = y + rand_range(-spread, spread);
     float s = rand_range(smin, smax), a = rand_range(amin, amax) * (float)M_PI / 180;
-    b->vx = cosf(a) * s, b->vy = sinf(a) * s;
+    g->vx = cosf(a) * s, g->vy = sinf(a) * s;
     anim_play(&g->anim, geo_kinds[type].air);
     g->pickup_t = 0.25f;
   }
@@ -188,39 +188,52 @@ static void geo_tick(void) {
   for (int i = 0; i < MAX_GEO; i++) {
     Geo *g = &geo[i];
     if (!g->on) continue;
-    float pvx = g->body.vx, pvy = g->body.vy;
-    int had = g->body.ncontacts;
-    body_step(&g->body, DT);
-    if (g->body.ncontacts > had) {
-      bounce(&g->body, pvx, pvy, had, geo_kinds[g->type].bounce);
+    Body b;
+    memset(&b, 0, sizeof b);
+    b.x = g->x, b.y = g->y, b.vx = g->vx, b.vy = g->vy;
+    b.ox = geo_kinds[g->type].ox * GEO_SCALE, b.oy = geo_kinds[g->type].oy * GEO_SCALE;
+    b.hx = geo_kinds[g->type].hx * GEO_SCALE, b.hy = geo_kinds[g->type].hy * GEO_SCALE;
+    b.gravity_scale = geo_kinds[g->type].gravity, b.friction = 0.2f, b.mask = CF_TERRAIN;
+    b.ncontacts = g->ncontacts;
+    for (int c = 0; c < g->ncontacts; c++) b.ccol[c] = g->ccol[c], b.cnx[c] = g->cnx[c], b.cny[c] = g->cny[c];
+    float pvx = b.vx, pvy = b.vy;
+    int had = b.ncontacts;
+    body_step(&b, DT);
+    bool hit = b.ncontacts > had;
+    if (hit) bounce(&b, pvx, pvy, had, geo_kinds[g->type].bounce);
+    g->x = b.x, g->y = b.y, g->vx = b.vx, g->vy = b.vy;
+    g->ncontacts = (uint8_t)(b.ncontacts < GEO_CONTACTS ? b.ncontacts : GEO_CONTACTS);
+    for (int c = 0; c < g->ncontacts; c++) g->ccol[c] = b.ccol[c], g->cnx[c] = b.cnx[c], g->cny[c] = b.cny[c];
+    if (hit) {
       /* (OnCollisionEnter2D: the idle animation from a random frame) */
       anim_play_from_frame(&g->anim, geo_kinds[g->type].idle, (int)rand_range(0, (float)clip_frames_count(geo_kinds[g->type].idle) - 0.001f));
     }
     g->anim.events = 0;
     anim_update(&g->anim, DT);
     if (g->pickup_t > 0) g->pickup_t -= DT;
-    float x0 = g->body.x + g->body.ox - g->body.hx, x1 = g->body.x + g->body.ox + g->body.hx;
-    float y0 = g->body.y + g->body.oy - g->body.hy, y1 = g->body.y + g->body.oy + g->body.hy;
+    float x0 = b.x + b.ox - b.hx, x1 = b.x + b.ox + b.hx, y0 = b.y + b.oy - b.hy, y1 = b.y + b.oy + b.hy;
     if (g->pickup_t <= 0 && !h->hidden && x1 > hx - 0.2277069f && x0 < hx + 0.2277069f && y1 > hy - 0.5848932f &&
         y0 < hy + 0.5848932f) {
       hero_add_geo(geo_kinds[g->type].value);
       g->on = false;
     }
-    if (g->body.y < -10) g->on = false;
+    if (g->y < -10) g->on = false;
   }
 }
 
 /* ---------------------------------------------------------------- SpriteFlash */
-static uint8_t flash_tint(const Enemy *e, int slot) {
-  if (!e->flashing) return 0;
+static uint8_t flash_tint_at(bool on, float t, int slot) {
+  if (!on || t > 0.27f) return 0;
   /* flashInfected: up 0.01 s, stays 0.01 s, down over 0.25 s, to 0.9 of orange */
-  float t = e->flash_t, k;
+  float k;
   if (t < 0.01f) k = t / 0.01f;
   else if (t < 0.02f) k = 1;
   else k = 1 - (t - 0.02f) / 0.25f;
   if (k < 0) k = 0;
   return gfx_dyn_flash(slot, 255, 255, 255, 255, 255, 79, 0, (uint8_t)(0.9f * k * 255));
 }
+
+static uint8_t flash_tint(const Enemy *e, int slot) { return flash_tint_at(e->flashing, e->flash_t, slot); }
 
 /* ---------------------------------------------------------------- Recoil */
 #define RF_NONE 0x80   /* (no Recoil component) */
@@ -293,9 +306,17 @@ static void corpse_start(Enemy *e, float direction, bool has_direction) {
   e->flashing = true, e->flash_t = 0;   /* (EmitInfectedEffects: the corpse flashes) */
 }
 
+/* EnemyDeathEffects.EmitEffects: the camera's shake by its enemyDeathType (Infected, LargeInfected; SmallInfected none) */
+static void death_shake(const Enemy *e) {
+  int type = e->ent != NO_ENT ? ent_at(e->ent)->s1 >> EF_DEATH_SHIFT & 15 : 0;
+  if (type == 0) cam_shake(SHAKE_ENEMY_KILL);
+  else if (type == 5) cam_shake(SHAKE_AVERAGE);
+}
+
 /* HealthManager.Die, EnemyDeathEffects */
 static void shade_killed(Enemy *e);
 static void blocker_die(Enemy *e);
+static void gfly_die(Enemy *e);
 static void enemy_die(Enemy *e, float direction, bool has_direction) {
   if (FSM(e) == EF_SHADE) {
     shade_killed(e);
@@ -310,9 +331,14 @@ static void enemy_die(Enemy *e, float direction, bool has_direction) {
   geo_fling(0, e->geo_s, x, y, 15, 30, 80, 100);
   geo_fling(1, e->geo_m, x, y, 15, 30, 80, 100);
   geo_fling(2, e->geo_l, x, y, 15, 30, 80, 100);
-  if (e->ent != NO_ENT) persist_set(ent_at(e->ent)->persist), enemy_terrain_off(ent_at(e->ent));
-  corpse_start(e, direction, has_direction);
-  cam_shake(SHAKE_ENEMY_KILL);
+  if (e->ent != NO_ENT) {
+    const Ent *d = ent_at(e->ent);
+    persist_set(d->persist), enemy_terrain_off(d);
+    if (d->s1 & EF_BATTLE) arena_enemy_died();   /* (its battleScene's Battle Enemies) */
+  }
+  if (FSM(e) == EF_GFLY) gfly_die(e);
+  else corpse_start(e, direction, has_direction);
+  death_shake(e);
   FREEZE_MOMENT_1();
 }
 
@@ -865,8 +891,9 @@ static void bouncer_fixed(Enemy *e) {
 static void bouncer_update(Enemy *e) {
   switch (e->st) {
     case BO_WAIT: {
-      float dx = e->body.x - g_cam_x, dy = e->body.y - g_cam_y;
-      if (dx * dx + dy * dy < 44 * 44) {
+      /* (GetDistance to the main camera, its depth included) */
+      float dx = e->body.x - g_cam_x, dy = e->body.y - g_cam_y, dz = 0.01f - CAM_Z;
+      if (dx * dx + dy * dy + dz * dz < 44 * 44) {
         const Ent *v = enemy_rec(e, ET_VARS);
         if (v && (v->a & 2)) bouncer_aim(e, 90, 90);   /* (Start Up) */
         else bouncer_aim(e, 0, 360);
@@ -1348,7 +1375,7 @@ static void blocker_die(Enemy *e) {
   geo_fling(1, e->geo_m, e->body.x, e->body.y, 15, 30, 80, 100);
   geo_fling(2, e->geo_l, e->body.x, e->body.y, 15, 30, 80, 100);
   if (e->ent != NO_ENT) persist_set(ent_at(e->ent)->persist), enemy_terrain_off(ent_at(e->ent));
-  cam_shake(SHAKE_ENEMY_KILL);
+  death_shake(e);
   FREEZE_MOMENT_1();
   /* (the Snail Shaman hears of it) */
   if (g_pd.shaman == 3) g_pd.shaman = 4;
@@ -2763,7 +2790,8 @@ static void fk_arena_enter(void) {
   const Ent *b = &es[fk.battle];
   fk.summon_x0 = 13.18f, fk.summon_x1 = 44.27f, fk.summon_y = 40.98f;   /* (summon: Summon Min, Max; its y) */
   if (persist_get(b->persist)) {
-    /* Activate: the fight over, the floor broken, the armour there */
+    /* Activate: the fight over, the gates open, the floor broken, the armour there */
+    gates_event(BG_QUICK_OPEN);
     if (b->p0 >= 0) ent_set_enabled((int)b->p0, false);
     if (b->p1 >= 0) ent_set_enabled((int)b->p1, false);
     fk.battle_st = BT_DONE;
@@ -2793,12 +2821,13 @@ static void fk_arena_tick(void) {
         if (b->p0 >= 0) ent_set_enabled((int)b->p0, true);
         if (b->p1 >= 0) ent_set_enabled((int)b->p1, false);
         fk.battle_st = BT_FIGHT;
+        gates_event(BG_CLOSE);
         fk_battle_start();
       }
       break;
     }
     case BT_END_WAIT:
-      if ((fk.battle_t += DT) >= 2) fk.battle_st = BT_DONE;
+      if ((fk.battle_t += DT) >= 2) fk.battle_st = BT_DONE, gates_event(BG_OPEN);   /* (End) */
       break;
   }
   barrels_tick();
@@ -3188,6 +3217,411 @@ static void balls_tick(void) {
 }
 
 /* ---------------------------------------------------------------- the room's */
+/* ---------------------------------------------------------------- Gruz Mother: Big Fly Control (with her bouncer_control);
+ * her corpse (corpse) and its burster (burster), which brings out her young */
+enum { GF_INVINCIBLE, GF_SLEEP, GF_WAKE, GF_FLY, GF_BUZZ, GF_CHARGE_ANTIC, GF_CHARGE, GF_CHARGE_RECOVER, GF_SUPER_END,
+       GF_SLAM_ANTIC, GF_LAUNCH, GF_FLYING, GF_SLAM_HIT, GF_SLAM_END };
+#define GF_SCALE 1.25f
+#define GF_BUZZ_SPEED 5.0f   /* (bouncer_control's Speed) */
+#define GF_SLAM_SPEED 50.0f
+/* (her FSM's variables: wait the bouncer's Angle, b1 its Facing Right; ax Charge Angle or Slamming Angle; ay Up Angle,
+ * qx Down Angle; qy Super Wait; tx Slam Time; ty Super End Time; t1 Timer; pause0, pause1 Self Vel; c0, c1 Ct Charge,
+ * Ct Slam; b0 Slamming Up; start_x, start_y where ObjectJitter jitters about; jy Slam Down's dip) */
+
+/* a box and a polygon (any shape: its outline's points) overlap? */
+static bool box_meets_poly(float x0, float y0, float x1, float y1, const float *p, int n) {
+  bool in = false;
+  float cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  for (int i = 0, j = n - 1; i < n; j = i++) {
+    float ax = p[2 * j], ay = p[2 * j + 1], bx = p[2 * i], by = p[2 * i + 1];
+    if (bx >= x0 && bx <= x1 && by >= y0 && by <= y1) return true;   /* (a corner in the box) */
+    if ((ay > cy) != (by > cy) && cx < ax + (bx - ax) * (cy - ay) / (by - ay)) in = !in;
+    /* (an edge through the box: clipped to it, something left) */
+    float t0 = 0, t1 = 1, dx = bx - ax, dy = by - ay;
+    const float q[4][2] = {{-dx, ax - x0}, {dx, x1 - ax}, {-dy, ay - y0}, {dy, y1 - ay}};
+    bool cut = true;
+    for (int k = 0; k < 4 && cut; k++) {
+      if (q[k][0] == 0) {
+        if (q[k][1] < 0) cut = false;
+        continue;
+      }
+      float r = q[k][1] / q[k][0];
+      if (q[k][0] < 0) t0 = r > t0 ? r : t0;
+      else t1 = r < t1 ? r : t1;
+      if (t0 > t1) cut = false;
+    }
+    if (cut) return true;
+  }
+  return in;   /* (the box's middle in it: the box inside) */
+}
+
+/* the Knight in her Battle Range (ET_ZONE: HERO ENTER, HERO EXIT) */
+static bool gfly_in_range(const Enemy *e) {
+  const Ent *z = enemy_rec(e, ET_ZONE);
+  if (!z || g_hero.hidden) return false;
+  const Body *k = &g_hero.body;
+  float x0 = k->x + k->ox - k->hx, x1 = k->x + k->ox + k->hx, y0 = k->y + k->oy - k->hy, y1 = k->y + k->oy + k->hy;
+  float s = e->sx < 0 ? -1.0f : 1.0f, a0 = e->body.x + (s > 0 ? z->x0 : -z->x1), a1 = e->body.x + (s > 0 ? z->x1 : -z->x0);
+  if (!(x1 > a0 && x0 < a1 && y1 > e->body.y + z->y0 && y0 < e->body.y + z->y1)) return false;
+  float pts[16];
+  int np = (int)z->p0 < 8 ? (int)z->p0 : 8;
+  for (int j = 0; j < np; j++) {
+    const float *f = &z[1 + j / 4].x0;
+    pts[2 * j] = e->body.x + f[2 * (j & 3)] * s, pts[2 * j + 1] = e->body.y + f[2 * (j & 3) + 1];
+  }
+  return box_meets_poly(x0, y0, x1, y1, pts, np);
+}
+
+/* FaceObject (sprite facing left) */
+static void gfly_face_hero(Enemy *e) {
+  if (hero_x() > e->body.x) set_scale_x(e, -GF_SCALE);
+  else if (hero_x() < e->body.x) set_scale_x(e, GF_SCALE);
+}
+
+static void gfly_velocity(Enemy *e, float degrees, float speed) {
+  float a = degrees * (float)M_PI / 180;
+  e->body.vx = cosf(a) * speed, e->body.vy = sinf(a) * speed;
+}
+
+/* bouncer_control's Aim and the angles it takes off what it bumps (Facing Right) */
+static void gfly_aim(Enemy *e, float lo, float hi) {
+  e->wait = rand_range(lo, hi);
+  float a = fmodf(e->wait, 360);
+  if (a < 0) a += 360;
+  e->b1 = a < 90 || a >= 270;
+}
+
+static void gfly_buzz(Enemy *e) {
+  /* Buzz: the bouncer woken (Aim), a while */
+  gfly_aim(e, 0, 360);
+  e->qy = rand_range(2, 2.8f);
+  e->st = GF_BUZZ, e->t0 = 0;
+}
+
+static void gfly_super_end(Enemy *e) {
+  anim_play(&e->anim, CLIP_GFLY_FLY);
+  e->st = GF_SUPER_END, e->t0 = 0;
+  if (e->ty <= 0) gfly_buzz(e);   /* (Wait 0: done at once) */
+}
+
+static void gfly_launch(Enemy *e, bool up) {
+  /* Launch Up / Launch Down: off at its angle; Flying the next frame */
+  e->ax = up ? e->ay : e->qx;
+  gfly_velocity(e, e->ax, GF_SLAM_SPEED);
+  e->b0 = up;
+  anim_play(&e->anim, CLIP_GFLY_FLY);
+  e->st = GF_LAUNCH;
+}
+
+static void gfly_choose(Enemy *e) {
+  /* Super Choose: still, the bouncer stopped; a charge or a slam (SendRandomEventV2: three charges, two slams in a
+   * row at most) */
+  e->body.vx = e->body.vy = 0;
+  for (;;) {
+    bool charge = rand_range(0, 1) < 0.5f;
+    if (charge && e->c0 < 3) {
+      e->c0++, e->c1 = 0;
+      /* Charge Antic: back from the Knight a little, then at it */
+      anim_play_from_frame(&e->anim, CLIP_GFLY_CHARGE_ANTIC, 0);
+      gfly_face_hero(e);
+      float a = atan2f(hero_y() - e->body.y, hero_x() - e->body.x) * 180 / (float)M_PI;
+      if (a < 0) a += 360;
+      e->ax = a;
+      gfly_velocity(e, a + 180, 3);
+      e->st = GF_CHARGE_ANTIC, e->t0 = 0;
+      return;
+    }
+    if (!charge && e->c1 < 2) {
+      e->c1++, e->c0 = 0;
+      /* Slam Antic: facing the Knight, shaking */
+      anim_play_from_frame(&e->anim, CLIP_GFLY_CHARGE_ANTIC, 0);
+      gfly_face_hero(e);
+      e->qy = hero_x() - e->body.x;
+      e->t1 = 0, e->tx = rand_range(2.5f, 3);
+      e->start_x = e->body.x, e->start_y = e->body.y;
+      e->st = GF_SLAM_ANTIC, e->t0 = 0;
+      return;
+    }
+  }
+}
+
+static void gfly_start(Enemy *e) {
+  e->st = GF_INVINCIBLE, e->flags |= 4;
+  e->sx = GF_SCALE;
+  anim_play(&e->anim, CLIP(e, R_IDLE));
+}
+
+static int gfly_side(const Enemy *e) {
+  static const int order[4] = {1, 0, 3, 2};   /* (CheckCollisionSide: up, right, down, left) */
+  for (int i = 0; i < 4; i++)
+    if (side_hit(e, order[i])) return order[i];
+  return -1;
+}
+
+static void gfly_fixed(Enemy *e) {
+  switch (e->st) {
+    case GF_BUZZ:
+      gfly_velocity(e, e->wait, GF_BUZZ_SPEED);   /* (Fly 2: SetVelocityAsAngle) */
+      break;
+    case GF_SLAM_ANTIC:
+      e->body.x = e->start_x + rand_range(-0.1f, 0.1f), e->body.y = e->start_y + rand_range(-0.1f, 0.1f);
+      break;
+    case GF_FLYING:
+      gfly_velocity(e, e->ax, GF_SLAM_SPEED);
+      break;
+    case GF_SLAM_END:
+      e->body.vx *= 0.85f, e->body.vy *= 0.85f;   /* (DecelerateV2) */
+      break;
+  }
+  /* (Slam Down's half unit into the floor, pushed out over a few steps: Box2D's position correction) */
+  if (e->jy < 0) e->jy = e->jy * 0.8f > -0.005f ? 0 : e->jy * 0.8f;
+}
+
+static void gfly_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0, hit = (e->flags & 8) != 0;
+  e->t0 += DT;
+  switch (e->st) {
+    case GF_INVINCIBLE:
+      if (gfly_in_range(e)) e->st = GF_SLEEP, e->flags &= (uint8_t)~4;
+      break;
+    case GF_SLEEP:
+      if (hit) {
+        /* Wake: the arena's fight starts */
+        cam_shake(SHAKE_AVERAGE);
+        arena_start();
+        anim_play_from_frame(&e->anim, CLIP_GFLY_WAKE, 0);
+        e->body.vy = 2.5f;
+        e->st = GF_WAKE, e->t0 = 0;
+      } else if (!gfly_in_range(e))
+        e->st = GF_INVINCIBLE, e->flags |= 4;
+      break;
+    case GF_WAKE:
+      if (done) {
+        /* Fly: still a moment; she hurts now (Hero Damager) */
+        anim_play(&e->anim, CLIP_GFLY_FLY);
+        e->body.vx = e->body.vy = 0;
+        e->hb_on |= 1;
+        e->st = GF_FLY, e->t0 = 0;
+      }
+      break;
+    case GF_FLY:
+      if (e->t0 >= 1) gfly_buzz(e);
+      break;
+    case GF_BUZZ: {
+      /* (the bouncer: FaceDirection, sprite facing left; off what it bumps) */
+      if (e->body.vx != 0) set_scale_x(e, e->body.vx > 0 ? -GF_SCALE : GF_SCALE);
+      if (e->body.ncontacts) {
+        float a = fmodf(e->wait, 360);
+        if (a < 0) a += 360;
+        switch (gfly_side(e)) {
+          case 1: if (e->b1) gfly_aim(e, 320, 350); else gfly_aim(e, 190, 220); break;
+          case 3: if (e->b1) gfly_aim(e, 10, 40); else gfly_aim(e, 140, 170); break;
+          case 0: if (a < 180) gfly_aim(e, 140, 170); else gfly_aim(e, 190, 220); break;
+          case 2: if (a < 180) gfly_aim(e, 10, 40); else gfly_aim(e, 320, 350); break;
+        }
+      }
+      if (e->t0 >= e->qy) gfly_choose(e);
+      break;
+    }
+    case GF_CHARGE_ANTIC:
+      if (e->t0 >= 0.75f) {
+        anim_play(&e->anim, CLIP_GFLY_CHARGE);
+        gfly_velocity(e, e->ax, 26);
+        e->pause0 = e->body.vx, e->pause1 = e->body.vy;
+        e->st = GF_CHARGE, e->t0 = 0;
+      }
+      break;
+    case GF_CHARGE: {
+      int side = e->body.ncontacts ? gfly_side(e) : -1;
+      if (side < 0) break;
+      /* Charge Recover: off the wall, half as fast */
+      cam_shake(SHAKE_AVERAGE);
+      anim_play_from_frame(&e->anim, CLIP_GFLY_CHARGE_RECOVER, 0);
+      if (side == 0 || side == 2) e->body.vx = -e->pause0 / 2, e->body.vy = e->pause1 / 2;
+      else e->body.vx = e->pause0 / 2, e->body.vy = -e->pause1 / 2;
+      e->st = GF_CHARGE_RECOVER, e->t0 = 0;
+      break;
+    }
+    case GF_CHARGE_RECOVER:
+      if (e->t0 >= 0.3f) {
+        e->body.vx = e->body.vy = 0;   /* (Recover End) */
+        e->ty = 0.5f;
+        gfly_super_end(e);
+      }
+      break;
+    case GF_SUPER_END:
+      if (e->t0 >= e->ty) gfly_buzz(e);
+      break;
+    case GF_SLAM_ANTIC:
+      if (e->t0 >= 0.5f) {
+        /* Check Direction: up and down angles towards the Knight */
+        if (e->qy <= 0) e->ay = 100, e->qx = 260;
+        else e->ay = 80, e->qx = 280;
+        gfly_launch(e, true);
+      }
+      break;
+    case GF_LAUNCH:
+      e->st = GF_FLYING;
+      break;
+    case GF_FLYING: {
+      e->t1 += DT;
+      int side = e->body.ncontacts ? gfly_side(e) : -1;
+      if (side == 1 || side == 3) {
+        /* Slam Up / Slam Down: stopped against it a moment */
+        e->body.vx = e->body.vy = 0;
+        anim_play_from_frame(&e->anim, side == 3 ? CLIP_GFLY_SLAM_DOWN : CLIP_GFLY_SLAM_UP, 0);
+        if (side == 3) e->jy = -0.5f;
+        cam_shake(SHAKE_AVERAGE);
+        e->b0 = side == 3;   /* (then up after a slam down, down after a slam up) */
+        e->st = GF_SLAM_HIT;
+      } else if (side == 0 || side == 2) {
+        /* Turn Left / Turn Right, then on the same way up or down */
+        set_scale_x(e, side == 0 ? GF_SCALE : -GF_SCALE);
+        if (side == 0) e->ay = 100, e->qx = 260;
+        else e->ay = 80, e->qx = 280;
+        gfly_launch(e, e->b0);
+      } else if (e->t1 > e->tx) {
+        /* Slam End */
+        anim_play_from_frame(&e->anim, CLIP_GFLY_SLAM_END, 0);
+        e->ty = 0;
+        e->st = GF_SLAM_END, e->t0 = 0;
+      }
+      break;
+    }
+    case GF_SLAM_HIT:
+      if (done) gfly_launch(e, e->b0);
+      break;
+    case GF_SLAM_END:
+      if (e->t0 >= 0.75f) gfly_super_end(e);
+      break;
+  }
+}
+
+/* her corpse: Init, Steam, Ready, Blow; its burster: Initiate, Geo, In Air, Landed, Stop Emit, Stop, Gurgles, Burst,
+ * Spawn */
+enum { GC_NONE, GC_INIT, GC_STEAM, GC_READY };
+enum { GB_NONE, GB_INITIATE, GB_IN_AIR, GB_LANDED, GB_STOP_EMIT, GB_STOP, GB_GURG1, GB_GURG2, GB_GURG3, GB_BURST, GB_DONE };
+static struct {
+  uint8_t corpse, burster;
+  float ct, bt, flash_t;
+  float x, y, sx;      /* (the corpse) */
+  float spawn_x, spawn_y;   /* (Fly Spawn's place) */
+  Anim canim, banim;
+  Body body;           /* (the burster) */
+} gm;
+
+static void gfly_die(Enemy *e) {
+  memset(&gm, 0, sizeof gm);
+  const Ent *v = enemy_rec(e, ET_VARS);
+  gm.spawn_x = v ? v->p0 : e->body.x, gm.spawn_y = v ? v->p1 : e->body.y;
+  /* (the corpse where she was, her way; no body: it stays there) */
+  gm.x = e->body.x, gm.y = e->body.y, gm.sx = e->sx;
+  anim_play(&gm.canim, CLIP_GFLY_FLY);   /* (its default clip, till Steam) */
+  gm.corpse = GC_INIT, gm.ct = 0;
+  arena_set_activated();
+  e->mode = EM_OFF;
+}
+
+static void gfly_corpse_tick(void) {
+  if (gm.corpse) {
+    gm.canim.events = 0;
+    anim_update(&gm.canim, DT);
+    gm.ct += DT, gm.flash_t += DT;
+    if (gm.corpse == GC_INIT && gm.ct >= 0.5f) {
+      anim_play_from_frame(&gm.canim, CLIP_GFLY_DEATH, 0);
+      cam_shake(SHAKE_BIG);
+      cam_rumble(RUMBLE_MED);
+      gm.corpse = GC_STEAM, gm.ct = 0;
+    } else if (gm.corpse == GC_STEAM && gm.ct >= 3)
+      gm.corpse = GC_READY, gm.ct = 0;
+    else if (gm.corpse == GC_READY && gm.ct >= 1) {
+      /* Blow: the burster out, up and its way */
+      Body *b = &gm.body;
+      memset(b, 0, sizeof *b);
+      float k = fabsf(gm.sx);
+      b->x = gm.x, b->y = gm.y;
+      b->ox = 0.0469f * gm.sx, b->oy = -0.6484f * GF_SCALE, b->hx = 2.4375f / 2 * k, b->hy = 1.7031f / 2 * GF_SCALE;
+      b->vx = gm.sx * 10, b->vy = 20;
+      b->gravity_scale = 1, b->friction = 0.2f, b->mask = CF_TERRAIN;
+      anim_play(&gm.banim, CLIP_GFLY_FALL);
+      gm.burster = GB_INITIATE, gm.bt = 0;
+      cam_rumble(RUMBLE_OFF);
+      gm.corpse = GC_NONE;
+    }
+  }
+  if (gm.burster) {
+    Body *b = &gm.body;
+    float pvx = b->vx, pvy = b->vy;
+    int had = b->ncontacts;
+    body_step(b, DT);
+    bounce(b, pvx, pvy, had, 0.5f);   /* (ObjectBounce) */
+    gm.banim.events = 0;
+    anim_update(&gm.banim, DT);
+    gm.bt += DT;
+    switch (gm.burster) {
+      case GB_INITIATE:
+        if (gm.bt >= 0.1f) {
+          geo_fling_at(0, 50, b->x, b->y, 15, 30, 80, 100, 0.75f);   /* (Geo) */
+          gm.burster = GB_IN_AIR;
+        }
+        break;
+      case GB_IN_AIR: {
+        bool ground = false;
+        for (int c = 0; c < b->ncontacts; c++) ground |= b->cny[c] > 0.5f;
+        if (ground) anim_play_from_frame(&gm.banim, CLIP_GFLY_WIGGLE, 0), gm.burster = GB_LANDED, gm.bt = 0;
+        break;
+      }
+      case GB_LANDED:
+        if (gm.bt >= 1) gm.burster = GB_STOP_EMIT, gm.bt = 0;
+        break;
+      case GB_STOP_EMIT:
+        if (gm.bt >= 0.5f) anim_play_from_frame(&gm.banim, CLIP_GFLY_STOP, 0), gm.burster = GB_STOP, gm.bt = 0;
+        break;
+      case GB_STOP:
+      case GB_GURG1:
+        if (gm.bt >= 2) anim_play_from_frame(&gm.banim, CLIP_GFLY_GURGLE_ONCE, 0), gm.burster++, gm.bt = 0;
+        break;
+      case GB_GURG2:
+        if (gm.bt >= 2) {
+          cam_rumble(RUMBLE_SMALL);
+          anim_play_from_frame(&gm.banim, CLIP_GFLY_GURGLE_LOOP, 0);
+          gm.burster = GB_GURG3, gm.bt = 0;
+        }
+        break;
+      case GB_GURG3:
+        if (gm.bt >= 1.9f) anim_play_from_frame(&gm.banim, CLIP_GFLY_BURST, 0), gm.burster = GB_BURST, gm.bt = 0;
+        break;
+      case GB_BURST:
+        if (gm.bt >= 0.16f) {
+          /* Spawn: her young where it is (Fly Spawn moved there) */
+          cam_rumble(RUMBLE_OFF);
+          cam_shake(SHAKE_AVERAGE);
+          for (int i = 0; i < MAX_ENEMIES; i++) {
+            Enemy *f = &en[i];
+            if (f->mode != EM_ALIVE || f->ent == NO_ENT || !(ent_at(f->ent)->s1 & EF_SPAWNED)) continue;
+            const Ent *d = ent_at(f->ent);
+            f->body.x = b->x + d->x0 - gm.spawn_x, f->body.y = b->y + d->y0 - gm.spawn_y;
+          }
+          gm.burster = GB_DONE;
+        }
+        break;
+    }
+  }
+}
+
+static void gfly_corpse_draw(void) {
+  Inst in;
+  if (gm.corpse) {
+    /* (EmitLargeInfectedEffects: the corpse flashes) */
+    sprite_inst(gm.canim.sprite, gm.x, gm.y, 0.0085f, gm.sx, GF_SCALE, flash_tint_at(true, gm.flash_t, 10), &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+  }
+  if (gm.burster) {
+    sprite_inst(gm.banim.sprite, gm.body.x, gm.body.y, 0.0085f, gm.sx, GF_SCALE, 0, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+  }
+}
+
 void enemies_enter(void) {
   memset(en, 0, sizeof en);
   memset(geo, 0, sizeof geo);
@@ -3197,7 +3631,7 @@ void enemies_enter(void) {
   for (int i = 0; i < n && k < MAX_ENEMIES; i++) {
     const Ent *d = &es[i];
     if (d->type != ENT_OBJ || d->flags != OK_ENEMY) continue;
-    if (persist_get(d->persist)) {
+    if (persist_get(d->persist) || ((d->s1 & EF_ARENA_GONE) && arena_done())) {
       enemy_terrain_off(d);
       continue;
     }
@@ -3232,6 +3666,7 @@ void enemies_enter(void) {
     else if (FSM(e) == EF_GUARD) guard_start(e);
     else if (FSM(e) == EF_FK) fk_start(e);
     else if (FSM(e) == EF_FKHEAD) fk_head_start(e);
+    else if (FSM(e) == EF_GFLY) gfly_start(e);
     for (int h = 0; h < 8; h++) {
       const Ent *r = hitbox_rec(e, h);
       if (!r) break;
@@ -3250,6 +3685,7 @@ void enemies_enter(void) {
   memset(bullets, 0, sizeof bullets);
   memset(waves, 0, sizeof waves);
   memset(spurts, 0, sizeof spurts);
+  memset(&gm, 0, sizeof gm);
   shade_spawn_check();
 }
 
@@ -3286,6 +3722,7 @@ void enemies_fixed(void) {
       else if (FSM(e) == EF_ROLLER) roller_fixed(e);
       else if (FSM(e) == EF_LEAPER) leaper_fixed(e);
       else if (FSM(e) == EF_GUARD) guard_fixed(e);
+      else if (FSM(e) == EF_GFLY) gfly_fixed(e);
       recoil_fixed(e);
       body_step(&e->body, DT);
     } else if (FSM(e) != EF_BLOCKER) {
@@ -3321,6 +3758,7 @@ void enemies_fixed(void) {
   waves_tick();
   fk_arena_tick();
   fk_head_place();
+  gfly_corpse_tick();
 }
 
 /* Update: the FSMs' every-frame actions, the animations, the timers */
@@ -3346,6 +3784,7 @@ void enemies_update(void) {
       else if (FSM(e) == EF_LEAPER) leaper_update(e);
       else if (FSM(e) == EF_GUARD) guard_update(e);
       else if (FSM(e) == EF_FK) fk_update(e);
+      else if (FSM(e) == EF_GFLY) gfly_update(e);
       if (FSM(e) == EF_FK) {
         /* (its Hitter: on till its FSM turns it off) */
         e->sub.events = 0;
@@ -3388,6 +3827,7 @@ void enemies_draw(void) {
   bullets_draw();
   spurts_draw();
   fk_arena_draw();
+  gfly_corpse_draw();
   for (int i = 0; i < MAX_BALLS; i++) {
     const Ball *b = &balls[i];
     if (!b->on) continue;
@@ -3399,7 +3839,7 @@ void enemies_draw(void) {
     const Geo *g = &geo[i];
     if (!g->on) continue;
     Inst in;
-    sprite_inst(g->anim.sprite, g->body.x, g->body.y, 0.0015f, GEO_SCALE, GEO_SCALE, 0, &in);
+    sprite_inst(g->anim.sprite, g->x, g->y, 0.0015f, GEO_SCALE, GEO_SCALE, 0, &in);
     gfx_actor(&in, SORT_KEY(0, 0));
   }
 }

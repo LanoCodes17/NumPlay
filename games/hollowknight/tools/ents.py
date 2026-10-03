@@ -8,7 +8,15 @@ import numpy as np
 ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE, ENT_BOX, \
     ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
 # objects (ENT_OBJ's flags: src/obj.c)
-OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR = 1, 2, 3, 4, 5, 6, 7, 8
+OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR, OK_BGATE, OK_ARENA, \
+    OK_EVENT = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+# the battle gates' events (src/game.h: BG_*)
+BG_EVENTS = ["BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY"]
+# battle gates (BG Control: OK_BGATE's s0): closed at first, the bone ones' clips, gone once a PlayerData bool is set
+BGF_START_CLOSED, BGF_BONE, BGF_PD = 1, 2, 4
+# arenas (Battle Control, but the False Knight's: OK_ARENA's a): started by its trigger (else by an enemy), its
+# Activate destroys the gates (else opens them at once)
+ARF_TRIGGER, ARF_DESTROY_GATES, ARF_QUICK_OPEN = 1, 2, 4
 # enemies (an OK_ENEMY's a: src/enemy.c), by their FSM and animation library
 import actors as _actors
 # enemies: by the FSM (or component) that runs them and their animation library -> their kind (actors.ENEMY_KINDS)
@@ -21,9 +29,12 @@ ENEMY_VARS = {"Zombie Swipe": (["Lunge Speed", "Idle Time"], ["Coward"]),
               "Zombie Leap": (["Idle Time"], []),
               "Zombie Guard": (["Chase Distance", "Roam Distance"], ["Start Facing Left"])}
 # what follows an enemy's record: ENT_BOX records, tagged
-ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX = 0, 1, 2, 3, 4, 5, 6, 7, 8
-EF_START, EF_STARTLES, EF_PREBATTLE = 1, 2, 4   # (FSM bools: First Crawler or Start Alert; Startles; one of an arena's
-# Pre Battle Enemies)
+ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX, ET_ZONE = \
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+# (FSM bools: First Crawler or Start Alert; Startles; one of an arena's Pre Battle Enemies; its death counts for its
+# arena (HealthManager.battleScene); gone once its arena's fight is over; spawned by its mother's burster (Fly Spawn))
+EF_START, EF_STARTLES, EF_PREBATTLE, EF_BATTLE, EF_ARENA_GONE, EF_SPAWNED = 1, 2, 4, 8, 16, 32
+EF_DEATH_SHIFT = 8   # (bits 8-11: its enemyDeathType; 12-13: EnemyDeathEffects (0), Uninfected, NoEffect, BlackKnight)
 # the layers the nail's slashes touch (Physics2D's collision matrix, layer 17 Attack)
 ATTACK_HITS = {3, 6, 7, 8, 11, 12, 17, 19, 20, 21, 25, 31}
 MAX_GROUPS = 256
@@ -192,6 +203,20 @@ def rec(type_, flags=0, box=(0, 0, 0, 0), p=(0, 0, 0, 0), a=0, group=0, group2=0
     return struct.pack(REC, type_, flags, group, group2, a, persist, *box, *p, s0, s1)
 
 
+def pd_flags():
+    """PlayerData's bools as the game numbers them (src/game.h: PDF_*), by their names in the game ("falseKnightDefeated")"""
+    import os, re
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "game.h")).read()
+    names = re.search(r"enum \{\s*(PDF_AT_BENCH[^}]*)\}", src).group(1)
+    ids = [n.strip() for n in names.replace("\n", " ").split(",") if n.strip() and n.strip() != "PDF_COUNT"]
+    camel = lambda n: "".join(w.capitalize() for w in n[4:].lower().split("_"))
+    out = {}
+    for i, n in enumerate(ids):
+        c = camel(n)
+        out[c[0].lower() + c[1:]] = i
+    return out
+
+
 def _fsm(o, names):
     for c in o["c"]:
         f = c.get("fsm")
@@ -349,6 +374,13 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
         fl |= EF_START
     if (var.get("Startles") or [0, False])[1]:
         fl |= EF_STARTLES
+    if hm.get("battleScene"):
+        fl |= EF_BATTLE
+    # (its death's effects: EnemyDeathEffects' enemyDeathType, and which of its kinds runs them)
+    dcls = next((c.get("class") for c in o["c"] if (c.get("class") or "").startswith("EnemyDeathEffects")), None)
+    dv = next((c.get("v") for c in o["c"] if c.get("class") == dcls and c.get("v")), None) or {}
+    fl |= (dv.get("enemyDeathType", 0) & 15) << EF_DEATH_SHIFT
+    fl |= {"EnemyDeathEffectsUninfected": 1, "EnemyDeathEffectsNoEffect": 2, "EnemyDeathEffectsBlackKnight": 3}.get(dcls, 0) << 12
     rb = next((c["v"] for c in o["c"] if c["type"] == "Rigidbody2D" and c.get("v")), {})
     out = [rec(ENT_BOX, ET_COLLIDER, box=(box["m_Offset"]["x"] * abs(sx), box["m_Offset"]["y"] * abs(sy),
                                           box["m_Size"]["x"] / 2 * abs(sx), box["m_Size"]["y"] / 2 * abs(sy)),
@@ -369,18 +401,21 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
             out.append(rec(ENT_BOX, ET_RANGE, box=r, p=k, s0=strings.id(q["name"]) if strings else 0))
     # its attacks: children that hurt the Knight (DamageHero), their outlines in its own units (x as if facing its
     # scale's way), then their shapes' points; a: on at first; s0: the child's name
+    # (and the same for a range the Knight is in or not (Battle Range: HERO ENTER, HERO EXIT), no damage)
     sgn = -1.0 if o["lscale"][0] < 0 else 1.0
     for ch in o.get("children", []):
         q = by_id[ch]
         qd = next((c.get("v") for c in q["c"] if c.get("class") == "DamageHero" and c.get("v") is not None), None)
         qc = next((c for c in q["c"] if c["type"] in ("BoxCollider2D", "PolygonCollider2D") and c.get("v") and
                    c["v"].get("m_IsTrigger") and c["v"].get("m_Enabled", 1)), None)
-        if qd is None or qc is None:
+        zone = q["name"] == "Battle Range"
+        if (qd is None and not zone) or qc is None:
             continue
         pts = [((x - o["pos"][0]) * sgn, y - o["pos"][1]) for x, y in _shape(q, qc)][:8]
         xs, ys = [t[0] for t in pts], [t[1] for t in pts]
         nrec = (len(pts) + 3) // 4
-        out.append(rec(ENT_BOX, ET_HITBOX, box=(min(xs), min(ys), max(xs), max(ys)),
+        qd = qd or {"damageDealt": 0, "hazardType": 0}
+        out.append(rec(ENT_BOX, ET_ZONE if zone else ET_HITBOX, box=(min(xs), min(ys), max(xs), max(ys)),
                        p=(len(pts), qd.get("damageDealt", 1), qd.get("hazardType", 1), 0), a=1 if q["self_active"] else 0,
                        group=nrec, s0=strings.id(q["name"]) if strings else 0))
         for i in range(nrec):
@@ -409,6 +444,11 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
         vals = [float((var.get(k) or [0, 0])[1] or 0) for k in nums] + [0.0] * (8 - len(nums))
         bits = sum(1 << i for i, k in enumerate(bools) if (var.get(k) or [0, False])[1])
         out.append(rec(ENT_BOX, ET_VARS, p=tuple(vals[:4]), box=tuple(vals[4:8]), a=bits))
+    if fsm.get("name") == "Big Fly Control" and d is not None:
+        # (Gruz Mother: where her young wait, Fly Spawn; her burster brings them there)
+        fs = next((q for q in d["objects"] if q["name"] == "Fly Spawn"), None)
+        if fs:
+            out.append(rec(ENT_BOX, ET_VARS, p=(fs["pos"][0], fs["pos"][1], 0, 0)))
     rc = next((c.get("v") for c in o["c"] if c.get("class") == "Recoil" and c.get("v")), None)
     if rc:
         out.append(rec(ENT_BOX, ET_RECOIL, box=(rc.get("recoilSpeedBase", 15), rc.get("recoilDuration", 0.15), 0, 0),
@@ -523,6 +563,84 @@ def _props(d, o, by_id, rooms, strings, persist, sprites, owners, name):
     return None
 
 
+def _go_var(d, o, f, var, by_id):
+    """An FSM's GameObject variable -> the object's id (a reference, or what FindGameObject or FindChild sets it to),
+    or None."""
+    v = (f.get("vars") or {}).get(var)
+    if v and isinstance(v[1], list) and v[1][0] == "ref" and v[1][2] in by_id:
+        return v[1][2]
+    for st in f["states"]:
+        for a in st["actions"]:
+            if not a.get("enabled", True):
+                continue
+            if a["name"] == "FindGameObject" and _param(a, "store") == "$" + var:
+                q = next((q for q in d["objects"] if q["name"] == _param(a, "objectName") and q["active"]), None)
+                if q:
+                    return q["id"]
+            if a["name"] in ("FindChild", "GetChild") and _param(a, "storeResult") == "$" + var:
+                q = next((by_id[c] for c in o.get("children", []) if by_id[c]["name"] == _param(a, "childName")), None)
+                if q:
+                    return q["id"]
+    return None
+
+
+def _arenas(d, by_id):
+    """The arenas (Battle Control, but the False Knight's) -> (the objects their Activate destroys or hides, the enemies
+    they count: SetBattleScene's)."""
+    gone, counted = set(), set()
+    for o in d["objects"]:
+        f = _fsm(o, ("Battle Control",)) if o["active"] else None
+        if not f or "False Knight" in f["vars"]:
+            continue
+        act = _state(f, "Activate")
+        for a in act["actions"] if act else []:
+            if not a.get("enabled", True):
+                continue
+            if a["name"] == "DestroyObject" or a["name"] == "ActivateGameObject" and _param(a, "activate") is False:
+                g = _param(a, "gameObject")
+                q = _go_var(d, o, f, g[1:], by_id) if isinstance(g, str) and g.startswith("$") else None
+                todo = [q] if q is not None else []
+                while todo:
+                    i = todo.pop()
+                    gone.add(i)
+                    todo += by_id[i].get("children", [])
+        for st in f["states"]:
+            for a in st["actions"]:
+                if a["name"] == "SetBattleScene" and a.get("enabled", True):
+                    g = _param(a, "target")
+                    q = _go_var(d, o, f, g[1:], by_id) if isinstance(g, str) and g.startswith("$") else None
+                    if q is not None:
+                        counted.add(q)
+    return gone, counted
+
+
+def _gate(d, o, owners):
+    """A battle gate (BG Control, or a gate closed till a PlayerData bool is set) -> its record, or None."""
+    f = _fsm(o, ("BG Control",))
+    fp = _fsm(o, ("Control",)) if f is None and "Battle Gate" in o["name"] else None
+    check = _state(fp, "Check") if fp else None
+    test = next((a for a in check["actions"] if a["name"] == "PlayerDataBoolTest"), None) if check else None
+    if f is None and test is None:
+        return None
+    fl, pd = 0, 0
+    if f:
+        clip = {st["name"]: next((_param(a, "clipName") for a in st["actions"]
+                                  if a["name"].startswith("Tk2dPlayAnimation") and a.get("enabled", True)), None)
+                for st in f["states"]}
+        if (clip.get("Opened") or "").startswith("Bone"):
+            fl |= BGF_BONE
+        if (f["vars"].get("Start Closed") or [0, False])[1]:
+            fl |= BGF_START_CLOSED
+    else:
+        fl |= BGF_PD | BGF_START_CLOSED
+        pd = pd_flags()[_param(test, "boolName")]
+    c0, cn = _subcols(d, owners, o["id"]) if owners else (0, 0)
+    m = np.array(o["m3"]).reshape(3, 3)
+    sx = float(np.hypot(m[0, 0], m[1, 0])) * (-1.0 if np.linalg.det(m[:2, :2]) < 0 else 1.0)
+    sy = float(np.hypot(m[0, 1], m[1, 1]))
+    return rec(ENT_OBJ, OK_BGATE, (o["pos"][0], o["pos"][1], o["pos"][2], sx), (sy, pd, 0, 0), a=c0, group=cn, s0=fl)
+
+
 def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0, col_base=0, group_base=0):
     """-> (packed records, {object id: render group}). owners: each collider's object (coll.room); sprites: where the
     objects' own sprites go (Sprites)."""
@@ -536,6 +654,7 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
     marker_index = {}
     objs = [o for o in d["objects"] if o["active"]]
     by_id = {o["id"]: o for o in d["objects"]}
+    arena_gone, arena_counted = _arenas(d, by_id)
 
     def subtree(oid, g):
         groups[oid] = g
@@ -618,6 +737,38 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
             battles.append((len(recs), (ref("CameraLock 1") or [0, 0, 0])[2], (ref("CameraLock 2") or [0, 0, 0])[2]))
             recs.append(rec(ENT_OBJ, OK_BATTLE, _trigger(o) or (0, 0, 0, 0), (-1, -1, 1, 0), group=g_arm,
                             persist=persist.id(name, o["path"]) if persistent else NO_PERSIST))
+        if f and "False Knight" not in f["vars"]:
+            # an arena: its trigger (or none: an enemy starts it), its camera lock (fixed up below), how many it counts
+            # down and the wait after
+            acts = lambda n: [a for a in ((_state(f, n) or {}).get("actions") or []) if a.get("enabled", True)]
+            sends = lambda n: [_param(a, "sendEvent") for a in acts(n) if a["name"] == "SendEventByName"]
+            fl = 0
+            if any(a["name"] == "Trigger2dEvent" for a in acts("Detect")):
+                fl |= ARF_TRIGGER
+            if "BG DESTROY" in sends("Activate"):
+                fl |= ARF_DESTROY_GATES
+            if "BG QUICK OPEN" in sends("Activate"):
+                fl |= ARF_QUICK_OPEN
+            count = next((_param(a, "intValue") for a in acts("Start") + acts("Wave 1") if a["name"] == "SetIntValue"),
+                         (f["vars"].get("Battle Enemies") or [0, 0])[1])
+            wait = next((_param(a, "time") for a in acts("End Wait") if a["name"] == "Wait"), 2)
+            for k in ("Wave 2", "Complete", "Kill Zombies"):
+                if _state(f, k):
+                    print("ents: %s: %s: arena state %s not handled" % (name, o["path"], k))
+            persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
+            battles.append((len(recs), _go_var(d, o, f, "Camera Lock", by_id), None))
+            recs.append(rec(ENT_OBJ, OK_ARENA, _trigger(o) or (0, 0, 0, 0), (-1, -1, count, wait), a=fl,
+                            persist=persist.id(name, o["path"]) if persistent else NO_PERSIST))
+        g = _gate(d, o, owners)
+        if g:
+            recs.append(g)
+        ev = next((c.get("v") for c in o["c"] if c.get("class") == "SendPlaymakerEventOnEnable" and c.get("v")), None)
+        if ev:
+            # (an event broadcast as the room starts)
+            if ev.get("eventName") in BG_EVENTS:
+                recs.append(rec(ENT_OBJ, OK_EVENT, a=BG_EVENTS.index(ev["eventName"])))
+            else:
+                print("ents: %s: %s: event %s not handled" % (name, o["path"], ev.get("eventName")))
         f = _fsm(o, ("Floor Control",))
         if f:
             # the False Knight's floor: the colliders it loses (Break Floor's), its whole sprites' group, then a record
@@ -647,9 +798,13 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
             recs += extra
         en = _enemy(o, by_id, persist, name, d, strings, owners) or _props(d, o, by_id, rooms, strings, persist, sprites, owners, name)
         if en:
-            if o["id"] in prebattle and en[0][1] == OK_ENEMY:
+            if en[0][1] == OK_ENEMY:
+                fl = EF_PREBATTLE if o["id"] in prebattle else 0
+                fl |= EF_BATTLE if o["id"] in arena_counted else 0
+                fl |= EF_ARENA_GONE if o["id"] in arena_gone else 0
+                fl |= EF_SPAWNED if by_id.get(o.get("parent"), {}).get("name") == "Fly Spawn" else 0
                 b = bytearray(en[0])
-                struct.pack_into("<H", b, 42, struct.unpack_from("<H", b, 42)[0] | EF_PREBATTLE)
+                struct.pack_into("<H", b, 42, struct.unpack_from("<H", b, 42)[0] | fl)
                 en[0] = bytes(b)
             recs += en
         br = next((c for c in o["c"] if c.get("class") == "Breakable" and c.get("v") is not None), None)

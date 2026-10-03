@@ -97,7 +97,8 @@ STYLES = {
 # the items the message shows: (its name in the UI sheet, the Prompts sheet's prefix, tap or press, its two lines, the
 # calculator's key for it)
 MSGS = {"FIREBALL": ("INV_NAME_SPELL_FIREBALL1", "GET_ITEM_INTRO2", "BUTTON_DESC_TAP", "GET_FIREBALL_1", "GET_FIREBALL_2",
-                     "alpha")}
+                     "alpha"),
+        "DASH": ("INV_NAME_DASH", "GET_ITEM_INTRO1", "BUTTON_DESC_PRESS", "GET_DASH_1", "GET_DASH_2", "shift")}
 
 # the titles the game shows (the Titles sheet's X_MAIN, X_SUB, X_SUPER): the areas', bosses' and characters'
 TITLES = ["KINGSPASS", "DIRTMOUTH", "CROSSROADS", "EGGTEMPLE", "SHAMANTEMPLE", "GREENPATH", "BIGFLY", "FALSE_KNIGHT",

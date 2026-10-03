@@ -216,6 +216,38 @@ ACTOR_SCALE = {"hud": HUD_K / K0, "liquid": 1.4 * HUD_K / K0, "dialogue": text.T
 HUD_MASK = 0.7135
 
 
+# Unity Animators' clips (a sprite each frame): actor -> [(clip name, fps, loops, [sprite (file, path id)], scale)]
+ANIMATOR_ACTORS = {}
+
+
+def animator_clip(path, controller):
+    """An AnimatorController's first clip that swaps its SpriteRenderer's sprite -> (name, fps, loops, [sprite (file,
+    path id)]): its keys at even steps (its streamed clip's)."""
+    import struct
+    af = unity.asset_file(path)
+    ct = af.objects[controller].read_typetree()
+    cr = ct["m_AnimationClips"][0]
+    t = af.objects[cr["m_PathID"]].read_typetree()
+    sprites = [(path, m["m_PathID"]) for m in t["m_ClipBindingConstant"]["pptrCurveMapping"]]
+    mc = t["m_MuscleClip"]
+    b = struct.pack("<%dI" % len(mc["m_Clip"]["data"]["m_StreamedClip"]["data"]), *mc["m_Clip"]["data"]["m_StreamedClip"]["data"])
+    keys, i = [], 0
+    while i < len(b):
+        tm, n = struct.unpack_from("<fI", b, i)
+        i += 8
+        for _ in range(n):
+            ci, = struct.unpack_from("<I", b, i)
+            v = struct.unpack_from("<4f", b, i + 4)[3]
+            i += 20
+            if tm < 1e30:
+                keys.append((max(0.0, tm), int(round(v))))   # (the first at -infinity: its value at the start)
+    rate = float(t["m_SampleRate"])
+    for k, (tm, v) in enumerate(keys):
+        assert abs(tm - k / rate) < 1e-3, (path, controller, keys)
+    frames = [sprites[v] for _, v in keys]
+    return unity.S(t["m_Name"]), rate, bool(mc.get("m_LoopTime")), frames
+
+
 def clip_id(actor, name):
     return "".join(c if c.isalnum() else "_" for c in ("CLIP_%s_%s" % (actor, name)).upper())
 
@@ -251,6 +283,28 @@ def build():
             clips.append({"id": clip_id(actor, name), "fps": float(c["fps"]), "wrap": int(c["wrapMode"]),
                           "loop": int(c.get("loopStart", 0)), "frames": frames})
             # (the clip's new frames share one palette: theirs together)
+            new = sorted({i for i, _ in frames if sprites[i]["job"].pal is None})
+            if new:
+                pal = art.joint_palette([sprites[i]["job"].arr for i in new])
+                for i in new:
+                    sprites[i]["job"].pal = pal
+    for actor, cl in ANIMATOR_ACTORS.items():
+        for name, fps, loops, keys, scale in cl:
+            frames = []
+            for key in keys:
+                k = key + (scale,)
+                if k not in index:
+                    sp = unity.sprite_by_key(key)
+                    img = unity.sprite_image(sp)
+                    wu, hu = sp.w / sp.ppu * scale, sp.h / sp.ppu * scale
+                    w, h = max(1, round(wu * K0)), max(1, round(hu * K0))
+                    index[k] = len(sprites)
+                    sprites.append({"key": k, "job": art.ImageJob(np.asarray(img.resize((w, h), Image.BOX)).copy(),
+                                                                 "%s/%s" % (actor, name)),
+                                    "lx": -sp.px * wu / scale, "ty": (1 - sp.py) * hu / scale, "tu": wu / scale / w,
+                                    "tv": hu / scale / h, "col": None})
+                frames.append((index[k], False))
+            clips.append({"id": clip_id(actor, name), "fps": fps, "wrap": 0 if loops else 2, "loop": 0, "frames": frames})
             new = sorted({i for i, _ in frames if sprites[i]["job"].pal is None})
             if new:
                 pal = art.joint_palette([sprites[i]["job"].arr for i in new])

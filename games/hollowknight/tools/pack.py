@@ -484,6 +484,7 @@ def main():
         sr = next(c["v"] for c in o["c"] if c["type"] == "SpriteRenderer")
         fleurs["SPRITE_MSG_" + name] = SPRITES.id(pmsg, ref or sr["m_Sprite"], max(o["lscale"][:2]), res)
     fleurs["SPRITE_MSG_ICON_FIREBALL"] = SPRITES.id(unity.scene("Crossroads_ShamanTemple"), [4, 44], 1.5607, hud_res)
+    fleurs["SPRITE_MSG_ICON_DASH"] = SPRITES.id(unity.scene("Fungus1_04"), [10, 22], 1.5607, hud_res)
     # (a Moss Knight's grass ball: a Unity sprite)
     pgb = unity.prefab("sharedassets149.assets", 34)
     fleurs["SPRITE_GRASS_BALL"] = SPRITES.id(pgb, next(c["v"] for c in pgb["objects"][0]["c"] if c["type"] == "SpriteRenderer")["m_Sprite"], 1)

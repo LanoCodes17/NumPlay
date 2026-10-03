@@ -24,6 +24,7 @@ enum { OF_ACTIVE = 1, OF_RENDERER = 2, OF_ANIMATOR = 4, OF_TRIGGER = 8, OF_COLLI
        OF_COND_OFF = 256,                                       /* (not there: its condition) */
        OF_SPELL_HIT = 512, OF_SPELL_IN = 1024, OF_SPELL_WAS = 2048 };   /* (a spell in its trigger) */
 #define OF_ANIM_OFF 32   /* (its record's: off once its clip is over, DeactivateAfter2dtkAnimation) */
+#define OF_WAVE 64       /* (its record's: WaveEffectControl, grows and fades as it is on: bx its speed, by its scale) */
 #define OF_STARTED 4     /* (its own: its animator started, the first time it was on) */
 enum { M_ENTER, M_UPDATE, M_FIXED };
 
@@ -161,6 +162,7 @@ static bool pd_bool(uint16_t s) {
   uint16_t c = str_pd(s);
   if (c == 0xFFF0) return g_pd.disable_pause;
   if (c == 0xFFF1) return g_pd.has_spell;
+  if (c == 0xFFF2) return g_pd.can_dash;
   if (c == 0xFFFD) return true;
   if (c >= PDF_COUNT) return false;
   return pd_flag(c);
@@ -169,6 +171,8 @@ static void pd_set_bool(uint16_t s, bool on) {
   uint16_t c = str_pd(s);
   if (c == 0xFFF0) g_pd.disable_pause = on;
   else if (c == 0xFFF1) g_pd.has_spell = on;
+  else if (c == 0xFFF2) g_pd.can_dash = on;
+  else if (c == PDF_HAS_DASH) pd_set_flag(c, on), g_pd.has_dash = on;   /* (kept twice) */
   else if (c < PDF_COUNT) pd_set_flag(c, on);
 }
 /* (tools/vm.py: PD_INTS) */
@@ -304,6 +308,7 @@ static void obj_set_active(int o, bool on) {
   if (on) vm.objs[o].flags |= OF_ACTIVE;
   else vm.objs[o].flags &= (uint16_t)~OF_ACTIVE;
   if (!was && on) anims_start();
+  if (!was && on && (vm.rec[o].flags & OF_WAVE)) vm.objs[o].anim.time = 0;   /* (its wave from the start) */
   /* (an FSM starts again as its object comes on: RestartOnEnable) */
   if (!was && on)
     for (int i = 0; i < vm.nfsms; i++) {
@@ -850,9 +855,10 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
     case VMOP_SETFSMBOOL:
     case VMOP_SETFSMSTRING: {
       int o = oval(f, rv(&r));
-      rv(&r);
+      uint16_t fname = (uint16_t)val(f, rv(&r));
       uint16_t var = (uint16_t)val(f, rv(&r));
       uint32_t x = val(f, rv(&r));
+      uint8_t slot = rb(&r);
       if (o == O_AREA_TITLE) {
         /* (Area Title's variables: NPC Title, Visited, Display Right, Area Event) */
         int t = str_title(var);
@@ -861,7 +867,10 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
         else if (var == VMSTR_NPC_TITLE) vm.title_npc = x;
         else if (var == VMSTR_VISITED) vm.title_visited = x;
         else if (var == VMSTR_DISPLAY_RIGHT) vm.title_right = x;
-      }
+      } else if (obj_ok(o) && slot != 255)
+        /* (another FSM's variable: its FSMs of that name) */
+        for (int i = 0; i < vm.nfsms; i++)
+          if (vm.fsms[i].owner == o && vm.fsms[i].name == fname) set_var(&vm.fsms[i], slot, x);
       return true;
     }
     case VMOP_STARTCONVERSATION:
@@ -892,6 +901,7 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
         case 11: save_set_respawn("Death Respawn Marker", true); break;
         case 15: save_game(); break;
         case 16: hero_gravity(a0 != 0); break;
+        case 19: set_var(f, store, hero_can_talk()); break;   /* (CanInspect: as CanTalk) */
       }
       return true;
     }
@@ -1157,6 +1167,11 @@ void vm_tick(void) {
     bool in = on && hero_box_in(i), spell = on && (o->flags & OF_SPELL_HIT);
     o->flags = (uint16_t)((in ? o->flags | OF_INSIDE : o->flags & ~OF_INSIDE) & ~OF_SPELL_HIT);
     o->flags = (uint16_t)(spell ? o->flags | OF_SPELL_IN : o->flags & ~OF_SPELL_IN);
+    if (vm.rec[i].flags & OF_WAVE) {
+      /* (WaveEffectControl: its timer at its speed; past 1, off) */
+      if (obj_active(i) && (o->anim.time += DT * vm.rec[i].bx) > 1) obj_set_active(i, false);
+      continue;
+    }
     o->anim.events = 0;
     anim_update(&o->anim, DT);
     if ((vm.rec[i].flags & OF_ANIM_OFF) && (o->anim.events & ANIM_DONE)) obj_set_active(i, false);
@@ -1206,7 +1221,12 @@ void vm_draw(void) {
     int sprite = (r->flags & OF_ANIMATOR) ? o->anim.sprite : (r->sprite == NONE ? -1 : r->sprite);
     if (sprite < 0) continue;
     Inst in;
-    sprite_inst(sprite, o->x, o->y, r->z, o->sx, o->sy, 0, &in);
+    if (r->flags & OF_WAVE) {
+      /* (its scale 1 + 4 t, its alpha 1 - t) */
+      float t = o->anim.time, k = (1 + 4 * t) * r->by;
+      sprite_inst(sprite, o->x, o->y, r->z, k, k, gfx_dyn_tint(28, 255, 255, 255, (uint8_t)(255 * (1 - t))), &in);
+    } else
+      sprite_inst(sprite, o->x, o->y, r->z, o->sx, o->sy, 0, &in);
     in.flags = (uint8_t)((in.flags & ~F_BLEND) | r->blend);
     gfx_actor(&in, SORT_KEY(r->layer, r->order));
   }

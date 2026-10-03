@@ -234,8 +234,8 @@ def pd_flags():
     out = {}
     for i, n in enumerate(ids):
         # (Cornifer's: "corn_greenpathLeft")
-        c = "Corn_" + camel(n[9:]) if n.startswith("PDF_CORN_") else camel(n[4:])
-        out[c[0].lower() + c[1:]] = i
+        c = camel(n[9:]) if n.startswith("PDF_CORN_") else camel(n[4:])
+        out[("corn_" if n.startswith("PDF_CORN_") else "") + c[0].lower() + c[1:]] = i
     return out
 
 

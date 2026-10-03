@@ -11,7 +11,7 @@ import unity, text, state
 # rooms -> the objects whose scripts run here (and all under them)
 ROOMS = {
     "Town": ["_NPCs/Elderbug"],
-    "Fungus1_04": ["Hornet Infected Knight Encounter", "Hornet Saver"],
+    "Fungus1_04": ["Hornet Infected Knight Encounter", "Hornet Saver", "Cloak Corpse"],
     "Crossroads_ShamanTemple": ["_Props/Shaman Meeting", "_Props/Shaman Trapped", "_Props/Shaman Killed Blocker",
                                 "_Props/Knight Get Fireball", "Battle Scene/Reminder Cast"],
 }
@@ -31,7 +31,7 @@ O_NONE = 0xFFFF
 PD_INTS = ["MPCharge", "health", "maxHealth", "geo", "fireballLevel", "quakeLevel", "screamLevel", "shaman", "elderbug",
            "permadeathMode", "nailDamage", "hornetGreenpath"]
 # PlayerData bools kept elsewhere (src/vm.c)
-PD_SPECIAL = {"disablePause": 0xFFF0, "hasSpell": 0xFFF1}
+PD_SPECIAL = {"disablePause": 0xFFF0, "hasSpell": 0xFFF1, "canDash": 0xFFF2}
 # PlayerData bools that keep their new game value all through this part of the game
 PD_CONST = {"equippedCharm_10": False, "elderbugGaveFlower": False, "elderbugRequestedFlower": False,
             "xunFlowerBroken": False, "hasXunFlower": False, "openedBlackEggDoor": False,
@@ -43,7 +43,8 @@ PD_CONST = {"equippedCharm_10": False, "elderbugGaveFlower": False, "elderbugReq
             "elderbugSpeechJiji": False, "elderbugSpeechKingsPass": False, "elderbugSpeechMinesLift": False,
             "elderbugSpeechInfectedCrossroads": False, "elderbugSpeechFinalBossDoor": False, "hasDoubleJump": False,
             "hasSuperDash": False, "hasWalljump": False, "mageLordDefeated": False, "elderbugConvoGrimm": False,
-            "elderbugNymmConvo": False, "elderbugTroupeLeftConvo": False, "elderbugBrettaLeft": False}
+            "elderbugNymmConvo": False, "elderbugTroupeLeftConvo": False, "elderbugBrettaLeft": False,
+            "hasAcidArmour": False}
 
 
 class Strings:
@@ -158,8 +159,8 @@ op("ListenForCast", ("wasPressed", "e"))
 op("CheckTrackTriggerCount", ("count", "i"), ("test", "n"), ("successEvent", "e"), ("everyFrame", "n"))
 op("ShowPromptMarker", ("labelName", "s"), ("spawnPoint", "o"), ("storeObject", "O"))
 op("HidePromptMarker", ("storedObject", "o"))
-op("SetFsmBool", ("gameObject", "o"), ("fsmName", "s"), ("variableName", "s"), ("setValue", "b"))
-op("SetFsmString", ("gameObject", "o"), ("fsmName", "s"), ("variableName", "s"), ("setValue", "s"))
+op("SetFsmBool", ("gameObject", "o"), ("fsmName", "s"), ("variableName", "s"), ("setValue", "b"), ("slot", "n"))
+op("SetFsmString", ("gameObject", "o"), ("fsmName", "s"), ("variableName", "s"), ("setValue", "s"), ("slot", "n"))
 op("StartConversation", ("text", "x"))
 op("HeroCall", ("method", "n"), ("store", "B"), ("a", "f"))
 op("Shake", ("kind", "n"))
@@ -182,7 +183,9 @@ op("iTweenMoveBy", ("gameObject", "o"), ("vector", "v3"), ("time", "f"), ("easeT
 HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "StartAnimationControl", "FaceLeft",
                 "FaceRight", "CanTalk", "PreventCastByDialogueEnd", "SetBackOnGround", "AddMPCharge",
                 "FindGroundPoint", "SetBenchRespawn", "SetHazardRespawn", "RelinquishControlNotVelocity",
-                "SetCState", "SaveGame", "AffectedByGravity", "ResetHardLandingTimer", "StopPlayingAudio"]
+                "SetCState", "SaveGame", "AffectedByGravity", "ResetHardLandingTimer", "StopPlayingAudio", "CanInspect"]
+# the prompt marker the pool gives (Arrow Prompt New): a script's own, shown and hidden as ShowPromptMarker's
+PROMPT_PREFAB = ("resources.assets", 6142)
 # prefabs CreateObject makes that the scripts go on with (made beforehand, off): (file, path id)
 PREFAB_SPAWNS = {("sharedassets76.assets", 69)}
 # the game's objects the scripts find by name that are not theirs (enemies): what they are to them
@@ -190,7 +193,7 @@ GAME_OBJECTS = {"Hornet Boss 1": 0xFF0C}
 # what a trigger's Trigger2dEvent hears, by collideTag: the Knight (any), a spell
 TRIGGER_TAGS = {None: 0, "": 0, "Player": 0, "Untagged": 0, "Hero Spell": 1}
 # the items the message shows (text.MSGS's order), by Msg Control's Item
-MSG_ITEMS = {"Fireball": 0}
+MSG_ITEMS = {"Fireball": 0, "Dash": 1}
 # camera shake events
 SHAKES = {"EnemyKillShake": 1, "AverageShake": 2, "BigShake": 3, "SmallShake": 4}
 
@@ -227,6 +230,18 @@ class Room:
         self.problems = []
 
     # ------------------------------------------------------------ objects
+    def external_vars(self):
+        """the variables FSMs set in other FSMs (SetFsmBool, PersistentBoolItem's Activated)"""
+        if not hasattr(self, "_ext"):
+            self._ext = {"Activated"}
+            for o in list(self.by_id.values()):
+                for c in o["c"]:
+                    for st in (c.get("fsm") or {}).get("states", []):
+                        for a in st["actions"]:
+                            if a["name"].startswith("SetFsm"):
+                                self._ext.add(dict(a["params"]).get("variableName"))
+        return self._ext
+
     def want(self, o):
         cls = {c.get("class") or c["type"] for c in o["c"]}
         return not (cls & SKIP_CLASSES) and o["name"] not in SKIP_NAMES
@@ -320,6 +335,30 @@ class Compiler:
         self.consts = []
         self.states = {s["name"]: i for i, s in enumerate(f["states"])}
         self.where = ""
+        # (a prompt marker it spawns from the pool, Arrow Prompt New: its spawn point, where it keeps it, its label)
+        self.prompt = None
+        for st in f["states"]:
+            for a in st["actions"]:
+                P = dict(a["params"])
+                if a["name"] == "SpawnObjectFromGlobalPool" and P.get("storeObject"):
+                    import ents
+                    r = P.get("gameObject")
+                    if isinstance(r, (list, tuple)) and ents._ref_file(o.get("_doc") or rm.d, [r[1], r[2]]) == PROMPT_PREFAB:
+                        self.prompt = [P.get("spawnPoint"), P.get("storeObject"), None]
+        for st in f["states"] if self.prompt else []:
+            for a in st["actions"]:
+                P = dict(a["params"])
+                if a["name"] == "SetFsmString" and P.get("gameObject") == self.prompt[1] and P.get("variableName") == "Prompt Name":
+                    self.prompt[2] = P.get("setValue")
+
+    def fsm_slot(self, fsm_name, var):
+        """another FSM's variable, by its FSM's name and its own (one of the room's): its slot, 255 not known"""
+        for o in list(self.rm.by_id.values()):
+            for c in o["c"]:
+                q = c.get("fsm")
+                if q and q["name"] == fsm_name and var in q["vars"]:
+                    return _slots(q["vars"])[0][var][0]
+        return 255
 
     def problem(self, msg):
         self.rm.problems.append("%s: %s: %s: %s: %s" % (self.rm.name, self.o["path"], self.f["name"], self.where, msg))
@@ -378,6 +417,11 @@ class Compiler:
             return EVENTS.id(v[1])
         if isinstance(v, str) and not v.startswith("$"):
             return EVENTS.id(v)
+        if isinstance(v, str) and v[1:] in self.f["vars"] and self.f["vars"][v[1:]][0] == "string" and \
+                v[1:] not in self.rm.external_vars():
+            # (an event named by a string nothing changes: that one, or none)
+            name = self.f["vars"][v[1:]][1]
+            return EVENTS.id(name) if name else 255
         self.problem("event %r" % (v,))
         return 255
 
@@ -475,11 +519,17 @@ class Compiler:
             return self.emit(n, P)
         if n == "CreateUIMsgGetItem":
             return None   # (made by the SetFsmString of its Item that follows)
+        if n == "SetFsmString" and self.prompt and P.get("gameObject") == self.prompt[1]:
+            return None   # (its prompt's label: kept for UP)
+        if n == "SpawnObjectFromGlobalPool" and self.prompt and P.get("storeObject") == self.prompt[1]:
+            return None
         if n == "SetFsmString" and P.get("fsmName") == "Msg Control" and P.get("variableName") == "Item":
             if P.get("setValue") not in MSG_ITEMS:
                 self.problem("item message %s" % P.get("setValue"))
                 return None
             return self.emit("GetItemMsg", {"item": MSG_ITEMS[P.get("setValue")]})
+        if n == "SetFsmString":
+            return self.emit(n, dict(P, slot=self.fsm_slot(P.get("fsmName"), P.get("variableName"))))
         if n == "EaseColor":
             cv = P.get("colorVariable")
             if not (isinstance(cv, str) and cv[1:] in self.slots):
@@ -537,6 +587,8 @@ class Compiler:
             if beh == "DialogueBox" and m == "StartConversation":
                 key, sheet = args[0]["s"], args[1]["s"]
                 return self.emit("StartConversation", {"text": self.rm.texts.id(sheet, key)})
+            if beh == "GameManager" and m == "CheckCharmAchievements":
+                return None
             if beh == "HeroController" and m in HERO_METHODS:
                 a0 = args[0]["f"] if args and args[0].get("type") in (5, 0) else 0
                 return self.emit("HeroCall", {"method": HERO_METHODS.index(m), "store": P.get("storeResult"), "a": a0})
@@ -548,7 +600,8 @@ class Compiler:
                 v = (P.get("functionCall") or {}).get("value")
                 return self.emit("HeroCall", {"method": HERO_METHODS.index(fn), "store": None,
                                               "a": float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0})
-            if fn in ("advanceTypewriter", "TimePasses", "StoryRecord_acquired", "SetActionString", "RefreshButtonIcon"):
+            if fn in ("advanceTypewriter", "TimePasses", "StoryRecord_acquired", "SetActionString", "RefreshButtonIcon",
+                      "StopBounce"):
                 return None
             self.problem("SendMessage %s" % fn)
             return None
@@ -565,6 +618,12 @@ class Compiler:
                 return None   # (music)
             if go in ("$DialogueManager",) and evn in ("BOX UP", "BOX DOWN"):
                 return self.emit("SendEventByName", P)
+            if self.prompt and go == self.prompt[1] and evn in ("UP", "DOWN"):
+                # (a prompt marker it spawned: shown at its spawn point with its label, or hidden)
+                if evn == "UP":
+                    return self.emit("ShowPromptMarker", {"labelName": self.prompt[2], "spawnPoint": self.prompt[0],
+                                                          "storeObject": go})
+                return self.emit("HidePromptMarker", {"storedObject": go})
             return self.emit("SendEventByName" if n == "SendEventByName" else "SendEvent", P)
         if n == "SetFsmBool":
             go = P.get("gameObject")
@@ -573,7 +632,7 @@ class Compiler:
                 return self.emit("SetRumble", {"kind": k, "on": P.get("setValue")}) if k else None
             if go == "$DialogueText":
                 return None   # (Use Stop)
-            return self.emit(n, P)
+            return self.emit(n, dict(P, slot=self.fsm_slot(P.get("fsmName"), P.get("variableName"))))
         if n == "iTweenMoveBy":
             if P.get("gameObject") == "$Main Camera Obj" or P.get("gameObject") == "$MainCamera":
                 vec = P.get("vector") or [0, 0, 0]
@@ -607,11 +666,16 @@ class Compiler:
         """-> the definition's bytes (states, actions, constants), its variables' initial values"""
         f = self.f
         states = []
-        live = reachable(f)
+        live = reachable(f, self.rm.external_vars())
         for s in f["states"]:
             self.where = s["name"]
             acts = []
-            for a in s["actions"]:
+            cut = len(s["actions"])
+            if s["name"] in live:
+                # (an event sent for sure, and taken: what follows never runs)
+                _, sure, at = _events_of_state(f, s, _const_vars(f, self.rm.external_vars()), True)
+                cut = at + 1 if sure else cut
+            for a in s["actions"][:cut]:
                 if not a.get("enabled", True) or s["name"] not in live:
                     continue
                 b = self.action(a)
@@ -665,6 +729,7 @@ class Compiler:
 DEFS, DEF_INDEX = [], {}   # (definitions: shared)
 BUILT = {}                 # room -> Room
 LIBS = {}                  # (an animator's library: (file, pid)) -> actor name
+ANIMATORS = {}             # (a Unity Animator's controller: (file, pid)) -> (actor, its clip's name)
 TITLE_STRINGS = {}
 
 
@@ -705,6 +770,21 @@ def prepare(rooms, sprites, texts):
         assert len(rm.objs) <= MAX_OBJS and len(rm.fsms) <= MAX_FSMS and nvars <= MAX_VARS, \
             (name, len(rm.objs), len(rm.fsms), nvars)
         BUILT[name] = rm
+    # Unity Animators (a sprite swapped each frame): their clips as actors'
+    for rm in BUILT.values():
+        for o in rm.objs:
+            ua = _unity_animator(o)
+            if not ua:
+                continue
+            import ents
+            key = ents._ref_file(o.get("_doc") or rm.d, ua["m_Controller"])
+            if key not in ANIMATORS:
+                name, fps, loops, frames = actors.animator_clip(*key)
+                m = np.array(o["m3"]).reshape(3, 3)
+                k = float(max(np.hypot(m[0, 0], m[1, 0]), np.hypot(m[0, 1], m[1, 1])))
+                a = "anim%d" % len(ANIMATORS)
+                actors.ANIMATOR_ACTORS[a] = [(name, fps, loops, frames, k)]
+                ANIMATORS[key] = (a, name)
     # the animators' libraries: actors with the clips the scripts name (and their first)
     names = set(STR.list)
     known = {(v[0], v[1]): k for k, v in actors.ACTORS.items()}
@@ -733,10 +813,17 @@ def prepare(rooms, sprites, texts):
                 known[lib] = a
 
 
+def _unity_animator(o):
+    """its Unity Animator (with a SpriteRenderer it swaps the sprite of), or None"""
+    if not any(c["type"] == "SpriteRenderer" for c in o["c"]):
+        return None
+    return next((c.get("v") for c in o["c"] if c["type"] == "Animator" and c.get("v") and c["v"].get("m_Controller")), None)
+
+
 OBJ = "<fffffffffHHHHHBBHHhHBBH"   # x y z, sx sy, its trigger (center from its place, half size), parent, name, sprite,
 #                                  first clip, clip map, its count, flags, condition, sorting layer, order, blend, its
 #                                  colliders (first, count)
-OF_ACTIVE, OF_RENDERER, OF_ANIMATOR, OF_TRIGGER, OF_COLLIDER, OF_ANIM_OFF = 1, 2, 4, 8, 16, 32
+OF_ACTIVE, OF_RENDERER, OF_ANIMATOR, OF_TRIGGER, OF_COLLIDER, OF_ANIM_OFF, OF_WAVE = 1, 2, 4, 8, 16, 32, 64
 
 
 def room_blob(name, clip_index, sprites, owners=()):
@@ -769,13 +856,24 @@ def room_blob(name, clip_index, sprites, owners=()):
         if any(c.get("class") == "DeactivateAfter2dtkAnimation" for c in o["c"]):
             fl |= OF_ANIM_OFF   # (off once its clip is over)
         bx, by = ((box[0] + box[2]) / 2 - o["pos"][0], (box[1] + box[3]) / 2 - o["pos"][1]) if box else (0, 0)
+        wv = next((c.get("v") for c in o["c"] if c.get("class") == "WaveEffectControl" and c.get("v")), None)
+        if wv:
+            # (WaveEffectControl: it grows and fades as it is on; its speed, its scale)
+            fl |= OF_WAVE
+            bx, by = wv.get("accelStart", 5), wv.get("scaleMultiplier", 1) * abs(sx) / abs(o["lscale"][0] or 1)
         bhx, bhy = ((box[2] - box[0]) / 2, (box[3] - box[1]) / 2) if box else (0, 0)
         sprite, first, start, count = 0xFFFF, 0xFFFF, nmap, 0
         an = _animator(o)
         mr = next((c.get("v") for c in o["c"] if c["type"] in ("MeshRenderer", "SpriteRenderer") and isinstance(c.get("v"), dict)), None)
         if mr is not None and mr.get("m_Enabled", 1):
             fl |= OF_RENDERER
-        if an:
+        ua = _unity_animator(o)
+        if ua:
+            # (a Unity Animator: its clip, its first)
+            fl |= OF_ANIMATOR
+            a, cn = ANIMATORS[ents._ref_file(o.get("_doc") or rm.d, ua["m_Controller"])]
+            first = clip_index[actors.clip_id(a, cn)]
+        elif an:
             fl |= OF_ANIMATOR
             lib = ents._ref_file(o.get("_doc") or rm.d, an["library"])
             a = LIBS[lib]
@@ -878,9 +976,22 @@ def _const_bool(name):
     return None
 
 
-def _events_of_state(f, s):
+def _const_vars(f, external=()):
+    """its bool variables nothing changes (none of its actions write them, no other FSM sets them): their values"""
+    written = set(external)
+    for st in f["states"]:
+        for a in st["actions"]:
+            for k, v in a["params"]:
+                if isinstance(v, str) and v.startswith("$") and (k.startswith("store") or k.endswith("Bool") and k != "boolName" or
+                                                                 (a["name"] in ("SetBoolValue", "BoolFlip") and k == "boolVariable")):
+                    written.add(v[1:])
+    return {n: bool(val) for n, (t, val) in f["vars"].items() if t == "bool" and n not in written}
+
+
+def _events_of_state(f, s, consts=None, where=False):
     """the events this state's actions can send it (None: any of the transitions': unknown)"""
-    known = {}   # (variables whose value is known here)
+    known = dict(consts or {})   # (variables whose value is known here)
+    takes = {e for e, _ in s["transitions"]} | {e for e, _ in f["global"]}
     out = set()
 
     def ev(v):
@@ -895,7 +1006,7 @@ def _events_of_state(f, s):
         n = var(v)
         return known.get(n) if n else None
 
-    for a in s["actions"]:
+    for ai, a in enumerate(s["actions"]):
         if not a.get("enabled", True):
             continue
         P = dict(a["params"])
@@ -914,6 +1025,9 @@ def _events_of_state(f, s):
             for e, want in ((ev(P.get("isTrue")), True), (ev(P.get("isFalse")), False)):
                 if e and (c is None or c == want):
                     out.add(e)
+                    if c is not None and not P.get("everyFrame") and e in takes:
+                        # (sent for sure, and taken: the state's actions stop there)
+                        return (out, True, ai) if where else (out, True)
             continue
         if n == "PlayerDataBoolTrueAndFalse":
             t, fl = _const_bool(P.get("trueBool")), _const_bool(P.get("falseBool"))
@@ -928,6 +1042,8 @@ def _events_of_state(f, s):
             for e, want in ((ev(P.get("isTrue")), True), (ev(P.get("isFalse")), False)):
                 if e and (b is None or b == want):
                     out.add(e)
+                    if b is not None and not P.get("everyFrame") and e in takes:
+                        return (out, True, ai) if where else (out, True)
             continue
         if n == "BoolTestMulti":
             vals = [bval(v) for v in P.get("boolVariables") or []]
@@ -974,11 +1090,12 @@ def _events_of_state(f, s):
                         out.add(q[1])
             if k == "sendEvent" and isinstance(v, str):
                 out.add(v)
-    return out
+    return (out, False, len(s["actions"])) if where else (out, False)
 
 
-def reachable(f):
-    """the names of the FSM's states that can be entered"""
+def reachable(f, external=()):
+    """the names of the FSM's states that can be entered (external: the variables other FSMs set)"""
+    consts = _const_vars(f, external)
     local = set()
     for s in f["states"]:
         for a in s["actions"]:
@@ -999,8 +1116,8 @@ def reachable(f):
             continue
         seen.add(n)
         s = by[n]
-        can = _events_of_state(f, s)
+        can, sure = _events_of_state(f, s, consts)
         for e, to in s["transitions"]:
-            if e in can or e not in local:
+            if e in can or (e not in local and not (sure and e == "FINISHED")):
                 todo.append(to)
     return seen

@@ -101,6 +101,10 @@ int main(int argc, char **argv) {
                  keys, g_hero.body.x, g_hero.body.y, g_hero.body.vx, g_hero.body.vy, g_hero.state, g_hero.cs.on_ground,
                  g_hero.cs.jumping, g_hero.cs.falling, g_hero.anim.clip, g_hero.anim.frame, g_cam_x, g_cam_y);
         if (trace && getenv("HKSTATS")) printf("   health %d blue %d mp %d geo %d\n", g_pd.health, g_pd.health_blue, g_pd.mp, (int)g_pd.geo);
+        if (trace && getenv("VMDEBUG")) {
+          extern void vm_debug(void);
+          vm_debug();
+        }
         if (trace && getenv("ENEMIES")) {
           extern void enemies_debug(void);
           enemies_debug();

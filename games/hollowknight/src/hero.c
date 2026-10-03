@@ -794,6 +794,7 @@ void hero_fixed(uint32_t keys) {
 
 void hero_update(void) {
   Hero *h = &g_hero;
+  if (h->prevent_cast > 0) h->prevent_cast -= DT;
   update();
   invulnerable_tick();
   respawn_tick();
@@ -1251,6 +1252,7 @@ void hero_take_damage(int side, int damage, int hazard) {
   if (damage <= 0) return;
   if (can_take_damage()) {
     spell_cancel();   /* (HERO DAMAGED) */
+    vm_broadcast(VMEV_HERO_DAMAGED);
     if (h->damage_mode == DAMAGE_HAZARD_ONLY && hazard == HAZ_NORMAL) return;
     cancel_attack();
     if (h->cs.recoiling_left || h->cs.recoiling_right) cancel_recoil_horizontal();
@@ -1458,7 +1460,7 @@ bool hero_can_focus(void) {
 
 bool hero_can_cast(void) {
   const Hero *h = &g_hero;
-  return !g_game.paused && !h->cs.dashing && h->state != HS_NO_INPUT && !(h->cs.attacking && h->attack_time < ATTACK_RECOVERY_TIME) &&
+  return !g_game.paused && h->prevent_cast <= 0 && !h->cs.dashing && h->state != HS_NO_INPUT && !(h->cs.attacking && h->attack_time < ATTACK_RECOVERY_TIME) &&
          !h->cs.recoiling && !h->cs.recoil_frozen && !h->cs.transitioning && !h->cs.hazard_death && !h->cs.hazard_respawning &&
          h->accepting_input;
 }

@@ -186,7 +186,7 @@ HUD_MASK = 0.7135
 
 
 def clip_id(actor, name):
-    return ("CLIP_%s_%s" % (actor, name)).upper().replace(" ", "_")
+    return "".join(c if c.isalnum() else "_" for c in ("CLIP_%s_%s" % (actor, name)).upper())
 
 
 def build():

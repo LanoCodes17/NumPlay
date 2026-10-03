@@ -129,6 +129,7 @@ void world_enter(void) {
   }
   obj_enter();
   titles_enter();
+  vm_enter();
 }
 
 /* (Pause's WaitForHeroInPosition: the masks start as the Knight is placed; its Wait only counts when it was placed

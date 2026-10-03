@@ -121,6 +121,7 @@ static void titles_tick_fsm(void) {
         /* Fleurs Up: the lines fade up (4 s), the fleurs drawn in */
         fade_group(1, 4);
         at.fleur_t = 0;
+        vm_broadcast(VMEV_BIG_TITLE_START);
         at.st = T_FLEURS_UP, at.t = 0;
       }
       break;
@@ -132,7 +133,11 @@ static void titles_tick_fsm(void) {
       }
       break;
     case T_TITLES_DOWN:
-      if (at.t >= 2) at.st = T_OFF, at.fleurs = false;   /* (Big Title End, Done) */
+      if (at.t >= 2) {
+        /* Big Title End, Done */
+        at.st = T_OFF, at.fleurs = false;
+        vm_broadcast(VMEV_BIG_TITLE_END);
+      }
       break;
     case T_SMALL_FRAME: {
       float half = width_of(row[1], STYLE_TITLE_S) / 2, w = width_of(row[2], STYLE_TITLE_SUB) / 2,

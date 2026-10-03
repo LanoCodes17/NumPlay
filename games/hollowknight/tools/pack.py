@@ -4,7 +4,7 @@ import os, sys, struct, math, lzma, time, multiprocessing as mp
 import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import unity, scene, visible, art, actors, coll, ents, font, text
+import unity, scene, visible, art, actors, coll, ents, font, text, vm
 
 SRC = os.path.join(HERE, "..", "src")
 ALL_ROOMS = [l.strip() for l in open(os.path.join(HERE, "rooms.txt")) if l.strip() and not l.startswith("#")]
@@ -55,6 +55,7 @@ def room_data(name, variant=0):
     return ROOM_DATA[(name, variant)]
 
 SECTIONS = ["TEX", "TMAP", "PAL", "BIDX", "BLK", "ROOMS", "RBLOB", "PRIOR", "SOFT", "SPR", "CLIP", "STR", "TEXT", "FONT", "PHASH",
+            "VM", "VMDEF",
             "SCOL", "RVAR"]
 
 
@@ -336,6 +337,7 @@ def main():
     print("variants", len(variants), "%.0fs" % (time.time() - t0), flush=True)
     jobs = [art.Job(v) for v in variants]
     actors.add_props(ALL_ROOMS)
+    vm.prepare(ROOMS, SPRITES, TEXTS)   # (the characters' scripts, and their libraries as actors)
     sprites, clips = actors.build()
     ents.CLIP_INDEX.update({c["id"]: i for i, c in enumerate(clips)})
     # the rooms' objects, and the sprites they show (after the actors')
@@ -356,6 +358,12 @@ def main():
         room_data(r)
         if r in VARIANT_ROOMS:
             room_data(r, 1)
+    clip_index = {c["id"]: i for i, c in enumerate(clips)}
+    vm_rooms = [vm.room_blob(r, clip_index, SPRITES) for r in ROOMS]
+    sheet = text.sheets()["Prompts"]
+    vm_prompts = {s: TEXTS.id("Prompts", s.upper(), "PROMPT") for s in vm.STR.list if s.upper() in sheet}
+    for s in ("NPC Title", "Visited", "Display Right"):
+        vm.STR.id(s)
     sprites += actors.unity_sprites(SPRITES.list)
     # the HUD's geo count: TrajanPro-Bold digits (TextMesh: size 45, character size 1, scale 0.1527)
     digit_base = len(sprites)
@@ -499,6 +507,16 @@ def main():
     secs["TEXT"].b += TEXTS.blob()
     secs["FONT"].b += TEXTS.fonts()
     secs["PHASH"].b += PERSIST.blob()
+    # the scripts: each room's offset (0: none), then the rooms' (4-byte aligned)
+    vmb = bytearray(4 * len(ROOMS))
+    for i, b in enumerate(vm_rooms):
+        if b:
+            while len(vmb) & 3:
+                vmb.append(0)
+            struct.pack_into("<I", vmb, 4 * i, len(vmb))
+            vmb += b
+    secs["VM"].b += bytes(vmb)
+    secs["VMDEF"].b += vm.tables(clip_index, vm_prompts)
     # the file: "HKNW", count, then (offset, size) per section
     head = struct.pack("<4sI", b"HKNW", len(SECTIONS))
     pos = len(head) + 8 * len(SECTIONS)
@@ -536,6 +554,12 @@ def main():
             f.write("#define TXT_PROMPT_%s %d\n" % (k.upper(), v))
         f.write("#define PROMPT_SORT %du\n" % ((scene.layer_index(-349214895) << 16) | (1 + 32768)))
         f.write("#define DIGIT_ADV {%s}\n" % ", ".join("%.4ff" % a for a in digit_adv))
+        for name, (code, _) in vm.OPS.items():
+            f.write("#define VMOP_%s %d\n" % (name.upper(), code))
+        for i, e in enumerate(vm.EVENTS.list[:14]):
+            f.write("#define VMEV_%s %d\n" % (e.upper().replace(" ", "_"), i))
+        for name in ("NPC Title", "Visited", "Display Right"):
+            f.write("#define VMSTR_%s %d\n" % (name.upper().replace(" ", "_"), vm.STR.index[name]))
         for i, t in enumerate(text.TITLES):
             f.write("#define TITLE_%s %d\n" % (t, i))
         f.write("#define NUM_TITLES %d\n#define TITLE_TABLE {%s}\n" % (len(titles), ", ".join(titles)))

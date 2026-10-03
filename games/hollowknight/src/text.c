@@ -166,6 +166,7 @@ static void end_conversation(void) {
   dl.text = NULL;
   dl.finished = true;
   dl.pc = PC_IDLE;
+  vm_broadcast(VMEV_CONVO_FINISH);
 }
 
 void dialogue_cancel(void) {

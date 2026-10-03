@@ -10,6 +10,9 @@ enum {
   PDF_AT_BENCH, PDF_HAS_MAP, PDF_HAS_QUILL, PDF_HAS_CHARM, PDF_CHARM_BENCH_MSG, PDF_MET_ELDERBUG, PDF_VISITED_CROSSROADS,
   PDF_FALSE_KNIGHT_DEFEATED, PDF_FK_FIRST_PLOP, PDF_MAPPER_SHOP, PDF_CORN_CROSSROADS_LEFT, PDF_HORNET1_DEFEATED,
   PDF_VISITED_DIRTMOUTH, PDF_TISO_ENCOUNTERED_TOWN, PDF_HAS_DASH, PDF_SHAMAN_PILLAR, PDF_VISITED_GREENPATH,
+  PDF_ELDERBUG_HISTORY1, PDF_ELDERBUG_SPEECH_SLY, PDF_ELDERBUG_SPEECH_STATION, PDF_ELDERBUG_SPEECH_EGG_TEMPLE,
+  PDF_ELDERBUG_SPEECH_MAP_SHOP, PDF_ELDERBUG_FIRST_CALL, PDF_SLY_RESCUED, PDF_OPENED_TOWN_BUILDING,
+  PDF_EGG_TEMPLE_VISITED, PDF_OPENED_MAPPER_SHOP,
   PDF_COUNT
 };
 typedef struct {
@@ -30,7 +33,8 @@ typedef struct {
   uint8_t flags[32];      /* PDF_* */
   uint8_t shaman;         /* (the Snail Shaman's state) */
   uint8_t current_area;   /* (the area whose title showed last: AreaTitleController) */
-  uint8_t reserved[62];
+  uint8_t elderbug;       /* (Elderbug's state) */
+  uint8_t reserved[61];
   /* (saved apart, by the objects' names: their states) */
   uint8_t persist[MAX_PERSIST / 8];
   /* (not saved) */
@@ -192,6 +196,7 @@ typedef struct {
   bool accepting_input, control_relinquished, doing_hazard_respawn, landed_event;
   bool touching_wall_l, touching_wall_r;
   bool hidden, hit_buffered, enter_without_input;
+  float prevent_cast;   /* (PreventCastByDialogueEnd: casts kept back a moment) */
   int16_t entry_gate;   /* the record of the gate it came in by (-1: none) */
   int8_t buffered_side, buffered_damage, buffered_hazard;
   float invuln_freeze, invuln_time, pulse_t, recoil_timer2, respawn_timer, wake_timer;
@@ -261,6 +266,11 @@ void titles_enter(void);
 void titles_hero_in_position(void);
 void titles_tick(void);
 void titles_draw(void);
+/* the game's own scripts (vm.c): a room's, run each step, their objects drawn; events heard by all of them */
+void vm_enter(void);
+void vm_tick(void);
+void vm_draw(void);
+void vm_broadcast(int ev);
 bool bench_respawn(const char *name);   /* RESPAWN: the Knight asleep on the bench so named */
 
 /* the Spell Control FSM (spell.c): focus, spells */

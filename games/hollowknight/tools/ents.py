@@ -1138,8 +1138,12 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                 # (its name, if scripts find it: FindGameObject)
                 import vm
                 nm = vm.STR.id(o["name"]) if o["name"] in _found_names(d) else 0xFFFF
+                # (one the scripts hold: its object's number + 1, there as that is on; CameraLockArea's OnDisable)
+                rmv = vm.BUILT.get(name)
+                vo = rmv.obj_index.get(o["id"]) if rmv is not None else None
+                vo = vo if vo is not None and rmv.objs[vo]["path"] == o["path"] and rmv.objs[vo].get("_scene") == name else None
                 recs.append(rec(ENT_CAMLOCK, fl, box, (v["cameraXMin"], v["cameraYMin"], v["cameraXMax"], v["cameraYMax"]),
-                                s1=nm))
+                                a=vo + 1 if vo is not None else 0, s1=nm))
                 recs += _more_boxes(o)
             elif cls == "TransitionPoint":
                 box, entry_only = _trigger(o), 0

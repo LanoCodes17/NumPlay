@@ -21,7 +21,7 @@ ROOMS = {
     "Room_ruinhouse": ["Sly Dazed"],
     "Crossroads_06": ["Set NPC Leave", "_Scenery/Raising Pillar", "_Props/Gate Switch"],
     "Fungus1_04": ["Hornet Infected Knight Encounter", "Hornet Saver", "Cloak Corpse", "Dream Scene Activate",
-                   "Dreamer Scene 1", "Break Floor 1"],
+                   "Dreamer Scene 1", "Break Floor 1", "Camera Locks Boss"],
     "Crossroads_ShamanTemple": ["_Props/Shaman Meeting", "_Props/Shaman Trapped", "_Props/Shaman Killed Blocker",
                                 "_Props/Knight Get Fireball", "Battle Scene/Reminder Cast", "Shiny Item", "Soul Totem 2",
                                 "Bone Gate", "Reminder Cast (1)",
@@ -168,7 +168,7 @@ SKIP_NAMES = {"Dream Dialogue", "Dream Dialogue Flower", "Flower", "Flower Give"
 # (the Mender House's door: its inspect region, for a key there is none of, never on; the False Knight's arena wall's
 # battle gate: src/obj.c's, which FindChild finds)
 SKIP_PATHS = {("Crossroads_04", "_Transition Gates/Mender Door/Inspect"), ("Crossroads_10", "Fk Break Wall/Battle Gate 1")}
-MAX_OBJS, MAX_FSMS, MAX_VARS, MAX_ANIMS = 48, 27, 256, 20   # (src/vm.c)
+MAX_OBJS, MAX_FSMS, MAX_VARS, MAX_ANIMS = 48, 29, 232, 20   # (src/vm.c)
 # map pieces of their own a script marks visited (AddToScenesVisited), as their room's (src/map.c: after the rooms)
 MAP_SCENES = {"Crossroads_21_b": "Crossroads_21"}
 # the grubs in this part of the game (Crossroads_03, Fungus1_21): the Grubfather's rewards past them never come

@@ -353,5 +353,11 @@ void cam_debug(void) {
   printf("cam %.2f,%.2f target %.2f,%.2f mode %d tmode %d locks %d:", c.cx, c.cy, c.tx, c.ty, c.mode, c.tmode, c.nlocks);
   for (int i = 0; i < c.nlocks; i++) printf(" %d", c.locks[i]);
   printf("\n");
+  int n;
+  const Ent *es = room_ents(&n);
+  for (int i = 0; i < n && i < MAX_ENTS; i++)
+    if (es[i].type == ENT_CAMLOCK)
+      printf("  camlock %d box %.1f,%.1f-%.1f,%.1f lim %.2f,%.2f,%.2f,%.2f obj %d\n", i, es[i].x0, es[i].y0, es[i].x1, es[i].y1,
+             es[i].p0, es[i].p1, es[i].p2, es[i].p3, es[i].a);
 }
 #endif

@@ -13,8 +13,8 @@
 #define DT 0.02f
 #define MAX_VM_OBJS 48
 #define MAX_VM_ANIMS 20   /* (its objects that animate: an animator, a wave, a fade) */   /* (tools/vm.py: MAX_OBJS, MAX_FSMS, MAX_VARS) */
-#define MAX_VM_FSMS 27
-#define MAX_VM_VARS 256
+#define MAX_VM_FSMS 29
+#define MAX_VM_VARS 232
 #define MAX_MOVERS 4
 #define NONE 0xFFFF
 #define OWNER 0xFF0F
@@ -380,6 +380,12 @@ static void anims_start(void) {
 
 /* (the colliders objects have: on as they are) */
 static void obj_colliders(void) {
+  /* (a camera lock area among its objects: there as that is on, CameraLockArea's OnDisable) */
+  int n;
+  const Ent *es = room_ents(&n);
+  for (int i = 0; i < n && i < MAX_ENTS; i++)
+    if (es[i].type == ENT_CAMLOCK && es[i].a > 0 && es[i].a <= vm.nobjs)
+      ent_set_enabled(i, obj_active(es[i].a - 1) && !(vm.objs[es[i].a - 1].flags & OF_COND_OFF));
   /* (on with it, and as SetCollider leaves it) */
   for (int i = 0; i < vm.nobjs; i++)
     if (vm.rec[i].ncol && !(vm.objs[i].flags & OF_COND_OFF))

@@ -5,8 +5,13 @@ import struct
 import numpy as np
 
 # record types (src/game.h: ENT_*)
-ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE, ENT_BOX = \
-    1, 2, 3, 4, 5, 6, 7, 8, 9
+ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE, ENT_BOX, \
+    ENT_OBJ, ENT_PIECE = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
+# objects (ENT_OBJ's flags: src/obj.c)
+OK_BREAKABLE = 1
+# the layers the nail's slashes touch (Physics2D's collision matrix, layer 17 Attack)
+ATTACK_HITS = {3, 6, 7, 8, 11, 12, 17, 19, 20, 21, 25, 31}
+MAX_GROUPS = 256
 # masks (the unmasker, remasker and remasker_inverse FSMs)
 MK_SECRET, MK_REMASK, MK_SIMPLE = 1, 2, 4
 # flags
@@ -42,6 +47,46 @@ class Strings:
             offs.append(len(body))
             body += s.encode() + b"\0"
         return struct.pack("<I", len(self.list)) + b"".join(struct.pack("<I", o) for o in offs) + bytes(body)
+
+
+class Sprites:
+    """Unity sprites objects show as actors (debris...): pack.py makes them like the actors' frames, after those."""
+    def __init__(self):
+        self.list, self.index, self.base = [], {}, 0
+
+    def id(self, d, ref, scale):
+        key = (d["level"], tuple(d["externals"]), ref[0], ref[1], round(scale, 3))
+        if key not in self.index:
+            self.index[key] = len(self.list)
+            self.list.append(key)
+        return self.base + self.index[key]
+
+
+def _colliders(o):
+    return [c for c in o["c"] if c["type"] in ("BoxCollider2D", "PolygonCollider2D", "CircleCollider2D", "EdgeCollider2D")
+            and c.get("v") and c["v"].get("m_Enabled", 1)]
+
+
+HB_BOUNCE, HB_RECOIL = 1, 2
+
+
+def _hit_boxes(o, by, depth=2):
+    """Where the nail hits an object: its colliders, and its children's and grandchildren's (HitTaker looks three levels
+    up from what it touched), on the layers the slashes touch -> [(box, HB_* flags)]: whether a down slash bounces off
+    it, whether a slash recoils the Knight (NailSlash: enemies, attacks, interactive objects without NonBouncer)."""
+    out = []
+    if o["active"] and o["layer"] in ATTACK_HITS:
+        nb = any(c.get("class") == "NonBouncer" and (c.get("v") or {}).get("active", True) for c in o["c"])
+        fl = 0
+        if not nb and o["layer"] in (11, 17, 19):
+            fl |= HB_BOUNCE
+        if not nb and o["layer"] == 11:
+            fl |= HB_RECOIL
+        out += [(b, fl) for b in (_box(o, c) for c in _colliders(o) if c["type"] != "EdgeCollider2D") if b]
+    if depth:
+        for ch in o.get("children", []):
+            out += _hit_boxes(by[ch], by, depth - 1)
+    return out
 
 
 def _box(o, c):
@@ -184,9 +229,43 @@ def _mask(o, f, objs_by_id):
     return None
 
 
-def room(d, rooms, strings, persist, name):
-    """-> (packed records, {object id: render group})."""
+def _pieces(d, o, ids, by_id, sprites):
+    """Debris an object flings (inactive children with a sprite and a Rigidbody2D) -> ENT_PIECE records: where each is
+    from the object, its sprite, how it falls, bounces and spins."""
+    import scene
+    out = []
+    for pid in ids:
+        q = by_id.get(pid)
+        if q is None:
+            continue
+        sr = next((c for c in q["c"] if c["type"] == "SpriteRenderer" and (c.get("v") or {}).get("m_Sprite")), None)
+        if sr is None:
+            continue
+        v = sr["v"]
+        m = np.array(q["m3"]).reshape(3, 3)
+        sx, sy = float(np.hypot(m[0, 0], m[1, 0])), float(np.hypot(m[0, 1], m[1, 1]))
+        mirror = -1.0 if np.linalg.det(m[:2, :2]) < 0 else 1.0
+        rot = float(np.degrees(np.arctan2(m[1, 0], m[0, 0]))) if mirror > 0 else float(np.degrees(np.arctan2(-m[1, 0], -m[0, 0])))
+        rb = next((c.get("v") or {} for c in q["c"] if c["type"] == "Rigidbody2D"), {})
+        ob = next((c.get("v") or {} for c in q["c"] if c.get("class") == "ObjectBounce"), None)
+        sp = next((c.get("v") or {} for c in q["c"] if c.get("class") == "SpinSelf"), None)
+        sid = sprites.id(d, v["m_Sprite"], max(sx, sy))
+        dx, dy = q["pos"][0] - o["pos"][0], q["pos"][1] - o["pos"][1]
+        layer = scene.layer_index(v.get("m_SortingLayerID", 0))
+        out.append(rec(ENT_PIECE, 1 if sp is not None else 0, (dx, dy, rot, q["pos"][2]),
+                       (rb.get("m_GravityScale", 1), ob.get("bounceFactor", 0) if ob else -1,
+                        sp.get("spinFactor", -7.5) if sp else 0, mirror),
+                       a=v.get("m_SortingOrder", 0) + 32768, group=layer, s0=sid))
+    return out
+
+
+def room(d, rooms, strings, persist, name, sprites=None, owners=None):
+    """-> (packed records, {object id: render group}). owners: each collider's object (coll.room); sprites: where the
+    objects' own sprites go (Sprites)."""
+    import coll
+    sprites = sprites or Sprites()
     recs = []
+    rec_of, receivers = {}, []   # (an object's record; the records that send HIT to another object's)
     groups = {}
     marker_index = {}
     objs = [o for o in d["objects"] if o["active"]]
@@ -222,6 +301,7 @@ def room(d, rooms, strings, persist, name):
             box = _trigger(o) or (0, 0, 0, 0)
             if m:
                 kind, fade, pause, p2, p3, inverse = m
+                rec_of[o["id"]] = len(recs)
                 g = new_group(o["id"])
                 g2 = new_group(inverse) if inverse else 0
                 persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
@@ -229,6 +309,35 @@ def room(d, rooms, strings, persist, name):
                                 persist=persist.id(name, o["path"]) if persistent else NO_PERSIST))
                 recs += _more_boxes(o)
         classes = {c.get("class") for c in o["c"]}
+        br = next((c for c in o["c"] if c.get("class") == "Breakable" and c.get("v") is not None), None)
+        if br is not None:
+            v = br["v"]
+            z = o["pos"][2]
+            hits = _hit_boxes(o, by_id)
+            if hits and v.get("inertForegroundThreshold", -1) <= z <= v.get("inertBackgroundThreshold", 1):
+                g = new_group(o["id"])
+                rem = [r[1] for r in v.get("remnantParts") or [] if r and r[1] in by_id]
+                g2 = 0
+                if rem:
+                    ngroups[0] += 1
+                    g2 = ngroups[0]
+                    for r in rem:
+                        subtree(r, g2)
+                c0, cn = coll.subtree_colliders(d, owners, o["id"]) if owners else (0, 0)
+                if rem and owners and any(coll.subtree_colliders(d, owners, r)[1] for r in rem):
+                    print("ents: %s: remnant colliders not handled" % o["path"])
+                debris = [r[1] for r in v.get("debrisParts") or [] if r]
+                pieces = _pieces(d, o, debris, by_id, sprites)
+                sign = -1.0 if o.get("lscale", [1])[0] < 0 else 1.0
+                persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
+                if v.get("hitEventReciever"):
+                    receivers.append((len(recs), v["hitEventReciever"][1]))
+                recs.append(rec(ENT_OBJ, OK_BREAKABLE, (o["pos"][0], o["pos"][1], o["pos"][2], 0),
+                                (v.get("flingSpeedMin", 10), v.get("flingSpeedMax", 17), v.get("angleOffset", -60) * sign,
+                                 len(pieces)), a=c0, group=g, group2=g2,
+                                persist=persist.id(name, o["path"]) if persistent else NO_PERSIST, s0=cn, s1=len(hits)))
+                recs += [rec(ENT_BOX, fl, box=b) for b, fl in hits]
+                recs += pieces
         dh = [c for c in o["c"] if c.get("class") == "DamageHero"]
         if dh and not classes & {"HealthManager", "StalactiteControl"}:
             # a hazard (spikes, acid): its colliders' outlines, as boxes or as shapes after it
@@ -286,5 +395,14 @@ def room(d, rooms, strings, persist, name):
                     continue
                 recs.append(rec(ENT_HAZARD_TRIGGER, box=box, a=marker_index[target]))
                 recs += _more_boxes(o)
-    assert ngroups[0] < 64, ngroups[0]
+    # (an object that sends HIT to another: that one's record + 1 in its box's y1)
+    for i, target in receivers:
+        if target in rec_of:
+            b = bytearray(recs[i])
+            struct.pack_into("<f", b, 20, rec_of[target] + 1)
+            recs[i] = bytes(b)
+        else:
+            print("ents: %s: HIT receiver %d has no record" % (name, target))
+    assert ngroups[0] < MAX_GROUPS, ngroups[0]
+    assert len(recs) <= 320, len(recs)   # (src/game.h: MAX_ENTS)
     return recs, groups

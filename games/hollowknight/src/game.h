@@ -17,7 +17,9 @@ extern PlayerData g_pd;
 
 /* ---------------------------------------------------------------- the room's game objects (tools/ents.py) */
 enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE,
-       ENT_BOX };   /* (shape, box: more of the record before) */
+       ENT_BOX, ENT_OBJ, ENT_PIECE };   /* (shape, box, piece: more of the record before) */
+enum { OK_BREAKABLE = 1 };                /* objects (ENT_OBJ's flags) */
+enum { HB_BOUNCE = 1, HB_RECOIL = 2 };    /* a hit box (ENT_BOX's flags): a down slash bounces off it, a slash recoils */
 enum { HAZ_NONE, HAZ_NORMAL, HAZ_SPIKES, HAZ_ACID, HAZ_LAVA, HAZ_PIT };   /* DamageHero.hazardType */
 enum { MK_SECRET = 1, MK_REMASK = 2, MK_SIMPLE = 4 };   /* masks: the unmasker, remasker and inverse FSMs */
 enum { CL_PREVENT_UP = 1, CL_PREVENT_DOWN = 2, CL_MAX_PRIORITY = 4 };
@@ -38,9 +40,21 @@ void world_enter(void);                     /* the room's objects, as the room s
 void world_tick(void);                      /* 1/50 s */
 void world_trigger(int ent, int kind);      /* the Knight entering, staying in, leaving an object's trigger (EV_*) */
 void world_hero_in_position(void);          /* the Knight done entering the room (WaitForHeroInPosition) */
+void world_send_hit(int ent);               /* HIT to an object's FSM (from another's) */
 void group_fade(int group, float alpha, float time);   /* iTweenFadeTo (linear) */
+bool persist_get(int bit);   /* an object's state in the save (PersistentBoolItem) */
+void persist_set(int bit);
+
+/* the objects the Knight acts on (obj.c) */
+void obj_enter(void);
+void obj_tick(void);
+void obj_draw(void);
+void obj_swing_start(void);                                  /* a slash's hit shape on: what it hits, once */
+int obj_nail(const float *pts, int npts, float direction);   /* -> HB_* of what it touches */
+float rand_range(float lo, float hi);   /* Random.Range (floats) */
+int cardinal(float degrees);            /* DirectionUtils.GetCardinalDirection */
 const Ent *room_ents(int *n);
-#define MAX_ENTS 160
+#define MAX_ENTS 320
 
 /* ---------------------------------------------------------------- the game */
 typedef struct {
@@ -145,6 +159,8 @@ void game_draw(void);
 void cam_init(void);
 void cam_tick(void);
 void cam_snap_to_hero(void);   /* (after a respawn) */
+enum { SHAKE_ENEMY_KILL = 1, SHAKE_AVERAGE, SHAKE_BIG };   /* the CameraShake FSM's events */
+void cam_shake(int kind);
 void cam_freeze(void);         /* FreezeInPlace (both) */
 void cam_lock(int ent);      /* CameraController.LockToArea, the hero entering the area's trigger */
 void cam_release(int ent);   /* ReleaseLock */

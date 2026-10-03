@@ -97,6 +97,8 @@ static void anim_update_state(int s);
 static void invulnerable_tick(void);
 static void respawn_tick(void);
 static void die_from_hazard(void);
+static void slash_fixed(void);
+static void slash_hits(void);
 void hero_die(void);
 
 static bool can_exit_no_input(void) { return !g_hero.doing_hazard_respawn && !g_hero.cs.dead; }
@@ -329,11 +331,13 @@ static void terrain_thunk(void) {
     if (h->thunk_dir == ATK_NORMAL) dx = h->cs.facing_right ? 1 : -1;
     else if (h->thunk_dir == ATK_UP) oy = bmax_y(), dy = 1;
     else oy = bmin_y(), dy = -1;
-    /* (a box cast, as three rays across the box) */
-    bool hit = false;
-    for (int i = -1; i <= 1 && !hit; i++)
-      hit = phys_ray(ox + (dy ? i * hs : 0), oy + (dx ? i * hs : 0), dx, dy, len + hs, CF_TERRAIN, NULL);
-    if (hit) {
+    /* (a box cast, as three rays across the box: the nearest ground; not a NonThunker's) */
+    PhysHit best = {0}, ph;
+    best.dist = 1e9f;
+    for (int i = -1; i <= 1; i++)
+      if (phys_ray(ox + (dy ? i * hs : 0), oy + (dx ? i * hs : 0), dx, dy, len + hs, CF_SOLID, &ph) && ph.dist < best.dist)
+        best = ph;
+    if (best.dist < 1e9f && !(phys_col_flags(best.col) & CF_NONTHUNKER)) {
       h->thunk_hit = true;
       if (h->thunk_dir == ATK_NORMAL) {
         if (h->cs.facing_right) hero_recoil_left();
@@ -772,6 +776,7 @@ void hero_fixed(uint32_t keys) {
   h->prev_keys = h->keys, h->keys = keys;
   h->time_since_level += DT;
   fixed_update();
+  slash_fixed();
   body_step(&h->body, DT);
   for (int i = 0; i < h->body.nevents; i++) {
     const BodyEvent *e = &h->body.events[i];
@@ -779,6 +784,7 @@ void hero_fixed(uint32_t keys) {
     else if (e->kind == EV_STAY) on_stay(e);
     else on_exit(e);
   }
+  slash_hits();
 }
 
 void hero_update(void) {
@@ -848,15 +854,51 @@ void slash_cancel(void) {
   sl.shown = false;
 }
 
-void slash_tick(void) {
-  /* FixedUpdate */
-  if (sl.slashing) {
-    if (sl.step_counter == 1) sl.poly = true;
-    if (sl.step_counter >= 5 && sl.poly_counter > 0) sl.poly = false;
-    if (sl.anim_completed && sl.poly_counter > 1) slash_cancel();
-    if (sl.poly) sl.poly_counter++;
-    sl.step_counter++;
+/* NailSlash.FixedUpdate: the hit shape on from the second step to the sixth */
+static void slash_fixed(void) {
+  if (!sl.slashing) return;
+  if (sl.step_counter == 1) {
+    sl.poly = true;
+    obj_swing_start();   /* (LimitSendEvents: its collider switched on) */
   }
+  if (sl.step_counter >= 5 && sl.poly_counter > 0) sl.poly = false;
+  if (sl.anim_completed && sl.poly_counter > 1) slash_cancel();
+  if (sl.poly) sl.poly_counter++;
+  sl.step_counter++;
+}
+
+/* the slash's PolygonCollider2D (local, before its scale) */
+static const float slash_poly[4][12] = {
+    {-1.2709147f, 0.7413744f, -1.9154043f, 0.3402300f, -2.0418284f, -0.1750279f, -1.6737577f, -0.4435550f, -0.0747072f,
+     -0.6419125f, 0.0078668f, 0.9683739f},
+    {-1.2172120f, 0.9806359f, -2.3899105f, 0.5705993f, -2.6464114f, -0.0792437f, -2.1236799f, -0.5379019f, -0.3672335f,
+     -0.6931571f, -0.2434342f, 1.0901221f},
+    {-0.4705164f, 1.4424964f, 0.4715460f, 1.4633876f, 1.0817832f, 0.6738139f, 1.1484641f, -0.8903970f, -1.2853814f,
+     -0.8659905f, -1.0722543f, 0.6188976f},
+    {1.2783164f, 0.6065824f, 1.1190680f, -0.8765929f, 0.5875434f, -1.6216662f, -0.4472086f, -1.6460726f, -1.0696145f,
+     -0.7312644f, -1.3820535f, 0.6370943f},
+};
+
+/* the slash's trigger: what it touches is hit (the damages_enemy FSM), and the Knight recoils or bounces off (NailSlash) */
+static void slash_hits(void) {
+  if (!sl.poly) return;
+  Hero *h = &g_hero;
+  float k = h->cs.facing_right ? -1.0f : 1.0f;   /* the Knight's x scale */
+  const typeof(slashes[0]) *s = &slashes[sl.kind];
+  float pts[12];
+  for (int i = 0; i < 6; i++) {
+    pts[2 * i] = h->body.x + k * (s->x + s->sx * slash_poly[sl.kind][2 * i]);
+    pts[2 * i + 1] = h->body.y + s->y + s->sy * slash_poly[sl.kind][2 * i + 1];
+  }
+  float direction = sl.kind == SLASH_UP ? 90 : sl.kind == SLASH_DOWN ? 270 : h->cs.facing_right ? 0 : 180;
+  int fl = obj_nail(pts, 6, direction);
+  if (direction == 0 && (fl & HB_RECOIL)) hero_recoil_left();
+  else if (direction == 180 && (fl & HB_RECOIL)) hero_recoil_right();
+  else if (direction == 90 && (fl & HB_RECOIL)) hero_recoil_down();
+  else if (direction == 270 && (fl & HB_BOUNCE)) hero_bounce();
+}
+
+void slash_tick(void) {
   if (!sl.shown) return;
   sl.anim.events = 0;
   anim_update(&sl.anim, DT);

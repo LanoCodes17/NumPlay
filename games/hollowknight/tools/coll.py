@@ -8,7 +8,7 @@ SOLID_LAYERS = {8, 25}          # Terrain, Soft Terrain (the Knight collides wit
 CELL = 8.0                      # grid cell (units)
 UNIT = 128                      # segment ends are stored in 1/128 unit
 # collider flags (src/hk.h: CF_*)
-CF_TERRAIN, CF_STEEP, CF_NONSLIDER, CF_NOHARDLAND, CF_ROOF, CF_SOLID = 1, 2, 4, 8, 16, 32
+CF_TERRAIN, CF_STEEP, CF_NONSLIDER, CF_NOHARDLAND, CF_ROOF, CF_SOLID, CF_NONTHUNKER = 1, 2, 4, 8, 16, 32, 64
 
 
 def _world(o, pts, off):
@@ -84,12 +84,26 @@ def _unit_edges(edges):
     return out
 
 
+def path_key(d):
+    """A sort key that keeps every object's subtree together: (name, id) from the root down."""
+    by = {o["id"]: o for o in d["objects"]}
+    keys = {}
+
+    def key(o):
+        k = keys.get(o["id"])
+        if k is None:
+            p = by.get(o["parent"])
+            k = keys[o["id"]] = (key(p) if p else ()) + ((o["name"], o["id"]),)
+        return k
+    return key
+
+
 def room(d, w, h):
-    """-> (solid tiles of the tilemap, segments [(x0, y0, x1, y1, collider)], colliders [flags]); collider 0 is the
-    tilemap's."""
-    segs, cols = [], [CF_SOLID | CF_TERRAIN]
+    """-> (solid tiles of the tilemap, segments [(x0, y0, x1, y1, collider)], colliders [flags], each collider's object
+    id); collider 0 is the tilemap's. An object's subtree has consecutive colliders (subtree_colliders)."""
+    segs, cols, owners = [], [CF_SOLID | CF_TERRAIN], [0]
     tm_edges = []
-    for o in d["objects"]:
+    for o in sorted(d["objects"], key=path_key(d)):
         if not o["active"] or o["layer"] not in SOLID_LAYERS:
             continue
         if "TileMap Render Data/" in o["path"]:
@@ -133,8 +147,11 @@ def room(d, w, h):
                 flags |= CF_NOHARDLAND
             if "Roof" in scripts:
                 flags |= CF_ROOF
+            if any(c.get("class") == "NonThunker" and (c.get("v") or {}).get("active", True) for c in o["c"]):
+                flags |= CF_NONTHUNKER
             ci = len(cols)
             cols.append(flags)
+            owners.append(o["id"])
             for pts, closed in chains:
                 pts = _merge(pts, closed)
                 n = len(pts)
@@ -152,7 +169,24 @@ def room(d, w, h):
     got = tile_faces(solid)
     if want != got:
         print("coll: tilemap faces differ: %d missing, %d extra" % (len(want - got), len(got - want)))
-    return solid, segs, cols
+    assert len(cols) <= 256, len(cols)
+    return solid, segs, cols, owners
+
+
+def subtree_colliders(d, owners, oid):
+    """The colliders of an object and everything under it -> (first, count)."""
+    by = {o["id"]: o for o in d["objects"]}
+    ids = set()
+    todo = [oid]
+    while todo:
+        i = todo.pop()
+        ids.add(i)
+        todo += by[i].get("children", [])
+    idx = [k for k, ow in enumerate(owners) if k and ow in ids]
+    if not idx:
+        return 0, 0
+    assert idx == list(range(idx[0], idx[-1] + 1)), idx
+    return idx[0], len(idx)
 
 
 def grid(segs, w, h):

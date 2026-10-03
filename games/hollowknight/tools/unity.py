@@ -90,15 +90,31 @@ def clean(x):
 
 def _dump(name):
     level = "level%d" % scene_index()[name]
-    lv = asset_file(level)
+    return _dump_objects(asset_file(level), name, level)
+
+
+def _dump_objects(lv, name, level, root=None):
+    """The file's GameObjects (or those under the GameObject root), as scene() gives them."""
     exts = [e.path for e in lv.externals]
     objs = lv.objects
     tr, gos = {}, {}
-    for pid, o in objs.items():
-        if o.type.name in ("Transform", "RectTransform"):
-            tr[pid] = o.read_typetree()
-        elif o.type.name == "GameObject":
-            gos[pid] = o.read_typetree()
+    if root is None:
+        for pid, o in objs.items():
+            if o.type.name in ("Transform", "RectTransform"):
+                tr[pid] = o.read_typetree()
+            elif o.type.name == "GameObject":
+                gos[pid] = o.read_typetree()
+    else:
+        # the subtree: up to its root's transform (for world matrices), then down through the children
+        todo = [root]
+        while todo:
+            gpid = todo.pop()
+            g = gos[gpid] = objs[gpid].read_typetree()
+            for c in g["m_Component"]:
+                o = objs.get(c["component"]["m_PathID"])
+                if o is not None and o.type.name in ("Transform", "RectTransform"):
+                    tr[o.path_id] = t = o.read_typetree()
+                    todo += [objs[ch["m_PathID"]].read_typetree()["m_GameObject"]["m_PathID"] for ch in t["m_Children"]]
     wm = {}
     sys.setrecursionlimit(20000)
 
@@ -225,6 +241,31 @@ def scene(name):
         d = _dump(name)
     json.dump(d, open(p, "w"), separators=(",", ":"))
     return d
+
+
+@functools.lru_cache(maxsize=None)
+def prefab(path, gpid):
+    """A prefab (a GameObject of an asset file and its children) like a scene (cached as JSON in tools/cache)."""
+    os.makedirs(CACHE, exist_ok=True)
+    p = os.path.join(CACHE, "prefab_%s_%d.json" % (os.path.basename(path), gpid))
+    if os.path.exists(p):
+        return json.load(open(p))
+    with in_data():
+        d = _dump_objects(asset_file(path), "%s:%d" % (path, gpid), path, gpid)
+    json.dump(d, open(p, "w"), separators=(",", ":"))
+    return d
+
+
+def find_objects(path, names):
+    """GameObjects of an asset file by name -> [(name, pid)]."""
+    f = asset_file(path)
+    out = []
+    for pid, o in f.objects.items():
+        if o.type.name == "GameObject":
+            n = S(o.read_typetree()["m_Name"])
+            if n in names:
+                out.append((n, pid))
+    return out
 
 
 def comp(o, cls=None, typ=None):

@@ -58,3 +58,18 @@ def build():
             clips.append({"id": clip_id(actor, name), "fps": float(c["fps"]), "wrap": int(c["wrapMode"]),
                           "loop": int(c.get("loopStart", 0)), "frames": frames})
     return sprites, clips
+
+
+def unity_sprites(keys):
+    """Unity sprites objects show as actors (ents.Sprites: debris...) -> sprite records like build()'s; each at its
+    object's scale."""
+    out = []
+    for level, exts, fid, pid, scale in keys:
+        s = unity.sprite(level, list(exts), fid, pid)
+        img = unity.sprite_image(s)
+        wu, hu = s.w / s.ppu * scale, s.h / s.ppu * scale
+        w, h = max(1, round(wu * K0)), max(1, round(hu * K0))
+        arr = np.asarray(img.resize((w, h), Image.BOX)).copy()
+        out.append({"key": (level, fid, pid), "job": art.ImageJob(arr, "piece/%s" % s.name),
+                    "lx": -s.px * wu, "ty": (1 - s.py) * hu, "tu": wu / w, "tv": hu / h})
+    return out

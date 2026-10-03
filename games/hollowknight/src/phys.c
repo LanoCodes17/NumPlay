@@ -20,6 +20,15 @@ static const Seg *g_segs;
 static const uint16_t *g_cell_first, *g_cell_list;
 static int g_tw, g_th, g_row_bytes;
 static int g_room_ground = -1;
+static uint8_t g_col_off[256 / 8];   /* colliders switched off (a broken wall's) */
+
+void phys_collider_enable(int col, bool on) {
+  if (col <= 0 || col >= 256) return;
+  if (on) g_col_off[col >> 3] &= (uint8_t)~(1 << (col & 7));
+  else g_col_off[col >> 3] |= (uint8_t)(1 << (col & 7));
+}
+
+void phys_colliders_reset(void) { memset(g_col_off, 0, sizeof g_col_off); }
 
 static void ground_init(void) {
   if (g_room_ground == g_room.id) return;
@@ -76,7 +85,7 @@ static int gather(float x0, float y0, float x1, float y1, uint8_t mask, Cand *ou
       for (int k = g_cell_first[cy * gw + cx], e = g_cell_first[cy * gw + cx + 1]; k < e; k++) {
         int i = g_cell_list[k];
         uint8_t col = g_seg_col[i];
-        if (!(g_cols[col] & mask) || n == MAX_CAND) continue;
+        if (!(g_cols[col] & mask) || (g_col_off[col >> 3] >> (col & 7) & 1) || n == MAX_CAND) continue;
         const Seg *s = &g_segs[i];
         float ax = s->x0 * UNIT, ay = s->y0 * UNIT, bx = s->x1 * UNIT, by = s->y1 * UNIT;
         if ((ax < x0 && bx < x0) || (ax > x1 && bx > x1) || (ay < y0 && by < y0) || (ay > y1 && by > y1)) continue;

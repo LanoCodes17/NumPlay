@@ -80,7 +80,7 @@ typedef struct {
   int16_t rot;         /* the u axis' angle (1/65536 turn) */
   uint8_t group;       /* its render group (F_DYN): faded or hidden as the game wants (g_group_alpha) */
 } Inst;
-#define MAX_GROUPS 64
+#define MAX_GROUPS 256
 extern uint8_t g_group_alpha[MAX_GROUPS];   /* 255 shown, 0 hidden */
 enum { BL_ALPHA = 0, BL_ADD, BL_SCREEN, BL_LINEARLIGHT, BL_OVERLAY, BL_MULTIPLY };
 #define F_BLEND 7
@@ -148,10 +148,11 @@ float clip_duration(int clip);
 int clip_frames_count(int clip);
 uint16_t to_f16(float f);
 void sprite_inst(int sprite, float x, float y, float z, float sx, float sy, uint8_t tint, Inst *out);
+void sprite_inst_rot(int sprite, float x, float y, float z, float sx, float sy, float degrees, uint8_t tint, Inst *out);
 
 /* ---------------------------------------------------------------- the ground (phys.c) */
 /* a collider's flags (tools/coll.py) */
-enum { CF_TERRAIN = 1, CF_STEEP = 2, CF_NONSLIDER = 4, CF_NOHARDLAND = 8, CF_ROOF = 16, CF_SOLID = 32 };
+enum { CF_TERRAIN = 1, CF_STEEP = 2, CF_NONSLIDER = 4, CF_NOHARDLAND = 8, CF_ROOF = 16, CF_SOLID = 32, CF_NONTHUNKER = 64 };
 typedef struct {
   float dist, x, y, nx, ny;   /* where, and the ground's normal there */
   int col;
@@ -160,6 +161,8 @@ typedef struct {
 bool phys_ray(float x, float y, float dx, float dy, float dist, uint8_t mask, PhysHit *hit);
 uint8_t phys_col_flags(int col);
 bool phys_tile_solid(int x, int y);
+void phys_collider_enable(int col, bool on);   /* (a breakable's: off when it breaks) */
+void phys_colliders_reset(void);               /* all on (a room starts) */
 /* a box and a convex polygon (n points, x y pairs): do they overlap? */
 bool box_meets_shape(float x0, float y0, float x1, float y1, const float *pts, int n);
 

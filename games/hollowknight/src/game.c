@@ -163,6 +163,7 @@ void game_tick(uint32_t keys) {
 }
 
 void game_draw(void) {
+  obj_draw();
   hero_draw();
   gfx_frame();
 }

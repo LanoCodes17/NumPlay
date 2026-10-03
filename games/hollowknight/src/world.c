@@ -4,41 +4,50 @@
 #define DT 0.02f
 
 /* ---------------------------------------------------------------- render groups: iTweenFadeTo */
+#define MAX_FADES 16
 static struct {
+  uint8_t group;   /* (0: free) */
   float from, to, t, time;
-  bool on;
-} fades[MAX_GROUPS];
+} fades[MAX_FADES];
 
 void group_fade(int g, float alpha, float time) {
   if (g <= 0 || g >= MAX_GROUPS) return;
-  fades[g].from = g_group_alpha[g] / 255.0f, fades[g].to = alpha, fades[g].t = 0, fades[g].time = time, fades[g].on = true;
-  if (time <= 0) {
+  /* (a new fade on a group replaces its old one) */
+  int k = -1;
+  for (int i = 0; i < MAX_FADES && k < 0; i++)
+    if (fades[i].group == g) k = i;
+  for (int i = 0; i < MAX_FADES && k < 0; i++)
+    if (!fades[i].group) k = i;
+  if (time <= 0 || k < 0) {
     g_group_alpha[g] = (uint8_t)(alpha * 255 + 0.5f);
-    fades[g].on = false;
+    if (k >= 0 && fades[k].group == g) fades[k].group = 0;
+    return;
   }
+  fades[k].group = (uint8_t)g;
+  fades[k].from = g_group_alpha[g] / 255.0f, fades[k].to = alpha, fades[k].t = 0, fades[k].time = time;
 }
 
 static void fades_tick(void) {
-  for (int g = 1; g < MAX_GROUPS; g++) {
-    if (!fades[g].on) continue;
-    fades[g].t += DT;
-    float k = fades[g].t >= fades[g].time ? 1 : fades[g].t / fades[g].time;
-    float a = fades[g].from + (fades[g].to - fades[g].from) * k;
+  for (int i = 0; i < MAX_FADES; i++) {
+    int g = fades[i].group;
+    if (!g) continue;
+    fades[i].t += DT;
+    float k = fades[i].t >= fades[i].time ? 1 : fades[i].t / fades[i].time;
+    float a = fades[i].from + (fades[i].to - fades[i].from) * k;
     g_group_alpha[g] = (uint8_t)(a * 255 + 0.5f);
-    if (k >= 1) fades[g].on = false;
+    if (k >= 1) fades[i].group = 0;
   }
 }
 
 /* ---------------------------------------------------------------- the objects' state */
 typedef struct {
   uint8_t state;
-  float timer;
 } EntState;
 static EntState es[MAX_ENTS];
 static bool hero_in_position;
 
-static bool persist_get(int i) { return i != NO_PERSIST && (g_pd.persist[i >> 3] >> (i & 7) & 1); }
-static void persist_set(int i) {
+bool persist_get(int i) { return i != NO_PERSIST && (g_pd.persist[i >> 3] >> (i & 7) & 1); }
+void persist_set(int i) {
   if (i != NO_PERSIST) g_pd.persist[i >> 3] |= (uint8_t)(1 << (i & 7));
 }
 
@@ -60,6 +69,13 @@ static void mask_idle(const Ent *e, EntState *s) {
     group_fade(e->group2, 1 - e->p2, 0.01f);
   }
   s->state = M_IDLE;
+}
+
+/* a simple mask's Idle: HIT fades it */
+static void mask_hit(const Ent *e, EntState *s) {
+  if (e->flags != MK_SIMPLE || s->state != M_IDLE) return;
+  group_fade(e->group, 0, e->p0);
+  s->state = M_DONE;
 }
 
 static void mask_trigger(const Ent *e, EntState *s, int kind) {
@@ -86,11 +102,8 @@ static void mask_trigger(const Ent *e, EntState *s, int kind) {
       }
       break;
     }
-    case MK_SIMPLE:
-      if (s->state == M_IDLE && ((e->p2 == 0 && kind == EV_ENTER) || (e->p2 == 1 && kind == EV_STAY))) {
-        group_fade(e->group, 0, t);
-        s->state = M_DONE;
-      }
+    case MK_SIMPLE:   /* (its trigger sends HIT) */
+      if ((e->p2 == 0 && kind == EV_ENTER) || (e->p2 == 1 && kind == EV_STAY)) mask_hit(e, s);
       break;
   }
 }
@@ -109,6 +122,7 @@ void world_enter(void) {
     else es[i].state = M_PAUSE;
     if (e[i].group2) group_fade(e[i].group2, 0, 0);   /* (Pause: the inverse mask hidden) */
   }
+  obj_enter();
 }
 
 /* (Pause's WaitForHeroInPosition: the masks start as the Knight is placed; its Wait only counts when it was placed
@@ -122,10 +136,21 @@ void world_hero_in_position(void) {
     if (e[i].type == ENT_MASK && es[i].state == M_PAUSE) mask_idle(&e[i], &es[i]);
 }
 
+/* an object's FSM sent HIT to another (a breakable's hitEventReciever) */
+void world_send_hit(int i) {
+  int n;
+  const Ent *e = room_ents(&n);
+  if (i < 0 || i >= n || i >= MAX_ENTS) return;
+  if (e[i].type == ENT_MASK) mask_hit(&e[i], &es[i]);
+}
+
 void world_trigger(int i, int kind) {
   int n;
   const Ent *e = &room_ents(&n)[i];
   if (e->type == ENT_MASK) mask_trigger(e, &es[i], kind);
 }
 
-void world_tick(void) { fades_tick(); }
+void world_tick(void) {
+  obj_tick();
+  fades_tick();
+}

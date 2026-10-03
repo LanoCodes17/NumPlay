@@ -10,6 +10,19 @@ SRC = os.path.join(HERE, "..", "src")
 ROOMS = [l.strip() for l in open(os.path.join(HERE, "rooms.txt")) if l.strip() and not l.startswith("#")]
 STRINGS = ents.Strings()
 PERSIST = ents.Persist()
+SPRITES = ents.Sprites()
+ROOM_DATA = {}   # name -> (coll.room's, ents.room's)
+
+
+def room_data(name):
+    """A room's ground and objects (once: the objects' sprites go into SPRITES)."""
+    if name not in ROOM_DATA:
+        d = unity.scene(name)
+        st = scene.settings(d)
+        w, h = st["size"] if st["size"] else (40, 24)
+        cr = coll.room(d, w, h)
+        ROOM_DATA[name] = (cr, ents.room(d, ROOMS, STRINGS, PERSIST, name, SPRITES, cr[3]))
+    return ROOM_DATA[name]
 
 SECTIONS = ["TEX", "TMAP", "PAL", "BIDX", "BLK", "ROOMS", "RBLOB", "PRIOR", "SOFT", "SPR", "CLIP", "STR"]
 BLENDS = {"alpha": 0, "add": 1, "screen": 2, "linearlight": 3, "overlay": 4, "multiply": 5}
@@ -169,7 +182,7 @@ def room_blobs(name, keep, st, tex_id):
     axis = 0 if (cx1 - cx0) >= (cy1 - cy0) else 1
     lo, hi = (cx0, cx1) if axis == 0 else (cy0, cy1)
     HWU, HHU = scene.VIEW_W / 2 / scene.FOCAL, scene.VIEW_H / 2 / scene.FOCAL
-    erecs, groups = ents.room(unity.scene(name), ROOMS, STRINGS, PERSIST, name)
+    (solid, segs, cols, _), (erecs, groups) = room_data(name)
     for it in keep:
         it.group = groups.get(it.obj["id"], 0)
     tints = [(255, 255, 255, 255)]
@@ -202,7 +215,6 @@ def room_blobs(name, keep, st, tex_id):
             va, vb = -1e9, 1e9
         table += struct.pack("<IIHHff", 0, 0, len(recs), 0, va, vb)   # (offsets filled in by main)
     HDR = 84 + 192
-    solid, segs, cols = coll.room(unity.scene(name), w, h)
     gw, gh, cells = coll.grid(segs, w, h)
     hdr = struct.pack("<4H4f4f4fff6HII", 6, len(order), len(tints), axis, w, h, bz, sat, *st["ambient"], 0.0,
                       *st["hero_light"], lo, hi, len(keep), len(segs), len(cols), gw, gh, len(erecs), 0, 0) + lut
@@ -276,6 +288,11 @@ def main():
     print("variants", len(variants), "%.0fs" % (time.time() - t0), flush=True)
     jobs = [art.Job(v) for v in variants]
     sprites, clips = actors.build()
+    # the rooms' objects, and the sprites they show (after the actors')
+    SPRITES.base = len(sprites)
+    for r in ROOMS:
+        room_data(r)
+    sprites += actors.unity_sprites(SPRITES.list)
     print("actor frames", len(sprites), "clips", len(clips), "%.0fs" % (time.time() - t0), flush=True)
     jobs += [sp["job"] for sp in sprites]
     with mp.get_context("spawn").Pool(min(4, os.cpu_count() or 1)) as pool:

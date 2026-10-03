@@ -165,3 +165,16 @@ void sprite_inst(int sprite, float x, float y, float z, float sx, float sy, uint
   out->rot = 0;
   out->group = 0;
 }
+
+/* turned (degrees, counterclockwise) about its place */
+void sprite_inst_rot(int sprite, float x, float y, float z, float sx, float sy, float degrees, uint8_t tint, Inst *out) {
+  sprite_inst(sprite, x, y, z, sx, sy, tint, out);
+  float r = degrees * (float)M_PI / 180, c = cosf(r), s = sinf(r);
+  const SpriteRec *sp = sprite_rec(sprite);
+  float lx = sx * sp->lx, ty = sy * sp->ty;
+  out->ax = (int16_t)lrintf((x + c * lx - s * ty) * 64);
+  out->ay = (int16_t)lrintf((y + s * lx + c * ty) * 64);
+  int32_t rot = (int32_t)lrintf(degrees / 360.0f * 65536.0f);
+  out->rot = (int16_t)(rot & 0xFFFF);
+  if (out->rot) out->flags |= F_ROT;
+}

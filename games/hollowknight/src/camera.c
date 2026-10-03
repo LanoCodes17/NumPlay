@@ -64,9 +64,33 @@ static void keep_in_scene(float *x, float *y) {
   if (*y > c.y_limit) *y = c.y_limit;
 }
 
+/* the CameraShake FSM (on the camera's parent): a shake of higher priority replaces the one going on; ShakePositionV2
+ * moves the camera at random, less and less */
+static struct {
+  float ex, time, t, priority;
+  float dx, dy;
+} sh;
+
+void cam_shake(int kind) {
+  static const float shakes[][3] = {{0, 0, 0}, {0.105f, 0.5f, 6}, {0.15f, 1, 7}, {0.5f, 1, 10}};   /* extents, time, priority */
+  if (kind <= 0 || kind > SHAKE_BIG || shakes[kind][2] <= sh.priority) return;
+  sh.ex = shakes[kind][0], sh.time = shakes[kind][1], sh.priority = shakes[kind][2], sh.t = 0;
+}
+
+static void shake_tick(void) {
+  sh.dx = sh.dy = 0;
+  if (sh.priority <= 0) return;
+  sh.t += 0.02f * g_game.time_scale;
+  float k = 1 - sh.t / sh.time;
+  if (k < 0) k = 0;
+  sh.dx = sh.ex * rand_range(-1, 1) * k, sh.dy = sh.ex * rand_range(-1, 1) * k;
+  if (sh.t > sh.time) sh.priority = 0, sh.dx = sh.dy = 0;
+}
+
 void cam_init(void) {
   const Hero *h = &g_hero;
   memset(&c, 0, sizeof c);
+  memset(&sh, 0, sizeof sh);   /* (New Scene Reset) */
   c.x_limit = g_room.h->w - X_MIN, c.y_limit = g_room.h->h - Y_MIN;
   if (c.x_limit < X_MIN) c.x_limit = X_MIN;
   if (c.y_limit < Y_MIN) c.y_limit = Y_MIN;
@@ -285,7 +309,8 @@ static void controller_late_update(void) {
 void cam_tick(void) {
   target_update();
   controller_late_update();
-  g_cam_x = c.cx, g_cam_y = c.cy;
+  shake_tick();
+  g_cam_x = c.cx + sh.dx, g_cam_y = c.cy + sh.dy;
 }
 
 /* after a respawn: the camera with the Knight (PositionToHero) */

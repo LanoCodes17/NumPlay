@@ -531,7 +531,8 @@ static void chapter_memory(const uint8_t *ch) {
 /* LevelLoader: the session's chapter, at its level */
 void level_start(int intro) {
   memset(&g_level, 0, sizeof g_level);
-  trail_clear();   /* (a new Level: a new TrailManager) */
+  trail_clear();   /* (a new Level: a new TrailManager, new particle systems) */
+  particles_clear();
   g_level.chapter = g_session.chapter;
   g_level.ch = chapter_rec(g_session.chapter);
   chapter_memory(g_level.ch);
@@ -622,6 +623,8 @@ static void transition_update(void) {
     blocks_free_tiles(old);
     tiles_invalidate();   /* (its tiles go from the cache, the edges change) */
     g_level.rooms[old].index = -1;
+    Room *nr = g_level.room;   /* ClearRect(Bounds inflated by 16, inside: false) */
+    particles_clear_outside((float)nr->x, (float)nr->y, (float)(nr->x + nr->w), (float)(nr->y + nr->h));
     V2 sp = player_spawn_near(v2(pe->x, pe->y));   /* Session.RespawnPoint = the closest spawn */
     g_session.rx = (int32_t)sp.x, g_session.ry = (int32_t)sp.y;
     player_on_transition(&g_player);

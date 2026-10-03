@@ -13,7 +13,10 @@ typedef struct {
 
 #define MAX_PARTICLES 128
 static Particle parts[MAX_PARTICLES];
-static int next_part;
+/* each layer has its own share (ParticlesBG, Particles, ParticlesFG are systems of their own): a busy one does not
+ * take the others' */
+static const uint8_t part_base[3] = {0, 40, 88}, part_count[3] = {40, 48, 40};
+static uint8_t next_part[3];
 
 void particles_clear(void) { memset(parts, 0, sizeof parts); }
 
@@ -25,8 +28,10 @@ static uint32_t lerp_rgb(uint32_t a, uint32_t b, float t) {
 }
 
 static void create(int layer, const PType *t, V2 pos, uint32_t color, float dir) {
-  Particle *p = &parts[next_part];
-  next_part = (next_part + 1) % MAX_PARTICLES;
+  /* (none far outside the view: emitters out of sight would take the visible ones' places) */
+  if (pos.x < g_level.cam.x - 64 || pos.x > g_level.cam.x + 384 || pos.y < g_level.cam.y - 64 || pos.y > g_level.cam.y + 244) return;
+  Particle *p = &parts[part_base[layer] + next_part[layer]];
+  next_part[layer] = (uint8_t)((next_part[layer] + 1) % part_count[layer]);
   p->type = t;
   p->active = 1;
   p->layer = (uint8_t)layer;
@@ -73,8 +78,10 @@ void particles_update(void) {
     float fade = t->fade_mode == PF_LINEAR ? k : t->fade_mode == PF_LATE ? fminf(1, k / .25f)
                : t->fade_mode == PF_INOUT ? (k > .75f ? 1 - (k - .75f) / .25f : k < .25f ? k / .25f : 1) : 1;
     uint32_t c;
-    if (t->color_mode == PC_FADE) c = lerp_rgb(t->color2, p->start_color, k) | (p->start_color & 0xFF000000u);
-    else if (t->color_mode == PC_BLINK) c = fmodf(p->life, .2f) < .1f ? p->start_color : t->color2;   /* Calc.BetweenInterval(Life, 0.1) */
+    if (t->color_mode == PC_FADE)   /* Color.Lerp, alpha too */
+      c = lerp_rgb(t->color2, p->start_color, k) |
+          (uint32_t)((t->color2 >> 24) + ((int)(p->start_color >> 24) - (int)(t->color2 >> 24)) * k) << 24;
+    else if (t->color_mode == PC_BLINK) c = fmodf(p->life, .2f) > .1f ? p->start_color : t->color2;   /* Calc.BetweenInterval(Life, 0.1) */
     else c = p->start_color;
     uint32_t a = (uint32_t)((c >> 24) * fade);
     p->color = (c & 0xFFFFFF) | a << 24;
@@ -89,13 +96,23 @@ void particles_update(void) {
 
 /* ParticleSystem.Render: a layer's particles drawn into the strips by one command (as pictures they were up to 128
  * commands, most of them scaled or turned: the frame has 48 of those) */
+/* how far a particle can reach from its position: its frame turned and scaled (none: its square) */
+static int part_reach(const Particle *p) {
+  if (p->src == 0xFFFF) return (int)(p->size + 1);
+  Tex t;
+  return tex_get(p->src, &t) ? (int)((t.fw > t.fh ? t.fw : t.fh) * t.scale * p->size * 0.71f) + 2 : 0;
+}
 static void particles_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
   int layer = (int)(intptr_t)ctx;
-  for (int i = 0; i < MAX_PARTICLES; i++) {
+  for (int i = part_base[layer]; i < part_base[layer] + part_count[layer]; i++) {
     Particle *p = &parts[i];
     uint8_t a = (uint8_t)(p->color >> 24);
-    if (!p->active || p->layer != layer || !a) continue;
+    if (!p->active || !a) continue;
     float x = (float)(int)p->pos.x, y = (float)(int)p->pos.y;   /* (Particle.Render: the position truncated) */
+    int r = part_reach(p), sx = (int)x - g_camx, sy = (int)y - g_camy;
+    if (sy + r < sy0 || sy - r >= sy1 || sx + r < 0 || sx - r >= VIEW_W) continue;
+    a = a >= 248 ? 255 : (uint8_t)((a & 0xF0) | 8);   /* (16 levels: the same colors again for the next one, fewer
+                                                    palette preparations) */
     if (p->src == 0xFFFF) {
       int s = (int)(p->size + 0.5f);
       if (s >= 1) blit_rect(strip, sy0, sy1, x - s / 2, y - s / 2, (float)s, (float)s, rgb(p->color & 0xFFFFFF), a);
@@ -108,15 +125,24 @@ static void particles_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
   }
 }
 void particles_render(int layer) {
-  float y0 = 1e9f, y1 = -1e9f;
+  int y0 = 1 << 30, y1 = -(1 << 30);
+  for (int i = part_base[layer]; i < part_base[layer] + part_count[layer]; i++) {
+    Particle *p = &parts[i];
+    if (!p->active || !(p->color >> 24)) continue;
+    int r = part_reach(p), sx = (int)p->pos.x - g_camx, sy = (int)p->pos.y - g_camy;   /* (loads it now: nothing loads
+                                                                                            while the strips are drawn) */
+    if (sy + r < 0 || sy - r >= VIEW_H || sx + r < 0 || sx - r >= VIEW_W) continue;
+    if (sy - r < y0) y0 = sy - r;
+    if (sy + r + 1 > y1) y1 = sy + r + 1;
+  }
+  if (y0 < y1) gfx_custom(particles_strip, (void *)(intptr_t)layer, y0, y1);
+}
+/* Level.cs at a transition's end: the particles outside the new room (and 16 pixels around) go */
+void particles_clear_outside(float l, float t, float r, float b) {
   for (int i = 0; i < MAX_PARTICLES; i++) {
     Particle *p = &parts[i];
-    if (!p->active || p->layer != layer || !(p->color >> 24)) continue;
-    Tex t;
-    if (p->src != 0xFFFF) tex_get(p->src, &t);   /* (loaded now: nothing loads while the strips are drawn) */
-    y0 = fminf(y0, p->pos.y), y1 = fmaxf(y1, p->pos.y);
+    if (p->active && (p->pos.x < l - 16 || p->pos.x > r + 16 || p->pos.y < t - 16 || p->pos.y > b + 16)) p->active = 0;
   }
-  if (y0 <= y1) gfx_custom(particles_strip, (void *)(intptr_t)layer, (int)floorf(y0) - 24 - g_camy, (int)ceilf(y1) + 25 - g_camy);
 }
 
 /* Celeste's Dust.Burst and BurstFG */
@@ -243,6 +269,6 @@ void trail_render_between(int hi, int lo) {
 void trail_clear(void) { ntrails = 0; }
 #pragma GCC pop_options
 void fx_update(void) {
-  particles_update();
+  if (!g_level.transitioning) particles_update();   /* (the particle systems are Global, not TransitionUpdate) */
   trail_update();
 }

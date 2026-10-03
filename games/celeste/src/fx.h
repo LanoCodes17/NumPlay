@@ -28,6 +28,7 @@ void particles_emit_c(int layer, const PType *t, int n, V2 pos, V2 range, uint32
 void particles_emit1(int layer, const PType *t, V2 pos, float dir);
 void particles_update(void);
 void particles_render(int layer);
+void particles_clear_outside(float l, float t, float r, float b);   /* (a transition's end) */
 
 void dust_burst(V2 pos, float dir, int n);
 void dust_burst_fg(V2 pos, float dir, int n, float range);

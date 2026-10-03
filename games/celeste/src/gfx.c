@@ -700,7 +700,6 @@ static void blit_scaled(uint16_t *strip, int sy0, int sy1, const Tex *t, int x, 
 }
 
 static void blit_affine(uint16_t *strip, int sy0, int sy1, const Tex *t, const Affine *a, uint16_t tint, uint8_t alpha, uint8_t flags) {
-  prep(t->pal, tint, alpha, flags);
   float cs = cosf(a->rot), sn = sinf(a->rot);
   if (a->sx == 0 || a->sy == 0) return;
   float isx = 1.f / a->sx, isy = 1.f / a->sy;
@@ -725,6 +724,8 @@ static void blit_affine(uint16_t *strip, int sy0, int sy1, const Tex *t, const A
   if (x1 > VIEW_W) x1 = VIEW_W;
   if (y0 < sy0) y0 = sy0;
   if (y1 > sy1) y1 = sy1;
+  if (x0 >= x1 || y0 >= y1) return;
+  prep(t->pal, tint, alpha, flags);   /* (only for what is drawn: the colors cost more than the bounds) */
   int cached = -1;
   for (int Y = y0; Y < y1; Y++) {
     uint16_t *row = strip + (Y - sy0) * VIEW_W;

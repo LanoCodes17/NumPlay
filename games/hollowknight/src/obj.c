@@ -382,8 +382,8 @@ void gates_event(int ev) {
 }
 
 /* ---------------------------------------------------------------- arenas (Battle Control; the False Knight's is enemy.c's) */
-enum { ARF_TRIGGER = 1, ARF_DESTROY_GATES = 2, ARF_QUICK_OPEN = 4 };
-enum { AR_DETECT, AR_FIGHT, AR_END_WAIT, AR_DONE };
+enum { ARF_TRIGGER = 1, ARF_DESTROY_GATES = 2, ARF_QUICK_OPEN = 4, ARF_WAVES = 8, ARF_NO_START = 16 };
+enum { AR_DETECT, AR_FIGHT, AR_WAVE_PAUSE, AR_WAVE2, AR_END_WAIT, AR_DONE };
 static struct {
   int16_t ent;   /* (-1: none) */
   uint8_t st;
@@ -417,14 +417,15 @@ static void arena_enter(void) {
     if (e->a & ARF_DESTROY_GATES) gates_event(BG_DESTROY);
     else if (e->a & ARF_QUICK_OPEN) gates_event(BG_QUICK_OPEN);
   } else
-    arena.st = AR_DETECT;
+    arena.st = (e->a & ARF_NO_START) ? AR_FIGHT : AR_DETECT;   /* (no start: counting at once) */
 }
 
 void arena_start(void) {
   if (arena.ent < 0 || arena.st != AR_DETECT) return;
   const Ent *e = ent_at(arena.ent);
-  /* Start: BATTLE START, the gates shut, its camera lock on */
+  /* Start (Wave 1): BATTLE START, the gates shut, its camera lock on */
   arena.count = (int16_t)e->p2;
+  enemies_battle_start();
   gates_event(BG_CLOSE);
   if (e->p0 >= 0) ent_set_enabled((int)e->p0, true);
   arena.st = AR_FIGHT;
@@ -450,6 +451,16 @@ static void arena_tick(void) {
       }
       break;
     case AR_FIGHT:
+      if ((e->a & ARF_WAVES) && arena.count <= (int)e->s1) arena.st = AR_WAVE_PAUSE, arena.t = 0;
+      else if (!(e->a & ARF_WAVES) && arena.count <= 0) {
+        if (e->a & ARF_NO_START) persist_set(e->persist);   /* (Complete: Activated, the gates open after a while) */
+        arena.st = AR_END_WAIT, arena.t = 0;
+      }
+      break;
+    case AR_WAVE_PAUSE:
+      if ((arena.t += DT) >= e->s0 * 0.01f) enemies_summon(), arena.st = AR_WAVE2;   /* (Wave 2: SUMMON) */
+      break;
+    case AR_WAVE2:
       if (arena.count <= 0) arena.st = AR_END_WAIT, arena.t = 0;
       break;
     case AR_END_WAIT:
@@ -474,7 +485,8 @@ void obj_enter(void) {
   const Ent *es = room_ents(&n);
   for (int i = 0; i < n && nobjs < MAX_OBJS; i++) {
     if (es[i].type != ENT_OBJ) continue;
-    if (es[i].flags == OK_ENEMY || es[i].flags == OK_BENCH || es[i].flags == OK_ARENA || es[i].flags == OK_EVENT)
+    if (es[i].flags == OK_ENEMY || es[i].flags == OK_BENCH || es[i].flags == OK_ARENA || es[i].flags == OK_EVENT ||
+        es[i].flags == OK_SUMMON)
       continue;   /* (enemy.c's, npc.c's; below) */
     Obj *o = &objs[nobjs++];
     memset(o, 0, sizeof *o);

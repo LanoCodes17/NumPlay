@@ -1098,7 +1098,8 @@ static void spitter_update(Enemy *e) {
   switch (e->st) {
     case SP_IDLE:
       face_direction(e, &e->pause0, CLIP(e, R_A2));
-      if (e->can_see && e->in_alert) spitter_distance_fly(e);
+      /* (ALERT: it sees the Knight in its alert range, or it starts alert) */
+      if ((e->can_see && e->in_alert) || (e->ent != NO_ENT && (ent_at(e->ent)->s1 & EF_START))) spitter_distance_fly(e);
       break;
     case SP_DISTANCE_FLY:
       spitter_face(e, true);
@@ -3622,6 +3623,107 @@ static void gfly_corpse_draw(void) {
   }
 }
 
+/* its FSMs start */
+static void enemy_fsm_start(Enemy *e, const Ent *d) {
+  if (FSM(e) == EF_CRAWLER) crawler_start(e, d);
+  else if (FSM(e) == EF_BUZZER) buzzer_start(e, d);
+  else if (FSM(e) == EF_HUSK) husk_start(e);
+  else if (FSM(e) == EF_CLIMBER) climber_start(e);
+  else if (FSM(e) == EF_BOUNCER) bouncer_start(e);
+  else if (FSM(e) == EF_SPITTER) spitter_start(e, d);
+  else if (FSM(e) == EF_ROLLER) roller_start(e);
+  else if (FSM(e) == EF_BLOCKER) blocker_start(e);
+  else if (FSM(e) == EF_LEAPER) leaper_start(e);
+  else if (FSM(e) == EF_GUARD) guard_start(e);
+  else if (FSM(e) == EF_FK) fk_start(e);
+  else if (FSM(e) == EF_FKHEAD) fk_head_start(e);
+  else if (FSM(e) == EF_GFLY) gfly_start(e);
+}
+
+/* ActiveRegion (a 50 by 35 box round the camera) meets its collider: FSMActivator turns its FSMs on */
+static void enemy_dormant_check(Enemy *e) {
+  float x0, y0, x1, y1;
+  enemy_box(e, &x0, &y0, &x1, &y1);
+  if (x1 > g_cam_x - 25 && x0 < g_cam_x + 25 && y1 > g_cam_y - 17.5f && y0 < g_cam_y + 17.5f) {
+    e->flags &= (uint8_t)~64;
+    e->anim.paused = false;
+    enemy_fsm_start(e, ent_at(e->ent));
+  }
+}
+
+/* ---------------------------------------------------------------- summoners (summon: an enemy brought in from the
+ * background as its wave starts) */
+#define MAX_SUMMONS 2
+enum { SM_IDLE, SM_PAUSE, SM_ENTER, SM_DONE };
+typedef struct {
+  uint8_t st;
+  uint16_t ent;   /* its record */
+  float t, tween, sx;
+  Anim anim;
+} Summon;
+static Summon summons[MAX_SUMMONS];
+
+static void summons_enter(void) {
+  memset(summons, 0, sizeof summons);
+  int n, k = 0;
+  const Ent *es = room_ents(&n);
+  for (int i = 0; i < n && k < MAX_SUMMONS; i++)
+    if (es[i].type == ENT_OBJ && es[i].flags == OK_SUMMON && es[i].p0 >= 0) summons[k].ent = (uint16_t)i, summons[k++].st = SM_IDLE;
+    else if (es[i].type == ENT_OBJ && es[i].flags == OK_SUMMON) summons[k++].st = SM_DONE;
+  for (; k < MAX_SUMMONS; k++) summons[k].st = SM_DONE;
+}
+
+void enemies_summon(void) {
+  for (int k = 0; k < MAX_SUMMONS; k++)
+    if (summons[k].st == SM_IDLE) summons[k].st = SM_PAUSE, summons[k].t = rand_range(0.25f, 1);   /* (Random Pause) */
+}
+
+void enemies_battle_start(void) {
+  /* (BATTLE START: no kind of a plain arena's listens yet; the False Knight's arena is its own) */
+}
+
+static void summons_tick(void) {
+  for (int k = 0; k < MAX_SUMMONS; k++) {
+    Summon *s = &summons[k];
+    if (s->st == SM_PAUSE && (s->t -= DT) <= 0) {
+      /* Enter: from the background, facing the Knight, out of the dark */
+      const Ent *e = ent_at(s->ent), *d = ent_at((int)e->p0);
+      s->sx = hero_x() > e->x0 ? -fabsf(e->y1) : fabsf(e->y1);
+      s->tween = rand_range(0.75f, 1.2f), s->t = 0;
+      anim_play(&s->anim, kinds[d->a].clip[R_A1]);
+      s->st = SM_ENTER;
+    } else if (s->st == SM_ENTER) {
+      s->anim.events = 0;
+      anim_update(&s->anim, DT);
+      if ((s->t += DT) >= s->tween) {
+        /* Summon: the enemy there, its way, alerted; the summoner gone */
+        const Ent *e = ent_at(s->ent);
+        for (int i = 0; i < MAX_ENEMIES; i++) {
+          Enemy *q = &en[i];
+          if (q->mode != EM_ALIVE || q->ent != (uint16_t)e->p0) continue;
+          set_scale_x(q, s->sx);
+          q->body.x = e->x0, q->body.y = e->y0;
+          if (FSM(q) == EF_SPITTER && q->st == SP_IDLE && !(q->flags & 64)) spitter_distance_fly(q);   /* (ALERT) */
+        }
+        s->st = SM_DONE;
+      }
+    }
+  }
+}
+
+static void summons_draw(void) {
+  for (int k = 0; k < MAX_SUMMONS; k++) {
+    if (summons[k].st != SM_ENTER || summons[k].anim.sprite < 0) continue;
+    const Ent *e = ent_at(summons[k].ent);
+    /* (iTweenMoveBy, easeOutSine, from 8 up and 17 back; its colour from black to white over a second) */
+    float f = sinf(summons[k].t / summons[k].tween * (float)M_PI / 2), c = summons[k].t < 1 ? summons[k].t : 1;
+    uint8_t v = (uint8_t)(c * 255), tint = gfx_dyn_tint(11 + 4 * k, v, v, v, 255);
+    Inst in;
+    sprite_inst(summons[k].anim.sprite, e->x0, e->y0 + 8 - 8 * f, e->x1 + 16.996f - 16.99f * f, summons[k].sx, 1, tint, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+  }
+}
+
 void enemies_enter(void) {
   memset(en, 0, sizeof en);
   memset(geo, 0, sizeof geo);
@@ -3631,7 +3733,7 @@ void enemies_enter(void) {
   for (int i = 0; i < n && k < MAX_ENEMIES; i++) {
     const Ent *d = &es[i];
     if (d->type != ENT_OBJ || d->flags != OK_ENEMY) continue;
-    if (persist_get(d->persist) || ((d->s1 & EF_ARENA_GONE) && arena_done())) {
+    if (persist_get(d->persist) || ((d->s1 & EF_ARENA_GONE) && arena_done()) || ((d->s1 & EF_ARENA_LATER) && !arena_done())) {
       enemy_terrain_off(d);
       continue;
     }
@@ -3654,19 +3756,13 @@ void enemies_enter(void) {
     e->rc_base = rc ? rc->x0 : 15, e->rc_dur = rc ? rc->y0 : 0.5f, e->rc_flags = rc ? (uint8_t)rc->a : RF_NONE;
     const Ent *wk = enemy_rec(e, ET_WALKER);
     e->wk_rec = wk ? (uint16_t)(wk - room_ents(&n)) : 0;
-    if (FSM(e) == EF_CRAWLER) crawler_start(e, d);
-    else if (FSM(e) == EF_BUZZER) buzzer_start(e, d);
-    else if (FSM(e) == EF_HUSK) husk_start(e);
-    else if (FSM(e) == EF_CLIMBER) climber_start(e);
-    else if (FSM(e) == EF_BOUNCER) bouncer_start(e);
-    else if (FSM(e) == EF_SPITTER) spitter_start(e, d);
-    else if (FSM(e) == EF_ROLLER) roller_start(e);
-    else if (FSM(e) == EF_BLOCKER) blocker_start(e);
-    else if (FSM(e) == EF_LEAPER) leaper_start(e);
-    else if (FSM(e) == EF_GUARD) guard_start(e);
-    else if (FSM(e) == EF_FK) fk_start(e);
-    else if (FSM(e) == EF_FKHEAD) fk_head_start(e);
-    else if (FSM(e) == EF_GFLY) gfly_start(e);
+    if (d->s1 & EF_DORMANT) {
+      /* (its FSMs off till the active region round the camera meets it: FSMActivator; its sprite still) */
+      int c = CLIP(e, R_IDLE) >= 0 ? CLIP(e, R_IDLE) : CLIP(e, R_A1) >= 0 ? CLIP(e, R_A1) : CLIP(e, R_WALK);
+      if (c >= 0) anim_play(&e->anim, c), e->anim.paused = true;
+      e->flags |= 64;
+    } else
+      enemy_fsm_start(e, d);
     for (int h = 0; h < 8; h++) {
       const Ent *r = hitbox_rec(e, h);
       if (!r) break;
@@ -3686,6 +3782,7 @@ void enemies_enter(void) {
   memset(waves, 0, sizeof waves);
   memset(spurts, 0, sizeof spurts);
   memset(&gm, 0, sizeof gm);
+  summons_enter();
   shade_spawn_check();
 }
 
@@ -3714,7 +3811,8 @@ void enemies_fixed(void) {
       continue;
     }
     if (e->mode == EM_ALIVE) {
-      if (FSM(e) == EF_CRAWLER) crawler_fixed(e);
+      if (e->flags & 64) {}   /* (dormant: its FSMs off) */
+      else if (FSM(e) == EF_CRAWLER) crawler_fixed(e);
       else if (FSM(e) == EF_BUZZER) buzzer_fixed(e);
       else if (FSM(e) == EF_HUSK) husk_fixed(e);
       else if (FSM(e) == EF_BOUNCER) bouncer_fixed(e);
@@ -3759,6 +3857,7 @@ void enemies_fixed(void) {
   fk_arena_tick();
   fk_head_place();
   gfly_corpse_tick();
+  summons_tick();
 }
 
 /* Update: the FSMs' every-frame actions, the animations, the timers */
@@ -3773,7 +3872,9 @@ void enemies_update(void) {
       frame_collider(e);
       if (e->evasion > 0) e->evasion -= DT;
       if (e->ar_r > 0) sight_update(e);
-      if (FSM(e) == EF_BUZZER) buzzer_update(e, ent_at(e->ent));
+      if (e->flags & 64) enemy_dormant_check(e);
+      if (e->flags & 64) {}   /* (dormant) */
+      else if (FSM(e) == EF_BUZZER) buzzer_update(e, ent_at(e->ent));
       else if (FSM(e) == EF_SHADE) shade_update(e);
       else if (FSM(e) == EF_HUSK) husk_update(e);
       else if (FSM(e) == EF_CLIMBER) climber_update(e);
@@ -3828,6 +3929,7 @@ void enemies_draw(void) {
   spurts_draw();
   fk_arena_draw();
   gfly_corpse_draw();
+  summons_draw();
   for (int i = 0; i < MAX_BALLS; i++) {
     const Ball *b = &balls[i];
     if (!b->on) continue;

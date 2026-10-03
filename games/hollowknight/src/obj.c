@@ -44,9 +44,9 @@ typedef struct {
   int16_t sprite;
   uint8_t layer, steps;
   uint16_t order;
-  bool on, resting, spin;
-  float x, y, z, vx, vy, ang, w;   /* (w: degrees a second) */
-  float gravity, bounce, spin_factor, mirror, speed;
+  bool on, resting, spin, orb;
+  float x, y, z, vx, vy, ang, w;   /* (w: degrees a second; an orb's acceleration) */
+  float gravity, bounce, spin_factor, mirror, speed;   /* (an orb's: its scale, spin_factor) */
 } Piece;
 static Piece pieces[MAX_PIECES];
 
@@ -58,7 +58,7 @@ void piece_spawn(int sprite, int layer, int order, int flags, float x, float y, 
   for (int i = 0; i < MAX_PIECES && !q; i++)
     if (!pieces[i].on) q = &pieces[i];
   if (!q) return;   /* (all in use: this one is not seen) */
-  q->on = true, q->resting = resting, q->steps = 0;
+  q->on = true, q->resting = resting, q->steps = 0, q->orb = false;
   q->sprite = (int16_t)sprite, q->layer = (uint8_t)layer, q->order = (uint16_t)order;
   q->x = x, q->y = y, q->z = z;
   q->spin = flags & 1;
@@ -76,9 +76,59 @@ static void piece_fling(const Ent *p, float ox, float oy, float angle_offset, fl
               p->p1, p->p2, p->p3, cosf(a) * s, sinf(a) * s, false);
 }
 
+/* ---------------------------------------------------------------- soul orbs (SoulOrb: Soul Orb R) */
+/* flung, slowed (its body's linear damping, 2); once slow, it speeds to the Knight (Zoom: faster each frame, at 30 at
+ * most), and near him gives him soul (AddMPCharge 2). With the debris: a piece flagged orb */
+void soul_orbs_fling(int n, float x, float y, float smin, float smax, float amin, float amax, float vx, float vy) {
+  static const int16_t sort[2] = SOUL_ORB_SORT;
+  for (int k = 0; k < n; k++) {
+    Piece *q = NULL;
+    for (int i = 0; i < MAX_PIECES && !q; i++)
+      if (!pieces[i].on) q = &pieces[i];
+    if (!q) {
+      hero_add_mp_charge(2);   /* (no room for it: its soul all the same) */
+      continue;
+    }
+    memset(q, 0, sizeof *q);
+    q->on = q->orb = true;
+    q->sprite = SPRITE_SOUL_ORB, q->layer = (uint8_t)sort[0], q->order = (uint16_t)(sort[1] + 32768);
+    q->x = x + rand_range(-vx, vx), q->y = y + rand_range(-vy, vy), q->z = rand_range(-0.1f, -0.001f);
+    float a = rand_range(amin, amax) * (float)M_PI / 180, sp = rand_range(smin, smax);
+    q->vx = cosf(a) * sp, q->vy = sinf(a) * sp;
+    q->spin_factor = rand_range(0.9f, 1.3f);   /* (scaleModifier) */
+  }
+}
+
+static void orb_tick(Piece *q) {
+  const Body *h = &g_hero.body;
+  if (!q->resting) {
+    /* (flung: slowed by its damping; slow enough, its Zoom) */
+    float k = 1 / (1 + DT * 2);
+    q->vx *= k, q->vy *= k;
+    if (q->vx * q->vx + q->vy * q->vy < 2.5f * 2.5f) q->resting = true, q->speed = 0, q->w = 0;
+  } else {
+    /* (Zoom, a frame at a time: 60 a second) */
+    q->speed += q->w * 1.2f;
+    if (q->speed > 30) q->speed = 30;
+    q->w += 0.07f * 1.2f;
+    float dx = h->x - q->x, dy = h->y - q->y, d = sqrtf(dx * dx + dy * dy);
+    if (d < 0.8f) {
+      q->on = false;
+      hero_add_mp_charge(2);
+      return;
+    }
+    q->vx = q->speed * dx / d, q->vy = q->speed * dy / d;
+  }
+  q->x += q->vx * DT, q->y += q->vy * DT;
+}
+
 static void pieces_tick(void) {
   for (int i = 0; i < MAX_PIECES; i++) {
     Piece *q = &pieces[i];
+    if (q->on && q->orb) {
+      orb_tick(q);
+      continue;
+    }
     if (!q->on || q->resting) continue;
     /* SpinSelf: one push of torque on its second step (a polygon of about a unit: this many degrees a second) */
     if (q->spin && q->steps == 1) q->w = q->vx * q->spin_factor * 60;
@@ -113,7 +163,15 @@ static void pieces_draw(void) {
     const Piece *q = &pieces[i];
     if (!q->on) continue;
     Inst in;
-    sprite_inst_rot(q->sprite, q->x, q->y, q->z, q->mirror, 1, q->ang, 0, &in);
+    if (q->orb) {
+      /* (FaceAngle, ProjectileSquash: along its way, stretched by its speed) */
+      float v = sqrtf(q->vx * q->vx + q->vy * q->vy), sy = 1 - v * 0.02f, sx = 1 + v * 0.02f;
+      if (sx > 2) sx = 2;
+      if (sy < 0.65f) sy = 0.65f;
+      sprite_inst_rot(q->sprite, q->x, q->y, q->z, sx * q->spin_factor, sy * q->spin_factor,
+                      atan2f(q->vy, q->vx) * 57.29578f, 0, &in);
+    } else
+      sprite_inst_rot(q->sprite, q->x, q->y, q->z, q->mirror, 1, q->ang, 0, &in);
     gfx_actor(&in, SORT_KEY(q->layer, (int)q->order - 32768));
   }
 }
@@ -856,7 +914,7 @@ void obj_swing_start(void) {
 int obj_nail(const float *pts, int npts, float direction) {
   /* (damages_enemy: the nail's damage, at its Multiplier; Fury's 1.75) */
   int out = enemies_nail(pts, npts, direction, g_hero.fury ? (int)rintf(g_pd.nail_damage * 1.75f) : g_pd.nail_damage);
-  vm_nail(pts, npts);
+  out |= vm_nail(pts, npts, direction);
   for (int k = 0; k < nobjs; k++) {
     Obj *o = &objs[k];
     const Ent *e = ent_at(o->ent);

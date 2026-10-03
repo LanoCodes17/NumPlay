@@ -490,6 +490,10 @@ def main():
     # (a Moss Knight's grass ball: a Unity sprite)
     pgb = unity.prefab("sharedassets149.assets", 34)
     fleurs["SPRITE_GRASS_BALL"] = SPRITES.id(pgb, next(c["v"] for c in pgb["objects"][0]["c"] if c["type"] == "SpriteRenderer")["m_Sprite"], 1)
+    # (a soul orb: Soul Orb R's sprite, as stretched as it gets; its sorting)
+    pso = unity.prefab(*vm.SOUL_ORB)
+    fleurs["SPRITE_SOUL_ORB"] = SPRITES.id(pso, next(c["v"] for c in pso["objects"][0]["c"] if c["type"] == "SpriteRenderer")["m_Sprite"], 2)
+    fleurs["SOUL_ORB_SORT"] = "{%d, %d}" % ents._sorting(pso["objects"][0])
     fleurs["MSG_TABLE"] = "{%s}" % ", ".join(msgs)
     # the notices (Relic Get Msg, Charm Get Msg) and the charm tutorial (Charm Tutorial Msg): their pieces, the icons the
     # scripts set, the charms' icons (CharmIconList) and names
@@ -539,6 +543,8 @@ def main():
             room_data(r, 1)
     clip_index = {c["id"]: i for i, c in enumerate(clips)}
     vm_rooms = [vm.room_blob(r, clip_index, SPRITES, ROOM_OWNERS.get((r, 0), []), PERSIST) for r in ROOMS]
+    # (the save's semi persistent bits: cleared as the Knight rests at a bench or dies)
+    fleurs["SEMI_PERSIST"] = "{%s}" % ", ".join(str(b) for b in PERSIST.semi) if PERSIST.semi else "{0xFFFF}"
     sheet = text.sheets()["Prompts"]
     vm_prompts = {s: TEXTS.id("Prompts", s.upper(), "PROMPT") for s in vm.STR.list if s.upper() in sheet}
     for s in ("NPC Title", "Visited", "Display Right", "Hornet Saver", "Item"):

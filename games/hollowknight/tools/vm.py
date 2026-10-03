@@ -18,29 +18,39 @@ ROOMS = {
     "Room_Town_Stag_Station": ["Stag", "Station Bell", "Stag_Tunnel/Stag_tunnel_Grate", "Stag Blanker", "Stag Lift",
                                "Station Door", "Gate Switch"],
     "Room_ruinhouse": ["Sly Dazed"],
-    "Crossroads_06": ["Set NPC Leave"],
+    "Crossroads_06": ["Set NPC Leave", "_Scenery/Raising Pillar", "_Props/Gate Switch"],
     "Fungus1_04": ["Hornet Infected Knight Encounter", "Hornet Saver", "Cloak Corpse", "Dream Scene Activate",
                    "Dreamer Scene 1"],
     "Crossroads_ShamanTemple": ["_Props/Shaman Meeting", "_Props/Shaman Trapped", "_Props/Shaman Killed Blocker",
-                                "_Props/Knight Get Fireball", "Battle Scene/Reminder Cast", "Shiny Item"],
+                                "_Props/Knight Get Fireball", "Battle Scene/Reminder Cast", "Shiny Item", "Soul Totem 2"],
     # items lying about (Shiny Item: a relic, a charm), the City Crest the False Knight leaves
     "Crossroads_01": ["Shiny Item"],
     "Tutorial_01": ["_Props/Chest/Item"],   # (its chest: src/obj.c, which turns on what is in it)
-    "Fungus1_22": ["Shiny Item"],
+    "Fungus1_22": ["Shiny Item", "Gate Switch", "Metal Gate", "Breakable Wall"],
     "Crossroads_10": ["Key Giver"],
     # the shops: their keepers, their regions (the menu: src/shop.c)
     "Room_shop": ["Basement Closed"],
     "Room_mapper": ["Iselda", "Shop Region"],
     "Room_Charm_Shop": ["Charm Slug", "Shop Region"],
     # the grubs in their jars; the Grubfather, his rewards, the grubs back home
-    "Crossroads_03": ["_Props/Grub Bottle"],
+    "Crossroads_03": ["_Props/Grub Bottle", "_Props/Toll Gate", "_Props/Toll Gate 1", "_Props/Toll Gate Switch",
+                      "Break Wall 2"],
     "Fungus1_21": ["Grub Bottle"],
     "Crossroads_38": ["Grub King"] + ["Saved Grubs/Grub Saved %d" % n for n in range(1, 3)],
     # Hornet seen in Greenpath before her arena
     "Fungus1_02": ["Hornet Encounter GP1"],
     "Fungus1_03": ["Set Hornet Encounter"],
     "Fungus1_17": ["Set Hornet Encounter"],
-    "Fungus1_31": ["Hornet Encounter Control"],
+    "Fungus1_31": ["Hornet Encounter Control", "_Props/Breakable Wall", "Toll Gate Machine", "Toll Gate Machine (1)",
+                   "Toll Gate", "Toll Gate (1)"],
+    # the world's other scripted things: walls that break, floors, a soul totem, tablets, a wall that turns on
+    "Crossroads_08": ["Break Wall 2"],
+    "Crossroads_04": ["_Scenery/Break Floor 1"],
+    "Crossroads_19": ["Soul Totem mini_two_horned"],
+    "Crossroads_21": ["Breakable Wall", "Polygon_Collider_Cross_21 1/Roof Collider (1)"],
+    "Crossroads_33": ["_Props/full_wall_left"],
+    "Fungus1_32": ["Breakable Wall", "Inspect Region"],
+    "Crossroads_11_alt": ["Inspect Region"],
 }
 def _piece(doc, q, rigid=True):
     """A piece of debris (a sprite with a Rigidbody2D: how it falls, bounces and spins) -> FlingPiece's operands."""
@@ -102,7 +112,7 @@ def _behaviours(rm, o):
 
 
 # FSMs left out (what this port does not have: the dream nail, sounds...)
-SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "Shop Open Voice", "Enviro Region"}
+SKIP_FSMS = {"npc_dream_dialogue", "Dream Dialogue", "Rotate", "Shop Open Voice", "Enviro Region", "tink_effect"}
 # objects left out (effects drawn by the C code, or nothing at all; the dream nail's; Dreamer Scene 1's Knight Lift,
 # which nothing turns on)
 SKIP_CLASSES = {"SpellGetOrb", "ParticleSystem"}
@@ -176,7 +186,7 @@ for e in ("FINISHED", "CONVO_FINISH", "CONVO START", "CONVO END", "BIG TITLE STA
           "HORNET LEAVE", "BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY", "WAKE", "BOX UP DREAM",
           "BOX DOWN DREAM", "FADE IN", "FADE OUT", "FSM CANCEL", "CLOSE", "FK DEATH", "SHOP UP", "SHOP CLOSED",
           "SHOP CLOSED QUICK", "SHOP WINDOW UP", "RESET SHOP WINDOW", "CLOSE SHOP WINDOW", "BOX UP YN", "BOX DOWN YN",
-          "YES", "NO", "CONTINUE"):
+          "YES", "NO", "CONTINUE", "RESET"):
     EVENTS.id(e)
 FIXED_EVENTS = len(EVENTS.list)   # (src/data.h: VMEV_*)
 
@@ -337,17 +347,24 @@ op("PlatformStick", ("on", "n"))          # (HeroPlatformStick: the Knight on it
 op("WaitForHeroInPosition", ("sendEvent", "e"))
 op("SendTrigger2DEvent", ("eventTarget", "t"), ("sendEvent", "e"))   # (the Knight in its owner's trigger: to another)
 op("FreezeMoment", ("type", "n"))         # (GameManager.FreezeMoment)
+op("DamagerInfo", ("which", "n"), ("store", "I"))   # (the hit's damages_enemy: 0 damageDealt, 1 attackType, 2 direction)
+op("IntOperator", ("integer1", "i"), ("integer2", "i"), ("operation", "n"), ("storeResult", "I"), ("everyFrame", "n"))
+op("GetDistance", ("gameObject", "o"), ("target", "o"), ("storeResult", "F"), ("everyFrame", "n"))
+op("SoulOrbs", ("spawnMin", "i"), ("spawnMax", "i"), ("speedMin", "f"), ("speedMax", "f"), ("angleMin", "f"),
+   ("angleMax", "f"), ("originVariationX", "f"), ("originVariationY", "f"))   # (Soul Orb R: flung, then to the Knight)
+op("FadeTo", ("gameObject", "o"), ("alpha", "f"), ("time", "f"), ("includeChildren", "n"))   # (iTweenFadeTo)
 
 # HeroController's methods the scripts call (HeroCall's method)
 HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "StartAnimationControl", "FaceLeft",
                 "FaceRight", "CanTalk", "PreventCastByDialogueEnd", "SetBackOnGround", "AddMPCharge",
                 "FindGroundPoint", "SetBenchRespawn", "SetHazardRespawn", "RelinquishControlNotVelocity",
                 "SetCState", "SaveGame", "AffectedByGravity", "ResetHardLandingTimer", "StopPlayingAudio", "CanInspect",
-                "CanInput", "GetState"]
+                "CanInput", "GetState", "CancelHeroJump"]
 # (GetState's states, by name: its argument)
 HERO_STATES = ["onGround", "attacking", "upAttacking", "downAttacking", "dashing", "backDashing"]
 # the geo prefabs (Geo Small, Med, Large): GeoControl's types
 GEO_PREFABS = {("resources.assets", 5736): 0, ("resources.assets", 6395): 1, ("resources.assets", 6376): 2}
+SOUL_ORB = ("resources.assets", 4231)   # (Soul Orb R: src/obj.c's soul orbs)
 # the prompt marker the pool gives (Arrow Prompt New): a script's own, shown and hidden as ShowPromptMarker's
 PROMPT_PREFAB = ("resources.assets", 6142)
 # prefabs CreateObject makes that the scripts go on with (made beforehand, off): (file, path id)
@@ -841,7 +858,9 @@ class Compiler:
                  "VibrationPlayerStop", "TransitionToAudioSnapshot", "SetAudioPitch", "SetAudioVolume",
                  "AudioPlayInState", "FadeAudio", "PlayRandomSound", "SetRotation", "RandomFloat",
                  "GetLastEvent", "SetBoxCollider2DSize", "Tk2dSpriteSetColor", "SetTextMeshProColor",
-                 "AudioPlayRandom", "SetName", "GameObjectIsNull", "PlayVibrationV2"):
+                 "AudioPlayRandom", "SetName", "GameObjectIsNull", "PlayVibrationV2",
+                 "SpawnFromPool", "SpawnRandomObjects", "Rotate", "GetEventSender", "SetMaterialColor",
+                 "GetMaterialColor", "EaseColor"):
             return None
         if n == "SendEventByNameV2":
             n = "SendEventByName"
@@ -849,10 +868,12 @@ class Compiler:
             # (a nail's hit on its collider)
             return self.emit("Trigger2dEvent", {"trigger": 0, "sendEvent": P.get("sendEvent"), "tag": TRIGGER_TAGS["Nail Attack"]})
         if n in ("GetFsmInt", "GetFsmFloat") and P.get("gameObject") == "$Damager":
-            # (the hit's damage, more than none; its direction: either way rings the same)
-            if n == "GetFsmInt":
-                return self.emit("SetIntValue", {"intVariable": P.get("storeValue"), "intValue": 1, "everyFrame": 0})
-            return self.emit("SetFloatValue", {"floatVariable": P.get("storeValue"), "floatValue": 0.0, "everyFrame": 0})
+            # (the hit's damages_enemy: its damage, its attack's type (0 the nail, 2 a spell), its direction)
+            which = {"damageDealt": 0, "attackType": 1, "direction": 2}.get(P.get("variableName"))
+            if which is None:
+                self.problem("%s Damager %s" % (n, P.get("variableName")))
+                return None
+            return self.emit("DamagerInfo", {"which": which, "store": P.get("storeValue")})
         if n == "GetLanguageString" and P.get("sheetName") == "Prices":
             # (a price: kept for ConvertStringToInt)
             import text
@@ -1161,6 +1182,8 @@ class Compiler:
             return self.emit(n, P)
         if n == "GetScale":
             return self.emit(n, P)
+        if n == "Trigger2dEvent" and P.get("collideTag") == "Wall Breaker":
+            return None   # (nothing here breaks walls but the Knight)
         if n == "Trigger2dEvent":
             if P.get("collideTag") not in TRIGGER_TAGS:
                 self.problem("Trigger2dEvent tag %s" % P.get("collideTag"))
@@ -1168,11 +1191,24 @@ class Compiler:
             return self.emit(n, {"trigger": P.get("trigger"), "sendEvent": P.get("sendEvent"),
                                  "tag": TRIGGER_TAGS[P.get("collideTag")]})
         if n in ("Collision2dEvent", "Collision2dEventLayer"):
-            if P.get("collideTag") == "Player":
+            # (the Knight against it; or, a body falling, the ground)
+            if P.get("collideTag") == "Player" or (P.get("collideTag") in (None, "") and
+                                                   not any(c["type"] == "Rigidbody2D" for c in self.o["c"])):
                 return self.emit("HeroCollision", P)
             return self.emit("Collision2dEvent", P)
         if n == "WaitForHeroInPosition":
             return self.emit(n, P)
+        if n in ("IntOperator", "GetDistance"):
+            return self.emit(n, P)
+        if n == "SetPolygonCollider":
+            return self.emit("SetCollider", P)
+        if n == "SetProperty" and not (P.get("targetProperty") or {}).get("target"):
+            return None
+        if n == "iTweenFadeTo":
+            if P.get("delay") or (P.get("loopType") or 0) or P.get("finishEvent") or P.get("speed") is not None:
+                self.problem("iTweenFadeTo %r" % P)
+                return None
+            return self.emit("FadeTo", dict(P, includeChildren=1 if P.get("includeChildren") else 0))
         if n == "SendTrigger2DEvent":
             if P.get("collideTag") not in (None, "", "Player") or P.get("collideLayer") or P.get("trigger") != 0:
                 self.problem("SendTrigger2DEvent %r" % P)
@@ -1205,7 +1241,11 @@ class Compiler:
             import ents
             r = P.get("gameObject")
             ref = ents._ref_file(self.o.get("_doc") or self.rm.d, [r[1], r[2]]) if isinstance(r, (list, tuple)) else None
-            if ref not in GEO_PREFABS or P.get("spawnMin") != P.get("spawnMax") or P.get("originVariationX") or \
+            if ref == SOUL_ORB:
+                return self.emit("SoulOrbs", P)
+            if ref not in GEO_PREFABS:
+                return None   # (rocks, dust: what breaks)
+            if P.get("spawnMin") != P.get("spawnMax") or P.get("originVariationX") or \
                     P.get("originVariationY") or P.get("position"):
                 self.problem("FlingObjectsFromGlobalPool %r" % (ref,))
                 return None
@@ -1351,6 +1391,13 @@ def prepare(rooms, sprites, texts):
                     if "Activated" in cp.slots:
                         rm.persist.append((len(rm.fsms) - 1, cp.slots["Activated"][0], o))
                     rm.persist_objs.append((len(rm.fsms) - 1, rm.obj_index[o["id"]]))
+                # (PersistentIntItem: its FSM's Value, as 3 bits (none, -1 to 6); semi persistent: none again as the
+                # Knight rests or dies)
+                pii = next((c2.get("v") for c2 in o["c"] if c2.get("class") == "PersistentIntItem"), None)
+                if pii is not None and f["vars"].get("Value", [None])[0] == "int" and "Value" in cp.slots and \
+                        not any(p[0] == len(rm.fsms) - 1 for p in rm.persist):
+                    rm.persist.append((len(rm.fsms) - 1, cp.slots["Value"][0] | 0x80, o,
+                                       bool(pii.get("semiPersistent"))))
         for p in rm.problems:
             print("vm:", p)
         assert len(EVENTS.list) < 255, (name, len(EVENTS.list))
@@ -1436,7 +1483,8 @@ def room_blob(name, clip_index, sprites, owners=(), persist=None):
         # (one its scripts hear the nail hit: its collider, a trigger or not, is what the nail's trigger meets)
         nail = any((a["name"] == "Trigger2dEvent" and dict(a["params"]).get("collideTag") == "Nail Attack") or
                    a["name"] == "ReceivedDamage"
-                   for c in o["c"] if c.get("fsm") for s in c["fsm"]["states"] for a in s["actions"])
+                   for c in o["c"] if c.get("fsm") for s in c["fsm"]["states"] for a in s["actions"]) or \
+            any(e == "TAKE DAMAGE" for c in o["c"] if c.get("fsm") for s in c["fsm"]["states"] for e, _ in s["transitions"])
         for c in o["c"]:
             if c["type"] in ("BoxCollider2D", "CircleCollider2D", "PolygonCollider2D") and c.get("v"):
                 b = ents._box(o, c)
@@ -1514,6 +1562,9 @@ def room_blob(name, clip_index, sprites, owners=(), persist=None):
                 doc = o.get("_doc") or rm.d
                 blend = {"alpha": 0, "add": 1, "screen": 2, "linearlight": 3, "overlay": 4, "multiply": 5}[
                     scene.blend_of(unity.material(unity.ref_path(doc, m0[0]), m0[1])[1])]
+        # (tink_effect: the nail clinks off it, the Knight recoils: blend's high bit)
+        if any(c.get("fsm") and c["fsm"]["name"] == "tink_effect" for c in o["c"]):
+            blend |= 0x8000
         col = (mr or {}).get("m_Color") or {"r": 1, "g": 1, "b": 1, "a": 1}
         rgba = [max(0, min(255, int(round(col[k] * 255)))) for k in "rgba"]
         objs += struct.pack(OBJ, o["pos"][0], o["pos"][1], o["pos"][2], sx, sy, bx, by, bhx, bhy, parent,
@@ -1522,8 +1573,9 @@ def room_blob(name, clip_index, sprites, owners=(), persist=None):
     fsms = bytearray()
     for di, owner, init, fname in rm.fsms:
         fsms += struct.pack("<HHHH", di, owner, fname, len(init)) + b"".join(struct.pack("<I", v) for v in init)
-    for fi, slot, o in rm.persist:
-        fsms += struct.pack("<BBH", fi, slot, persist.id(o.get("_scene", name), o["path"]))
+    for fi, slot, o, *semi in rm.persist:
+        bits = 3 if slot & 0x80 else 1
+        fsms += struct.pack("<BBH", fi, slot, persist.id(o.get("_scene", name), o["path"], bits, semi[0] if semi else False))
     head = struct.pack("<HHHH", len(rm.objs), len(rm.fsms), nmap, len(rm.persist))
     return bytes(head + objs + clipmap + fsms)
 

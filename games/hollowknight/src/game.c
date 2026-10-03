@@ -1,5 +1,9 @@
 /* The game: a scene, the Knight in it, the camera; ticks of 1/50 s. */
 #include "game.h"
+#ifdef HOST
+#include <stdio.h>
+#include <stdlib.h>
+#endif
 
 PlayerData g_pd;
 Game g_game;
@@ -47,9 +51,11 @@ static void room_entered(void) {
   const Ent *es = room_ents(&n);
   if (n > MAX_ENTS) n = MAX_ENTS;
   for (int i = 0; i < n; i++)
-    if (es[i].type == ENT_GATE)
+    if (es[i].type == ENT_GATE) {
+      if (es[i].flags & G_ENTRY_ONLY) ent_set_enabled(i, false);
       for (int j = i + 1; j < n && es[j].type == ENT_BOX; j++)
         if ((es[j].flags & 2) && pd_flag((int)es[j].p0) == (es[j].p1 != 0)) ent_set_enabled(i, false);
+    }
   world_enter();
 }
 
@@ -137,7 +143,8 @@ void game_transition(int room, int entry, int gate, float delay, bool without_in
 /* TryDoTransition: the Knight through a gate (facing it, not recoiling), or pushed back out of it */
 static void gate_touched(const Ent *e) {
   Hero *h = &g_hero;
-  if ((e->flags & G_DOOR) || g_game.scene_phase != SP_NONE) return;
+  /* (only as the game plays: not while the Knight is still coming in) */
+  if ((e->flags & G_DOOR) || g_game.scene_phase != SP_NONE || h->cs.transitioning) return;
   int g = gate_kind(e);
   bool back = h->cs.recoiling || (g == GATE_RIGHT && !h->cs.facing_right) || (g == GATE_LEFT && h->cs.facing_right) ||
               e->a == 0xFFFF;   /* (or to a room this game leaves out) */
@@ -171,6 +178,9 @@ static void scene_load(void) {
     return;
   }
   /* (no such gate: in the middle of the room) */
+#ifdef HOST
+  if (getenv("HKROOM")) printf("no gate %s in %s\n", want, room_name(g_room.id));
+#endif
   hero_enter_scene(-1, GATE_DOOR, g_room.h->w / 2, g_room.h->h / 2, 0, 0, 0, g->next_delay);
 }
 
@@ -270,7 +280,7 @@ static void trigger_event(int i, const Ent *e, int kind) {
       break;
     case ENT_GATE:
       if (e->flags & G_DOOR) door_trigger(i, kind);
-      else if (kind == EV_ENTER) gate_touched(e);
+      else if (kind != EV_EXIT) gate_touched(e);   /* (OnTriggerEnter2D, and OnTriggerStay2D until it has gone) */
       break;
     case ENT_HAZARD_TRIGGER:
       if (kind == EV_ENTER) {

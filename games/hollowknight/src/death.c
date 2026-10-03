@@ -95,6 +95,7 @@ void death_start(float x, float y, bool facing_right) {
   bool cracked = !g_pd.soul_limited;
   g_pd.soul_limited = true;
   set_shade();
+  persist_reset_semi();   /* (PlayerDead: ResetSemiPersistentItems, then the save) */
   save_game();
   /* (Send Events: HERO LEAVE) */
   enemies_hero_leave();

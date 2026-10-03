@@ -1439,6 +1439,12 @@ void hero_soul_gain(void) {
 }
 void hero_add_mp_charge(int amount) { add_mp_charge(amount); }
 
+void hero_cancel_hero_jump(void) {
+  if (!g_hero.cs.jumping) return;
+  cancel_jump();
+  if (g_hero.body.vy > 0) g_hero.body.vy = 0;
+}
+
 void hero_add_geo(int amount) { g_pd.geo += amount; }
 
 void hero_add_health(int amount) {

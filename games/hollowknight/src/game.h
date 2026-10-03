@@ -137,7 +137,8 @@ enum { HB_BOUNCE = 1, HB_RECOIL = 2 };    /* a hit box (ENT_BOX's flags): a down
 enum { HAZ_NONE, HAZ_NORMAL, HAZ_SPIKES, HAZ_ACID, HAZ_LAVA, HAZ_PIT };   /* DamageHero.hazardType */
 enum { MK_SECRET = 1, MK_REMASK = 2, MK_SIMPLE = 4 };   /* masks: the unmasker, remasker and inverse FSMs */
 enum { CL_PREVENT_UP = 1, CL_PREVENT_DOWN = 2, CL_MAX_PRIORITY = 4 };
-enum { G_DOOR = 1, G_ENTER_RIGHT = 2, G_ENTER_LEFT = 4, G_DONT_WALK_OUT = 8, G_NON_HAZARD = 16, G_HARD_LAND = 32 };
+enum { G_DOOR = 1, G_ENTER_RIGHT = 2, G_ENTER_LEFT = 4, G_DONT_WALK_OUT = 8, G_NON_HAZARD = 16, G_HARD_LAND = 32,
+       G_ENTRY_ONLY = 64 };   /* (entry only: its collider off, never left by) */
 #define FACING_RIGHT 1
 typedef struct {
   uint8_t type, flags;
@@ -332,11 +333,14 @@ void titles_tick(void);
 void titles_draw(void);
 /* the game's own scripts (vm.c): a room's, run each step, their objects drawn; events heard by all of them */
 void hero_add_mp_charge(int amount);   /* (AddMPCharge) */
+void hero_cancel_hero_jump(void);      /* (CancelHeroJump) */
 void vm_enter(void);
 void vm_tick(void);
 void vm_draw(void);
 void vm_broadcast(int ev);
-void vm_send(int obj, int ev);   /* (an object's FSMs) */
+void vm_send(int obj, int ev);
+void vm_reset_semi(void);
+void persist_reset_semi(void);   /* (ResetSemiPersistentItems: at a bench, on death) */   /* (an object's FSMs) */
 void vm_fsm_set(int fsm, int var, uint32_t v, int ev);   /* (an FSM's variable set, then an event to it) */
 /* the stag's menu and its rides (stag.c): Open Stag's menu for an FSM (its choice to that variable, then CONTINUE);
  * nextScene; Cinematic_Stag_travel (the screen black, then the new room's door_stagExit) */
@@ -346,8 +350,9 @@ void stag_next_scene(int str);
 void stag_travel(void);
 uint32_t stag_tick(uint32_t keys);   /* -> the keys the game has (none while the menu is open) */
 bool stag_busy(void);
-void vm_spell(float x0, float y0, float x1, float y1);   /* (a spell's box: the triggers it is in) */
-void vm_nail(const float *pts, int npts);                /* (the nail's slash: the triggers it meets) */
+void vm_spell(float x0, float y0, float x1, float y1, float direction);   /* (a spell's box: the triggers it is in) */
+int vm_nail(const float *pts, int npts, float direction);   /* (the nail's slash: what it meets; -> HB_*) */
+void soul_orbs_fling(int n, float x, float y, float smin, float smax, float amin, float amax, float vx, float vy);
 void piece_spawn(int sprite, int layer, int order, int flags, float x, float y, float z, float rot, float gravity,
                  float bounce, float spin_factor, float mirror, float vx, float vy, bool resting);   /* (obj.c: debris) */
 void vm_activate_children(uint16_t name, bool on);       /* ActivateAllChildren of a script object, by name */

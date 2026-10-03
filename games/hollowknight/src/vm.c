@@ -50,6 +50,7 @@ typedef struct {
   Anim anim;
   uint16_t flags;
   uint8_t alpha;   /* (its material's color's alpha: the scripts') */
+  int8_t fade;     /* (iTweenFadeTo: its alpha's change a step, to none or all) */
 } Obj;
 typedef struct {
   int16_t obj;          /* (-1: none) */
@@ -99,6 +100,8 @@ static struct {
   int title;
   uint32_t prev_keys;
   uint32_t touch, touch_was;   /* (objects whose colliders the Knight touches, this step and the one before) */
+  float nail_dir, spell_dir, dmg_dir;   /* (the nail's last blow, the spell's way; the hit's: damages_enemy's direction) */
+  uint8_t dmg_type;                     /* (its attackType: 0 the nail, 2 a spell) */
 } vm;
 
 /* ---------------------------------------------------------------- the data (VMDEF: definitions, string tables) */
@@ -354,9 +357,11 @@ static void anims_start(void) {
 
 /* (the colliders objects have: on as they are) */
 static void obj_colliders(void) {
+  /* (on with it, and as SetCollider leaves it) */
   for (int i = 0; i < vm.nobjs; i++)
     if (vm.rec[i].ncol && !(vm.objs[i].flags & OF_COND_OFF))
-      for (int c = vm.rec[i].col0; c < vm.rec[i].col0 + vm.rec[i].ncol; c++) phys_collider_enable(c, obj_active(i));
+      for (int c = vm.rec[i].col0; c < vm.rec[i].col0 + vm.rec[i].ncol; c++)
+        phys_collider_enable(c, obj_active(i) && (vm.objs[i].flags & OF_COLLIDER));
 }
 
 static void fsm_start(Fsm *f);
@@ -440,6 +445,20 @@ void vm_broadcast(int ev) {
 
 static void obj_event(int o, int ev, uint16_t fsm_name);
 void vm_send(int obj, int ev) { obj_event(obj, ev, NONE); }
+
+/* (ResetSemiPersistentObjects: the semi persistent numbers here -1, their FSMs told RESET) */
+void vm_reset_semi(void) {
+  static const uint16_t semi[] = SEMI_PERSIST;
+  for (int i = 0; i < vm.npersist; i++) {
+    const uint8_t *p = vm.persist + 4 * i;
+    uint16_t id = rd16(p + 2);
+    bool is = false;
+    for (unsigned k = 0; k < sizeof semi / sizeof semi[0] && !is; k++) is = semi[k] == id;
+    if (!(p[1] & 0x80) || !is || p[0] >= vm.nfsms) continue;
+    set_var(&vm.fsms[p[0]], p[1] & 0x7F, (uint32_t)-1);
+    fsm_event(&vm.fsms[p[0]], VMEV_RESET);
+  }
+}
 /* (the stag's menu: its choice to an FSM's variable, then its event) */
 void vm_fsm_set(int fsm, int var, uint32_t v, int ev) {
   if (fsm < 0 || fsm >= vm.nfsms) return;
@@ -684,6 +703,55 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
           !(vm.objs[f->owner].flags & OF_WAS_INSIDE))
         send(f, &t, ev);
       return false;
+    }
+    case VMOP_DAMAGERINFO: {
+      int which = rb(&r);
+      uint8_t store = rb(&r);
+      if (which == 2) set_f(f, store, vm.dmg_dir);
+      else set_var(f, store, which ? vm.dmg_type : (uint32_t)g_pd.nail_damage);
+      return true;
+    }
+    case VMOP_INTOPERATOR: {
+      /* (add, subtract, multiply, divide, max, min) */
+      int a = (int)val(f, rv(&r)), b = (int)val(f, rv(&r)), o = rb(&r);
+      uint8_t store = rb(&r);
+      bool every = rb(&r);
+      int v = o == 0 ? a + b : o == 1 ? a - b : o == 2 ? a * b : o == 3 ? (b ? a / b : 0) : o == 4 ? (a > b ? a : b)
+                                                                                              : (a < b ? a : b);
+      set_var(f, store, (uint32_t)v);
+      return !every;
+    }
+    case VMOP_GETDISTANCE: {
+      int a = oval(f, rv(&r)), b = oval(f, rv(&r));
+      uint8_t store = rb(&r);
+      bool every = rb(&r);
+      float ax, ay, bx, by;
+      obj_pos(a, &ax, &ay), obj_pos(b, &bx, &by);
+      set_f(f, store, sqrtf((ax - bx) * (ax - bx) + (ay - by) * (ay - by)));
+      return !every;
+    }
+    case VMOP_SOULORBS: {
+      int lo = (int)val(f, rv(&r)), hi = (int)val(f, rv(&r));
+      float smin = fval(f, rv(&r)), smax = fval(f, rv(&r)), amin = fval(f, rv(&r)), amax = fval(f, rv(&r));
+      float vx = fval(f, rv(&r)), vy = fval(f, rv(&r)), x, y;
+      obj_pos(f->owner, &x, &y);
+      soul_orbs_fling(lo + (int)rand_range(0, (float)(hi - lo) + 0.999f), x, y, smin, smax, amin, amax, vx, vy);
+      return true;
+    }
+    case VMOP_FADETO: {
+      /* (to none or all, in its time; its children with it) */
+      int o = oval(f, rv(&r));
+      float a = fval(f, rv(&r)), t = fval(f, rv(&r));
+      bool kids = rb(&r);
+      if (!obj_ok(o)) return true;
+      for (int c = 0; c < vm.nobjs; c++) {
+        if (c != o && !(kids && under(c, o))) continue;
+        int to = a >= 0.5f ? 255 : 0, d = to - vm.objs[c].alpha;
+        int step = t > DT ? (int)(d * DT / t) : d;
+        if (step == 0) step = d > 0 ? 1 : d < 0 ? -1 : 0;
+        vm.objs[c].fade = (int8_t)(step > 127 ? 127 : step < -127 ? -127 : step);
+      }
+      return true;
     }
     case VMOP_FREEZEMOMENT: {
       /* (GameManager.FreezeMoment: its kinds) */
@@ -953,25 +1021,26 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       int o = oval(f, rv(&r));
       bool on = val(f, rv(&r)) != 0;
       if (obj_ok(o)) vm.objs[o].flags = (uint16_t)(on ? vm.objs[o].flags | OF_COLLIDER : vm.objs[o].flags & ~OF_COLLIDER);
+      obj_colliders();
       return true;
     }
     case VMOP_DESTROYOBJECT: {
       int o = oval(f, rv(&r));
       if (o >= O_ENT && o < O_ENT + MAX_ENTS) ent_set_enabled(o - O_ENT, false);   /* (a camera lock area: gone) */
       if (obj_ok(o)) {
+        obj_set_active(o, false);   /* (off first: its colliders and FSMs with it) */
         vm.objs[o].flags |= OF_GONE;
-        obj_set_active(o, false);
       }
       return true;
     }
     case VMOP_DESTROYSELF:
-      vm.objs[f->owner].flags |= OF_GONE;
       obj_set_active(f->owner, false);
+      vm.objs[f->owner].flags |= OF_GONE;
       return true;
     case VMOP_DESTROYALLCHILDREN: {
       int o = oval(f, rv(&r));
       for (int c = 0; c < vm.nobjs; c++)
-        if (obj_ok(o) && vm.rec[c].parent == o) vm.objs[c].flags |= OF_GONE;
+        if (obj_ok(o) && vm.rec[c].parent == o) obj_set_active(c, false), vm.objs[c].flags |= OF_GONE;
       return true;
     }
     case VMOP_GETPOSITION: {
@@ -1257,6 +1326,7 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
         case 16: hero_gravity(a0 != 0); break;
         case 19: set_var(f, store, hero_can_talk()); break;   /* (CanInspect: as CanTalk) */
         case 20: set_var(f, store, h->accepting_input); break;   /* (CanInput) */
+        case 22: hero_cancel_hero_jump(); break;
         case 21: {
           /* (GetState: tools/vm.py's HERO_STATES) */
           int k = (int)a0;
@@ -1461,17 +1531,28 @@ void vm_activate_children(uint16_t name, bool on) {
 }
 
 /* (the nail's slash this step: the triggers it meets) */
-void vm_nail(const float *pts, int npts) {
+int vm_nail(const float *pts, int npts, float direction) {
+  int out = 0;
+  vm.nail_dir = direction;
   for (int i = 0; i < vm.nobjs; i++) {
     const ObjRec *r = &vm.rec[i];
     float cx = vm.objs[i].x + r->bx, cy = vm.objs[i].y + r->by;
-    if ((r->flags & OF_TRIGGER) && box_meets_shape(cx - r->bhx, cy - r->bhy, cx + r->bhx, cy + r->bhy, pts, npts))
+    if ((r->flags & OF_TRIGGER) && obj_active(i) && (vm.objs[i].flags & OF_COLLIDER) &&
+        box_meets_shape(cx - r->bhx, cy - r->bhy, cx + r->bhx, cy + r->bhy, pts, npts)) {
+      /* (tink_effect: the nail clinks off it as it first meets it; the Knight recoils, the camera shakes) */
+      if ((r->blend & 0x8000) && !(vm.objs[i].flags & (OF_NAIL_HIT | OF_NAIL_IN))) {
+        out |= HB_RECOIL;
+        cam_shake(SHAKE_ENEMY_KILL);
+      }
       vm.objs[i].flags |= OF_NAIL_HIT;
+    }
   }
+  return out;
 }
 
 /* (a spell's box: the triggers it is in, this step) */
-void vm_spell(float x0, float y0, float x1, float y1) {
+void vm_spell(float x0, float y0, float x1, float y1, float direction) {
+  vm.spell_dir = direction;
   for (int i = 0; i < vm.nobjs; i++) {
     const ObjRec *r = &vm.rec[i];
     float cx = vm.objs[i].x + r->bx, cy = vm.objs[i].y + r->by;
@@ -1583,8 +1664,16 @@ void vm_enter(void) {
   vm.nfsms = nfsms;
   /* (PersistentBoolItem's Start: its FSM's Activated as the save has it) */
   vm.persist = p, vm.npersist = rd16(b + 6);
-  for (int i = 0; i < vm.npersist; i++, p += 4)
-    if (p[0] < nfsms && persist_get(rd16(p + 2))) set_var(&vm.fsms[p[0]], p[1], 1);
+  for (int i = 0; i < vm.npersist; i++, p += 4) {
+    if (p[0] >= nfsms) continue;
+    uint16_t id = rd16(p + 2);
+    if (p[1] & 0x80) {
+      /* (PersistentIntItem: its Value plus 2, in 3 bits; none, as it was) */
+      int n = persist_get(id) | persist_get(id + 1) << 1 | persist_get(id + 2) << 2;
+      if (n) set_var(&vm.fsms[p[0]], p[1] & 0x7F, (uint32_t)(n - 2));
+    } else if (persist_get(id))
+      set_var(&vm.fsms[p[0]], p[1], 1);
+  }
   vm.prev_keys = g_hero.keys;
   /* (what it holds within the condition's: off too) */
   for (int i = 0; i < nobjs; i++)
@@ -1613,6 +1702,18 @@ void vm_tick(void) {
     o->flags = (uint16_t)((in ? o->flags | OF_INSIDE : o->flags & ~OF_INSIDE) & ~(OF_SPELL_HIT | OF_NAIL_HIT));
     o->flags = (uint16_t)(spell ? o->flags | OF_SPELL_IN : o->flags & ~OF_SPELL_IN);
     o->flags = (uint16_t)(nail ? o->flags | OF_NAIL_IN : o->flags & ~OF_NAIL_IN);
+    /* (damages_enemy: TAKE DAMAGE to what the nail or a spell has just come against) */
+    if ((nail && !(o->flags & OF_NAIL_WAS)) || (spell && !(o->flags & OF_SPELL_WAS))) {
+      vm.dmg_type = nail && !(o->flags & OF_NAIL_WAS) ? 0 : 2;
+      vm.dmg_dir = vm.dmg_type ? vm.spell_dir : vm.nail_dir;
+      obj_event(i, VMEV_TAKE_DAMAGE, NONE);
+    }
+    /* (iTweenFadeTo) */
+    if (o->fade) {
+      int a = o->alpha + o->fade;
+      if (a <= 0 || a >= 255) a = a <= 0 ? 0 : 255, o->fade = 0;
+      o->alpha = (uint8_t)a;
+    }
     if (vm.rec[i].flags & OF_WAVE) {
       /* (WaveEffectControl: its speed down by a twentieth a step, to a half at least; its timer at that speed; past 1,
        * off) */
@@ -1686,11 +1787,20 @@ void vm_tick(void) {
   }
   for (int i = 0; i < vm.nfsms; i++) fsm_step(&vm.fsms[i], M_UPDATE);
   vm.prev_keys = g_hero.keys;
-  /* (SaveState: Activated into the save) */
+  /* (SaveState: Activated, or a Value, into the save) */
   for (int i = 0; i < vm.npersist; i++) {
     const uint8_t *p = vm.persist + 4 * i;
     const Fsm *f = &vm.fsms[p[0]];
-    if (p[1] < f->nvars && vm.vars[f->var0 + p[1]] && !persist_get(rd16(p + 2))) persist_set(rd16(p + 2));
+    uint16_t id = rd16(p + 2);
+    int slot = p[1] & 0x7F;
+    if (slot >= f->nvars) continue;
+    int32_t v = (int32_t)vm.vars[f->var0 + slot];
+    if (p[1] & 0x80) {
+      int n = v + 2 < 1 ? 1 : v + 2 > 7 ? 7 : v + 2;
+      for (int k = 0; k < 3; k++)
+        if ((n >> k & 1) != persist_get(id + k)) (n >> k & 1) ? persist_set(id + k) : persist_clear(id + k);
+    } else if (v && !persist_get(id))
+      persist_set(id);
   }
   if (vm.title_start) {
     vm.title_start = false;
@@ -1733,7 +1843,7 @@ void vm_draw(void) {
     if (al != 255 || (r->r & r->g & r->b) != 255) tint = obj_tint(&ntint, r->r, r->g, r->b, al);
     if (!al) continue;
     sprite_inst(sprite, o->x, o->y, r->z, sx, sy, tint, &in);
-    in.flags = (uint8_t)((in.flags & ~F_BLEND) | r->blend);
+    in.flags = (uint8_t)((in.flags & ~F_BLEND) | (r->blend & 0xFF));
     gfx_actor(&in, SORT_KEY(r->layer, r->order));
   }
 }

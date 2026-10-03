@@ -48,6 +48,13 @@ static EntState es[MAX_ENTS];
 static bool hero_in_position;
 
 bool persist_get(int i) { return i != NO_PERSIST && (g_pd.persist[i >> 3] >> (i & 7) & 1); }
+/* GameManager.ResetSemiPersistentItems: as the Knight rests at a bench or dies */
+void persist_reset_semi(void) {
+  static const uint16_t semi[] = SEMI_PERSIST;
+  for (unsigned k = 0; k < sizeof semi / sizeof semi[0]; k++) persist_clear(semi[k]);
+  vm_reset_semi();
+}
+
 void persist_clear(int i) {
   if (i != NO_PERSIST) g_pd.persist[i >> 3] &= (uint8_t)~(1 << (i & 7));
 }

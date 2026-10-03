@@ -63,7 +63,7 @@ MAX_GROUPS = 256
 MK_SECRET, MK_REMASK, MK_SIMPLE = 1, 2, 4
 # flags
 CL_PREVENT_UP, CL_PREVENT_DOWN, CL_MAX_PRIORITY = 1, 2, 4
-G_DOOR, G_ENTER_RIGHT, G_ENTER_LEFT, G_DONT_WALK_OUT, G_NON_HAZARD, G_HARD_LAND = 1, 2, 4, 8, 16, 32
+G_DOOR, G_ENTER_RIGHT, G_ENTER_LEFT, G_DONT_WALK_OUT, G_NON_HAZARD, G_HARD_LAND, G_ENTRY_ONLY = 1, 2, 4, 8, 16, 32, 64
 FACING_RIGHT = 1
 REC = "<BBBBHHffffffffHH"   # type, flags, group, group2, a, persist, box (x0, y0, x1, y1), p0..p3, s0, s1
 NO_PERSIST = 0xFFFF
@@ -72,12 +72,15 @@ NO_PERSIST = 0xFFFF
 class Persist:
     """The objects whose state a save keeps (PersistentBoolItem): one bit each (or a few: a number)."""
     def __init__(self):
-        self.keys, self.n, self.bits = {}, 0, []
+        self.keys, self.n, self.bits, self.semi = {}, 0, [], []
 
-    def id(self, room, path, bits=1):
+    def id(self, room, path, bits=1, semi=False):
+        """semi: semi persistent (its bits cleared as the Knight rests at a bench or dies)"""
         if (room, path) not in self.keys:
             self.keys[(room, path)] = self.n
             self.bits.append(bits)
+            if semi:
+                self.semi += range(self.n, self.n + bits)
             self.n += bits
             assert self.n <= 1024, self.n   # (src/game.h: MAX_PERSIST)
         return self.keys[(room, path)]
@@ -1138,10 +1141,15 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                                 s1=nm))
                 recs += _more_boxes(o)
             elif cls == "TransitionPoint":
-                box = _trigger(o)
+                box, entry_only = _trigger(o), 0
+                if box is None:
+                    # (its collider off: a place to come in at, never left by)
+                    box = next((_box(o, c) for c in o["c"] if c["type"] == "BoxCollider2D" and c.get("v") and
+                                c["v"].get("m_IsTrigger")), None)
+                    entry_only = G_ENTRY_ONLY
                 if box is None:
                     continue
-                fl = (G_DOOR if v.get("isADoor") else 0) | (G_ENTER_RIGHT if v.get("alwaysEnterRight") else 0) | \
+                fl = entry_only | (G_DOOR if v.get("isADoor") else 0) | (G_ENTER_RIGHT if v.get("alwaysEnterRight") else 0) | \
                     (G_ENTER_LEFT if v.get("alwaysEnterLeft") else 0) | (G_DONT_WALK_OUT if v.get("dontWalkOutOfDoor") else 0) | \
                     (G_NON_HAZARD if v.get("nonHazardGate") else 0) | (G_HARD_LAND if v.get("hardLandOnExit") else 0)
                 target = v.get("targetScene") or ""

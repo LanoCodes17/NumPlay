@@ -178,6 +178,7 @@ int main(int argc, char **argv) {
                  e[i].group, e[i].group2, e[i].x0, e[i].y0, e[i].x1, e[i].y1, e[i].p0, e[i].p1, e[i].p2, e[i].p3);
     }
     printf("end: pos %.3f,%.3f state %d\n", g_hero.body.x, g_hero.body.y, g_hero.state);
+    if (getenv("HKROOM")) printf("room: %s\n", room_name(g_room.id));
     if (getenv("HKPD")) {
       /* (the PlayerData bools on, by number; Hornet's Greenpath count) */
       printf("pd:");

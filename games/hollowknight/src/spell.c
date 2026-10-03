@@ -298,7 +298,7 @@ static void fireball_hit_things(Fireball *f) {
   int damage = f->sx > 1 ? FB_DAMAGE_SHAMAN : FB_DAMAGE;
   f->hit_enemies |= enemies_spell(cx - hx, cy - hy, cx + hx, cy + hy, dir, damage, FB_MAGNITUDE, f->hit_enemies);
   obj_spell(cx - hx, cy - hy, cx + hx, cy + hy, dir, f->hit_objs);
-  vm_spell(cx - hx, cy - hy, cx + hx, cy + hy);
+  vm_spell(cx - hx, cy - hy, cx + hx, cy + hy, dir);
 }
 
 void fireballs_tick(void) {

@@ -76,6 +76,7 @@ static void rest_burst(Bench *b, const Ent *e) {
   hero_max_health();
   b->sleeping = false, b->get_off_wake = false;
   save_set_respawn(str_at(e->s0), b->face_right = g_hero.cs.facing_right);
+  persist_reset_semi();
   b->state = BS_PAUSE, b->t = 0;
 }
 

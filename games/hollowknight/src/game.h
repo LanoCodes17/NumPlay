@@ -170,6 +170,20 @@ void hero_hazard_respawn(void);        /* HeroController.HazardRespawn */
 void hero_check_damage(void);          /* HeroBox: the hazards and enemies touching it */
 void hero_late_update(void);           /* (HeroBox.LateUpdate: a buffered hit) */
 void hero_soul_gain(void);             /* a nail's hit on an enemy */
+void hero_add_health(int amount);
+void hero_relinquish_control(void);    /* RelinquishControl, RegainControl */
+void hero_regain_control(void);
+void hero_stop_anim_control(void);     /* StopAnimationControl, StartAnimationControl */
+void hero_start_anim_control(void);
+bool hero_can_focus(void);
+bool hero_can_cast(void);
+
+/* the Spell Control FSM (spell.c): focus, spells */
+void spell_reset(void);
+void spell_update(void);
+void spell_cancel(void);
+bool spell_busy(void);
+void spell_cast(bool up, bool down);
 void hero_add_geo(int amount);
 
 /* the nail's slashes (NailSlash), children of the Knight */

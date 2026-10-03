@@ -754,6 +754,7 @@ void hero_init(float x, float y, bool facing_right) {
   Hero *h = &g_hero;
   static BodyEvent events[MAX_EVENTS];
   memset(h, 0, sizeof *h);
+  spell_reset();
   h->entry_gate = -1;
   h->body.events = events;
   h->body.x = x, h->body.y = y;
@@ -797,6 +798,7 @@ void hero_update(void) {
   invulnerable_tick();
   respawn_tick();
   entering_tick();
+  spell_update();
   if (h->anim_control) animation();
   h->anim.events = 0;
   anim_update(&h->anim, DT);
@@ -942,6 +944,7 @@ void fx_dash_burst(float x, float y, bool facing_right, bool on_ground) { (void)
 
 void hero_leave_scene(int gate) {
   Hero *h = &g_hero;
+  spell_cancel();   /* (LEAVING SCENE) */
   h->accepting_input = false;   /* (IgnoreInputWithoutReset) */
   h->hard_landing_timer = 0;
   set_state(HS_NO_INPUT);
@@ -1224,6 +1227,7 @@ void hero_take_damage(int side, int damage, int hazard) {
   Hero *h = &g_hero;
   if (damage <= 0) return;
   if (can_take_damage()) {
+    spell_cancel();   /* (HERO DAMAGED) */
     if (h->damage_mode == DAMAGE_HAZARD_ONLY && hazard == HAZ_NORMAL) return;
     cancel_attack();
     if (h->cs.recoiling_left || h->cs.recoiling_right) cancel_recoil_horizontal();
@@ -1340,6 +1344,63 @@ static void add_mp_charge(int amount) {
 void hero_soul_gain(void) { add_mp_charge(g_pd.mp < g_pd.max_mp ? 11 : 6); }
 
 void hero_add_geo(int amount) { g_pd.geo += amount; }
+
+void hero_add_health(int amount) {
+  g_pd.health = (int8_t)(g_pd.health + amount >= g_pd.max_health ? g_pd.max_health : g_pd.health + amount);
+}
+
+/* ---------------------------------------------------------------- control (the FSMs take it and give it back) */
+void hero_relinquish_control(void) {
+  Hero *h = &g_hero;
+  if (h->control_relinquished || h->cs.dead) return;
+  reset_input();
+  reset_motion();
+  h->accepting_input = false;
+  h->control_relinquished = true;
+  reset_look();
+  reset_attacks();
+  h->touching_wall_l = h->touching_wall_r = false;
+}
+
+void hero_regain_control(void) {
+  Hero *h = &g_hero;
+  h->accepting_input = true;
+  h->state = HS_IDLE;
+  if (!h->control_relinquished || h->cs.dead) return;
+  affected_by_gravity(true);
+  /* SetStartingMotionState */
+  h->move_input = 0;
+  h->cs.touching_wall = false;
+  if (hero_touching_ground()) h->cs.on_ground = true, set_state(HS_GROUNDED), h->air_dashed = false;
+  else h->cs.on_ground = false, set_state(HS_AIRBORNE);
+  h->control_relinquished = false;
+}
+
+void hero_stop_anim_control(void) { g_hero.anim_control = false; }
+
+void hero_start_anim_control(void) {
+  Hero *h = &g_hero;
+  h->anim_state = h->state;
+  if (!h->anim_control) {
+    h->anim_control = true;
+    play_idle();
+  }
+}
+
+/* CanFocus, CanCast */
+bool hero_can_focus(void) {
+  const Hero *h = &g_hero;
+  return !g_game.paused && h->state != HS_NO_INPUT && !h->cs.dashing && !(h->cs.attacking && h->attack_time < ATTACK_RECOVERY_TIME) &&
+         !h->cs.recoiling && h->cs.on_ground && !h->cs.transitioning && !h->cs.recoil_frozen && !h->cs.hazard_death &&
+         !h->cs.hazard_respawning && h->accepting_input;
+}
+
+bool hero_can_cast(void) {
+  const Hero *h = &g_hero;
+  return !g_game.paused && !h->cs.dashing && h->state != HS_NO_INPUT && !(h->cs.attacking && h->attack_time < ATTACK_RECOVERY_TIME) &&
+         !h->cs.recoiling && !h->cs.recoil_frozen && !h->cs.transitioning && !h->cs.hazard_death && !h->cs.hazard_respawning &&
+         h->accepting_input;
+}
 
 void hero_late_update(void) {
   Hero *h = &g_hero;

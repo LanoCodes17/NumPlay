@@ -2,6 +2,7 @@
  * them): states entered on events, their actions run on entering and each step, FINISHED once all are done. Events an
  * FSM sends itself switch its state once the action that sent them is over; those from others at once. The objects
  * they use (VM objects) are drawn here; the Knight, the dialogue box, the area title are the game's own. */
+#pragma GCC optimize("Os")   /* (its code small: not where a frame's time goes) */
 #include <math.h>
 #include "game.h"
 #ifdef HOST
@@ -1015,6 +1016,7 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
         }
         case 11: save_set_respawn("Death Respawn Marker", true); break;
         case 15: save_game(); break;
+        case 13: hero_relinquish_control_not_velocity(); break;
         case 16: hero_gravity(a0 != 0); break;
         case 19: set_var(f, store, hero_can_talk()); break;   /* (CanInspect: as CanTalk) */
       }

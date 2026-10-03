@@ -31,6 +31,7 @@ enum {
   PDF_EQUIPPED_CHARM_26, PDF_EQUIPPED_CHARM_27, PDF_EQUIPPED_CHARM_28, PDF_EQUIPPED_CHARM_29, PDF_EQUIPPED_CHARM_30,
   PDF_EQUIPPED_CHARM_31, PDF_EQUIPPED_CHARM_32, PDF_EQUIPPED_CHARM_33, PDF_EQUIPPED_CHARM_34, PDF_EQUIPPED_CHARM_35,
   PDF_EQUIPPED_CHARM_36, PDF_EQUIPPED_CHARM_37, PDF_EQUIPPED_CHARM_38, PDF_EQUIPPED_CHARM_39, PDF_EQUIPPED_CHARM_40,
+  PDF_OVERCHARMED, PDF_CAN_OVERCHARM, PDF_HAS_LANTERN, PDF_HEART_PIECE_COLLECTED, PDF_VESSEL_FRAGMENT_COLLECTED,
   PDF_COUNT
 };
 typedef struct {
@@ -58,7 +59,11 @@ typedef struct {
   uint8_t charms_owned;   /* (charmsOwned) */
   uint8_t trinkets[4];    /* (trinket1 .. 4: Wanderer's Journals, Hallownest Seals, King's Idols, Arcane Eggs) */
   uint8_t rancid_eggs, ore;
-  uint8_t reserved[51];
+  uint8_t charm_slots_filled;   /* (charmSlotsFilled: the notches the equipped charms take) */
+  uint8_t heart_pieces, vessel_fragments, simple_keys;
+  uint8_t equipped[12];         /* (equippedCharms: in the order they were equipped; 0 ends it) */
+  uint8_t current_inv_pane;     /* (currentInvPane) */
+  uint8_t reserved[34];
   /* (saved apart, by the objects' names: their states) */
   uint8_t persist[MAX_PERSIST / 8];
   /* (not saved) */
@@ -275,6 +280,8 @@ void hero_late_update(void);           /* (HeroBox.LateUpdate: a buffered hit) *
 void hero_soul_gain(void);             /* a nail's hit on an enemy */
 void hero_add_health(int amount);
 void hero_relinquish_control(void);    /* RelinquishControl, RegainControl */
+void hero_relinquish_control_not_velocity(void);
+void hero_charm_update(void);          /* CharmUpdate */
 void hero_regain_control(void);
 void hero_stop_anim_control(void);     /* StopAnimationControl, StartAnimationControl */
 void hero_start_anim_control(void);
@@ -331,6 +338,7 @@ void notice_show(int text);  /* a relic's notice: its icon, its name */
 void charm_notice(int id);   /* a charm's (in the tutorial, as it is made: its charm) */
 void charm_tute(void);
 void charm_tute_close(void);
+void notices_close(void);   /* (DESTROY JOURNAL MSG: the inventory opens)*/
 bool bench_respawn(const char *name);   /* RESPAWN: the Knight asleep on the bench so named */
 
 /* the Spell Control FSM (spell.c): focus, spells */
@@ -367,6 +375,14 @@ void menu_start(void);
 bool menu_tick(uint32_t keys);   /* -> the game kept from ticking (a menu is up) */
 void menu_draw(void);
 bool menu_in_game(void);
+/* the inventory (inv.c): opened with its key; the world goes on behind it */
+void inv_reset(void);
+uint32_t inv_tick(uint32_t keys);   /* -> the keys the game has (none while it is open) */
+void inv_damage(void);          /* (HERO DAMAGED: it closes) */
+bool inv_open(void);
+float text_box(int text, int style, float x, float y, float w, int align, float a);
+int charm_cost(int id);         /* (charmCost_N) */
+bool charm_equipped(int id);
 bool menu_quit(void);
 
 /* ---------------------------------------------------------------- text (text.c) */

@@ -27,6 +27,7 @@ void game_new(void) {
   strcpy(g_pd.respawn_marker, "Death Respawn Marker");
   dialogue_reset();
   prompts_reset();
+  inv_reset();
   death_reset();
   white_blanker_reset();
 }

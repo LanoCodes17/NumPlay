@@ -1,5 +1,6 @@
 /* Enemies (tools/ents.py: OK_ENEMY): HealthManager, Recoil, SpriteFlash, DamageHero and EnemyDeathEffects, each kind's
  * FSM, the corpses they leave and the geo they drop. */
+#pragma GCC optimize("Os")   /* (its code small: not where a frame's time goes) */
 #include <math.h>
 #include "game.h"
 #ifdef HOST

@@ -1,6 +1,7 @@
 /* The message as the Knight takes an item (UI Msg Get Item: its Msg Control FSM): a dark backdrop, the item's icon and
  * name fade up, then how to use it (Tap or Press, the key, two lines), then the stop marker; a key sends it away.
  * Places in HUD units from the screen's center (its prefab, made at the origin, drawn by the HUD's camera). */
+#pragma GCC optimize("Os")   /* (its code small: not where a frame's time goes) */
 #include <math.h>
 #include "game.h"
 
@@ -127,6 +128,14 @@ static float line(int text, int style, float x, float y, int align, bool top, fl
   return wmax;
 }
 
+static void sprite_k(int sprite, float x, float y, float k, float a, int slot) {
+  uint8_t al = (uint8_t)(a * 255 + 0.5f);
+  if (!al) return;
+  Inst in;
+  sprite_inst(sprite, x, y, 0, k, k, gfx_dyn_tint(slot, 255, 255, 255, al), &in);
+  gfx_hud(&in, 0);
+}
+
 static void sprite(int sprite, float x, float y, float a, int slot) {
   uint8_t al = (uint8_t)(a * 255 + 0.5f);
   if (!al) return;
@@ -159,6 +168,7 @@ static struct {
 } nt = {NT_OFF, -1, -1, -1, 0, -1};
 
 static void notices_off(void) { nt.kind = NT_OFF; }
+void notices_close(void) { notices_off(); }
 
 void notice_icon(int k) { nt.next_icon = k >= 0 && k < (int)(sizeof notice_icons / sizeof notice_icons[0]) ? notice_icons[k] : -1; }
 
@@ -218,7 +228,8 @@ static void notices_draw(void) {
     const float x = -11.91f, y = -6.22f;
     float a = fader(0, 0.3f, 0.2f);
     piece(&notice_bb, x + 2.82f, y - 0.12f, a * 0.797f, 22);
-    if (nt.icon >= 0) sprite(nt.icon, x - 0.46f, y - 0.05f, a, 23);
+    /* (a charm's icon: made larger, for the inventory) */
+    if (nt.icon >= 0) sprite_k(nt.icon, x - 0.46f, y - 0.05f, nt.kind == NT_CHARM ? 1 / CHARM_ICON_K : 1, a, 23);
     /* (its Text: left-aligned in its box, 6.12 wide about (3.64, -0.03)) */
     line(nt.text, STYLE_NOTICE, x + 3.64f - 3.06f, y - 0.03f, 2, false, a);
     return;
@@ -228,7 +239,7 @@ static void notices_draw(void) {
   piece(&tute_bb, x, y - 0.53f, a0, 22);
   piece(&tute_fleur, x, y + 2.06f, a0, 24);
   /* (its Charm Get Msg: no backboard) */
-  if (nt.icon >= 0) sprite(nt.icon, x - 2.9f, y + 0.83f, a0, 23);
+  if (nt.icon >= 0) sprite_k(nt.icon, x - 2.9f, y + 0.83f, 1 / CHARM_ICON_K, a0, 23);
   line(nt.text, STYLE_NOTICE, x + 1.2f - 3.06f, y + 0.85f, 2, false, a0);
   /* (Title, Subtitle, Text: their tops at their rects' tops, 4.02 high) */
   line(TXT_CHARM_TUTE_TITLE, STYLE_TUTE_TITLE, x, y + 1.55f + 2.01f, 0, true, a0);

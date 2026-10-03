@@ -59,6 +59,9 @@ int main(int argc, char **argv) {
     if (getenv("HKGEO")) g_pd.geo = atoi(getenv("HKGEO"));
     if (getenv("HKFIRE")) g_pd.fireball_level = atoi(getenv("HKFIRE"));
     if (getenv("HKHORNETGP")) g_pd.hornet_greenpath = (uint8_t)atoi(getenv("HKHORNETGP"));
+    if (getenv("HKDASH")) g_pd.has_dash = true;
+    if (getenv("HKTRINKETS"))   /* (relics: "1,2,0,0") */
+      sscanf(getenv("HKTRINKETS"), "%hhu,%hhu,%hhu,%hhu", &g_pd.trinkets[0], &g_pd.trinkets[1], &g_pd.trinkets[2], &g_pd.trinkets[3]);
     for (const char *f = getenv("HKFLAGS"); f && *f;) {   /* (PlayerData bools on, by number: "7,8") */
       pd_set_flag(atoi(f), true);
       while (*f && *f != ',') f++;
@@ -87,7 +90,8 @@ int main(int argc, char **argv) {
         keys |= *p == 'L' ? K_LEFT : *p == 'R' ? K_RIGHT : *p == 'U' ? K_UP : *p == 'D' ? K_DOWN : *p == 'J' ? K_JUMP
               : *p == 'A' ? K_ATTACK : *p == 'S' ? K_DASH : *p == 'F' ? K_FOCUS | K_SPELL
               /* (the calculator's OK, Back, Backspace: also jump, attack) */
-              : *p == 'O' ? K_OK | K_JUMP : *p == 'B' ? K_BACK | K_ATTACK : *p == 'P' ? K_PAUSE : 0;
+              : *p == 'O' ? K_OK | K_JUMP : *p == 'B' ? K_BACK | K_ATTACK : *p == 'P' ? K_PAUSE
+              : *p == 'I' ? K_INV : *p == 'M' ? K_MAP : 0;
       int n = *p == '*' ? atoi(++p) : 1;
       while (*p && *p != ',') p++;
       if (*p == ',') p++;
@@ -98,6 +102,7 @@ int main(int argc, char **argv) {
           dialogue_start(atoi(strchr(getenv("HKTALK"), ':') + 1));
         }
         if (getenv("HKKILL") && atoi(getenv("HKKILL")) == tick) hero_take_damage(SIDE_LEFT, 99, HAZ_NORMAL);
+        if (getenv("HKHURT") && atoi(getenv("HKHURT")) == tick) hero_take_damage(SIDE_LEFT, 1, HAZ_NORMAL);
         /* (HKREENTER=tick: the room entered again then, as it was left) */
         if (getenv("HKREENTER") && atoi(getenv("HKREENTER")) == tick) game_enter(id, px, py, true);
         if (getenv("HKGOD")) g_pd.health = g_pd.max_health;
@@ -108,7 +113,7 @@ int main(int argc, char **argv) {
         }
         if (getenv("HKPROMPT") && atoi(getenv("HKPROMPT")) == tick)
           prompt_show(-1, TXT_PROMPT_LISTEN, g_hero.body.x, g_hero.body.y + 1.5f);
-        if (!menu || !menu_tick(keys)) game_tick(keys);
+        if (!menu || !menu_tick(keys)) game_tick(inv_tick(keys));
         if (trace && menu) printf("   menu in game %d\n", menu_in_game());
         if (trace)
           printf("%4d keys %02x pos %.3f,%.3f v %.3f,%.3f state %d ground %d jump %d fall %d clip %d frame %d cam %.2f,%.2f\n", tick,

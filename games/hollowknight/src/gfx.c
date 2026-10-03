@@ -1219,6 +1219,7 @@ bool gfx_actor(const Inst *in, uint32_t group) {
   return true;
 }
 
+static bool overlay_on;   /* (the overlay's instances: the room kept back to leave them room, g_gfx_reserve) */
 static bool add_item(const Inst *in, float blur_z) {
   Item cur;
   cur.in = *in;
@@ -1233,7 +1234,7 @@ static bool add_item(const Inst *in, float blur_z) {
     draw_bg_item(&cur);
     return false;
   }
-  if (nitems >= MAX_ITEMS) {
+  if (nitems >= MAX_ITEMS - (overlay_on ? 0 : g_gfx_reserve)) {
     g_gfx_dropped++;   /* (never in the game's rooms: checked by tests) */
     return false;
   }
@@ -1243,6 +1244,25 @@ static bool add_item(const Inst *in, float blur_z) {
 }
 
 bool g_gfx_no_room;
+void (*g_gfx_overlay)(void);
+int g_gfx_reserve;
+
+/* the overlay's (as the HUD's, straight into the frame's instances: as many as there is room for) */
+bool gfx_overlay(const Inst *src) {
+  Inst in = *src;
+  in.ax = (int16_t)(in.ax + (int)lrintf(g_cam_x * 64)), in.ay = (int16_t)(in.ay + (int)lrintf(g_cam_y * 64));
+  in.z = (int16_t)lrintf(HUD_Z * 128);
+  return add_item(&in, 1e9f);
+}
+
+void gfx_overlay_fill(float x0, float y0, float x1, float y1, uint8_t tint) {
+  Inst in;
+  memset(&in, 0, sizeof in);
+  in.ax = (int16_t)lrintf(x0 * 64), in.ay = (int16_t)lrintf(y1 * 64);
+  in.tex = TEX_NONE, in.flags = F_SOLID, in.tint = tint;
+  in.a = to_f16(x1 - x0), in.b = to_f16(y0 - y1);
+  gfx_overlay(&in);
+}
 
 void gfx_frame(void) {
   bool roomless = g_room.h == NULL || g_gfx_no_room;   /* (the title screen: the HUD's alone) */
@@ -1278,6 +1298,7 @@ void gfx_frame(void) {
     if (add_item(&in, 1e9f)) items[nitems - 1].clip = hud_clip_of[i];
   }
   nhud = 0;
+  if (g_gfx_overlay) overlay_on = true, g_gfx_overlay(), overlay_on = false;
   g_gfx_items = (uint32_t)nitems;
   if (!strip_ready) {
     memset(arb, 0, sizeof arb), memset(ag, 0, sizeof ag), memset(trans, 255, sizeof trans);

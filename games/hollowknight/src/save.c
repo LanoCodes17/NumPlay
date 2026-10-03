@@ -1,6 +1,7 @@
 /* GameManager.SaveGame and LoadGame: PlayerData in a file of the calculator's, one a slot. The file: a header with a
  * checksum, PlayerData's saved part, then the objects' states by name (tools/ents.py: PHASH), so that a save keeps
  * meaning the same objects whatever the data's version. A file that does not check out is never loaded. */
+#pragma GCC optimize("Os")   /* (its code small: not where a frame's time goes) */
 #include "game.h"
 
 #define SAVE_MAGIC 0x56534B48u   /* "HKSV" */

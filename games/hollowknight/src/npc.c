@@ -1,4 +1,5 @@
 /* What the Knight interacts with by pressing up: benches (Bench Control, its Detect Range's Detect Hero). */
+#pragma GCC optimize("Os")   /* (its code small: not where a frame's time goes) */
 #include <math.h>
 #include "game.h"
 

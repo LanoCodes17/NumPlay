@@ -1258,6 +1258,7 @@ void hero_take_damage(int side, int damage, int hazard) {
   if (can_take_damage()) {
     spell_cancel();   /* (HERO DAMAGED) */
     vm_broadcast(VMEV_HERO_DAMAGED);
+    inv_damage();
     if (h->damage_mode == DAMAGE_HAZARD_ONLY && hazard == HAZ_NORMAL) return;
     cancel_attack();
     if (h->cs.recoiling_left || h->cs.recoiling_right) cancel_recoil_horizontal();
@@ -1430,6 +1431,21 @@ void hero_relinquish_control(void) {
   reset_attacks();
   h->touching_wall_l = h->touching_wall_r = false;
 }
+
+/* RelinquishControlNotVelocity: as RelinquishControl, its velocity kept */
+void hero_relinquish_control_not_velocity(void) {
+  Hero *h = &g_hero;
+  if (h->control_relinquished || h->cs.dead) return;
+  reset_input();
+  h->accepting_input = false;
+  h->control_relinquished = true;
+  reset_look();
+  reset_attacks();
+  h->touching_wall_l = h->touching_wall_r = false;
+}
+
+/* CharmUpdate: the Knight as his charms make him (charm effects: hero.c's own as they are read) */
+void hero_charm_update(void) {}
 
 void hero_regain_control(void) {
   Hero *h = &g_hero;

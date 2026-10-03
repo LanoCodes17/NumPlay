@@ -1,6 +1,7 @@
 """The game's characters and effects (2D Toolkit): their sprite frames at the size they are seen, and their animation
 clips. Each sprite frame becomes a texture like the scenery's; pack.py writes the frames' placements (SPR) and the
 clips (CLIP)."""
+import os
 import numpy as np
 from PIL import Image
 import unity, tk2d, scene, art, text
@@ -214,6 +215,7 @@ DRAWN_SCALE = {"Arrow Up": 1.3, "Arrow Down": 1.3, "Stop Up": 1.3, "Stop Down": 
 K0 = scene.FOCAL / (0.004 - scene.CAMZ)   # screen pixels a unit, where actors are (z near 0)
 HUD_K = (scene.VIEW_H / 2) / 8.7107        # the HUD's (its orthographic camera)
 # (actor, clip): drawn bigger or smaller than their sprites
+ACTOR_RES = float(os.environ.get("HK_ACTOR_RES", "1"))
 ACTOR_SCALE = {"hud": HUD_K / K0, "liquid": 1.4 * HUD_K / K0, "dialogue": text.TEXT_K * HUD_K / K0}
 HUD_MASK = 0.7135
 
@@ -271,6 +273,8 @@ def build():
                     col = tk2d.collection(cpath, cpid)
                     img, lx, ty, upp, (wu, hu) = tk2d.sprite_image(cpath, col, f["spriteId"])
                     k = K0 * DRAWN_SCALE.get(name, 1.0) * ACTOR_SCALE.get(actor, 1.0)
+                    if actor not in ("knight", "hud", "dialogue", "liquid"):
+                        k *= ACTOR_RES   # (the others' frames: a little less fine, to fit)
                     if actor == "hud" and (name.startswith("Health") or name.startswith("Blue")):
                         k *= HUD_MASK
                     w = max(1, round(img.width * upp * k))

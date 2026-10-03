@@ -1,4 +1,5 @@
 /* The room's game objects: their state, run each tick; the render groups they fade. */
+#pragma GCC optimize("Os")   /* (its code small: not where a frame's time goes) */
 #include "game.h"
 
 #define DT 0.02f

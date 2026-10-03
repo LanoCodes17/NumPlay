@@ -15,6 +15,7 @@ BLUR_SIGMA = 1.2        # background blur, calculator pixels (LightBlurredBackgr
 BLUR_SCALE = float(os.environ.get("HK_BLUR_SCALE", "0.25"))   # texels a screen pixel behind the blur plane
 FG_SCALE = float(os.environ.get("HK_FG_SCALE", "0.6"))       # ... in front of the gameplay plane (z < FG_Z)
 FG_Z = -2.5
+FIT_K = float(os.environ.get("HK_FIT_K", "1"))   # (all the rooms' scenery a little less fine, to fit)
 BLUR_PRE = False   # (the game blurs the background as a whole: the calculator does too)
 LZMA_FILTERS = [{"id": lzma.FILTER_LZMA1, "lc": 0, "lp": 0, "pb": 0, "dict_size": 1 << 12, "preset": 9 | lzma.PRESET_EXTREME}]
 
@@ -193,7 +194,7 @@ def build_variants(rooms, vis_of, owned=lambda r: ()):
             it.alpha_only = it.color[:3] == (0, 0, 0) or black_sprite(it.sprite)
             it.want = min(1.0, sc) * (BLUR_SCALE if it.blur else FG_SCALE if it.z < FG_Z else 1.0)
             if not it.blur:
-                it.want *= FIT.get(r, 1.0)
+                it.want *= FIT.get(r, 1.0) * FIT_K
             it.cells = None if it.dynamic else cells.get(it.id)
             keep.append(it)
         per_room[r] = (keep, st)

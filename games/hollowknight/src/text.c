@@ -49,6 +49,30 @@ static int line_end(const uint8_t *st, const uint8_t *s, int i, float width, int
   }
 }
 
+/* a text in a box (HUD units: its top at y, w wide), word wrapped: each line from x (align 0), centered on it (1) or
+ * ending at it (2) -> how far down it goes (HUD units) */
+float text_box(int text, int style, float x, float y, float w, int align, float a) {
+  if (text < 0) return 0;
+  const uint8_t *s = text_get(text), *st = font_style(style);
+  float px = HUD_PX, wp = w * px;
+  float py = VIEW_H / 2 - y * px + font_asc(st);
+  uint32_t col = (uint32_t)(a * 255 + 0.5f) << 24 | 0xFFFFFF;
+  int lines = 0;
+  for (int i = 0; s[i];) {
+    int next, e = line_end(st, s, i, wp, &next);
+    if (e > i && s[i] != TEXT_PAGE) {
+      float lw = text_width(style, s + i, e - i);
+      float lx = VIEW_W / 2 + x * px - (align == 1 ? lw / 2 : align == 2 ? lw : 0);
+      if (a > 0) gfx_text(style, lx, py, s + i, e - i, col, 0);
+    }
+    lines++;
+    py += font_line(st);
+    if (next <= i) break;
+    i = next;
+  }
+  return lines * font_line(st) / px;
+}
+
 /* ---------------------------------------------------------------- the dialogue box */
 #define BOX_X 0.0f
 #define BOX_Y 4.51f          /* (DialogueBox's place: the box scales about it) */

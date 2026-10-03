@@ -1,5 +1,6 @@
 /* The room's objects that the Knight acts on (tools/ents.py: ENT_OBJ and the records after each): what the nail hits,
  * breakables and the debris they fling. */
+#pragma GCC optimize("Os")   /* (its code small: not where a frame's time goes) */
 #include <math.h>
 #include "game.h"
 #ifdef HOST

@@ -215,6 +215,12 @@ uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a);   /*
 uint8_t gfx_dyn_flash(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a, uint8_t fr, uint8_t fg, uint8_t fb, uint8_t amount);
 extern uint8_t g_screen_fade;   /* 0 .. 255: the screen faded to black */
 extern bool g_gfx_no_room;      /* (the room not drawn: the menus') */
+/* an overlay over the HUD (the inventory): drawn by g_gfx_overlay as the frame is made, its instances (HUD units)
+ * straight into the frame's; g_gfx_reserve of them kept from the room's */
+extern void (*g_gfx_overlay)(void);
+extern int g_gfx_reserve;
+bool gfx_overlay(const Inst *in);
+void gfx_overlay_fill(float x0, float y0, float x1, float y1, uint8_t tint);
 /* a line of text (n glyphs of a style), its pen starting at (x, y) on the baseline (view pixels), of a color (0xAARRGGBB);
  * layer 0: the HUD's (in front of all), 1: the room's (in front of it, behind the HUD and the fade) */
 bool gfx_text(int style, float x, float y, const uint8_t *s, int n, uint32_t argb, int layer);

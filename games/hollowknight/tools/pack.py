@@ -510,16 +510,20 @@ def main():
         if vm.NOTICE_ICONS else "{-1}"
     pmenu = unity.scene("Menu_Title")
     icl = next(c["v"] for o in pmenu["objects"] for c in o["c"] if c.get("class") == "CharmIconList")["spriteList"]
-    fleurs["CHARM_ICONS"] = "{%s}" % ", ".join(str(SPRITES.id(pmenu, icl[i], 1.0, hud_res)) if i in vm.CHARMS else "-1"
-                                               for i in range(41))
+    # (the charms' icons as big as the inventory shows them: its details', CHARM_ICON_K; smaller elsewhere)
+    icon_k = 1.5
+    charm_icon = lambda i: SPRITES.id(pmenu, icl[i], icon_k, hud_res)
+    fleurs["CHARM_ICON_K"] = "%.4ff" % icon_k
+    fleurs["CHARM_ICONS"] = "{%s}" % ", ".join(str(charm_icon(i)) if i in vm.CHARMS else "-1" for i in range(41))
     fleurs["CHARM_NAMES"] = "{%s}" % ", ".join(
         str(TEXTS.add(text.clean(text.sheets()["UI"]["CHARM_NAME_%d" % i]), "NOTICE")) if i in vm.CHARMS else "-1"
         for i in range(41))
     for key, style in (("CHARM_TUTE_TITLE", "TUTE_TITLE"), ("CHARM_TUTE_SUB", "TUTE"), ("CHARM_REMINDER", "TUTE")):
         fleurs["TXT_" + key] = TEXTS.add(text.clean(text.sheets()["Prompts"][key]), style)
     # the title screen, the save profiles, the pause menu; each room's map zone (the save slots' area)
-    import menu
+    import menu, inv
     fleurs.update(menu.build(SPRITES, TEXTS))
+    fleurs.update(inv.build(SPRITES, TEXTS, hud_res, vm.CHARMS, charm_icon))
     fleurs["ROOM_ZONES"] = "{%s}" % ", ".join(str(scene.settings(unity.scene(r)).get("map_zone") or 0) for r in ROOMS)
     for i, item in enumerate(text.MSGS):
         fleurs["MSG_" + item] = i
@@ -604,8 +608,8 @@ def main():
             t = texs[len(variants) - len(sprites) + j]
             nb = sum(len(b) for b in coded[t.first_block:t.first_block + (t.ntiles + art.BLOCK_TILES - 1) // art.BLOCK_TILES]) if t.fmt not in (art.FMT_SOFTA, art.FMT_SOFT) else len(t.soft or b"")
             nb += (len(t.pal.tobytes()) if t.pal is not None else 0)
-            tot[str(sp.get("key", ("?",)))[:30].split(",")[0]] += nb
-        for k, v in tot.most_common(40):
+            tot[sp["job"].name if os.environ.get("ACTSTATS") == "clip" else sp["job"].name.split("/")[0]] += nb
+        for k, v in tot.most_common(80):
             print("ACT", v, k)
     secs["TEX"].b += struct.pack("<I", len(variants)) + texrec
     # actors: each sprite frame's texture and where its top-left corner is (local units), units a texel; the clips

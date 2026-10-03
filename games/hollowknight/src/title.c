@@ -1,6 +1,7 @@
 /* The titles (Area Title: its Area Title Control FSM) and what shows them: a room's AreaTitleController, bosses and
  * characters (TITLE_*). On a first visit to an area its large title: the fleurs drawn in above and below, the lines faded
  * up; else the small one at the bottom left (or right). Places in HUD units from the screen's center. */
+#pragma GCC optimize("Os")   /* (its code small: not where a frame's time goes) */
 #include <math.h>
 #include "game.h"
 

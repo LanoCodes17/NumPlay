@@ -1,5 +1,6 @@
 /* The title screen, the save profiles and the pause menu (UIManager: Menu_Title's MainMenuScreen, SaveProfileScreen and
  * PauseMenuScreen, their pieces where tools/menu.py found them): what is selected, what the keys do. */
+#pragma GCC optimize("Os")   /* (its code small: not where a frame's time goes) */
 #include "game.h"
 
 #define DT 0.02f

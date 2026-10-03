@@ -1,5 +1,6 @@
 /* The Knight's death: his Hero Death object (the Hero Death Anim FSM: his body bursting, soul and geo lost, a shade
  * left where he fell), GameManager.PlayerDead (the save, the fade), then the respawn at his bench. */
+#pragma GCC optimize("Os")   /* (its code small: not where a frame's time goes) */
 #include <math.h>
 #include "game.h"
 

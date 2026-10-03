@@ -104,16 +104,24 @@ static uint32_t grade(float r, float g, float b, float a) {
 uint8_t g_group_alpha[MAX_GROUPS];
 uint8_t g_screen_fade;   /* how black the screen is (the camera's fade) */
 
-/* tints: the room's, then colors the game sets (gfx_dyn_tint) */
+/* tints: the room's, then colors the game sets (gfx_dyn_tint): a color, and a flash color and amount (SpriteFlash) */
 #define DYN_TINT 240
-static uint8_t dyn_tints[256 - DYN_TINT][4];
+static uint8_t dyn_tints[256 - DYN_TINT][8];
 static inline const uint8_t *tint_rgba(int tint) { return tint >= DYN_TINT ? dyn_tints[tint - DYN_TINT] : g_room.tints + 4 * tint; }
+static void pals_forget_tint(int tint);
 
-uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+uint8_t gfx_dyn_flash(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a, uint8_t fr, uint8_t fg, uint8_t fb, uint8_t amount) {
   uint8_t *t = dyn_tints[slot & 15];
-  t[0] = r, t[1] = g, t[2] = b, t[3] = a;
+  uint8_t v[8] = {r, g, b, a, fr, fg, fb, amount};
+  if (memcmp(t, v, 8)) {
+    /* (the colors made with its old values are stale) */
+    memcpy(t, v, 8);
+    pals_forget_tint(DYN_TINT + (slot & 15));
+  }
   return (uint8_t)(DYN_TINT + (slot & 15));
 }
+
+uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a) { return gfx_dyn_flash(slot, r, g, b, a, 0, 0, 0, 0); }
 
 /* the instance's alpha: its tint's, times its render group's */
 static inline uint32_t inst_alpha(const Inst *in) {
@@ -164,12 +172,16 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
     for (int i = 1; i < 4; i++) p->c[i] = (uint32_t)(ta * i / 3.0f * 255 + 0.5f) << 24;
   } else {
     const uint8_t *pc = section(SEC_PAL) + r->pal_off;
+    /* (a flash: towards its color by its amount, the alpha kept) */
+    float fk = tint >= DYN_TINT ? t[7] / 255.0f : 0, fr = fk ? t[4] / 255.0f * fk : 0, fg = fk ? t[5] / 255.0f * fk : 0,
+          fb = fk ? t[6] / 255.0f * fk : 0;
     for (int i = 0; i < 15; i++)
-      p->c[i + 1] = grade(pc[4 * i] / 255.0f * tr, pc[4 * i + 1] / 255.0f * tg, pc[4 * i + 2] / 255.0f * tb,
-                          pc[4 * i + 3] / 255.0f * ta);
+      p->c[i + 1] = grade(pc[4 * i] / 255.0f * tr * (1 - fk) + fr, pc[4 * i + 1] / 255.0f * tg * (1 - fk) + fg,
+                          pc[4 * i + 2] / 255.0f * tb * (1 - fk) + fb, pc[4 * i + 3] / 255.0f * ta);
   }
   return s;
 }
+
 
 /* ---------------------------------------------------------------- smooth textures: a few texels, graded for a tint (those of
  * one color are alpha only, read in place) */
@@ -186,6 +198,13 @@ typedef struct {
 } SoftEnt;
 static SoftEnt soft_ent[NSOFT];
 static int nsoft, soft_top;
+
+static void pals_forget_tint(int tint) {
+  for (int i = 0; i < NPAL; i++)
+    if ((pals[i].key >> 1 & 255) == (uint32_t)tint && pals[i].key < 0xFFFC0000u) pals[i].key = 0xFFFFFFFFu;
+  for (int i = 0; i < nsoft; i++)
+    if ((soft_ent[i].key >> 1 & 255) == (uint32_t)tint) soft_ent[i].key = 0xFFFFFFFFu;
+}
 
 static void soft_reset(void) { nsoft = 0, soft_top = 0; }
 

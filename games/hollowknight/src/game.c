@@ -11,6 +11,7 @@ void game_new(void) {
   g_game.time_scale = 1;
   g_pd.health = g_pd.max_health = 5;
   g_pd.max_mp = 99;
+  g_pd.nail_damage = 5;
   g_pd.can_dash = false;
 }
 
@@ -73,30 +74,45 @@ static void triggers_tick(void) {
 }
 
 /* ---------------------------------------------------------------- GameManager's coroutines */
-#define FREEZE_WAIT 0.25f   /* (HeroController's DAMAGE_FREEZE_WAIT, UP) */
-#define FREEZE_UP 0.05f
-enum { FZ_NONE, FZ_WAIT, FZ_UP };
+enum { FZ_NONE, FZ_DOWN, FZ_WAIT, FZ_UP };
 
-/* FreezeMoment(DAMAGE_FREEZE_DOWN, WAIT, UP, 0.0001): time stops (in unscaled time), then comes back */
-void game_freeze_moment(void) {
-  g_game.time_scale = 0;   /* (the 0.001 s ramp down) */
-  g_game.freeze_phase = FZ_WAIT, g_game.freeze_t = 0;
+/* FreezeMoment(rampDownTime, waitTime, rampUpTime, targetSpeed): time slows to the target (in unscaled time), stays,
+ * then comes back; hero: the Knight's recoil goes on after (StartRecoil waits for it) */
+void game_freeze(float down, float wait, float up, float target, bool hero) {
+  Game *g = &g_game;
+  g->freeze_phase = FZ_DOWN, g->freeze_t = 0, g->freeze_from = g->time_scale;
+  g->freeze_down = down, g->freeze_wait = wait, g->freeze_up = up, g->freeze_target = target;
+  g->freeze_hero = g->freeze_hero || hero;
 }
+
+void game_freeze_moment(void) { game_freeze(0.001f, 0.25f, 0.05f, 0.0001f, true); }   /* (DAMAGE_FREEZE_*) */
+
+static void set_time_scale(float s) { g_game.time_scale = s > 0.01f ? s : 0; }
 
 static void freeze_tick(float real_dt) {
   Game *g = &g_game;
-  if (g->freeze_phase == FZ_WAIT) {
-    g->freeze_t += real_dt;
-    if (g->freeze_t >= FREEZE_WAIT) g->freeze_phase = FZ_UP, g->freeze_t = 0;
-  } else if (g->freeze_phase == FZ_UP) {
-    g->freeze_t += real_dt;
-    g->time_scale = g->freeze_t >= FREEZE_UP ? 1 : g->freeze_t / FREEZE_UP;
-    if (g->time_scale > 0 && g->time_scale <= 0.01f) g->time_scale = 0;
-    if (g->freeze_t >= FREEZE_UP) {
-      g->time_scale = 1, g->freeze_phase = FZ_NONE;
-      hero_recoil_unfreeze();
-    }
+  if (g->freeze_phase == FZ_NONE) return;
+  /* (SetTimeScale's loop: the scale for this frame, then the timer) */
+  if (g->freeze_phase == FZ_DOWN) {
+    if (g->freeze_t >= g->freeze_down) {
+      set_time_scale(g->freeze_target);
+      g->freeze_phase = FZ_WAIT, g->freeze_t = 0;
+    } else
+      set_time_scale(g->freeze_from + (g->freeze_target - g->freeze_from) * (g->freeze_t / g->freeze_down));
   }
+  if (g->freeze_phase == FZ_WAIT) {
+    if (g->freeze_t >= g->freeze_wait) g->freeze_phase = FZ_UP, g->freeze_t = 0, g->freeze_from = g->time_scale;
+  }
+  if (g->freeze_phase == FZ_UP) {
+    if (g->freeze_t >= g->freeze_up) {
+      set_time_scale(1);
+      g->freeze_phase = FZ_NONE;
+      if (g->freeze_hero) g->freeze_hero = false, hero_recoil_unfreeze();
+      return;
+    }
+    set_time_scale(g->freeze_from + (1 - g->freeze_from) * (g->freeze_t / g->freeze_up));
+  }
+  g->freeze_t += real_dt;
 }
 
 /* the camera's fades (its Blanker): to black and back */
@@ -141,6 +157,7 @@ static void hazard_tick(void) {
 static void step(uint32_t keys) {
   g_game.time += 0.02f;
   hero_fixed(keys);
+  enemies_fixed();
   triggers_tick();
   hero_check_damage();
   hero_update();

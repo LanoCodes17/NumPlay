@@ -8,7 +8,11 @@ import numpy as np
 ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE, ENT_BOX, \
     ENT_OBJ, ENT_PIECE = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
 # objects (ENT_OBJ's flags: src/obj.c)
-OK_BREAKABLE = 1
+OK_BREAKABLE, OK_ENEMY = 1, 2
+# enemies (an OK_ENEMY's a: src/enemy.c), by their FSM and animation library
+EK_CRAWLER, EK_BUZZER = 1, 2
+ENEMIES = {("Crawler", 1113): EK_CRAWLER, ("chaser", 1150): EK_BUZZER}
+EF_START, EF_STARTLES = 1, 2   # (FSM bools: First Crawler or Start Alert; Startles)
 # the layers the nail's slashes touch (Physics2D's collision matrix, layer 17 Attack)
 ATTACK_HITS = {3, 6, 7, 8, 11, 12, 17, 19, 20, 21, 25, 31}
 MAX_GROUPS = 256
@@ -54,8 +58,9 @@ class Sprites:
     def __init__(self):
         self.list, self.index, self.base = [], {}, 0
 
-    def id(self, d, ref, scale):
-        key = (d["level"], tuple(d["externals"]), ref[0], ref[1], round(scale, 3))
+    def id(self, d, ref, scale, res=1.0):
+        """(res: its texture's resolution, as a part of the screen's: smooth sprites can be stretched)"""
+        key = (d["level"], tuple(d["externals"]), ref[0], ref[1], round(scale, 3), res)
         if key not in self.index:
             self.index[key] = len(self.list)
             self.list.append(key)
@@ -259,6 +264,50 @@ def _pieces(d, o, ids, by_id, sprites):
     return out
 
 
+def _enemy(o, by_id, persist, name):
+    """An enemy -> its records: ENT_OBJ (OK_ENEMY: its kind, place (x, y, z, x scale), hp, damage, small and medium
+    geo; large geo in group), then ENT_BOX its collider (local offset and half size, scaled) and ENT_BOX its alert
+    range (a circle: local center and radius), or None."""
+    an = next((c.get("v") for c in o["c"] if c.get("class") == "tk2dSpriteAnimator" and c.get("v")), None)
+    hm = next((c.get("v") for c in o["c"] if c.get("class") == "HealthManager" and c.get("v")), None)
+    if not an or not hm:
+        return None
+    kind = None
+    for c in o["c"]:
+        f = c.get("fsm")
+        if f and (f["name"], an["library"][1]) in ENEMIES:
+            kind, fsm = ENEMIES[(f["name"], an["library"][1])], f
+    if kind is None:
+        return None
+    dh = next((c.get("v") or {} for c in o["c"] if c.get("class") == "DamageHero"), {})
+    box = next((c["v"] for c in o["c"] if c["type"] == "BoxCollider2D" and c.get("v") and not c["v"].get("m_IsTrigger")), None)
+    if box is None:
+        return None
+    sx, sy = o["lscale"][0], o["lscale"][1]
+    var = fsm.get("vars", {})
+    fl = 0
+    if (var.get("First Crawler") or var.get("Start Alert") or [0, False])[1]:
+        fl |= EF_START
+    if (var.get("Startles") or [0, False])[1]:
+        fl |= EF_STARTLES
+    out = [rec(ENT_BOX, box=(box["m_Offset"]["x"] * abs(sx), box["m_Offset"]["y"] * abs(sy),
+                             box["m_Size"]["x"] / 2 * abs(sx), box["m_Size"]["y"] / 2 * abs(sy)))]
+    for ch in o.get("children", []):
+        q = by_id[ch]
+        if q["name"] == "Alert Range New":
+            cc = next((c["v"] for c in q["c"] if c["type"] == "CircleCollider2D" and c.get("v")), None)
+            if cc:
+                k = max(abs(q["lscale"][0]), abs(q["lscale"][1]))
+                out.append(rec(ENT_BOX, box=(q["lpos"][0] + cc["m_Offset"]["x"] * k, q["lpos"][1] + cc["m_Offset"]["y"] * k,
+                                             cc["m_Radius"] * k, 0)))
+    persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
+    head = rec(ENT_OBJ, OK_ENEMY, (o["pos"][0], o["pos"][1], o["pos"][2], sx),
+               (hm.get("hp", 1), dh.get("damageDealt", 0), hm.get("smallGeoDrops", 0), hm.get("mediumGeoDrops", 0)),
+               a=kind, group=hm.get("largeGeoDrops", 0), persist=persist.id(name, o["path"]) if persistent else NO_PERSIST,
+               s0=len(out), s1=fl)
+    return [head] + out
+
+
 def room(d, rooms, strings, persist, name, sprites=None, owners=None):
     """-> (packed records, {object id: render group}). owners: each collider's object (coll.room); sprites: where the
     objects' own sprites go (Sprites)."""
@@ -309,6 +358,9 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
                                 persist=persist.id(name, o["path"]) if persistent else NO_PERSIST))
                 recs += _more_boxes(o)
         classes = {c.get("class") for c in o["c"]}
+        en = _enemy(o, by_id, persist, name)
+        if en:
+            recs += en
         br = next((c for c in o["c"] if c.get("class") == "Breakable" and c.get("v") is not None), None)
         if br is not None:
             v = br["v"]

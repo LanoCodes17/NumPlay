@@ -218,8 +218,15 @@ void body_step(Body *b, float dt) {
   if (b->gravity_scale) b->vy += GRAVITY * b->gravity_scale * dt;
   /* resting contacts take away the velocity into them (the solver), then the box moves and slides */
   for (int i = 0; i < b->ncontacts; i++) {
-    float vn = b->vx * b->cnx[i] + b->vy * b->cny[i];
-    if (vn < 0) b->vx -= vn * b->cnx[i], b->vy -= vn * b->cny[i];
+    float nx = b->cnx[i], ny = b->cny[i], vn = b->vx * nx + b->vy * ny;
+    if (vn >= 0) continue;
+    b->vx -= vn * nx, b->vy -= vn * ny;
+    if (b->friction > 0) {
+      /* (Coulomb: the tangent velocity less up to the friction times the normal impulse) */
+      float vt = b->vx * -ny + b->vy * nx, f = -vn * b->friction;
+      float d = vt > f ? f : vt < -f ? -f : vt;
+      b->vx -= d * -ny, b->vy -= d * nx;
+    }
   }
   float left = 1;
   for (int it = 0; it < 4 && left > 0; it++) {
@@ -272,12 +279,12 @@ void body_step(Body *b, float dt) {
   for (int i = 0; i < b->ncontacts; i++) {
     int j = 0;
     while (j < n && cols[j] != b->ccol[i]) j++;
-    if (j == n && b->nevents < MAX_EVENTS) b->events[b->nevents++] = (BodyEvent){EV_EXIT, b->ccol[i], b->cnx[i], b->cny[i]};
+    if (j == n && b->events && b->nevents < MAX_EVENTS) b->events[b->nevents++] = (BodyEvent){EV_EXIT, b->ccol[i], b->cnx[i], b->cny[i]};
   }
   for (int j = 0; j < n; j++) {
     int i = 0;
     while (i < b->ncontacts && b->ccol[i] != cols[j]) i++;
-    if (b->nevents < MAX_EVENTS) b->events[b->nevents++] = (BodyEvent){i == b->ncontacts ? EV_ENTER : EV_STAY, cols[j], nxs[j], nys[j]};
+    if (b->events && b->nevents < MAX_EVENTS) b->events[b->nevents++] = (BodyEvent){i == b->ncontacts ? EV_ENTER : EV_STAY, cols[j], nxs[j], nys[j]};
   }
   b->ncontacts = n;
   for (int j = 0; j < n; j++) b->ccol[j] = cols[j], b->cnx[j] = nxs[j], b->cny[j] = nys[j];

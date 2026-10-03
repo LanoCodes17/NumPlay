@@ -70,6 +70,10 @@ int main(int argc, char **argv) {
           printf("%4d keys %02x pos %.3f,%.3f v %.3f,%.3f state %d ground %d jump %d fall %d clip %d frame %d cam %.2f,%.2f\n", tick,
                  keys, g_hero.body.x, g_hero.body.y, g_hero.body.vx, g_hero.body.vy, g_hero.state, g_hero.cs.on_ground,
                  g_hero.cs.jumping, g_hero.cs.falling, g_hero.anim.clip, g_hero.anim.frame, g_cam_x, g_cam_y);
+        if (trace && getenv("ENEMIES")) {
+          extern void enemies_debug(void);
+          enemies_debug();
+        }
         if (shots && shot_every && tick % shot_every == 0) {
           char path[256];
           snprintf(path, sizeof path, "%s/%05d.ppm", shots, tick);

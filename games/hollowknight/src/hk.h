@@ -178,12 +178,13 @@ typedef struct {
   float x, y, vx, vy;     /* its position (the transform's) and velocity */
   float ox, oy, hx, hy;   /* the box: its center from the position, half its size */
   float gravity_scale;
+  float friction;         /* (with the ground's: the materials' combined) */
   uint8_t mask;           /* the colliders that stop it (CF_*) */
   int ncontacts;
   uint8_t ccol[MAX_CONTACTS];
   float cnx[MAX_CONTACTS], cny[MAX_CONTACTS];
-  int nevents;            /* the last step's: OnCollisionEnter2D, Stay, Exit */
-  BodyEvent events[MAX_EVENTS];
+  int nevents;            /* the last step's: OnCollisionEnter2D, Stay, Exit (into events, if it wants them) */
+  BodyEvent *events;
 } Body;
 void body_step(Body *b, float dt);
 
@@ -194,5 +195,7 @@ void gfx_frame(void);            /* draws the room at the camera into the screen
  * (SORT_KEY), then depth */
 bool gfx_actor(const Inst *in, uint32_t group);
 uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a);   /* a tint (for Inst.tint) of that color */
+/* the same, flashing: its colors towards (fr, fg, fb) by amount (SpriteFlash) */
+uint8_t gfx_dyn_flash(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a, uint8_t fr, uint8_t fg, uint8_t fb, uint8_t amount);
 extern uint8_t g_screen_fade;   /* 0 .. 255: the screen faded to black */
 extern uint32_t g_gfx_items, g_gfx_pixels;

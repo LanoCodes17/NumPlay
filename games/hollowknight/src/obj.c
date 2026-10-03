@@ -142,6 +142,7 @@ static void breakable_hit(Obj *o, const Ent *e, float direction) {
 void obj_enter(void) {
   nobjs = 0;
   phys_colliders_reset();
+  enemies_enter();
   memset(pieces, 0, sizeof pieces);
   memset(swing_hit, 0, sizeof swing_hit);
   int n;
@@ -154,17 +155,26 @@ void obj_enter(void) {
   }
 }
 
-void obj_tick(void) { pieces_tick(); }
+void obj_tick(void) {
+  pieces_tick();
+  enemies_update();
+}
 
-void obj_draw(void) { pieces_draw(); }
+void obj_draw(void) {
+  pieces_draw();
+  enemies_draw();
+}
 
 /* ---------------------------------------------------------------- the nail */
-void obj_swing_start(void) { memset(swing_hit, 0, sizeof swing_hit); }
+void obj_swing_start(void) {
+  memset(swing_hit, 0, sizeof swing_hit);
+  enemies_swing_start();
+}
 
 /* the slash's shape this step (world, convex): what it touches is hit (once a swing), the direction (degrees) the
  * blow goes; -> what the Knight does (HB_*: bounce, recoil) */
 int obj_nail(const float *pts, int npts, float direction) {
-  int out = 0;
+  int out = enemies_nail(pts, npts, direction, g_pd.nail_damage);
   for (int k = 0; k < nobjs; k++) {
     Obj *o = &objs[k];
     const Ent *e = ent_at(o->ent);

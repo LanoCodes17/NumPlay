@@ -7,8 +7,9 @@
 typedef struct {
   uint8_t persist[MAX_PERSIST / 8];   /* the objects' states (PersistentBoolItem) */
   int8_t health, max_health, health_blue;
-  int16_t mp, mp_reserve, max_mp;
+  int16_t mp, mp_reserve, max_mp, mp_reserve_max;
   int32_t geo;
+  int8_t nail_damage;
   bool can_dash, has_spell, has_dash;
   uint8_t fireball_level;
   bool disable_pause;
@@ -18,7 +19,7 @@ extern PlayerData g_pd;
 /* ---------------------------------------------------------------- the room's game objects (tools/ents.py) */
 enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE,
        ENT_BOX, ENT_OBJ, ENT_PIECE };   /* (shape, box, piece: more of the record before) */
-enum { OK_BREAKABLE = 1 };                /* objects (ENT_OBJ's flags) */
+enum { OK_BREAKABLE = 1, OK_ENEMY };     /* objects (ENT_OBJ's flags) */
 enum { HB_BOUNCE = 1, HB_RECOIL = 2 };    /* a hit box (ENT_BOX's flags): a down slash bounces off it, a slash recoils */
 enum { HAZ_NONE, HAZ_NORMAL, HAZ_SPIKES, HAZ_ACID, HAZ_LAVA, HAZ_PIT };   /* DamageHero.hazardType */
 enum { MK_SECRET = 1, MK_REMASK = 2, MK_SIMPLE = 4 };   /* masks: the unmasker, remasker and inverse FSMs */
@@ -52,6 +53,15 @@ void obj_draw(void);
 void obj_swing_start(void);                                  /* a slash's hit shape on: what it hits, once */
 int obj_nail(const float *pts, int npts, float direction);   /* -> HB_* of what it touches */
 float rand_range(float lo, float hi);   /* Random.Range (floats) */
+
+/* enemies, their corpses, geo (enemy.c) */
+void enemies_enter(void);
+void enemies_fixed(void);    /* FixedUpdate and their physics */
+void enemies_update(void);   /* Update */
+void enemies_draw(void);
+void enemies_swing_start(void);
+int enemies_nail(const float *pts, int npts, float direction, int damage);
+int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side);   /* -> its damage, 0: none */
 int cardinal(float degrees);            /* DirectionUtils.GetCardinalDirection */
 const Ent *room_ents(int *n);
 #define MAX_ENTS 320
@@ -66,13 +76,16 @@ typedef struct {
   bool hazard_facing_right;
   /* GameManager's coroutines */
   uint8_t freeze_phase;
-  float freeze_t, freeze_from;
+  bool freeze_hero;
+  float freeze_t, freeze_from, freeze_down, freeze_wait, freeze_up, freeze_target;
   uint8_t hazard_phase;
   float hazard_t;
   /* the camera's fade to black */
   float fade, fade_from, fade_to, fade_t, fade_time, fade_delay;
 } Game;
-void game_freeze_moment(void);         /* GameManager.FreezeMoment (a hit) */
+void game_freeze_moment(void);         /* the Knight hit: FreezeMoment with HeroController's DAMAGE_FREEZE_* */
+void game_freeze(float down, float wait, float up, float target, bool hero);   /* GameManager.FreezeMoment */
+#define FREEZE_MOMENT_1() game_freeze(0.04f, 0.03f, 0.04f, 0, false)              /* FreezeMoment(1): a kill */
 void game_player_dead_from_hazard(void);
 void game_fade(float to, float time, float delay);
 extern Game g_game;
@@ -140,6 +153,8 @@ void hero_recoil_unfreeze(void);       /* the end of StartRecoil, after the free
 void hero_hazard_respawn(void);        /* HeroController.HazardRespawn */
 void hero_check_damage(void);          /* HeroBox: the hazards and enemies touching it */
 void hero_late_update(void);           /* (HeroBox.LateUpdate: a buffered hit) */
+void hero_soul_gain(void);             /* a nail's hit on an enemy */
+void hero_add_geo(int amount);
 
 /* the nail's slashes (NailSlash), children of the Knight */
 void slash_start(int kind);

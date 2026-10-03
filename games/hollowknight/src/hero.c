@@ -751,7 +751,9 @@ static void animation(void) {
 /* ---------------------------------------------------------------- the tick */
 void hero_init(float x, float y, bool facing_right) {
   Hero *h = &g_hero;
+  static BodyEvent events[MAX_EVENTS];
   memset(h, 0, sizeof *h);
+  h->body.events = events;
   h->body.x = x, h->body.y = y;
   h->body.ox = 0, h->body.oy = -0.75f, h->body.hx = 0.25f, h->body.hy = 0.640625f;   /* the Knight's BoxCollider2D */
   h->body.gravity_scale = DEFAULT_GRAVITY;
@@ -803,6 +805,13 @@ void hero_update(void) {
 
 void hero_draw(void) {
   Hero *h = &g_hero;
+  /* HeroLight: a child glow in the room's hero light color (SceneManager), blended as linear light */
+  const float *hl = g_room.h->hero_light;
+  Inst li;
+  sprite_inst(SPRITE_HERO_LIGHT, h->body.x, h->body.y - 0.6f, 0.004f + 0.0312f, 1, 1,
+              gfx_dyn_tint(1, (uint8_t)(hl[0] * 255), (uint8_t)(hl[1] * 255), (uint8_t)(hl[2] * 255), (uint8_t)(hl[3] * 255)), &li);
+  li.flags = (uint8_t)((li.flags & ~F_BLEND) | BL_LINEARLIGHT);
+  gfx_actor(&li, SORT_KEY(0, 0));
   if (h->hidden) return;
   Inst in;
   /* (InvulnerablePulse: the color towards its invulnerable one) */
@@ -1132,7 +1141,26 @@ void hero_check_damage(void) {
     } else
       hero_take_damage(side, damage, hazard);
   }
+  int side, damage = enemies_touch_hero(x0, y0, x1, y1, &side);
+  if (damage) hero_take_damage(side, damage, HAZ_NORMAL);
 }
+
+/* PlayerData.AddMPCharge: the vessel fills, then the reserve */
+static void add_mp_charge(int amount) {
+  PlayerData *p = &g_pd;
+  if (p->mp + amount > p->max_mp) {
+    if (p->mp_reserve < p->mp_reserve_max) {
+      p->mp_reserve = (int16_t)(p->mp_reserve + amount - (p->max_mp - p->mp));
+      if (p->mp_reserve > p->mp_reserve_max) p->mp_reserve = p->mp_reserve_max;
+    }
+    p->mp = p->max_mp;
+  } else
+    p->mp = (int16_t)(p->mp + amount);
+}
+
+void hero_soul_gain(void) { add_mp_charge(g_pd.mp < g_pd.max_mp ? 11 : 6); }
+
+void hero_add_geo(int amount) { g_pd.geo += amount; }
 
 void hero_late_update(void) {
   Hero *h = &g_hero;

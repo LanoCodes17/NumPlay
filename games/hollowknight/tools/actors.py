@@ -20,9 +20,31 @@ KNIGHT = ("resources.assets", 20600, [
     "Collect Heart Piece", "Collect Heart Piece End", "Collect StandToIdle", "GetUpToIdle",
 ])
 
-ACTORS = {"knight": KNIGHT}
+# enemies: their libraries (all their clips)
+ACTORS = {"knight": KNIGHT,
+          "crawler": ("sharedassets6.assets", 1113, None),
+          "buzzer": ("sharedassets6.assets", 1150, None),
+          "geo": ("resources.assets", 23266, ["Small Idle", "Small Air", "Med Idle", "Med Air", "Large Idle", "Large Air"])}
+
+# sprites of prefab objects the game draws itself: name -> (file, prefab, object, resolution)
+NAMED = {
+    "HERO_LIGHT": ("resources.assets", 3916, "Knight/HeroLight", 1.0),
+}
+
+
+def named_sprites(sprites):
+    """Registers NAMED in sprites (ents.Sprites) -> {name: sprite id}."""
+    out = {}
+    for name, (path, gid, opath, res) in NAMED.items():
+        d = unity.prefab(path, gid)
+        o = next(o for o in d["objects"] if o["path"] == opath)
+        v = next(c["v"] for c in o["c"] if c["type"] == "SpriteRenderer")
+        m = np.array(o["m3"]).reshape(3, 3)
+        out[name] = sprites.id(d, v["m_Sprite"], float(max(np.hypot(m[0, 0], m[1, 0]), np.hypot(m[0, 1], m[1, 1]))), res)
+    return out
 # clips drawn bigger than their sprites (the object's scale): their frames are kept that much finer
-DRAWN_SCALE = {"SlashEffect": 1.645, "SlashEffectAlt": 1.422, "UpSlashEffect": 1.4, "DownSlashEffect": 1.28}
+DRAWN_SCALE = {"SlashEffect": 1.645, "SlashEffectAlt": 1.422, "UpSlashEffect": 1.4, "DownSlashEffect": 1.28,
+               "Small Idle": 1.5, "Small Air": 1.5, "Med Idle": 1.5, "Med Air": 1.5, "Large Idle": 1.5, "Large Air": 1.5}
 K0 = scene.FOCAL / (0.004 - scene.CAMZ)   # screen pixels a unit, where actors are (z near 0)
 
 
@@ -37,7 +59,7 @@ def build():
     for actor, (path, pid, names) in ACTORS.items():
         lib = tk2d.animation(path, pid)
         byname = {unity.S(c["name"]): c for c in lib["clips"]}
-        for name in names:
+        for name in names or [unity.S(c["name"]) for c in lib["clips"]]:
             c = byname[name]
             frames = []
             for f in c["frames"]:
@@ -64,11 +86,11 @@ def unity_sprites(keys):
     """Unity sprites objects show as actors (ents.Sprites: debris...) -> sprite records like build()'s; each at its
     object's scale."""
     out = []
-    for level, exts, fid, pid, scale in keys:
+    for level, exts, fid, pid, scale, res in keys:
         s = unity.sprite(level, list(exts), fid, pid)
         img = unity.sprite_image(s)
         wu, hu = s.w / s.ppu * scale, s.h / s.ppu * scale
-        w, h = max(1, round(wu * K0)), max(1, round(hu * K0))
+        w, h = max(1, round(wu * K0 * res)), max(1, round(hu * K0 * res))
         arr = np.asarray(img.resize((w, h), Image.BOX)).copy()
         out.append({"key": (level, fid, pid), "job": art.ImageJob(arr, "piece/%s" % s.name),
                     "lx": -s.px * wu, "ty": (1 - s.py) * hu, "tu": wu / w, "tv": hu / h})

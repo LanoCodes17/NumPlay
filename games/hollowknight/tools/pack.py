@@ -290,6 +290,7 @@ def main():
     sprites, clips = actors.build()
     # the rooms' objects, and the sprites they show (after the actors')
     SPRITES.base = len(sprites)
+    named = actors.named_sprites(SPRITES)
     for r in ROOMS:
         room_data(r)
     sprites += actors.unity_sprites(SPRITES.list)
@@ -403,6 +404,8 @@ def main():
             f.write("#define ROOM_%s %d\n" % (r.upper(), i))
         for i, c in enumerate(clips):
             f.write("#define %s %d\n" % (c["id"], i))
+        for k, v in named.items():
+            f.write("#define SPRITE_%s %d\n" % (k, v))
 
 
 if __name__ == "__main__":

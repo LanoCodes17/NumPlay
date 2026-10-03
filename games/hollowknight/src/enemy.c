@@ -5306,6 +5306,14 @@ static void ho_box(Enemy *e, int b) {
   e->body.hx = (q[2] * c + q[3] * s) / 2, e->body.hy = (q[2] * s + q[3] * c) / 2;
 }
 
+/* (put into the floor by a snap to the wall: the physics pushes her out of it, up, the least way) */
+static void ho_unsink(Enemy *e, bool left) {
+  float x = e->body.x + e->body.ox + (left ? 0.5f : -0.5f), top = e->body.y + e->body.oy + e->body.hy;
+  float bottom = top - 2 * e->body.hy;
+  PhysHit h;
+  if (phys_ray(x, top, 0, -1, top - bottom, CF_TERRAIN, &h) && h.y > bottom) e->body.y += h.y - bottom + 0.01f;
+}
+
 /* SetBoxColliderTrigger: a trigger touches nothing */
 static void ho_trigger(Enemy *e, bool on) { e->body.mask = on ? 0 : CF_SOLID; }
 
@@ -5895,6 +5903,7 @@ static void hornet_update(Enemy *e) {
         e->body.x = left ? HO_WALL_L : HO_WALL_R;
         ho_trigger(e, false);
         ho_box(e, HB_IDLE);
+        ho_unsink(e, left);
         anim_play_from_frame(&e->anim, CLIP_HORNET_WALL_IMPACT, 0);
         e->c0 = left;
         e->st = HO_WALL;
@@ -6827,4 +6836,4 @@ void enemies_debug_hit(int damage) {
 #endif
 
 /* her Hornet Saver (walls round her arena): ActivateAllChildren */
-void enemies_hornet_saver(bool on) { (void)on; }
+void enemies_hornet_saver(bool on) { vm_activate_children(VMSTR_HORNET_SAVER, on); }

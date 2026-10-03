@@ -373,6 +373,17 @@ static void gate_tick(Obj *o, const Ent *e) {
   }
 }
 
+/* a gate by its name (the scripts': FindGameObject) -> its object, or -1; an event to it alone */
+int gate_find(uint16_t name) {
+  for (int k = 0; k < nobjs; k++)
+    if (objs[k].kind == OK_BGATE && (uint16_t)ent_at(objs[k].ent)->p2 == name) return k;
+  return -1;
+}
+
+void gate_event_at(int k, int ev) {
+  if (k >= 0 && k < nobjs && objs[k].kind == OK_BGATE) gate_event(&objs[k], ent_at(objs[k].ent), ev);
+}
+
 void gates_event(int ev) {
 #ifdef HOST
   if (getenv("HKOBJ")) fprintf(stderr, "gates event %d\n", ev);

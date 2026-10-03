@@ -19,6 +19,7 @@ TEXTS = text.Texts()
 PROMPTS = ["Listen", "Rest", "Inspect", "Enter", "Sit", "Shop", "Travel", "Ascend", "Descend", "Exit", "Accept", "Trade",
            "Watch", "Challenge"]
 ROOM_DATA = {}   # name -> (coll.room's, ents.room's)
+ROOM_OWNERS = {}   # (name, variant) -> each collider's owner: (scene, object id)
 
 
 def room_data(name, variant=0):
@@ -34,6 +35,7 @@ def room_data(name, variant=0):
         recs, gr = ents.room(d, ROOMS, STRINGS, PERSIST, name, SPRITES, owners)
         groups = {(name, k): g for k, g in gr.items()}
         segs, cols, recs = list(segs), list(cols), list(recs)
+        own = [(name, oid) for oid in owners]
         gb = max(gr.values(), default=0)
         spans = {}
         for an, flag, val, which in scene.additive(name):
@@ -49,9 +51,11 @@ def room_data(name, variant=0):
             if (which == 1) == (variant == 0):
                 segs += [(x0, y0, x1, y1, ci + len(cols)) for x0, y0, x1, y1, ci in asegs]
                 cols += acols
+                own += [(an, oid) for oid in aown]
                 recs += ar
         assert gb < ents.MAX_GROUPS, (name, gb)
         ROOM_DATA[(name, variant)] = ((solid, segs, cols, owners), (recs, groups), spans)
+        ROOM_OWNERS[(name, variant)] = own
     return ROOM_DATA[(name, variant)]
 
 SECTIONS = ["TEX", "PAL", "TDAT", "ROOMS", "RBLOB", "PRIOR", "SOFT", "SPR", "CLIP", "STR", "TEXT", "FONT", "PHASH",
@@ -491,10 +495,10 @@ def main():
         if r in VARIANT_ROOMS:
             room_data(r, 1)
     clip_index = {c["id"]: i for i, c in enumerate(clips)}
-    vm_rooms = [vm.room_blob(r, clip_index, SPRITES) for r in ROOMS]
+    vm_rooms = [vm.room_blob(r, clip_index, SPRITES, ROOM_OWNERS.get((r, 0), [])) for r in ROOMS]
     sheet = text.sheets()["Prompts"]
     vm_prompts = {s: TEXTS.id("Prompts", s.upper(), "PROMPT") for s in vm.STR.list if s.upper() in sheet}
-    for s in ("NPC Title", "Visited", "Display Right"):
+    for s in ("NPC Title", "Visited", "Display Right", "Hornet Saver"):
         vm.STR.id(s)
     sprites += actors.unity_sprites(SPRITES.list)
     # the HUD's geo count: TrajanPro-Bold digits (TextMesh: size 45, character size 1, scale 0.1527)
@@ -695,9 +699,9 @@ def main():
         f.write("#define DIGIT_ADV {%s}\n" % ", ".join("%.4ff" % a for a in digit_adv))
         for name, (code, _) in vm.OPS.items():
             f.write("#define VMOP_%s %d\n" % (name.upper(), code))
-        for i, e in enumerate(vm.EVENTS.list[:15]):
+        for i, e in enumerate(vm.EVENTS.list[:vm.FIXED_EVENTS]):
             f.write("#define VMEV_%s %d\n" % (e.upper().replace(" ", "_"), i))
-        for name in ("NPC Title", "Visited", "Display Right"):
+        for name in ("NPC Title", "Visited", "Display Right", "Hornet Saver"):
             f.write("#define VMSTR_%s %d\n" % (name.upper().replace(" ", "_"), vm.STR.index[name]))
         for name, i in str_ids.items():
             f.write("#define STR_%s %d\n" % (name.upper().replace(" ", "_"), i))

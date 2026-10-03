@@ -98,13 +98,17 @@ def path_key(d):
     return key
 
 
+# objects off in the scene whose colliders the scripts turn on (ActivateAllChildren): there, off at first
+SWITCHED = {"Hornet Saver/Colliders"}
+
+
 def room(d, w, h):
     """-> (solid tiles of the tilemap, segments [(x0, y0, x1, y1, collider)], colliders [flags], each collider's object
     id); collider 0 is the tilemap's. An object's subtree has consecutive colliders (subtree_colliders)."""
     segs, cols, owners = [], [CF_SOLID | CF_TERRAIN], [0]
     tm_edges = []
     for o in sorted(d["objects"], key=path_key(d)):
-        if not o["active"] or o["layer"] not in SOLID_LAYERS:
+        if (not o["active"] and o["path"] not in SWITCHED) or o["layer"] not in SOLID_LAYERS:
             continue
         if "TileMap Render Data/" in o["path"]:
             for c in o["c"]:

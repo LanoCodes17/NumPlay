@@ -17,9 +17,12 @@
 #define NONE 0xFFFF
 #define OWNER 0xFF0F
 enum { O_HERO = 0xFF00, O_HERO_LIGHT, O_DIALOGUE_MANAGER, O_DIALOGUE_TEXT, O_AREA_TITLE, O_CAMERA_PARENT, O_MAIN_CAMERA,
-       O_GAME_MANAGER, O_HUD_BLANKER };
+       O_GAME_MANAGER, O_HUD_BLANKER, O_HORNET = 0xFF0C };
+#define O_GATE 0xFD00   /* (+ k: a battle gate, obj.c's) */
 enum { OF_ACTIVE = 1, OF_RENDERER = 2, OF_ANIMATOR = 4, OF_TRIGGER = 8, OF_COLLIDER = 16,
-       OF_GONE = 32, OF_INSIDE = 64, OF_WAS_INSIDE = 128 };
+       OF_GONE = 32, OF_INSIDE = 64, OF_WAS_INSIDE = 128,
+       OF_COND_OFF = 256,                                       /* (not there: its condition) */
+       OF_SPELL_HIT = 512, OF_SPELL_IN = 1024, OF_SPELL_WAS = 2048 };   /* (a spell in its trigger) */
 #define OF_ANIM_OFF 32   /* (its record's: off once its clip is over, DeactivateAfter2dtkAnimation) */
 #define OF_STARTED 4     /* (its own: its animator started, the first time it was on) */
 enum { M_ENTER, M_UPDATE, M_FIXED };
@@ -31,16 +34,21 @@ typedef struct {
   uint16_t cond, layer;
   int16_t order;
   uint16_t blend;   /* (its material's: BL_*) */
+  uint8_t col0, ncol;   /* (the colliders it has: on as it is) */
+  uint16_t pad;
 } ObjRec;
 
 typedef struct {
   float x, y, sx, sy;   /* its place and scale now */
   Anim anim;
-  uint8_t flags;
+  uint16_t flags;
 } Obj;
 typedef struct {
   int16_t obj;          /* (-1: none) */
   float vx, vy, g;      /* (one the scripts set moving: velocity, gravity scale) */
+  /* (iTweenMoveBy: from, by, time so far, its time, ease; 1 going, 2 over) */
+  float tx, ty, tdx, tdy, tt, ttime;
+  uint8_t ease, tween;
 } Mover;
 
 typedef struct {
@@ -174,6 +182,7 @@ static int pd_int(int i) {
     case 7: return g_pd.shaman;
     case 8: return g_pd.elderbug;
     case 10: return g_pd.nail_damage;
+    case 11: return g_pd.hornet_greenpath;
     default: return 0;
   }
 }
@@ -185,6 +194,7 @@ static void pd_set_int(int i, int v) {
     case 4: g_pd.fireball_level = (uint8_t)v; break;
     case 7: g_pd.shaman = (uint8_t)v; break;
     case 8: g_pd.elderbug = (uint8_t)v; break;
+    case 11: g_pd.hornet_greenpath = (uint8_t)v; break;
   }
 }
 
@@ -260,7 +270,8 @@ static Mover *mover(int o, bool make) {
   if (!make) return NULL;
   for (int i = 0; i < MAX_MOVERS; i++)
     if (vm.movers[i].obj < 0) {
-      vm.movers[i] = (Mover){(int16_t)o, 0, 0, 0};
+      memset(&vm.movers[i], 0, sizeof vm.movers[i]);
+      vm.movers[i].obj = (int16_t)o;
       return &vm.movers[i];
     }
   return NULL;
@@ -275,6 +286,13 @@ static void anims_start(void) {
     }
 }
 
+/* (the colliders objects have: on as they are) */
+static void obj_colliders(void) {
+  for (int i = 0; i < vm.nobjs; i++)
+    if (vm.rec[i].ncol && !(vm.objs[i].flags & OF_COND_OFF))
+      for (int c = vm.rec[i].col0; c < vm.rec[i].col0 + vm.rec[i].ncol; c++) phys_collider_enable(c, obj_active(i));
+}
+
 static void fsm_start(Fsm *f);
 static void obj_set_active(int o, bool on) {
   if (o == O_AREA_TITLE) {
@@ -284,7 +302,7 @@ static void obj_set_active(int o, bool on) {
   if (!obj_ok(o)) return;
   bool was = obj_active(o);
   if (on) vm.objs[o].flags |= OF_ACTIVE;
-  else vm.objs[o].flags &= (uint8_t)~OF_ACTIVE;
+  else vm.objs[o].flags &= (uint16_t)~OF_ACTIVE;
   if (!was && on) anims_start();
   /* (an FSM starts again as its object comes on: RestartOnEnable) */
   if (!was && on)
@@ -295,6 +313,7 @@ static void obj_set_active(int o, bool on) {
   if (was && !on)
     for (int i = 0; i < vm.nfsms; i++)
       if (vm.fsms[i].on && !obj_active(vm.fsms[i].owner)) vm.fsms[i].on = false;
+  if (was != on) obj_colliders();
 }
 
 static bool hero_box_in(int o) {
@@ -344,6 +363,14 @@ void vm_broadcast(int ev) {
 }
 
 static void obj_event(int o, int ev, uint16_t fsm_name) {
+  if (o >= O_GATE && o < O_GATE + 0x100) {
+    if (ev >= VMEV_BG_CLOSE && ev <= VMEV_BG_DESTROY) gate_event_at(o - O_GATE, ev - VMEV_BG_CLOSE);
+    return;
+  }
+  if (o == O_HORNET) {
+    if (ev == VMEV_WAKE) enemies_hornet_wake();
+    return;
+  }
   if (o == O_DIALOGUE_MANAGER) {
     if (ev == VMEV_BOX_UP) dialogue_box_up();
     else if (ev == VMEV_BOX_DOWN) dialogue_box_down();
@@ -355,7 +382,8 @@ static void obj_event(int o, int ev, uint16_t fsm_name) {
 
 /* events the game's own objects hear */
 static void game_event(int ev) {
-  if (ev == VMEV_NPC_TITLE_DOWN) title_npc_down();
+  if (ev >= VMEV_BG_CLOSE && ev <= VMEV_BG_DESTROY) gates_event(ev - VMEV_BG_CLOSE);
+  else if (ev == VMEV_NPC_TITLE_DOWN) title_npc_down();
   else if (ev == VMEV_NPC_CONVO_START) title_npc_convo_start();
 }
 
@@ -597,13 +625,13 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       int o = oval(f, rv(&r));
       bool on = val(f, rv(&r)) != 0;
       if (o == O_HERO) g_hero.hidden = !on;
-      else if (obj_ok(o)) vm.objs[o].flags = (uint8_t)(on ? vm.objs[o].flags | OF_RENDERER : vm.objs[o].flags & ~OF_RENDERER);
+      else if (obj_ok(o)) vm.objs[o].flags = (uint16_t)(on ? vm.objs[o].flags | OF_RENDERER : vm.objs[o].flags & ~OF_RENDERER);
       return true;
     }
     case VMOP_SETCOLLIDER: {
       int o = oval(f, rv(&r));
       bool on = val(f, rv(&r)) != 0;
-      if (obj_ok(o)) vm.objs[o].flags = (uint8_t)(on ? vm.objs[o].flags | OF_COLLIDER : vm.objs[o].flags & ~OF_COLLIDER);
+      if (obj_ok(o)) vm.objs[o].flags = (uint16_t)(on ? vm.objs[o].flags | OF_COLLIDER : vm.objs[o].flags & ~OF_COLLIDER);
       return true;
     }
     case VMOP_DESTROYOBJECT: {
@@ -771,11 +799,11 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       return !every;
     }
     case VMOP_TRIGGER2DEVENT: {
-      /* (the Knight against its owner's trigger: 0 entering, 1 in it, 2 leaving) */
-      int kind = rb(&r), ev = rb(&r);
+      /* (the Knight, or a spell, against its owner's trigger: 0 entering, 1 in it, 2 leaving) */
+      int kind = rb(&r), ev = rb(&r), tag = rb(&r);
       if (mode != M_FIXED || !obj_ok(f->owner) || !(vm.objs[f->owner].flags & OF_COLLIDER)) return false;
-      uint8_t fl = vm.objs[f->owner].flags;
-      bool in = fl & OF_INSIDE, was = fl & OF_WAS_INSIDE;
+      uint16_t fl = vm.objs[f->owner].flags;
+      bool in = fl & (tag ? OF_SPELL_IN : OF_INSIDE), was = fl & (tag ? OF_SPELL_WAS : OF_WAS_INSIDE);
       if ((kind == 0 && in && !was) || (kind == 1 && in) || (kind == 2 && !in && was)) fsm_event(f, ev);
       return false;
     }
@@ -920,6 +948,11 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       int found = NONE;
       for (int i = 0; i < vm.nobjs && found == NONE; i++)
         if (vm.rec[i].name == name && obj_active(i)) found = i;
+      if (found == NONE) {
+        /* (a battle gate: the game's) */
+        int g = gate_find(name);
+        if (g >= 0) found = O_GATE + g;
+      }
       set_var(f, rb(&r), (uint32_t)found);
       return true;
     }
@@ -930,14 +963,81 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       uint8_t store = rb(&r);
       if (obj_ok(o)) {
         if (has(x) && has(y)) obj_move(o, fval(f, x), fval(f, y));
-        vm.objs[o].flags &= (uint8_t)~OF_GONE;
+        vm.objs[o].flags &= (uint16_t)~OF_GONE;
         obj_set_active(o, true);
       }
       set_var(f, store, (uint32_t)o);
       return true;
     }
+    case VMOP_ACTIVATEALLCHILDREN: {
+      int o = oval(f, rv(&r));
+      bool on = val(f, rv(&r)) != 0;
+      for (int c = 0; c < vm.nobjs; c++)
+        if (obj_ok(o) && vm.rec[c].parent == o) obj_set_active(c, on);
+      return true;
+    }
+    case VMOP_ITWEENMOVEBY: {
+      /* (by a vector, in a time, eased; over once it is there) */
+      int o = oval(f, rv(&r));
+      uint16_t vec = rv(&r);
+      float t = fval(f, rv(&r));
+      int ease = rb(&r), ev = rb(&r);
+      Mover *m = mover(o, enter);
+      if (enter) {
+        if (!m) return true;
+        obj_pos(o, &m->tx, &m->ty);
+        m->tdx = has(vec) ? fval(f, vec) : 0, m->tdy = has(vec) ? fval(f, (uint16_t)(vec + 1)) : 0;
+        m->tt = 0, m->ttime = t, m->ease = (uint8_t)ease, m->tween = 1;
+        return false;
+      }
+      if (mode == M_UPDATE && (!m || m->tween != 1)) {
+        if (m) m->tween = 0;
+        fsm_event(f, ev);
+        return true;
+      }
+      return false;
+    }
     default:
       return true;
+  }
+}
+
+/* iTween's eases (EaseType: quad, cubic, quart, quint each in, out, in-out; sine, expo, circ; linear) */
+static float ease(int type, float k) {
+  int g = type / 3, w = type % 3;
+  if (type >= 21) return k;
+  switch (g) {
+    case 0: return w == 0 ? k * k : w == 1 ? 1 - (1 - k) * (1 - k) : k < 0.5f ? 2 * k * k : 1 - 2 * (1 - k) * (1 - k);
+    case 1: return w == 0 ? k * k * k : w == 1 ? 1 - (1 - k) * (1 - k) * (1 - k)
+                 : k < 0.5f ? 4 * k * k * k : 1 - 4 * (1 - k) * (1 - k) * (1 - k);
+    case 2: return w == 0 ? k * k * k * k : w == 1 ? 1 - powf(1 - k, 4) : k < 0.5f ? 8 * powf(k, 4) : 1 - 8 * powf(1 - k, 4);
+    case 3: return w == 0 ? powf(k, 5) : w == 1 ? 1 - powf(1 - k, 5) : k < 0.5f ? 16 * powf(k, 5) : 1 - 16 * powf(1 - k, 5);
+    case 4: return w == 0 ? 1 - cosf(k * (float)M_PI / 2) : w == 1 ? sinf(k * (float)M_PI / 2) : (1 - cosf(k * (float)M_PI)) / 2;
+    case 5:
+      if (k <= 0 || k >= 1) return k;
+      return w == 0 ? powf(2, 10 * (k - 1)) : w == 1 ? 1 - powf(2, -10 * k)
+           : k < 0.5f ? powf(2, 20 * k - 10) / 2 : 1 - powf(2, -20 * k + 10) / 2;
+    default:
+      return w == 0 ? 1 - sqrtf(1 - k * k) : w == 1 ? sqrtf(1 - (k - 1) * (k - 1))
+           : k < 0.5f ? (1 - sqrtf(1 - 4 * k * k)) / 2 : (1 + sqrtf(1 - (2 * k - 2) * (2 * k - 2))) / 2;
+  }
+}
+
+/* ActivateAllChildren of an object the game names (Hornet's Hornet Saver) */
+void vm_activate_children(uint16_t name, bool on) {
+  for (int o = 0; o < vm.nobjs; o++)
+    if (vm.rec[o].name == name && !(vm.objs[o].flags & OF_COND_OFF))
+      for (int c = 0; c < vm.nobjs; c++)
+        if (vm.rec[c].parent == o) obj_set_active(c, on);
+}
+
+/* (a spell's box: the triggers it is in, this step) */
+void vm_spell(float x0, float y0, float x1, float y1) {
+  for (int i = 0; i < vm.nobjs; i++) {
+    const ObjRec *r = &vm.rec[i];
+    float cx = vm.objs[i].x + r->bx, cy = vm.objs[i].y + r->by;
+    if ((r->flags & OF_TRIGGER) && x1 > cx - r->bhx && x0 < cx + r->bhx && y1 > cy - r->bhy && y0 < cy + r->bhy)
+      vm.objs[i].flags |= OF_SPELL_HIT;
   }
 }
 
@@ -1018,8 +1118,8 @@ void vm_enter(void) {
     Obj *o = &vm.objs[i];
     o->x = r->x, o->y = r->y, o->sx = r->sx, o->sy = r->sy;
     o->flags = r->flags & (OF_ACTIVE | OF_RENDERER | OF_COLLIDER);
-    /* (DeactivateIfPlayerdataTrue, False) */
-    if (r->cond != NONE && pd_flag(r->cond & 0x7FFF) == ((r->cond & 0x8000) != 0)) o->flags &= (uint8_t)~OF_ACTIVE;
+    /* (DeactivateIfPlayerdataTrue, False; or a scene loaded with the room's by a bool, not now) */
+    if (r->cond != NONE && pd_flag(r->cond & 0x7FFF) == ((r->cond & 0x8000) != 0)) o->flags = OF_COND_OFF;
     o->anim.clip = -1, o->anim.sprite = -1;
   }
   const uint8_t *p = vm.map + 4 * nmap;
@@ -1036,6 +1136,11 @@ void vm_enter(void) {
   }
   vm.nfsms = nfsms;
   vm.prev_keys = g_hero.keys;
+  /* (what it holds within the condition's: off too) */
+  for (int i = 0; i < nobjs; i++)
+    for (int p = vm.rec[i].parent, k = 0; p != NONE && p < nobjs && k < 16; p = vm.rec[p].parent, k++)
+      if (vm.objs[p].flags & OF_COND_OFF) vm.objs[i].flags = OF_COND_OFF;
+  obj_colliders();
   anims_start();
   for (int i = 0; i < nfsms; i++)
     if (obj_active(vm.fsms[i].owner)) fsm_start(&vm.fsms[i]);
@@ -1046,9 +1151,12 @@ void vm_tick(void) {
   /* the Knight in the objects' triggers */
   for (int i = 0; i < vm.nobjs; i++) {
     Obj *o = &vm.objs[i];
-    o->flags = (uint8_t)((o->flags & ~OF_WAS_INSIDE) | ((o->flags & OF_INSIDE) ? OF_WAS_INSIDE : 0));
-    bool in = (vm.rec[i].flags & OF_TRIGGER) && (o->flags & OF_COLLIDER) && obj_active(i) && hero_box_in(i);
-    o->flags = (uint8_t)(in ? o->flags | OF_INSIDE : o->flags & ~OF_INSIDE);
+    o->flags = (uint16_t)((o->flags & ~(OF_WAS_INSIDE | OF_SPELL_WAS)) | ((o->flags & OF_INSIDE) ? OF_WAS_INSIDE : 0) |
+                          ((o->flags & OF_SPELL_IN) ? OF_SPELL_WAS : 0));
+    bool on = (vm.rec[i].flags & OF_TRIGGER) && (o->flags & OF_COLLIDER) && obj_active(i);
+    bool in = on && hero_box_in(i), spell = on && (o->flags & OF_SPELL_HIT);
+    o->flags = (uint16_t)((in ? o->flags | OF_INSIDE : o->flags & ~OF_INSIDE) & ~OF_SPELL_HIT);
+    o->flags = (uint16_t)(spell ? o->flags | OF_SPELL_IN : o->flags & ~OF_SPELL_IN);
     o->anim.events = 0;
     anim_update(&o->anim, DT);
     if ((vm.rec[i].flags & OF_ANIM_OFF) && (o->anim.events & ANIM_DONE)) obj_set_active(i, false);
@@ -1070,6 +1178,16 @@ void vm_tick(void) {
     o->x += m->vx * DT;
   }
   for (int i = 0; i < vm.nfsms; i++) fsm_step(&vm.fsms[i], M_FIXED);
+  /* (tweens: iTween's Update) */
+  for (int k = 0; k < MAX_MOVERS; k++) {
+    Mover *m = &vm.movers[k];
+    if (m->obj < 0 || m->tween != 1) continue;
+    m->tt += DT;
+    float q = m->ttime > 0 ? m->tt / m->ttime : 1;
+    if (q >= 1) q = 1, m->tween = 2;
+    float e = ease(m->ease, q);
+    obj_move(m->obj, m->tx + m->tdx * e, m->ty + m->tdy * e);
+  }
   for (int i = 0; i < vm.nfsms; i++) fsm_step(&vm.fsms[i], M_UPDATE);
   vm.prev_keys = g_hero.keys;
   if (vm.title_start) {
@@ -1105,7 +1223,7 @@ void vm_debug(void) {
   printf("\n");
   if (getenv("VMOBJ"))
     for (int i = 0; i < vm.nobjs; i++)
-      printf("   obj %d name %d flags %d active %d at %.2f,%.2f clip %d sprite %d\n", i, vm.rec[i].name, vm.objs[i].flags,
-             obj_active(i), vm.objs[i].x, vm.objs[i].y, vm.objs[i].anim.clip, vm.objs[i].anim.sprite);
+      printf("   obj %d name %d flags %d active %d cols %d+%d at %.2f,%.2f clip %d sprite %d\n", i, vm.rec[i].name, vm.objs[i].flags,
+             obj_active(i), vm.rec[i].col0, vm.rec[i].ncol, vm.objs[i].x, vm.objs[i].y, vm.objs[i].anim.clip, vm.objs[i].anim.sprite);
 }
 #endif

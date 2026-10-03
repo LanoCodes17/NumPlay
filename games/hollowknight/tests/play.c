@@ -58,6 +58,7 @@ int main(int argc, char **argv) {
     if (getenv("HKHEALTH")) g_pd.health = (int8_t)atoi(getenv("HKHEALTH"));
     if (getenv("HKGEO")) g_pd.geo = atoi(getenv("HKGEO"));
     if (getenv("HKFIRE")) g_pd.fireball_level = atoi(getenv("HKFIRE"));
+    if (getenv("HKHORNETGP")) g_pd.hornet_greenpath = (uint8_t)atoi(getenv("HKHORNETGP"));
     for (const char *f = getenv("HKFLAGS"); f && *f;) {   /* (PlayerData bools on, by number: "7,8") */
       pd_set_flag(atoi(f), true);
       while (*f && *f != ',') f++;
@@ -100,6 +101,9 @@ int main(int argc, char **argv) {
           printf("%4d keys %02x pos %.3f,%.3f v %.3f,%.3f state %d ground %d jump %d fall %d clip %d frame %d cam %.2f,%.2f\n", tick,
                  keys, g_hero.body.x, g_hero.body.y, g_hero.body.vx, g_hero.body.vy, g_hero.state, g_hero.cs.on_ground,
                  g_hero.cs.jumping, g_hero.cs.falling, g_hero.anim.clip, g_hero.anim.frame, g_cam_x, g_cam_y);
+        if (trace && getenv("HKCONTACTS"))
+          for (int c = 0; c < g_hero.body.ncontacts; c++)
+            printf("   contact col %d n %.2f,%.2f\n", g_hero.body.ccol[c], g_hero.body.cnx[c], g_hero.body.cny[c]);
         if (trace && getenv("HKSTATS")) printf("   health %d blue %d mp %d geo %d\n", g_pd.health, g_pd.health_blue, g_pd.mp, (int)g_pd.geo);
         if (trace && getenv("VMDEBUG")) {
           extern void vm_debug(void);

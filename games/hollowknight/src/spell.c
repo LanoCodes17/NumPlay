@@ -290,6 +290,7 @@ static void fireball_hit_things(Fireball *f) {
   float dir = f->right ? 0 : 180;
   f->hit_enemies |= enemies_spell(cx - hx, cy - hy, cx + hx, cy + hy, dir, FB_DAMAGE, FB_MAGNITUDE, f->hit_enemies);
   obj_spell(cx - hx, cy - hy, cx + hx, cy + hy, dir, f->hit_objs);
+  vm_spell(cx - hx, cy - hy, cx + hx, cy + hy);
 }
 
 void fireballs_tick(void) {

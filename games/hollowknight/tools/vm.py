@@ -11,6 +11,7 @@ import unity, text, state
 # rooms -> the objects whose scripts run here (and all under them)
 ROOMS = {
     "Town": ["_NPCs/Elderbug"],
+    "Fungus1_04": ["Hornet Infected Knight Encounter", "Hornet Saver"],
     "Crossroads_ShamanTemple": ["_Props/Shaman Meeting", "_Props/Shaman Trapped", "_Props/Shaman Killed Blocker",
                                 "_Props/Knight Get Fireball", "Battle Scene/Reminder Cast"],
 }
@@ -28,7 +29,7 @@ SPECIAL = {"Hero": 0xFF00, "HeroLight": 0xFF01, "DialogueManager": 0xFF02, "Dial
 O_NONE = 0xFFFF
 # PlayerData ints (src/vm.c: pd_int)
 PD_INTS = ["MPCharge", "health", "maxHealth", "geo", "fireballLevel", "quakeLevel", "screamLevel", "shaman", "elderbug",
-           "permadeathMode", "nailDamage"]
+           "permadeathMode", "nailDamage", "hornetGreenpath"]
 # PlayerData bools kept elsewhere (src/vm.c)
 PD_SPECIAL = {"disablePause": 0xFFF0, "hasSpell": 0xFFF1}
 # PlayerData bools that keep their new game value all through this part of the game
@@ -61,8 +62,9 @@ STR = Strings()
 EVENTS = Strings()
 for e in ("FINISHED", "CONVO_FINISH", "CONVO START", "CONVO END", "BIG TITLE START", "BIG TITLE END", "HERO DAMAGED",
           "NPC TITLE DOWN", "NPC CONVO START", "BOX UP", "BOX DOWN", "LEAVING SCENE", "TAKE DAMAGE", "GET ITEM MSG END",
-          "HORNET LEAVE"):
+          "HORNET LEAVE", "BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY", "WAKE"):
     EVENTS.id(e)
+FIXED_EVENTS = len(EVENTS.list)   # (src/data.h: VMEV_*)
 
 # ---------------------------------------------------------------- the actions it runs: name -> (opcode, operands)
 # operand kinds: f i b s o value slots (u16), F I B S O V output variables (u8: 255 none), e event (u8), t event target,
@@ -145,7 +147,7 @@ op("Tk2dPlayAnimationWithEvents", ("gameObject", "o"), ("clipName", "s"), ("anim
 op("Tk2dWatchAnimationEvents", ("gameObject", "o"), ("animationTriggerEvent", "e"), ("animationCompleteEvent", "e"))
 op("Tk2dPlayFrame", ("gameObject", "o"), ("frame", "i"))
 op("Tk2dSpriteGetId", ("gameObject", "o"), ("spriteID", "I"), ("everyframe", "n"))
-op("Trigger2dEvent", ("trigger", "n"), ("sendEvent", "e"))
+op("Trigger2dEvent", ("trigger", "n"), ("sendEvent", "e"), ("tag", "n"))
 op("ListenForUp", ("wasPressed", "e"), ("isPressed", "e"))
 op("ListenForDown", ("wasPressed", "e"), ("isPressed", "e"))
 op("ListenForLeft", ("wasPressed", "e"))
@@ -173,6 +175,8 @@ op("BlankerOn", ("on", "b"))
 op("FindGameObject", ("objectName", "s"), ("store", "O"))
 op("SetParent", ("gameObject", "o"))
 op("IntOp", ("intVariable", "I"), ("value", "i"))
+op("ActivateAllChildren", ("gameObject", "o"), ("activate", "b"))
+op("iTweenMoveBy", ("gameObject", "o"), ("vector", "v3"), ("time", "f"), ("easeType", "n"), ("finishEvent", "e"))
 
 # HeroController's methods the scripts call (HeroCall's method)
 HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "StartAnimationControl", "FaceLeft",
@@ -181,6 +185,10 @@ HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "S
                 "SetCState", "SaveGame", "AffectedByGravity", "ResetHardLandingTimer", "StopPlayingAudio"]
 # prefabs CreateObject makes that the scripts go on with (made beforehand, off): (file, path id)
 PREFAB_SPAWNS = {("sharedassets76.assets", 69)}
+# the game's objects the scripts find by name that are not theirs (enemies): what they are to them
+GAME_OBJECTS = {"Hornet Boss 1": 0xFF0C}
+# what a trigger's Trigger2dEvent hears, by collideTag: the Knight (any), a spell
+TRIGGER_TAGS = {None: 0, "": 0, "Player": 0, "Untagged": 0, "Hero Spell": 1}
 # the items the message shows (text.MSGS's order), by Msg Control's Item
 MSG_ITEMS = {"Fireball": 0}
 # camera shake events
@@ -194,6 +202,26 @@ class Room:
         self.sprites, self.texts, self.actor_of = sprites, texts, actor_of
         self.by_id = {o["id"]: o for o in d["objects"]}
         self.by_path = {o["path"]: o for o in d["objects"]}
+        for o in d["objects"]:
+            o["_scene"], o["_raw"] = name, o["id"]
+        # (the scenes it loads with it, the first of them: their objects there only as they are, by a PlayerData bool)
+        import scene
+        for an, flag, val, which in scene.additive(name):
+            if which != 1:
+                continue
+            da = unity.scene(an)
+            ids = {q["id"] for q in da["objects"]}
+            k = lambda i, an=an: ("sc", an, i)
+            for q in da["objects"]:
+                c = dict(q)
+                c["id"] = k(q["id"])
+                c["parent"] = k(q["parent"]) if q.get("parent") in ids else None
+                c["children"] = [k(x) for x in q.get("children", [])]
+                c["_doc"], c["_key"], c["_scene"], c["_raw"] = da, k, an, q["id"]
+                if c["parent"] is None:
+                    c["_variant"] = (flag, val)
+                self.by_id[c["id"]] = c
+                self.by_path.setdefault(q["path"], c)
         self.objs, self.obj_index = [], {}
         self.fsms = []
         self.problems = []
@@ -481,6 +509,9 @@ class Compiler:
         if n == "SetSpriteRenderer" and P.get("gameObject") == "$HUD Blanker":
             return self.emit("BlankerOn", {"on": P.get("active")})
         if n == "FindGameObject":
+            if P.get("objectName") in GAME_OBJECTS:
+                return self.emit("SetGameObject", {"variable": P.get("store"),
+                                                   "gameObject": ("objindex", GAME_OBJECTS[P.get("objectName")])})
             if P.get("objectName"):
                 return self.emit("FindGameObject", P)
             return None   # (by tag: the main camera)
@@ -530,6 +561,8 @@ class Compiler:
                 if evn in SHAKES:
                     return self.emit("Shake", {"kind": SHAKES[evn]})
                 return None
+            if go == "$AudioManager":
+                return None   # (music)
             if go in ("$DialogueManager",) and evn in ("BOX UP", "BOX DOWN"):
                 return self.emit("SendEventByName", P)
             return self.emit("SendEventByName" if n == "SendEventByName" else "SendEvent", P)
@@ -545,12 +578,19 @@ class Compiler:
             if P.get("gameObject") == "$Main Camera Obj" or P.get("gameObject") == "$MainCamera":
                 vec = P.get("vector") or [0, 0, 0]
                 return self.emit("CameraZoom", {"z": vec[2], "time": P.get("time"), "delay": P.get("delay") or 0})
-            self.problem("iTweenMoveBy")
-            return None
+            if P.get("speed") is not None or P.get("loopType") or P.get("space") or P.get("delay") or \
+                    (P.get("easeType") or 0) > 21:
+                self.problem("iTweenMoveBy %r" % P)
+                return None
+            return self.emit(n, P)
         if n == "GetScale":
             return self.emit(n, P)
         if n == "Trigger2dEvent":
-            return self.emit(n, {"trigger": P.get("trigger"), "sendEvent": P.get("sendEvent")})
+            if P.get("collideTag") not in TRIGGER_TAGS:
+                self.problem("Trigger2dEvent tag %s" % P.get("collideTag"))
+                return None
+            return self.emit(n, {"trigger": P.get("trigger"), "sendEvent": P.get("sendEvent"),
+                                 "tag": TRIGGER_TAGS[P.get("collideTag")]})
         if n in ("Collision2dEvent", "Collision2dEventLayer"):
             return self.emit("Collision2dEvent", P)
         if n in ("ListenForUp", "ListenForDown", "ListenForLeft", "ListenForRight", "ListenForAttack", "ListenForJump",
@@ -693,13 +733,15 @@ def prepare(rooms, sprites, texts):
                 known[lib] = a
 
 
-OBJ = "<fffffffffHHHHHBBHHhH"   # x y z, sx sy, its trigger (center from its place, half size), parent, name, sprite,
-#                               first clip, clip map, its count, flags, condition, sorting layer, order
+OBJ = "<fffffffffHHHHHBBHHhHBBH"   # x y z, sx sy, its trigger (center from its place, half size), parent, name, sprite,
+#                                  first clip, clip map, its count, flags, condition, sorting layer, order, blend, its
+#                                  colliders (first, count)
 OF_ACTIVE, OF_RENDERER, OF_ANIMATOR, OF_TRIGGER, OF_COLLIDER, OF_ANIM_OFF = 1, 2, 4, 8, 16, 32
 
 
-def room_blob(name, clip_index, sprites):
-    """A room's VM data (src/vm.c): counts, its objects, their clip maps, its FSMs (definition, owner, name, variables)."""
+def room_blob(name, clip_index, sprites, owners=()):
+    """A room's VM data (src/vm.c): counts, its objects, their clip maps, its FSMs (definition, owner, name, variables).
+    owners: each collider's (scene, object id): the colliders an object has, the scripts turn on and off with it."""
     import actors, ents, tk2d
     rm = BUILT.get(name)
     if rm is None:
@@ -755,6 +797,14 @@ def room_blob(name, clip_index, sprites):
         for bn, off_if in state.conditions(o):
             if bn in pdf:
                 cond = pdf[bn] | (0x8000 if off_if else 0)
+        if o.get("_variant"):
+            # (a scene loaded with the room's by a PlayerData bool: there only when it has that value)
+            bn, val = o["_variant"]
+            assert cond == 0xFFFF, o["path"]
+            cond = pdf[bn] | (0 if val else 0x8000)
+        cols = [k for k, ow in enumerate(owners) if k and ow == (o.get("_scene", name), o.get("_raw", o["id"]))]
+        assert cols == list(range(cols[0], cols[-1] + 1)) if cols else True, o["path"]
+        assert len(cols) < 256 and (not cols or cols[-1] < 256), o["path"]
         layer, order = ents._sorting(o)
         # (its material's blend: pack.BLENDS)
         import scene
@@ -766,7 +816,8 @@ def room_blob(name, clip_index, sprites):
                 blend = {"alpha": 0, "add": 1, "screen": 2, "linearlight": 3, "overlay": 4, "multiply": 5}[
                     scene.blend_of(unity.material(unity.ref_path(doc, m0[0]), m0[1])[1])]
         objs += struct.pack(OBJ, o["pos"][0], o["pos"][1], o["pos"][2], sx, sy, bx, by, bhx, bhy, parent,
-                            STR.id(o["name"]), sprite, first, start, min(count, 255), fl, cond, layer, order, blend)
+                            STR.id(o["name"]), sprite, first, start, min(count, 255), fl, cond, layer, order, blend,
+                            cols[0] if cols else 0, len(cols), 0)
     fsms = bytearray()
     for di, owner, init, fname in rm.fsms:
         fsms += struct.pack("<HHHH", di, owner, fname, len(init)) + b"".join(struct.pack("<I", v) for v in init)

@@ -746,7 +746,10 @@ def _gate(d, o, owners):
     m = np.array(o["m3"]).reshape(3, 3)
     sx = float(np.hypot(m[0, 0], m[1, 0])) * (-1.0 if np.linalg.det(m[:2, :2]) < 0 else 1.0)
     sy = float(np.hypot(m[0, 1], m[1, 1]))
-    return rec(ENT_OBJ, OK_BGATE, (o["pos"][0], o["pos"][1], o["pos"][2], sx), (sy, pd, 0, 0), a=c0, group=cn, s0=fl)
+    import vm
+    # (p2: its name, as the scripts' strings number it: FindGameObject)
+    return rec(ENT_OBJ, OK_BGATE, (o["pos"][0], o["pos"][1], o["pos"][2], sx), (sy, pd, vm.STR.id(o["name"]), 0), a=c0,
+               group=cn, s0=fl)
 
 
 def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0, col_base=0, group_base=0):

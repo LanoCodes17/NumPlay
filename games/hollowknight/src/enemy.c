@@ -34,7 +34,8 @@ enum { WF_PAUSES = 1, WF_IGNORE_HOLES = 2, WF_NO_TURN_TO_HERO = 4, WF_START_INAC
 enum { EM_OFF, EM_ALIVE, EM_CORPSE };
 enum { RC_READY, RC_RECOILING, RC_FROZEN };
 enum { CS_AIR, CS_DEATH_ANIM, CS_LANDED };
-/* (flags: 1 collider off, 2 RECOIL HORIZONTAL, 4 invincible, 8 TOOK DAMAGE: for its FSM this frame) */
+/* (flags: 1 collider off, 2 RECOIL HORIZONTAL, 4 invincible, 8 TOOK DAMAGE: for its FSM this frame, 16 collider off
+ * by its frame) */
 typedef struct {
   uint8_t mode, kind, st, flags;
   uint16_t ent;                   /* its record (NO_ENT: spawned) */
@@ -65,6 +66,7 @@ typedef struct {
   bool b0, b1;
   uint8_t c0, c1;              /* (counters) */
   uint8_t hb_on, sub_hb;       /* its attacks on (ET_HITBOX's bits); the one whose sprite plays (k + 1) */
+  int16_t col_sprite;          /* (the frame whose collider it has, + 1) */
   Anim sub;                    /* (that sprite's) */
   /* alert range (local circle, or box: ar_hy >= 0) and sight */
   float ar_x, ar_y, ar_r, ar_hy;
@@ -99,6 +101,20 @@ static void enemy_terrain_off(const Ent *d) {
   for (int i = 1; i <= d->s0; i++)
     if (d[i].type == ENT_BOX && d[i].flags == ET_TERRAIN)
       for (int c = d[i].a; c < d[i].a + d[i].group; c++) phys_collider_enable(c, false);
+}
+
+/* 2D Toolkit: the frame shown sets the collider (a box: its body's; none: off) */
+static void frame_collider(Enemy *e) {
+  if (e->anim.sprite + 1 == e->col_sprite) return;
+  e->col_sprite = (int16_t)(e->anim.sprite + 1);
+  const float *d;
+  int n, t = sprite_collider(e->anim.sprite, &d, &n);
+  float k = fabsf(e->sx);
+  if (t == SC_BOX) {
+    e->body.ox = d[0] * e->sx, e->body.oy = d[1] * k, e->body.hx = d[2] * k, e->body.hy = d[3] * k;
+    e->flags &= (uint8_t)~16;
+  } else if (t == SC_NONE)
+    e->flags |= 16;
 }
 
 /* the collider's world box */
@@ -1456,6 +1472,24 @@ static int hitbox_touch(const Enemy *e, float x0, float y0, float x1, float y1) 
     if (!(e->hb_on >> i & 1)) continue;
     const Ent *h = hitbox_rec(e, i);
     if (!h) continue;
+    if (e->sub_hb == i + 1) {
+      /* (its sprite's frame sets its collider) */
+      const float *d;
+      int n, t = sprite_collider(e->sub.sprite, &d, &n);
+      if (t == SC_NONE) continue;
+      float ks = fabsf(e->sx);
+      if (t == SC_BOX) {
+        float cx = e->body.x + d[0] * e->sx, cy = e->body.y + d[1] * ks;
+        if (x1 > cx - d[2] * ks && x0 < cx + d[2] * ks && y1 > cy - d[3] * ks && y0 < cy + d[3] * ks) return (int)h->p1;
+        continue;
+      }
+      if (t == SC_SHAPE) {
+        float pts[16];
+        for (int j = 0; j < n && j < 8; j++) pts[2 * j] = e->body.x + d[2 * j] * e->sx, pts[2 * j + 1] = e->body.y + d[2 * j + 1] * ks;
+        if (box_meets_shape(x0, y0, x1, y1, pts, n < 8 ? n : 8)) return (int)h->p1;
+        continue;
+      }
+    }
     float a0 = e->body.x + (k > 0 ? h->x0 : -h->x1), a1 = e->body.x + (k > 0 ? h->x1 : -h->x0);
     if (!(x1 > a0 && x0 < a1 && y1 > e->body.y + h->y0 && y0 < e->body.y + h->y1)) continue;
     float pts[16];
@@ -2346,6 +2380,7 @@ void enemies_update(void) {
     anim_update(&e->anim, DT);
     if (e->flashing && (e->flash_t += DT) > 0.27f) e->flashing = false;
     if (e->mode == EM_ALIVE) {
+      frame_collider(e);
       if (e->evasion > 0) e->evasion -= DT;
       if (e->ar_r > 0) sight_update(e);
       if (FSM(e) == EF_BUZZER) buzzer_update(e, ent_at(e->ent));
@@ -2416,7 +2451,7 @@ int enemies_nail(const float *pts, int npts, float direction, int damage) {
   int out = 0;
   for (int i = 0; i < MAX_ENEMIES; i++) {
     Enemy *e = &en[i];
-    if (e->mode != EM_ALIVE || (e->flags & 1)) continue;
+    if (e->mode != EM_ALIVE || (e->flags & 17)) continue;
     float x0, y0, x1, y1;
     enemy_box(e, &x0, &y0, &x1, &y1);
     if (!box_meets_shape(x0, y0, x1, y1, pts, npts)) continue;
@@ -2432,7 +2467,7 @@ int enemies_nail(const float *pts, int npts, float direction, int damage) {
 int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side) {
   for (int i = 0; i < MAX_ENEMIES; i++) {
     const Enemy *e = &en[i];
-    if (e->mode != EM_ALIVE || e->damage <= 0 || (e->flags & 1)) continue;
+    if (e->mode != EM_ALIVE || e->damage <= 0 || (e->flags & 17)) continue;
     float a0, b0, a1, b1;
     enemy_box(e, &a0, &b0, &a1, &b1);
     if (x1 > a0 && x0 < a1 && y1 > b0 && y0 < b1) {

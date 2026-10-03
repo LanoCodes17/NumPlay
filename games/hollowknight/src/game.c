@@ -80,7 +80,7 @@ const Ent *room_ents(int *n) {
 /* ---------------------------------------------------------------- triggers: the Knight's box in the objects' */
 
 /* ---------------------------------------------------------------- scene transitions (TransitionPoint, BeginSceneTransition) */
-enum { SC_NONE, SC_LEAVING };
+enum { SP_NONE, SP_LEAVING };
 
 /* TransitionPoint.GetGatePosition: by its name */
 static int gate_kind(const Ent *e) {
@@ -97,8 +97,8 @@ void game_fade_scene_in(void) { game_fade(0, 0.5f, 0.1f); }
 
 void game_transition(int room, int entry, int gate, float delay, bool without_input) {
   Game *g = &g_game;
-  if (g->scene_phase != SC_NONE || room < 0) return;
-  g->scene_phase = SC_LEAVING, g->scene_t = 0;
+  if (g->scene_phase != SP_NONE || room < 0) return;
+  g->scene_phase = SP_LEAVING, g->scene_t = 0;
   g->next_room = (int16_t)room, g->next_entry = (uint16_t)entry, g->next_delay = delay;
   g_hero.enter_without_input = without_input;
   hero_leave_scene(gate);
@@ -109,7 +109,7 @@ void game_transition(int room, int entry, int gate, float delay, bool without_in
 /* TryDoTransition: the Knight through a gate (facing it, not recoiling), or pushed back out of it */
 static void gate_touched(const Ent *e) {
   Hero *h = &g_hero;
-  if ((e->flags & G_DOOR) || g_game.scene_phase != SC_NONE) return;
+  if ((e->flags & G_DOOR) || g_game.scene_phase != SP_NONE) return;
   int g = gate_kind(e);
   bool back = h->cs.recoiling || (g == GATE_RIGHT && !h->cs.facing_right) || (g == GATE_LEFT && h->cs.facing_right) ||
               e->a == 0xFFFF;   /* (or to a room this game leaves out) */
@@ -127,7 +127,7 @@ static void gate_touched(const Ent *e) {
 /* the new room, the Knight at its entry gate */
 static void scene_load(void) {
   Game *g = &g_game;
-  g->scene_phase = SC_NONE;
+  g->scene_phase = SP_NONE;
   if (!room_load(g->next_room)) return;
   memset(inside, 0, sizeof inside);
   prompts_reset();   /* (PromptMarker.RecycleOnLevelLoad) */
@@ -150,7 +150,7 @@ static void scene_load(void) {
 
 static void scene_tick(float real_dt) {
   Game *g = &g_game;
-  if (g->scene_phase != SC_LEAVING) return;
+  if (g->scene_phase != SP_LEAVING) return;
   /* (the scene loads once the camera has faded: half a second) */
   g->scene_t += real_dt;
   if (g->scene_t >= 0.5f) scene_load();

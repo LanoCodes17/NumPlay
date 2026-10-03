@@ -28,7 +28,8 @@ def room_data(name):
         ROOM_DATA[name] = (cr, ents.room(d, ROOMS, STRINGS, PERSIST, name, SPRITES, cr[3]))
     return ROOM_DATA[name]
 
-SECTIONS = ["TEX", "TMAP", "PAL", "BIDX", "BLK", "ROOMS", "RBLOB", "PRIOR", "SOFT", "SPR", "CLIP", "STR", "TEXT", "FONT", "PHASH"]
+SECTIONS = ["TEX", "TMAP", "PAL", "BIDX", "BLK", "ROOMS", "RBLOB", "PRIOR", "SOFT", "SPR", "CLIP", "STR", "TEXT", "FONT", "PHASH",
+            "SCOL"]
 BLENDS = {"alpha": 0, "add": 1, "screen": 2, "linearlight": 3, "overlay": 4, "multiply": 5}
 F_LIT, F_ROT, F_SOLID, F_DYN, F_GRASS = 8, 16, 32, 64, 128
 
@@ -376,8 +377,27 @@ def main():
     secs["TEX"].b += struct.pack("<I", len(variants)) + texrec
     # actors: each sprite frame's texture and where its top-left corner is (local units), units a texel; the clips
     first_actor = len(variants) - len(sprites)
+    # (their colliders, as frames set them: 0 none given, 1 none, 2 + an entry: a box or a shape)
+    col_ids, col_entries = {}, []
     for i, sp in enumerate(sprites):
-        secs["SPR"].b += struct.pack("<HHffff", first_actor + i, 0, sp["lx"], sp["ty"], sp["tu"], sp["tv"])
+        c, cid = sp.get("col"), 0
+        if c and c[0] == "none":
+            cid = 1
+        elif c:
+            b = struct.pack("<BBH4f", 2, 0, 0, *c[1:]) if c[0] == "box" else \
+                struct.pack("<BBH", 3, len(c[1]), 0) + b"".join(struct.pack("<2f", x, y) for x, y in c[1])
+            if b not in col_ids:
+                col_ids[b] = len(col_entries)
+                col_entries.append(b)
+            cid = 2 + col_ids[b]
+        secs["SPR"].b += struct.pack("<HHffff", first_actor + i, cid, sp["lx"], sp["ty"], sp["tu"], sp["tv"])
+    at = 4 + 4 * len(col_entries)
+    secs["SCOL"].b += struct.pack("<I", len(col_entries))
+    for b in col_entries:
+        secs["SCOL"].b += struct.pack("<I", at)
+        at += len(b)
+    for b in col_entries:
+        secs["SCOL"].b += b
     secs["CLIP"].b += struct.pack("<I", len(clips))
     frames = []
     for c in clips:

@@ -18,6 +18,16 @@ static const uint16_t *clip_frames(const ClipRec *c) {
 
 const SpriteRec *sprite_rec(int id) { return (const SpriteRec *)(const void *)section(SEC_SPR) + id; }
 
+int sprite_collider(int sprite, const float **data, int *n) {
+  if (sprite < 0) return SC_UNSET;
+  unsigned c = sprite_rec(sprite)->col;
+  if (c < 2) return (int)c;
+  const uint8_t *s = section(SEC_SCOL), *e = s + rd32(s + 4 + 4 * (c - 2));
+  *data = (const float *)(const void *)(e + 4);
+  *n = e[1];
+  return e[0] == 2 ? SC_BOX : SC_SHAPE;
+}
+
 float clip_duration(int clip) {
   const ClipRec *c = clip_rec(clip);
   return c->n / c->fps;

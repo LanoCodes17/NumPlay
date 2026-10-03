@@ -162,7 +162,8 @@ def build():
                     arr = np.asarray(small).copy()
                     index[key] = len(sprites)
                     sprites.append({"key": key, "job": art.ImageJob(arr, "%s/%s" % (actor, name)),
-                                    "lx": lx, "ty": ty, "tu": wu / w, "tv": hu / h})
+                                    "lx": lx, "ty": ty, "tu": wu / w, "tv": hu / h,
+                                    "col": _collider(col["spriteDefinitions"][f["spriteId"]])})
                 frames.append((index[key], bool(f.get("triggerEvent"))))
             clips.append({"id": clip_id(actor, name), "fps": float(c["fps"]), "wrap": int(c["wrapMode"]),
                           "loop": int(c.get("loopStart", 0)), "frames": frames})
@@ -173,6 +174,23 @@ def build():
                 for i in new:
                     sprites[i]["job"].pal = pal
     return sprites, clips
+
+
+def _collider(sd):
+    """A frame's collider as 2D Toolkit sets it when the frame shows: None (left as it is), ("none",), ("box", cx, cy, hx,
+    hy) or ("poly", [(x, y)...]); sprite units"""
+    if sd.get("physicsEngine") != 1:
+        return None
+    t = sd.get("colliderType")
+    if t == 1:
+        return ("none",)
+    if t == 2:
+        v = sd["colliderVertices"]
+        return ("box", v[0]["x"], v[0]["y"], abs(v[1]["x"]), abs(v[1]["y"]))
+    if t == 3 and sd.get("polygonCollider2D"):
+        pts = [(q["x"], q["y"]) for q in sd["polygonCollider2D"][0]["points"]]
+        return ("poly", pts[:8])
+    return None
 
 
 def unity_sprites(keys):

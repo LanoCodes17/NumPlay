@@ -15,6 +15,7 @@
 #define SEC_TEXT 12
 #define SEC_FONT 13
 #define SEC_PHASH 14
+#define SEC_SCOL 15
 #define NUM_ROOMS 41
 #define ROOM_TUTORIAL_01 0
 #define ROOM_TOWN 1

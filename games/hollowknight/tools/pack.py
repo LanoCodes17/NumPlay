@@ -9,6 +9,7 @@ import unity, scene, visible, art, actors, coll, ents
 SRC = os.path.join(HERE, "..", "src")
 ROOMS = [l.strip() for l in open(os.path.join(HERE, "rooms.txt")) if l.strip() and not l.startswith("#")]
 STRINGS = ents.Strings()
+PERSIST = ents.Persist()
 
 SECTIONS = ["TEX", "TMAP", "PAL", "BIDX", "BLK", "ROOMS", "RBLOB", "PRIOR", "SOFT", "SPR", "CLIP", "STR"]
 BLENDS = {"alpha": 0, "add": 1, "screen": 2, "linearlight": 3, "overlay": 4, "multiply": 5}
@@ -63,8 +64,8 @@ def inst_record(it, tex_id, tints):
     flags = BLENDS.get(it.blend, 0)
     if it.lit:
         flags |= F_LIT
-    if it.dynamic:
-        flags |= F_DYN
+    if it.group:
+        flags |= F_DYN   # (in a render group: a byte more)
     if it.grass:
         flags |= F_GRASS
     color = it.color
@@ -97,7 +98,7 @@ def inst_record(it, tex_id, tints):
         rot = int(round(ang / (2 * math.pi) * 65536))
         if rot:
             flags |= F_ROT
-    return (ax, ay, it.z, tex, tint, flags, a, b, rot)
+    return (ax, ay, it.z, tex, tint, flags, a, b, rot, it.group)
 
 
 def uvar(u):
@@ -117,10 +118,10 @@ def sector_stream(recs):
     """A sector's instances in draw order, each relative to the one before (read in place by room.c):
     flags, aux (1 tint, 2 same texture, 4 same z, 8|16 b: 0 its own, 1 = a, 2 = -a, 3 same as before, 32 same a,
     64 next rank, 128 another sorting layer or order), [rank step - 2], [layer, order], [texture step], [tint],
-    x step, y step, [z step], [a], [b], [angle]."""
+    x step, y step, [z step], [a], [b], [angle], [render group (F_DYN)]."""
     out = bytearray()
     pr, pt, px, py, pz, pa, pb, pg = -1, 0, 0, 0, 0, 0, 0, None
-    for rank, (ax, ay, z, tex, tint, flags, a, b, rot), group in recs:
+    for rank, (ax, ay, z, tex, tint, flags, a, b, rot, rgroup), group in recs:
         X, Y, Z, A, B = i16(ax * 64), i16(ay * 64), i16(z * 128), f16s(a) & 0xFFFF, f16s(b) & 0xFFFF
         aux = 0
         if tint:
@@ -155,6 +156,8 @@ def sector_stream(recs):
             out += struct.pack("<H", B)
         if flags & F_ROT:
             out += struct.pack("<h", rot)
+        if flags & F_DYN:
+            out.append(rgroup)
         pr, pt, px, py, pz, pa, pb, pg = rank, tex, X, Y, Z, A, B, group
     return bytes(out)
 
@@ -166,6 +169,9 @@ def room_blobs(name, keep, st, tex_id):
     axis = 0 if (cx1 - cx0) >= (cy1 - cy0) else 1
     lo, hi = (cx0, cx1) if axis == 0 else (cy0, cy1)
     HWU, HHU = scene.VIEW_W / 2 / scene.FOCAL, scene.VIEW_H / 2 / scene.FOCAL
+    erecs, groups = ents.room(unity.scene(name), ROOMS, STRINGS, PERSIST, name)
+    for it in keep:
+        it.group = groups.get(it.obj["id"], 0)
     tints = [(255, 255, 255, 255)]
     secs = {}
     for rank, it in enumerate(keep):
@@ -198,9 +204,8 @@ def room_blobs(name, keep, st, tex_id):
     HDR = 84 + 192
     solid, segs, cols = coll.room(unity.scene(name), w, h)
     gw, gh, cells = coll.grid(segs, w, h)
-    recs = ents.room(unity.scene(name), ROOMS, STRINGS)
     hdr = struct.pack("<4H4f4f4fff6HII", 6, len(order), len(tints), axis, w, h, bz, sat, *st["ambient"], 0.0,
-                      *st["hero_light"], lo, hi, len(keep), len(segs), len(cols), gw, gh, len(recs), 0, 0) + lut
+                      *st["hero_light"], lo, hi, len(keep), len(segs), len(cols), gw, gh, len(erecs), 0, 0) + lut
     assert len(hdr) == HDR, len(hdr)
     body = bytearray(hdr)
     body += b"".join(struct.pack("<4B", *t) for t in tints)
@@ -236,7 +241,7 @@ def room_blobs(name, keep, st, tex_id):
     cb += struct.pack("<H", first)
     for c in cells:
         cb += struct.pack("<%dH" % len(c), *c)
-    return body, o_sec, blobs, bytes(cb), b"".join(recs)
+    return body, o_sec, blobs, bytes(cb), b"".join(erecs)
 
 
 def tilecode(blocks):

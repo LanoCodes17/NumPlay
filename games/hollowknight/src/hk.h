@@ -78,7 +78,10 @@ typedef struct {
   uint8_t tint, flags;
   uint16_t a, b;       /* world units a texel along u and v (half floats, signed) */
   int16_t rot;         /* the u axis' angle (1/65536 turn) */
+  uint8_t group;       /* its render group (F_DYN): faded or hidden as the game wants (g_group_alpha) */
 } Inst;
+#define MAX_GROUPS 64
+extern uint8_t g_group_alpha[MAX_GROUPS];   /* 255 shown, 0 hidden */
 enum { BL_ALPHA = 0, BL_ADD, BL_SCREEN, BL_LINEARLIGHT, BL_OVERLAY, BL_MULTIPLY };
 #define F_BLEND 7
 #define F_LIT 8

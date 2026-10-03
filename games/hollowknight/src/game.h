@@ -3,7 +3,9 @@
 #include "hk.h"
 
 /* ---------------------------------------------------------------- PlayerData (what a save keeps) */
+#define MAX_PERSIST 1024
 typedef struct {
+  uint8_t persist[MAX_PERSIST / 8];   /* the objects' states (PersistentBoolItem) */
   int8_t health, max_health, health_blue;
   int16_t mp, mp_reserve, max_mp;
   int32_t geo;
@@ -14,17 +16,27 @@ typedef struct {
 extern PlayerData g_pd;
 
 /* ---------------------------------------------------------------- the room's game objects (tools/ents.py) */
-enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER };
+enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK };
+enum { MK_SECRET = 1, MK_REMASK = 2, MK_SIMPLE = 4 };   /* masks: the unmasker, remasker and inverse FSMs */
 enum { CL_PREVENT_UP = 1, CL_PREVENT_DOWN = 2, CL_MAX_PRIORITY = 4 };
 enum { G_DOOR = 1, G_ENTER_RIGHT = 2, G_ENTER_LEFT = 4, G_DONT_WALK_OUT = 8, G_NON_HAZARD = 16 };
 #define FACING_RIGHT 1
 typedef struct {
   uint8_t type, flags;
+  uint8_t group, group2;   /* its render groups */
   uint16_t a;              /* gate: the room it leads to; hazard trigger: its marker */
+  uint16_t persist;        /* its bit in the save (NO_PERSIST: none) */
   float x0, y0, x1, y1;    /* its trigger (or its place) */
-  float p0, p1, p2, p3;    /* camera lock: x min, y min, x max, y max (-1: none); gate: entry delay */
+  float p0, p1, p2, p3;    /* camera lock: x min, y min, x max, y max (-1: none); gate: entry delay; mask: fade time,
+                              pause, then the trigger kind (simple) or the alphas of Idle and Fade Out (remasker) */
   uint16_t s0, s1;         /* names (str_at): a gate's own and its entry point's */
 } Ent;
+#define NO_PERSIST 0xFFFF
+void world_enter(void);                     /* the room's objects, as the room starts */
+void world_tick(void);                      /* 1/50 s */
+void world_trigger(int ent, int kind);      /* the Knight entering, staying in, leaving an object's trigger (EV_*) */
+void world_hero_in_position(void);          /* the Knight done entering the room (WaitForHeroInPosition) */
+void group_fade(int group, float alpha, float time);   /* iTweenFadeTo (linear) */
 const Ent *room_ents(int *n);
 #define MAX_ENTS 160
 

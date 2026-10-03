@@ -88,6 +88,7 @@ static bool advance(Stream *s) {
   }
   if (flags & F_ROT) in->rot = (int16_t)rd16(p), p += 2;
   else in->rot = 0;
+  in->group = (flags & F_DYN) ? (*p++ & (MAX_GROUPS - 1)) : 0;
   s->p = p;
   return true;
 }

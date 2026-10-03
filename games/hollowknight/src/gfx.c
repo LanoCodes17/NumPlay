@@ -101,12 +101,20 @@ static uint32_t grade(float r, float g, float b, float a) {
   return (uint32_t)A << 24 | (uint32_t)(R * a + 0.5f) << 16 | (uint32_t)(G * a + 0.5f) << 8 | (uint32_t)(B * a + 0.5f);
 }
 
-static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags) {
-  uint32_t key = (uint32_t)tex << 16 | (uint32_t)tint << 1 | ((flags & F_LIT) ? 1 : 0);
+uint8_t g_group_alpha[MAX_GROUPS];
+
+/* the instance's alpha: its tint's, times its render group's */
+static inline uint32_t inst_alpha(const Inst *in) {
+  uint32_t a = g_room.tints[4 * in->tint + 3];
+  return in->group ? (a * g_group_alpha[in->group] + 127) / 255 : a;
+}
+
+static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
+  uint32_t key = (uint32_t)tex << 16 | alpha << 8 | (uint32_t)tint << 1 | ((flags & F_LIT) ? 1 : 0);
   if (tex != TEX_NONE) {
     const TexRec *r = tex_rec(tex);
     if (r->fmt >= FMT_SOFT) return 0;   /* (no colors: soft_get) */
-    if (r->fmt == FMT_ALPHA2) key = 0xFFFE0000u | g_room.tints[4 * tint + 3];   /* black: only the alpha matters */
+    if (r->fmt == FMT_ALPHA2) key = 0xFFFE0000u | alpha;   /* black: only the alpha matters */
   }
   for (int i = 0; i < NPAL; i++)
     if (pals[i].key == key) {
@@ -126,8 +134,8 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags) {
   Pal *p = &pals[s];
   p->key = key, p->frame = pal_frame;
   const uint8_t *t = g_room.tints + 4 * tint;
-  p->solid = t[3] == 255;
-  float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f, ta = t[3] / 255.0f;
+  p->solid = alpha == 255;
+  float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f, ta = alpha / 255.0f;
   if (flags & F_LIT) {
     const float *am = g_room.h->ambient;
     tr *= am[0], tg *= am[1], tb *= am[2];
@@ -169,10 +177,10 @@ static int nsoft, soft_top;
 static void soft_reset(void) { nsoft = 0, soft_top = 0; }
 
 uint32_t g_soft_misses;
-static const uint32_t *soft_get(uint16_t tex, uint8_t tint, uint8_t flags) {
+static const uint32_t *soft_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
   const TexRec *rr = tex_rec(tex);
   if (rr->fmt == FMT_SOFTA) return (const uint32_t *)(const void *)(section(SEC_SOFT) + rr->pal_off);   /* (alpha, in place) */
-  uint32_t key = (uint32_t)tex << 16 | (uint32_t)tint << 1 | ((flags & F_LIT) ? 1 : 0);
+  uint32_t key = (uint32_t)tex << 16 | alpha << 8 | (uint32_t)tint << 1 | ((flags & F_LIT) ? 1 : 0);
   for (int i = 0; i < nsoft; i++)
     if (soft_ent[i].key == key) {
       soft_ent[i].frame = pal_frame;
@@ -199,7 +207,7 @@ static const uint32_t *soft_get(uint16_t tex, uint8_t tint, uint8_t flags) {
   const uint8_t *src = section(SEC_SOFT) + r->pal_off;
   lz_decode(src + 4, rd32(src), (uint8_t *)px, (uint32_t)n * 4);
   const uint8_t *t = g_room.tints + 4 * tint;
-  float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f, ta = t[3] / 255.0f;
+  float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f, ta = alpha / 255.0f;
   if (flags & F_LIT) {
     const float *am = g_room.h->ambient;
     tr *= am[0], tg *= am[1], tb *= am[2];
@@ -718,7 +726,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
     c.m = &m;
     if (c.r->fmt >= FMT_SOFT) {
       kind = 3;
-      soft = soft_get(in->tex, in->tint, in->flags);
+      soft = soft_get(in->tex, in->tint, in->flags, inst_alpha(in));
       if (!soft) return;
       if (c.r->fmt == FMT_SOFTA) {
         const uint8_t *t = g_room.tints + 4 * in->tint;
@@ -726,7 +734,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
         if (in->flags & F_LIT) tr *= g_room.h->ambient[0], tg *= g_room.h->ambient[1], tb *= g_room.h->ambient[2];
         uint32_t base = c.r->map_off;
         uint32_t col = grade((base & 255) / 255.0f * tr, (base >> 8 & 255) / 255.0f * tg, (base >> 16 & 255) / 255.0f * tb, 1);
-        crb = col & 0xFF00FF, cg = col & 0xFF00, ta = t[3] + 1u;
+        crb = col & 0xFF00FF, cg = col & 0xFF00, ta = inst_alpha(in) + 1u;
       }
     } else if ((c.r->flags & TEX_SMOOTH) && c.r->fmt == FMT_PAL4) {
       kind = 4;
@@ -817,7 +825,7 @@ static void draw_bg_item(Item *it) {
   const uint32_t *soft = NULL;
   uint32_t crb = 0, cg = 0, ta = 256;
   if (r->fmt >= FMT_SOFT) {
-    soft = soft_get(in->tex, in->tint, in->flags);
+    soft = soft_get(in->tex, in->tint, in->flags, inst_alpha(in));
     if (!soft) return;
     if (r->fmt == FMT_SOFTA) {
       const uint8_t *t = g_room.tints + 4 * in->tint;
@@ -825,7 +833,7 @@ static void draw_bg_item(Item *it) {
       if (in->flags & F_LIT) tr *= g_room.h->ambient[0], tg *= g_room.h->ambient[1], tb *= g_room.h->ambient[2];
       uint32_t base = r->map_off;
       uint32_t c = grade((base & 255) / 255.0f * tr, (base >> 8 & 255) / 255.0f * tg, (base >> 16 & 255) / 255.0f * tb, 1);
-      crb = c & 0xFF00FF, cg = c & 0xFF00, ta = t[3] + 1u;
+      crb = c & 0xFF00FF, cg = c & 0xFF00, ta = inst_alpha(in) + 1u;
     }
   }
   BiTex bt = {in->tex, r->tw, r, NULL, pal};
@@ -1016,8 +1024,10 @@ bool gfx_actor(const Inst *in, uint32_t group) {
 static void add_item(const Inst *in, float blur_z) {
   Item cur;
   cur.in = *in;
+  uint32_t alpha = inst_alpha(in);
+  if (!alpha) return;   /* (a hidden group, or a clear tint) */
   if (!item_box(&cur.in, &cur)) return;
-  cur.pal = (uint8_t)pal_get(cur.in.flags & F_SOLID ? TEX_NONE : cur.in.tex, cur.in.tint, cur.in.flags);
+  cur.pal = (uint8_t)pal_get(cur.in.flags & F_SOLID ? TEX_NONE : cur.in.tex, cur.in.tint, cur.in.flags, alpha);
   if (cur.in.z * (1.0f / 128) > blur_z) {
     arena_take(&cur, false);
     if (!bg_on) memset(bgbuf, 0, sizeof bgbuf), bg_on = true;

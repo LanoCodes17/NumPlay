@@ -15,8 +15,10 @@ void game_new(void) {
 bool game_enter(int room, float x, float y, bool facing_right) {
   if (!room_load(room)) return false;
   memset(inside, 0, sizeof inside);
+  world_enter();
   hero_init(x, y, facing_right);
   cam_init();
+  world_hero_in_position();
   return true;
 }
 
@@ -42,6 +44,7 @@ static void trigger_event(int i, const Ent *e, int kind) {
       }
       break;
     default:
+      world_trigger(i, kind);
       break;
   }
   (void)h;
@@ -55,7 +58,7 @@ static void triggers_tick(void) {
   if (n > MAX_ENTS) n = MAX_ENTS;
   for (int i = 0; i < n; i++) {
     const Ent *e = &es[i];
-    if (e->type != ENT_CAMLOCK && e->type != ENT_GATE && e->type != ENT_HAZARD_TRIGGER) continue;
+    if (e->type != ENT_CAMLOCK && e->type != ENT_GATE && e->type != ENT_HAZARD_TRIGGER && e->type != ENT_MASK) continue;
     bool in = x1 > e->x0 && x0 < e->x1 && y1 > e->y0 && y0 < e->y1;
     bool was = inside[i >> 3] >> (i & 7) & 1;
     if (in) inside[i >> 3] |= (uint8_t)(1 << (i & 7));
@@ -69,6 +72,7 @@ void game_tick(uint32_t keys) {
   hero_fixed(keys);
   triggers_tick();
   hero_update();
+  world_tick();
   cam_tick();
 }
 

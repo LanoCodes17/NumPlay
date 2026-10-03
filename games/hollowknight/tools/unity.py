@@ -344,6 +344,9 @@ def sprite(level, exts, fid, pid):
         s.px, s.py = o.m_Pivot.x, o.m_Pivot.y
         b = o.m_Border
         s.border = (b.x, b.y, b.z, b.w)
+        # (packed tight: its pixels only where it has some, a part of its rect, from this corner (its bottom left))
+        tr, off = o.m_RD.textureRect, o.m_RD.textureRectOffset
+        s.tight = (off.x, off.y) if abs(tr.width - s.w) > 0.5 or abs(tr.height - s.h) > 0.5 else None
         s._obj = f.objects[pid]
         s.tex = None
         _sprites[key] = s
@@ -359,9 +362,17 @@ def sprite_by_key(key):
 
 
 def sprite_image(s):
+    """its image, as big as its rect (a sprite packed tight: its pixels where they are in it)"""
     if s.tex is None:
         with in_data():
-            s.tex = s._obj.read().image.convert("RGBA")
+            im = s._obj.read().image.convert("RGBA")
+        w, h = max(1, round(s.w)), max(1, round(s.h))
+        if s.tight is not None and im.size != (w, h):
+            from PIL import Image
+            full = Image.new("RGBA", (w, h))
+            full.paste(im, (round(s.tight[0]), round(h - s.tight[1] - im.height)))
+            im = full
+        s.tex = im
     return s.tex
 
 

@@ -55,7 +55,30 @@ void white_blanker_fade(bool in) {
   wb.alpha = wb.from;
 }
 
-void white_blanker_reset(void) { wb.on = false, wb.alpha = 0, wb.time = 1; }
+/* the Prompt Blanker (its FSM: UP to black at 2/3 in 0.85 s, DOWN to none in 0.85 s, linearly) and the focus tutorial
+ * (Focus_prompt_temp's ColorFaders: up after 3 s in 1 s, down in 0.15 s) */
+typedef struct {
+  float alpha, from, to, t, time, delay;
+} Fade;
+static Fade pb, fp;
+
+static void fade_start(Fade *f, float to, float time, float delay) {
+  f->from = f->alpha, f->to = to, f->t = 0, f->time = time, f->delay = delay;
+}
+static void fade_tick(Fade *f) {
+  if (f->alpha == f->to) return;
+  f->t += DT;
+  float k = f->time > 0 ? (f->t - f->delay) / f->time : 1;
+  if (k > 0) f->alpha = f->from + (f->to - f->from) * (k > 1 ? 1 : k);
+}
+
+void prompt_blanker(bool up) { fade_start(&pb, up ? 0.6667f : 0, 0.85f, 0); }
+void focus_prompt_fade(bool up) { fade_start(&fp, up ? 1 : 0, up ? 1 : 0.15f, up ? 3 : 0); }
+
+void white_blanker_reset(void) {
+  wb.on = false, wb.alpha = 0, wb.time = 1;
+  memset(&pb, 0, sizeof pb), memset(&fp, 0, sizeof fp);
+}
 
 static void white_blanker_tick(void) {
   if (!wb.on) return;
@@ -67,6 +90,7 @@ static void white_blanker_tick(void) {
 
 void msg_tick(void) {
   white_blanker_tick();
+  fade_tick(&pb), fade_tick(&fp);
   notices_tick();
   if (m.st == MS_OFF) return;
   uint32_t pressed = g_hero.keys & ~m.prev_keys;
@@ -249,11 +273,37 @@ static void notices_draw(void) {
   if (nt.t >= 5 && nt.t_down < 0) piece(&tute_stop, x + 0.05f, y - 9.19f, 1, 26);
 }
 
+/* the key's box (the calculator's key, by name: as wide as the name), its left at x */
+static void key_box(int text, float x, float y, float a, int slot) {
+  float w = line(text, STYLE_PROMPT, 0, y, 0, false, 0) / HUD_PX + 0.5f, kx = x + w / 2;
+  uint8_t al = (uint8_t)(a * 255 + 0.5f);
+  if (!al) return;
+  Inst in;
+  sprite_inst(SPRITE_MSG_KEY, kx, y, 0, w / 0.95f, 1, gfx_dyn_tint(slot, 255, 255, 255, al), &in);
+  gfx_hud(&in, 0);
+  line(text, STYLE_PROMPT, kx, y, 0, false, a);
+}
+
+static void focus_prompt_draw(void) {
+  static const struct { int16_t sprite; float x, y, kx, ky; } bg = FOCUS_PROMPT_BG;
+  static const struct { int16_t text; float x, top; int8_t align; } rows[4] = FOCUS_PROMPT_TEXTS;
+  static const struct { int16_t text; float x, y; } key = FOCUS_PROMPT_KEY;
+  float a = fp.alpha;
+  if (a <= 0) return;
+  Inst in;
+  sprite_inst(bg.sprite, bg.x, bg.y, 0, bg.kx, bg.ky, gfx_dyn_tint(29, 255, 255, 255, (uint8_t)(a * 255 + 0.5f)), &in);
+  gfx_hud(&in, 0);
+  for (int i = 0; i < 4; i++) line(rows[i].text, STYLE_MSG, rows[i].x, rows[i].top, rows[i].align, true, a);
+  key_box(key.text, key.x, key.y, a, 30);
+}
+
 void msg_draw(void) {
   if (wb.on && wb.alpha > 0)
     gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(28, 255, 255, 255, (uint8_t)(wb.alpha * 255 + 0.5f)));
-  if (blank_on && blank_alpha > 0)
-    gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(27, 0, 0, 0, (uint8_t)(blank_alpha * 255 + 0.5f)));
+  /* (the HUD Blanker and the Prompt Blanker: black, the one over the other) */
+  float ba = 1 - (1 - (blank_on && blank_alpha > 0 ? blank_alpha : 0)) * (1 - pb.alpha);
+  if (ba > 0) gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(27, 0, 0, 0, (uint8_t)(ba * 255 + 0.5f)));
+  focus_prompt_draw();   /* (while the menus cannot be up: their tints') */
   notices_draw();
   if (m.st == MS_OFF) return;
   const int16_t *t = table[m.item];
@@ -268,12 +318,5 @@ void msg_draw(void) {
   line(t[3], STYLE_MSG, 0, -4.64f + 1.0253f * 1.4407f / 2, 0, true, m.a[F_MSG1]);
   line(t[4], STYLE_MSG, 0, -6.15f + 1.7591f * 1.4407f / 2, 0, true, m.a[F_MSG2]);
   /* the key (the calculator's, by name: its key sprite as wide as the name) */
-  float w = line(t[5], STYLE_PROMPT, 0, -2.93f, 0, false, 0) / HUD_PX + 0.5f, kx = 0.53f - 0.475f + w / 2;
-  uint8_t al = (uint8_t)(m.a[F_BUTTON] * 255 + 0.5f);
-  if (al) {
-    Inst in;
-    sprite_inst(SPRITE_MSG_KEY, kx, -2.93f, 0, w / 0.95f, 1, gfx_dyn_tint(25, 255, 255, 255, al), &in);
-    gfx_hud(&in, 0);
-    line(t[5], STYLE_PROMPT, kx, -2.93f, 0, false, m.a[F_BUTTON]);
-  }
+  key_box(t[5], 0.53f - 0.475f, -2.93f, m.a[F_BUTTON], 25);
 }

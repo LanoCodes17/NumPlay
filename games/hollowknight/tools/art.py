@@ -248,8 +248,10 @@ def encode_job(job):
         key = hashlib.sha1(_SRC_HASH.encode() + job.arr.tobytes() + repr(job.arr.shape).encode() +
                            (job.pal.tobytes() if getattr(job, "pal", None) is not None else b"")).hexdigest()
     else:
+        # (a sprite packed tight: where its pixels are in its rect too)
+        tight = unity.sprite_by_key(job.key).tight
         key = hashlib.sha1(repr((_SRC_HASH, job.key, job.scale, job.blur, job.alpha_only, job.all_cells, job.cells,
-                                 job.magnified)).encode()).hexdigest()
+                                 job.magnified) + ((tight,) if tight else ())).encode()).hexdigest()
     path = os.path.join(unity.CACHE, "tex", key + ".pkl")
     if os.path.exists(path):
         with open(path, "rb") as f:

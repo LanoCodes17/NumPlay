@@ -510,6 +510,39 @@ def main():
     for name, path in (("FLEUR", "Warning_Fleur0008"), ("BACKBOARD", "backboard"), ("IMAGE", "Image"), ("STOP", "Stop")):
         s, kx, ky = piece(ptute, by_tute["Charm Tutorial Msg/" + path])
         fleurs["TUTE_" + name] = "{%d, %.4ff, %.4ff}" % (s, kx, ky)
+    # the focus tutorial King's Pass's first tablet shows (Focus_prompt_temp, the HUD's where it is): its picture, its
+    # lines (Prompts: in the message's style) by their rects' tops, centred or ending at x, the key to hold (Cast's: its
+    # box's left); a line no nearer the one above than its height (the text bigger)
+    fdoc = unity.scene("Tutorial_01")
+    fby = {o["path"]: o for o in fdoc["objects"]}
+    froot = "_Props/Tut_tablet_top/Focus_prompt_temp"
+    fo = fby[froot]
+    s, kx, ky = piece(fdoc, fo, scale=[math.hypot(fo["m3"][0], fo["m3"][3]), math.hypot(fo["m3"][1], fo["m3"][4])])
+    fleurs["FOCUS_PROMPT_BG"] = "{%d, %.4ff, %.4ff, %.4ff, %.4ff}" % (s, fo["pos"][0], fo["pos"][1], kx, ky)
+    rows = []
+    for n in ("Text1", "Text1B", "Text2", "Text3"):
+        q = fby[froot + "/" + n]
+        tc = next(c["v"] for c in q["c"] if c["type"] == "TextContainer" or c.get("class") == "TextContainer")
+        tm = next(c["v"] for c in q["c"] if c.get("class") == "TextMeshPro")
+        gt = next(c["v"] for c in q["c"] if c.get("class") == "SetTextMeshProGameText")
+        k = math.hypot(q["m3"][0], q["m3"][3])
+        w, h, mg = tc["m_rect"]["width"], tc["m_rect"]["height"], tc["m_margins"]
+        x0 = q["pos"][0] + (-tc["m_pivot"]["x"] * w + mg["x"]) * k
+        x1 = q["pos"][0] + ((1 - tc["m_pivot"]["x"]) * w - mg["z"]) * k
+        top = q["pos"][1] + ((1 - tc["m_pivot"]["y"]) * h - mg["y"]) * k
+        al = tm["m_textAlignment"] % 4
+        assert al in (1, 2), n
+        if rows:
+            top = min(top, prev - text.STYLES["MSG"][2] / text.HUD_PX)
+        prev = top
+        rows.append("{%d, %.4ff, %.4ff, %d}" % (TEXTS.id(gt["sheetName"], gt["convName"], "MSG"),
+                                                (x0 + x1) / 2 if al == 1 else x1, top, al - 1))
+    fleurs["FOCUS_PROMPT_TEXTS"] = "{%s}" % ", ".join(rows)
+    q = fby[froot + "/ActionButtonIcon"]
+    sr = next(c["v"] for c in q["c"] if c["type"] == "SpriteRenderer")
+    ks = unity.sprite(fdoc["level"], fdoc["externals"], *sr["m_Sprite"])
+    fleurs["FOCUS_PROMPT_KEY"] = "{%d, %.4ff, %.4ff}" % (TEXTS.add("alpha", "PROMPT"), q["pos"][0] - ks.w / ks.ppu / 2 *
+                                                        math.hypot(q["m3"][0], q["m3"][3]), q["pos"][1])
     fleurs["NOTICE_ICONS"] = "{%s}" % ", ".join(str(SPRITES.id(dd, list(rr), 1.0, hud_res)) for dd, rr in vm.NOTICE_ICONS) \
         if vm.NOTICE_ICONS else "{-1}"
     pmenu = unity.scene("Menu_Title")

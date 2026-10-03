@@ -19,7 +19,8 @@
 #define NONE 0xFFFF
 #define OWNER 0xFF0F
 enum { O_HERO = 0xFF00, O_HERO_LIGHT, O_DIALOGUE_MANAGER, O_DIALOGUE_TEXT, O_AREA_TITLE, O_CAMERA_PARENT, O_MAIN_CAMERA,
-       O_GAME_MANAGER, O_HUD_BLANKER, O_HORNET = 0xFF0C, O_WHITE_BLANKER, O_CHARM_TUTE, O_SHOP = 0xFF10 };   /* (0xFF0F: OWNER) */
+       O_GAME_MANAGER, O_HUD_BLANKER, O_HORNET = 0xFF0C, O_WHITE_BLANKER, O_CHARM_TUTE, O_SHOP = 0xFF10,   /* (0xFF0F: OWNER) */
+       O_PROMPT_BLANKER, O_FOCUS_PROMPT };
 #define O_GATE 0xFD00   /* (+ k: a battle gate, obj.c's) */
 #define O_ENT 0xF000    /* (+ i: a room record (a camera lock area), the game's) */
 enum { OF_ACTIVE = 1, OF_RENDERER = 2, OF_ANIMATOR = 4, OF_TRIGGER = 8, OF_COLLIDER = 16,
@@ -50,8 +51,9 @@ typedef struct {
   float x, y, sx, sy;   /* its place and scale now */
   uint16_t flags;
   uint8_t alpha;   /* (its material's color's alpha: the scripts') */
-  int8_t fade;     /* (iTweenFadeTo: its alpha's change a step, to none or all) */
+  int8_t fade;     /* (iTweenFadeTo, ColorFader: its alpha's change a step, to fade_to, after wait steps) */
   int8_t anim;     /* (its animation: one of vm.anims; -1 none) */
+  uint8_t fade_to, wait;
 } Obj;
 typedef struct {
   int16_t obj;          /* (-1: none) */
@@ -95,6 +97,8 @@ static struct {
   int npersist;
   const uint8_t *folds;     /* (sprites drawn with their objects: 36 bytes each) */
   int nfolds;
+  const uint8_t *faders;    /* (ColorFader: object, down and up alphas, down and up times, up delay (50ths): 6 bytes) */
+  int nfaders;
   Fsm *executing;       /* (the FSM whose action runs: its events to itself wait) */
   int depth;
   /* the area title's variables as scripts set them (title.c starts it from them) */
@@ -501,6 +505,10 @@ static void obj_event(int o, int ev, uint16_t fsm_name) {
     if (ev == VMEV_FADE_IN || ev == VMEV_FADE_OUT) white_blanker_fade(ev == VMEV_FADE_IN);
     return;
   }
+  if (o == O_PROMPT_BLANKER) {
+    if (ev == VMEV_UP || ev == VMEV_DOWN) prompt_blanker(ev == VMEV_UP);
+    return;
+  }
   if (o == O_CHARM_TUTE) {
     if (ev == VMEV_CLOSE) charm_tute_close();
     return;
@@ -536,6 +544,15 @@ static void game_event(int ev) {
   if (ev >= VMEV_BG_CLOSE && ev <= VMEV_BG_DESTROY) gates_event(ev - VMEV_BG_CLOSE);
   else if (ev == VMEV_NPC_TITLE_DOWN) title_npc_down();
   else if (ev == VMEV_NPC_CONVO_START) title_npc_convo_start();
+}
+
+/* (an object's alpha to `to` in t seconds, after `wait` steps) */
+static void fade_obj(int c, int to, float t, int wait) {
+  Obj *o = &vm.objs[c];
+  int d = to - o->alpha, step = t > DT ? (int)(d * DT / t) : d;
+  if (step == 0) step = d > 0 ? 1 : d < 0 ? -1 : 0;
+  o->fade = (int8_t)(step > 127 ? 127 : step < -127 ? -127 : step);
+  o->fade_to = (uint8_t)to, o->wait = (uint8_t)wait;
 }
 
 static bool under(int o, int top) {
@@ -766,14 +783,41 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       float a = fval(f, rv(&r)), t = fval(f, rv(&r));
       bool kids = rb(&r);
       if (!obj_ok(o)) return true;
-      for (int c = 0; c < vm.nobjs; c++) {
-        if (c != o && !(kids && under(c, o))) continue;
-        int to = a >= 0.5f ? 255 : 0, d = to - vm.objs[c].alpha;
-        int step = t > DT ? (int)(d * DT / t) : d;
-        if (step == 0) step = d > 0 ? 1 : d < 0 ? -1 : 0;
-        vm.objs[c].fade = (int8_t)(step > 127 ? 127 : step < -127 ? -127 : step);
+      for (int c = 0; c < vm.nobjs; c++)
+        if (c == o || (kids && under(c, o))) fade_obj(c, a >= 0.5f ? 255 : 0, t, 0);
+      return true;
+    }
+    case VMOP_FADECOLORFADER: {
+      /* (ColorFader.Fade, its own and its children's that are on: up to its up color after its delay, or down) */
+      int o = oval(f, rv(&r));
+      bool up = rb(&r) == 0, kids = rb(&r);
+      if (o == O_FOCUS_PROMPT) focus_prompt_fade(up);
+      if (!obj_ok(o)) return true;
+      for (int k = 0; k < vm.nfaders; k++) {
+        const uint8_t *q = vm.faders + 6 * k;
+        if (q[0] >= vm.nobjs || !obj_active(q[0]) || (q[0] != o && !(kids && under(q[0], o)))) continue;
+        fade_obj(q[0], up ? q[2] : q[1], (up ? q[4] : q[3]) * DT, up ? q[5] : 0);
       }
       return true;
+    }
+    case VMOP_DIALOGUEPLACE: {
+      int which = rb(&r);
+      dialogue_place(which, fval(f, rv(&r)));
+      return true;
+    }
+    case VMOP_STOPPAUSE:
+      dialogue_stop_pause(fval(f, rv(&r)));
+      return true;
+    case VMOP_GETFSMBOOL: {
+      /* (another FSM's bool: its object's FSM of that name) */
+      int o = oval(f, rv(&r));
+      uint16_t fname = (uint16_t)val(f, rv(&r));
+      uint8_t slot = rb(&r), v = rb(&r);
+      bool every = rb(&r);
+      if (obj_ok(o) && slot != 255)
+        for (int i = 0; i < vm.nfsms; i++)
+          if (vm.fsms[i].owner == o && vm.fsms[i].name == fname) set_var(f, v, val(&vm.fsms[i], slot) != 0);
+      return !every;
     }
     case VMOP_SETBENCHRESPAWN: {
       uint16_t m = rv(&r);
@@ -913,6 +957,7 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       return !every;
     }
     case VMOP_BOOLALLTRUE:
+    case VMOP_BOOLNONETRUE:
     case VMOP_BOOLANYTRUE: {
       int n = rb(&r);
       bool all = true, any = false;
@@ -923,7 +968,7 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
       int ev = rb(&r);
       uint8_t v = rb(&r);
       bool every = rb(&r);
-      bool res = op == VMOP_BOOLALLTRUE ? (n > 0 && all) : any;
+      bool res = op == VMOP_BOOLALLTRUE ? (n > 0 && all) : op == VMOP_BOOLNONETRUE ? !any : any;
       set_var(f, v, res);
       if (res) fsm_event(f, ev);
       return !every;
@@ -1718,6 +1763,10 @@ void vm_enter(void) {
       set_var(&vm.fsms[p[0]], p[1], 1);
   }
   vm.nfolds = rd16(p), vm.folds = p + 2;
+  p += 2 + 36 * vm.nfolds;
+  vm.nfaders = rd16(p), vm.faders = p + 2;
+  for (int k = 0; k < vm.nfaders; k++)   /* (ColorFader's Setup: its down color) */
+    if (vm.faders[6 * k] < nobjs) vm.objs[vm.faders[6 * k]].alpha = vm.faders[6 * k + 1];
   vm.prev_keys = g_hero.keys;
   /* (what it holds within the condition's: off too) */
   for (int i = 0; i < nobjs; i++)
@@ -1752,10 +1801,11 @@ void vm_tick(void) {
       vm.dmg_dir = vm.dmg_type ? vm.spell_dir : vm.nail_dir;
       obj_event(i, VMEV_TAKE_DAMAGE, NONE);
     }
-    /* (iTweenFadeTo) */
-    if (o->fade) {
+    /* (iTweenFadeTo, ColorFader) */
+    if (o->wait) o->wait--;
+    else if (o->fade) {
       int a = o->alpha + o->fade;
-      if (a <= 0 || a >= 255) a = a <= 0 ? 0 : 255, o->fade = 0;
+      if (o->fade > 0 ? a >= o->fade_to : a <= o->fade_to) a = o->fade_to, o->fade = 0;
       o->alpha = (uint8_t)a;
     }
     Anim *an = oanim(i);

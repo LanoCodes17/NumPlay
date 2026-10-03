@@ -84,6 +84,7 @@ float text_box(int text, int style, float x, float y, float w, int align, float 
 #define MAX_PAGES 24
 #define KEYS_CONTINUE (K_JUMP | K_ATTACK | K_SPELL | K_FOCUS | K_DASH | K_OK | K_BACK | K_PAUSE | K_MAP | K_INV)
 
+#define MARKER_Y 1.695f      /* (the arrow's and the stop's, as Dialogue Page Control has them: the box's) */
 #define YN_BOX_Y 1.94f       /* (Box Open YN: the box lower) */
 #define YN_TEXT_Y 1.89f      /* (Text YN: its rect's center, its height; its lines centred) */
 #define YN_TEXT_H 3.9055f
@@ -111,6 +112,10 @@ static struct {
   bool arrow_on, stop_on;
   bool finished;        /* CONVO_FINISH, since dialogue_start */
   uint32_t prev_keys;
+  /* (where a script put the text, the stop, the arrow (SetPosition, HUD units: a lore tablet's); its Stop Pause) */
+  float place[3];
+  bool placed;
+  float stop_pause, pause_t;
   /* Box Open Dream: the dream box (up, or going down a while), the text centred (SetTextMeshProAlignment) */
   Anim dream;
   bool dream_on, centre;
@@ -169,6 +174,23 @@ void dialogue_dream_box(bool up) {
 
 void dialogue_centre(bool on) { dl.centre = on; }
 
+void dialogue_place(int which, float y) {
+  if (which < 0 || which > 2) return;
+  dl.place[which] = y;
+  dl.placed = dl.place[0] != TEXT_Y || dl.place[1] != MARKER_Y || dl.place[2] != MARKER_Y;
+}
+void dialogue_stop_pause(float t) { dl.stop_pause = t; }
+
+/* the text's rect's middle (HUD units): the box's, the text a third bigger about the box's place; where a script
+ * put it, by as much */
+static float text_mid(void) {
+  float by = dl.yn ? YN_BOX_Y : BOX_Y;
+  return dl.yn ? by + (dl.text_y - by) * TEXT_K : dl.text_y + (TEXT_Y - BOX_Y) * (TEXT_K - 1);
+}
+
+/* the arrow's and the stop's: as the box has them, about its place; where a script put them, there */
+static float marker_y(float y) { return dl.placed ? y : dl.box_y + (y - dl.box_y) * TEXT_K; }
+
 static int lines_per_page(const uint8_t *st) {
   float h = dl.text_h * HUD_PX * TEXT_K;
   return 1 + (int)((h - font_asc(st) - font_desc(st)) / font_line(st));
@@ -208,7 +230,7 @@ static void show_page(int p) {
 
 void dialogue_start(int text) {
   /* StartConversation */
-  dl.yn = false, dl.text_y = TEXT_Y, dl.text_h = TEXT_H;
+  dl.yn = false, dl.text_y = dl.place[0], dl.text_h = TEXT_H, dl.pause_t = 0;
   set_conversation(text_get(text));
   dl.finished = false;
   dl.pc = PC_IDLE;
@@ -309,7 +331,9 @@ void dialogue_tick(void) {
       }
       break;
     case PC_STOP_PAUSE:
-      /* (Stop Pause: 0 s) then the stop marker up */
+      /* (Stop Pause, then the stop marker up) */
+      if ((dl.pause_t += DT) < dl.stop_pause) break;
+      dl.pause_t = 0;
       dl.stop_on = true, dl.arrow_on = false;
       anim_play_from_frame(&dl.stop, CLIP_DIALOGUE_STOP_UP, 0);
       dl.pc = PC_CONV_END;
@@ -358,6 +382,13 @@ void dialogue_tick(void) {
   }
 }
 
+#define MARKER_K (1.3f * TEXT_K)   /* (the arrow's and the stop's scale) */
+static void marker(int sprite, float x, float y, uint8_t tint) {
+  Inst in;
+  sprite_inst(sprite, BOX_X + (x - BOX_X) * TEXT_K, marker_y(y), 0, MARKER_K, MARKER_K, tint, &in);
+  gfx_hud(&in, 0);
+}
+
 static void box_sprite(int sprite, float x, float y, float sx, float sy, uint8_t tint) {
   /* (placed about the box's place at its scale and the text's; sized at its scale) */
   float k = dl.scale * TEXT_K;
@@ -365,7 +396,6 @@ static void box_sprite(int sprite, float x, float y, float sx, float sy, uint8_t
   sprite_inst(sprite, BOX_X + (x - BOX_X) * k, dl.box_y + (y - dl.box_y) * k, 0, sx * dl.scale, sy * dl.scale, tint, &in);
   gfx_hud(&in, 0);
 }
-#define MARKER_K (1.3f * TEXT_K)   /* (the arrow's and the stop's scale) */
 
 /* Text YN's pieces: placed about the lower box's place at the text's scale */
 static float yn_x(float x) { return BOX_X + (x - BOX_X) * TEXT_K; }
@@ -433,16 +463,15 @@ void dialogue_draw(void) {
                 1.0745f * TEXT_K, white, &in);
     gfx_hud(&in, 0);
   }
-  if (dl.arrow_on && dl.arrow.sprite >= 0) box_sprite(dl.arrow.sprite, 0.0069f, 1.695f, MARKER_K, MARKER_K, white);
-  if (dl.stop_on && dl.stop.sprite >= 0) box_sprite(dl.stop.sprite, -0.0231f, 1.695f, MARKER_K, MARKER_K, white);
+  if (dl.arrow_on && dl.arrow.sprite >= 0) marker(dl.arrow.sprite, 0.0069f, dl.place[2], white);
+  if (dl.stop_on && dl.stop.sprite >= 0) marker(dl.stop.sprite, -0.0231f, dl.place[1], white);
   if (dl.yn) yn_draw(white);
   if (!dl.text) return;
   /* the page's lines, top left in the rect, as far as the typewriter shows */
   const uint8_t *st = font_style(STYLE_DIALOGUE);
   float w = TEXT_W * HUD_PX * TEXT_K, h = dl.text_h * HUD_PX * TEXT_K;
   float left = VIEW_W / 2 + TEXT_X * HUD_PX - w / 2;
-  float by = dl.yn ? YN_BOX_Y : BOX_Y;
-  float y = VIEW_H / 2 - (by + (dl.text_y - by) * TEXT_K) * HUD_PX - h / 2 + font_asc(st);
+  float y = VIEW_H / 2 - text_mid() * HUD_PX - h / 2 + font_asc(st);
   int i = dl.page_start[dl.page], last = page_last(), per = lines_per_page(st);
   for (int l = 0; l < per && i < last; l++) {
     int next, e = line_end(st, dl.text, i, w, &next);
@@ -461,6 +490,7 @@ void dialogue_reset(void) {
   dl.box_y = BOX_Y, dl.text_y = TEXT_Y, dl.text_h = TEXT_H;
   dl.coin.sprite = -1;
   dl.arrow.sprite = dl.stop.sprite = dl.dream.sprite = -1;
+  dl.place[0] = TEXT_Y, dl.place[1] = dl.place[2] = MARKER_Y;
 }
 
 /* ---------------------------------------------------------------- prompt markers */

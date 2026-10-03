@@ -365,7 +365,9 @@ void msg_draw(void);
 void blanker_set(float alpha, bool on);
 void white_blanker_fade(bool in);   /* HUD Blanker White: FADE IN, FADE OUT (over its Fade Time) */
 void white_blanker_time(float t);
-void white_blanker_reset(void);
+void white_blanker_reset(void);    /* (and the Prompt Blanker, the focus tutorial) */
+void prompt_blanker(bool up);       /* the HUD's Prompt Blanker: UP, DOWN */
+void focus_prompt_fade(bool up);    /* the focus tutorial (Focus_prompt_temp): its ColorFaders' Fade */
 /* the notices (Relic Get Msg, Charm Get Msg) and the charm tutorial (Charm Tutorial Msg) */
 void notice_icon(int k);     /* (the next notice's icon: the scripts' NOTICE_ICONS) */
 void notice_show(int text);  /* a relic's notice: its icon, its name */
@@ -455,6 +457,8 @@ void dialogue_box_up(void);
 void dialogue_box_down(void);
 void dialogue_dream_box(bool up);   /* Box Open Dream: BOX UP DREAM, BOX DOWN DREAM */
 void dialogue_centre(bool on);      /* (SetTextMeshProAlignment: the text centred, or to the left) */
+void dialogue_place(int which, float y);   /* (SetPosition: the text's, the stop's, the arrow's (0, 1, 2), HUD units) */
+void dialogue_stop_pause(float t);         /* (Dialogue Page Control's Stop Pause) */
 void dialogue_start(int text);
 /* the yes or no box (Box Open YN, Text YN): its question, its toll (TakeGeo on YES), who hears YES or NO (a VM object) */
 void dialogue_box_up_yn(void);

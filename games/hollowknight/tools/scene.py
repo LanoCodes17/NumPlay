@@ -193,6 +193,13 @@ def _instances(name):
             it.obj, it.sprite, it.mat = o, s, mat
             it.pos, it.m3 = o["pos"], o["m3"]
             it.color = (col["r"], col["g"], col["b"], col["a"])
+            cf = next((x.get("v") for x in o["c"] if x.get("class") == "ColorFader" and x.get("v")), None)
+            if cf:
+                # (a ColorFader's Start: its down color, until a script fades it up)
+                dc = cf.get("downColour") or {}
+                it.color = tuple(a * dc.get(k, 1) for a, k in zip(it.color, "rgba"))
+                if it.color[3] <= 0:
+                    continue
             it.layer = layer_index(v["m_SortingLayerID"])
             it.order = v["m_SortingOrder"]
             it.flip = (v.get("m_FlipX", 0), v.get("m_FlipY", 0))

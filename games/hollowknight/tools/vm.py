@@ -29,7 +29,8 @@ ROOMS = {
     # items lying about (Shiny Item: a relic, a charm), the City Crest the False Knight leaves
     "Crossroads_01": ["Shiny Item", "Force Hard Landing"],
     "Tutorial_01": ["_Props/Chest/Item", "_Props/Collapser Tute 01", "_Scenery/Break Floor 1", "Interact Reminder",
-                    "_Props/Tute Door 5/Active/Jump Reminder"],   # (its chest: src/obj.c, which turns on what is in it)
+                    "_Props/Tute Door 5/Active/Jump Reminder", "_Props/Tut_tablet_top", "_Props/Tut_tablet_top (1)",
+                    "_Props/Tut_tablet_top (2)"],   # (its chest: src/obj.c, which turns on what is in it)
     "Fungus1_22": ["Shiny Item", "Gate Switch", "Metal Gate", "Breakable Wall"],
     "Crossroads_10": ["Key Giver", "Breakable Wall"],
     # the shops: their keepers, their regions (the menu: src/shop.c)
@@ -39,12 +40,12 @@ ROOMS = {
     # the grubs in their jars; the Grubfather, his rewards, the grubs back home
     "Crossroads_03": ["_Props/Grub Bottle", "_Props/Toll Gate", "_Props/Toll Gate 1", "_Props/Toll Gate Switch",
                       "Break Wall 2"],
-    "Fungus1_21": ["Grub Bottle"],
+    "Fungus1_21": ["Grub Bottle", "Inspect Region"],
     "Crossroads_38": ["Grub King"] + ["Saved Grubs/Grub Saved %d" % n for n in range(1, 3)],
     # Hornet seen in Greenpath before her arena
     "Fungus1_02": ["Hornet Encounter GP1"],
     "Fungus1_03": ["Set Hornet Encounter"],
-    "Fungus1_17": ["Set Hornet Encounter"],
+    "Fungus1_17": ["Set Hornet Encounter", "Inspect Region"],
     "Fungus1_31": ["Hornet Encounter Control", "_Props/Breakable Wall", "Toll Gate Machine", "Toll Gate Machine (1)",
                    "Toll Gate", "Toll Gate (1)"],
     # the world's other scripted things: walls that break, floors, a soul totem, tablets, a wall that turns on
@@ -154,6 +155,8 @@ INT_STRINGS = range(0, GRUBS + 1)
 SPECIAL = {"Hero": 0xFF00, "HeroLight": 0xFF01, "DialogueManager": 0xFF02, "DialogueText": 0xFF03, "AreaTitle": 0xFF04,
            "CameraParent": 0xFF05, "MainCamera": 0xFF06, "GameManager": 0xFF07, "HUD Blanker": 0xFF08,
            "DialogueTextYN": 0xFF09, "UIManager": 0xFF0A, "Enemy Dream Msg": 0xFF0B, "HUD Blanker White": 0xFF0D}
+# a scene's objects that are the HUD's (drawn by the C code: msg.c's focus prompt; src/vm.c: O_FOCUS_PROMPT), by name
+HUD_CHILDREN = {"Focus_prompt_temp": 0xFF12}
 # objects scripts find by their tags: the Knight; a shop's menu (src/shop.c)
 TAGGED = {"Player": 0xFF00, "Shop Window": 0xFF10}   # (src/vm.c: O_SHOP)
 O_NONE = 0xFFFF
@@ -212,7 +215,7 @@ for e in ("FINISHED", "CONVO_FINISH", "CONVO START", "CONVO END", "BIG TITLE STA
           "HORNET LEAVE", "BG CLOSE", "BG QUICK CLOSE", "BG OPEN", "BG QUICK OPEN", "BG DESTROY", "WAKE", "BOX UP DREAM",
           "BOX DOWN DREAM", "FADE IN", "FADE OUT", "FSM CANCEL", "CLOSE", "FK DEATH", "SHOP UP", "SHOP CLOSED",
           "SHOP CLOSED QUICK", "SHOP WINDOW UP", "RESET SHOP WINDOW", "CLOSE SHOP WINDOW", "BOX UP YN", "BOX DOWN YN",
-          "YES", "NO", "CONTINUE", "RESET", "HIT", "UNCOVER"):
+          "YES", "NO", "CONTINUE", "RESET", "HIT", "UNCOVER", "UP", "DOWN"):
     EVENTS.id(e)
 FIXED_EVENTS = len(EVENTS.list)   # (src/data.h: VMEV_*)
 
@@ -381,6 +384,12 @@ op("SoulOrbs", ("spawnMin", "i"), ("spawnMax", "i"), ("speedMin", "f"), ("speedM
    ("angleMax", "f"), ("originVariationX", "f"), ("originVariationY", "f"))   # (Soul Orb R: flung, then to the Knight)
 op("FadeTo", ("gameObject", "o"), ("alpha", "f"), ("time", "f"), ("includeChildren", "n"))   # (iTweenFadeTo)
 op("SetBenchRespawn", ("marker", "x"), ("type", "n"), ("facing", "n"))   # (PlayerData.SetBenchRespawn: the marker's name)
+op("FadeColorFader", ("target", "o"), ("fadeType", "n"), ("useChildren", "n"))   # (ColorFader.Fade: 0 up, 1 down)
+op("BoolNoneTrue", ("boolVariables", "b*"), ("sendEvent", "e"), ("storeResult", "B"), ("everyFrame", "n"))
+# (the dialogue text's place, its stop's, its arrow's (0, 1, 2: HUD units); the stop's pause before it shows)
+op("DialoguePlace", ("which", "n"), ("y", "f"))
+op("StopPause", ("time", "f"))
+op("GetFsmBool", ("gameObject", "o"), ("fsmName", "s"), ("slot", "n"), ("storeValue", "B"), ("everyFrame", "n"))
 
 # HeroController's methods the scripts call (HeroCall's method)
 HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "StartAnimationControl", "FaceLeft",
@@ -409,7 +418,7 @@ NOTICE_ICONS = []
 # the charms this part of the game has (their icons and names: msg.c, the inventory)
 CHARMS = [1, 2, 3, 4, 6, 7, 8, 14, 18, 19, 20]
 # the game's objects the scripts find by name that are not theirs (enemies): what they are to them
-GAME_OBJECTS = {"Hornet Boss 1": 0xFF0C}
+GAME_OBJECTS = {"Hornet Boss 1": 0xFF0C, "Prompt Blanker": 0xFF11}   # (the HUD's Prompt Blanker: msg.c's)
 O_CHARM_TUTE = 0xFF0E   # (src/vm.c)
 # what a trigger's Trigger2dEvent hears, by collideTag: the Knight (any), a spell
 TRIGGER_TAGS = {None: 0, "": 0, "Player": 0, "Untagged": 0, "Hero Spell": 1, "Nail Attack": 2}
@@ -469,7 +478,7 @@ class Room:
         cls = {c.get("class") or c["type"] for c in o["c"]}
         if o["path"].startswith("Grub King/Rewards Parent/Reward ") and int(o["name"].split()[-1]) > GRUBS:
             return False
-        return not (cls & SKIP_CLASSES) and o["name"] not in SKIP_NAMES
+        return not (cls & SKIP_CLASSES) and o["name"] not in SKIP_NAMES and o["name"] not in HUD_CHILDREN
 
     def referenced(self):
         """the names and objects the scene's scripts can find (FindChild, FindGameObject, references)"""
@@ -747,6 +756,28 @@ class Compiler:
             self.consts.append(v)
         return self.nvars + self.consts.index(v)
 
+    def found_nothing(self, v):
+        """a gameObject variable only FindChild sets, from its owner, naming a child it does not have"""
+        if not (isinstance(v, str) and v.startswith("$")):
+            return False
+        sets = [dict(a["params"]) for s in self.f["states"] for a in s["actions"]
+                if v in [p[1] for p in a["params"] if p[0] in ("storeResult", "store", "storeGameObject", "storeObject")]]
+        return bool(sets) and all(Q.get("gameObject") == "Owner" and "childName" in Q and not any(
+            q.get("parent") == self.o["id"] and q["name"] == Q["childName"] for q in self.rm.by_id.values()) for Q in sets)
+
+    def dialogue_part(self, v):
+        """the dialogue text ($DialogueText), or its stop or arrow (FindChild of the parent GetParent gives): 0, 1, 2"""
+        if v == "$DialogueText":
+            return 0
+        if not (isinstance(v, str) and v.startswith("$")):
+            return None
+        acts = [dict(a["params"]) for s in self.f["states"] for a in s["actions"] if a["name"] in ("FindChild", "GetParent")]
+        parents = {Q.get("storeResult") for Q in acts if Q.get("gameObject") == "$DialogueText" and "childName" not in Q}
+        for Q in acts:
+            if Q.get("storeResult") == v and Q.get("gameObject") in parents and Q.get("childName") in ("Stop", "Arrow"):
+                return 1 if Q["childName"] == "Stop" else 2
+        return None
+
     def static_child(self, v):
         """a gameObject variable FindChild sets from its owner (always the same child) -> that child"""
         if not (isinstance(v, str) and v.startswith("$")):
@@ -944,6 +975,24 @@ class Compiler:
         if n == "ReceivedDamage":
             # (a nail's hit on its collider)
             return self.emit("Trigger2dEvent", {"trigger": 0, "sendEvent": P.get("sendEvent"), "tag": TRIGGER_TAGS["Nail Attack"]})
+        if n == "FindChild" and P.get("childName") in HUD_CHILDREN:
+            return self.emit("SetGameObject", {"variable": P.get("storeResult"),
+                                               "gameObject": ("objindex", HUD_CHILDREN[P.get("childName")])})
+        if n == "GetFsmBool":
+            go = P.get("gameObject")
+            if self.found_nothing(go):
+                return None   # (a child it does not have: the variable as it was)
+            return self.emit(n, dict(P, slot=self.fsm_slot(_one_string(self.rm, self.f, P.get("fsmName")),
+                                                            _one_string(self.rm, self.f, P.get("variableName")))))
+        if n == "SetFsmGameObject" and P.get("gameObject") == "$DialogueText" and P.get("variableName") == "Requester":
+            return None   # (who hears CONVO_FINISH: all do here)
+        if n == "SetFsmFloat" and P.get("gameObject") == "$DialogueText" and P.get("variableName") == "Stop Pause":
+            return self.emit("StopPause", {"time": P.get("setValue")})
+        if n == "SetPosition" and self.dialogue_part(P.get("gameObject")) is not None:
+            if P.get("vector") is not None or P.get("x") is not None or P.get("y") is None or P.get("everyFrame"):
+                self.problem("SetPosition %r" % P)
+                return None
+            return self.emit("DialoguePlace", {"which": self.dialogue_part(P.get("gameObject")), "y": P.get("y")})
         if n in ("GetFsmInt", "GetFsmFloat") and P.get("gameObject") == "$Damager":
             # (the hit's damages_enemy: its damage, its attack's type (0 the nail, 2 a spell), its direction)
             which = {"damageDealt": 0, "attackType": 1, "direction": 2}.get(P.get("variableName"))
@@ -1689,6 +1738,15 @@ def room_blob(name, clip_index, sprites, owners=(), persist=None):
         rgba = [max(0, min(255, int(round(col[k] * 255)))) for k in "rgba"]
         folds += struct.pack("<BBhfffffHhBBBBHH", i, 0, spr, q["pos"][0] - o["pos"][0], q["pos"][1] - o["pos"][1], q["pos"][2],
                              sx, sy, layer, order, *rgba, blend, 0)
+    # (ColorFader: the objects that have one: its down and up colors' alphas, their times and the up's delay, in 50ths
+    # of a second)
+    faders = [(i, c["v"]) for i, o in enumerate(rm.objs) for c in o["c"] if c.get("class") == "ColorFader" and c.get("v")]
+    assert len(faders) < 256 and all(i < 256 for i, _ in faders), name
+    A = lambda col: max(0, min(255, int(round((col or {}).get("a", 1) * 255))))
+    T = lambda t: max(0, min(255, int(round((t or 0) * 50))))
+    folds += struct.pack("<H", len(faders)) + b"".join(
+        struct.pack("<BBBBBB", i, A(v.get("downColour")), A(v.get("upColour")), T(v.get("downTime")), T(v.get("upTime")),
+                    T(v.get("upDelay"))) for i, v in faders)
     head = struct.pack("<HHHH", len(rm.objs), len(rm.fsms), nmap, len(rm.persist))
     return bytes(head + objs + clipmap + fsms + folds)
 

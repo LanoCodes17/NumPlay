@@ -1,0 +1,113 @@
+/* The game: the Knight, what the player has, the camera, the scene. */
+#pragma once
+#include "hk.h"
+
+/* ---------------------------------------------------------------- PlayerData (what a save keeps) */
+typedef struct {
+  int8_t health, max_health, health_blue;
+  int16_t mp, mp_reserve, max_mp;
+  int32_t geo;
+  bool can_dash, has_spell, has_dash;
+  uint8_t fireball_level;
+  bool disable_pause;
+} PlayerData;
+extern PlayerData g_pd;
+
+/* ---------------------------------------------------------------- the room's game objects (tools/ents.py) */
+enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER };
+enum { CL_PREVENT_UP = 1, CL_PREVENT_DOWN = 2, CL_MAX_PRIORITY = 4 };
+enum { G_DOOR = 1, G_ENTER_RIGHT = 2, G_ENTER_LEFT = 4, G_DONT_WALK_OUT = 8, G_NON_HAZARD = 16 };
+#define FACING_RIGHT 1
+typedef struct {
+  uint8_t type, flags;
+  uint16_t a;              /* gate: the room it leads to; hazard trigger: its marker */
+  float x0, y0, x1, y1;    /* its trigger (or its place) */
+  float p0, p1, p2, p3;    /* camera lock: x min, y min, x max, y max (-1: none); gate: entry delay */
+  uint16_t s0, s1;         /* names (str_at): a gate's own and its entry point's */
+} Ent;
+const Ent *room_ents(int *n);
+#define MAX_ENTS 160
+
+/* ---------------------------------------------------------------- the game */
+typedef struct {
+  bool paused;
+  float time;
+  float hazard_x, hazard_y;   /* where a hazard sends the Knight back to */
+  bool hazard_facing_right;
+} Game;
+extern Game g_game;
+
+/* ---------------------------------------------------------------- the Knight (hero.c) */
+enum { HS_INACTIVE, HS_IDLE, HS_RUNNING, HS_AIRBORNE, HS_WALL_SLIDING, HS_HARD_LANDING, HS_DASH_LANDING, HS_NO_INPUT,
+       HS_PREVIOUS, HS_GROUNDED };   /* ActorStates (grounded and previous only as SetState's arguments) */
+enum { TS_WAITING_TO_TRANSITION, TS_EXITING_SCENE, TS_WAITING_TO_ENTER_LEVEL, TS_ENTERING_SCENE, TS_DROPPING_DOWN };
+enum { GATE_TOP, GATE_RIGHT, GATE_LEFT, GATE_BOTTOM, GATE_DOOR, GATE_UNKNOWN };
+enum { SIDE_TOP, SIDE_LEFT, SIDE_RIGHT, SIDE_BOTTOM };
+enum { ATK_NORMAL, ATK_UP, ATK_DOWN };
+enum { SLASH_NORMAL, SLASH_ALT, SLASH_UP, SLASH_DOWN };
+enum { DAMAGE_FULL, DAMAGE_HAZARD_ONLY, DAMAGE_NONE };
+#define RECOIL_DURATION 0.2f
+
+typedef struct {   /* HeroControllerStates */
+  bool facing_right, on_ground, jumping, dashing, falling, attacking, up_attacking, down_attacking, alt_attack;
+  bool looking_up, looking_down, looking_up_anim, looking_down_anim, bouncing, recoiling_left, recoiling_right;
+  bool recoiling, recoil_frozen, dead, hazard_death, hazard_respawning, will_hard_land, casting, cast_recoiling;
+  bool prevent_dash, dash_cooldown, in_walk_zone, touching_wall, touching_non_slider, was_on_ground, transitioning;
+  bool invulnerable, focusing;
+} CState;
+
+typedef struct {
+  Body body;
+  uint32_t keys, prev_keys;
+  uint8_t state, prev_state, anim_state, transition_state, gate_position, damage_mode;
+  float move_input, vertical_input;
+  CState cs;
+  int jump_steps, jumped_steps, jump_queue_steps, dash_queue_steps, attack_queue_steps, recoil_steps;
+  int landing_buffer_steps, ledge_buffer_steps, head_bump_steps;
+  bool jump_queuing, dash_queuing, attack_queuing, recoil_large, hard_landed, air_dashed;
+  float dash_timer, dash_cooldown_timer, attack_time, attack_duration, attack_cooldown, alt_attack_time;
+  float time_since_level, bounce_timer, recoil_timer, recoil_vx, recoil_vy, fall_timer, hard_landing_timer;
+  float dash_landing_timer, hard_land_fail_safe_timer, floating_buffer_timer, look_delay_timer, prev_gravity;
+  float transition_vx, transition_vy;
+  bool accepting_input, control_relinquished, doing_hazard_respawn, landed_event;
+  bool touching_wall_l, touching_wall_r;
+  int8_t thunk_dir;
+  bool thunk_hit;
+  float thunk_timer;
+  /* HeroAnimationController */
+  Anim anim;
+  bool anim_control, play_landing, play_run_to_idle, play_dash_to_idle, complete_delegate, set_entry_anim;
+  bool was_facing_right, was_attacking;
+} Hero;
+extern Hero g_hero;
+
+void hero_init(float x, float y, bool facing_right);
+void hero_fixed(uint32_t keys);   /* a 1/50 s step: FixedUpdate, the physics and its collisions */
+void hero_update(void);           /* then Update and the animations */
+void hero_draw(void);
+bool hero_touching_ground(void);
+void hero_recoil_left(void);
+void hero_recoil_right(void);
+void hero_recoil_down(void);
+void hero_bounce(void);
+void hero_finished_entering_scene(void);
+
+/* the nail's slashes (NailSlash), children of the Knight */
+void slash_start(int kind);
+void slash_cancel(void);
+void slash_tick(void);
+void slash_draw(void);
+
+/* effects */
+void fx_dash_burst(float x, float y, bool facing_right, bool on_ground);
+
+void game_new(void);
+bool game_enter(int room, float x, float y, bool facing_right);
+void game_tick(uint32_t keys);   /* 1/50 s */
+void game_draw(void);
+
+/* ---------------------------------------------------------------- the camera (camera.c) */
+void cam_init(void);
+void cam_tick(void);
+void cam_lock(int ent);      /* CameraController.LockToArea, the hero entering the area's trigger */
+void cam_release(int ent);   /* ReleaseLock */

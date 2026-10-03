@@ -1,0 +1,142 @@
+/* Host runner: draws rooms and plays the game with scripted keys, saving screenshots.
+ *   play DATA.bin --room NAME --cam X,Y --shot PATH */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include "../src/game.h"
+
+extern uint32_t host_keys, host_time;
+void host_shot(const char *path);
+
+int main(int argc, char **argv) {
+  if (argc < 2) return 1;
+  FILE *f = fopen(argv[1], "rb");
+  if (!f) return 1;
+  fseek(f, 0, SEEK_END);
+  long n = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  uint8_t *data = malloc((size_t)n);
+  if (fread(data, 1, (size_t)n, f) != (size_t)n) return 1;
+  fclose(f);
+  hk_bin = data;
+  const char *room = "Tutorial_01", *shot = NULL;
+  float cx = 40, cy = 14;
+  int repeat = 1, pan = 0, sweep = 0;
+  float step = 2;
+  const char *items_out = NULL, *play = NULL, *shots = NULL;
+  float px = 20, py = 20;
+  int shot_every = 0, trace = 0;
+  float dx = 0.15f;
+  for (int i = 2; i < argc; i++) {
+    if (!strcmp(argv[i], "--room")) room = argv[++i];
+    else if (!strcmp(argv[i], "--cam")) sscanf(argv[++i], "%f,%f", &cx, &cy);
+    else if (!strcmp(argv[i], "--shot")) shot = argv[++i];
+    else if (!strcmp(argv[i], "--repeat")) repeat = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--pan")) pan = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--items")) items_out = argv[++i];
+    else if (!strcmp(argv[i], "--dx")) dx = (float)atof(argv[++i]);
+    else if (!strcmp(argv[i], "--sweep2d")) sweep = 2, step = (float)atof(argv[++i]);
+    else if (!strcmp(argv[i], "--play")) play = argv[++i];
+    else if (!strcmp(argv[i], "--at")) sscanf(argv[++i], "%f,%f", &px, &py);
+    else if (!strcmp(argv[i], "--shots")) shots = argv[++i], shot_every = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--trace")) trace = 1;
+  }
+  int id = -1;
+  for (int i = 0; i < NUM_ROOMS; i++)
+    if (!strcmp(room_name(i), room)) id = i;
+  if (id < 0 || !room_load(id)) {
+    fprintf(stderr, "no room %s\n", room);
+    return 1;
+  }
+  g_cam_x = cx, g_cam_y = cy;
+  if (play) {
+    /* the game with scripted keys: "KEYS*TICKS,..." (L R U D J jump A attack S dash F focus/cast, _ none) */
+    game_new();
+    g_pd.can_dash = true;
+    game_enter(id, px, py, true);
+    int tick = 0;
+    for (const char *p = play; *p;) {
+      uint32_t keys = 0;
+      for (; *p && *p != '*'; p++)
+        keys |= *p == 'L' ? K_LEFT : *p == 'R' ? K_RIGHT : *p == 'U' ? K_UP : *p == 'D' ? K_DOWN : *p == 'J' ? K_JUMP
+              : *p == 'A' ? K_ATTACK : *p == 'S' ? K_DASH : *p == 'F' ? K_FOCUS | K_SPELL : 0;
+      int n = *p == '*' ? atoi(++p) : 1;
+      while (*p && *p != ',') p++;
+      if (*p == ',') p++;
+      for (int i = 0; i < n; i++, tick++) {
+        game_tick(keys);
+        if (trace)
+          printf("%4d keys %02x pos %.3f,%.3f v %.3f,%.3f state %d ground %d jump %d fall %d clip %d frame %d cam %.2f,%.2f\n", tick,
+                 keys, g_hero.body.x, g_hero.body.y, g_hero.body.vx, g_hero.body.vy, g_hero.state, g_hero.cs.on_ground,
+                 g_hero.cs.jumping, g_hero.cs.falling, g_hero.anim.clip, g_hero.anim.frame, g_cam_x, g_cam_y);
+        if (shots && shot_every && tick % shot_every == 0) {
+          char path[256];
+          snprintf(path, sizeof path, "%s/%05d.ppm", shots, tick);
+          game_draw();
+          host_shot(path);
+        }
+      }
+    }
+    if (shot) game_draw(), host_shot(shot);
+    printf("end: pos %.3f,%.3f state %d\n", g_hero.body.x, g_hero.body.y, g_hero.state);
+    return 0;
+  }
+  if (sweep == 2) {
+    /* every camera position on a grid, drawn twice (the second frame's tiles are the view's): the most tiles a view
+     * uses, and where */
+    extern uint32_t g_tex_used;
+    const RoomHdr *h = g_room.h;
+    float x0 = 14.6f, x1 = h->w - 14.6f, y0 = 8.3f, y1 = h->h - 8.3f;
+    if (x1 < x0) x1 = x0;
+    if (y1 < y0) y1 = y0;
+    uint32_t worst = 0, maxitems = 0, maxfront = 0;
+    float wx = 0, wy = 0;
+    for (float y = y0; y <= y1 + 0.01f; y += step)
+      for (float x = x0; x <= x1 + 0.01f; x += step) {
+        g_cam_x = x, g_cam_y = y;
+        gfx_frame();
+        gfx_frame();
+        tex_frame();
+        if (g_tex_used > worst) worst = g_tex_used, wx = x, wy = y;
+        if (g_gfx_items > maxitems) maxitems = g_gfx_items;
+        { extern uint32_t g_gfx_dropped; if (g_gfx_dropped > maxfront) maxfront = g_gfx_dropped; }
+      }
+    extern uint32_t g_peak_pals, g_peak_arena, g_peak_soft;
+    printf("%s %u %.1f %.1f items %u dropped %u pals %u arena %u soft %u\n", room, worst, wx, wy, maxitems, maxfront, g_peak_pals,
+           g_peak_arena, g_peak_soft);
+    return 0;
+  }
+  if (pan) {
+    extern uint32_t g_tex_used;
+    uint32_t d0 = g_tex_decodes, maxd = 0, maxp = 0, maxu = 0, sumu = 0;
+    for (int fr = 0; fr < pan; fr++) {
+      uint32_t a = g_tex_decodes;
+      gfx_frame();
+      if (fr > 2 && g_tex_decodes - a > maxd) maxd = g_tex_decodes - a;
+      if (g_gfx_pixels > maxp) maxp = g_gfx_pixels;
+      if (fr > 0) { sumu += g_tex_used; if (g_tex_used > maxu) maxu = g_tex_used; }
+      g_cam_x += dx;
+    }
+    extern uint32_t g_soft_misses;
+    printf("%s pan %d frames: %.1f decodes/frame (max %u), max pixels %u, tiles used avg %u max %u, soft misses %.1f/frame\n", room, pan,
+           (g_tex_decodes - d0) / (double)pan, maxd, maxp, sumu / (pan - 1), maxu, g_soft_misses / (double)pan);
+    return 0;
+  }
+#ifdef HOST
+  { extern uint32_t g_kind_px[6]; gfx_frame(); memset(g_kind_px, 0, sizeof g_kind_px); gfx_frame();
+    printf("run pixels: solid %u axis %u turned %u soft %u bilinear %u (soft mono turned %u)\n", g_kind_px[0], g_kind_px[1], g_kind_px[2], g_kind_px[3], g_kind_px[4], g_kind_px[5]); }
+#endif
+  clock_t t0 = clock();
+  for (int r = 0; r < repeat; r++) gfx_frame();
+  double ms = (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / repeat;
+  extern uint32_t g_tex_calls;
+  printf("%s %.1f,%.1f: %u items, %u pixels, %u decodes, %u misses, %u tile lookups, %.2f ms/frame\n", room, cx, cy, g_gfx_items,
+         g_gfx_pixels, g_tex_decodes, g_tex_misses, g_tex_calls / repeat, ms);
+  if (shot) host_shot(shot);
+  if (getenv("TEXUSED")) {
+    void tex_dump_used(const char *);
+    tex_dump_used(getenv("TEXUSED"));
+  }
+  return 0;
+}

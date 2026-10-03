@@ -13,10 +13,7 @@ typedef struct {
 
 #define MAX_PARTICLES 128
 static Particle parts[MAX_PARTICLES];
-/* each layer has its own share (ParticlesBG, Particles, ParticlesFG are systems of their own): a busy one does not
- * take the others' */
-static const uint8_t part_base[3] = {0, 40, 88}, part_count[3] = {40, 48, 40};
-static uint8_t next_part[3];
+static int next_part;
 
 void particles_clear(void) { memset(parts, 0, sizeof parts); }
 
@@ -30,8 +27,8 @@ static uint32_t lerp_rgb(uint32_t a, uint32_t b, float t) {
 static void create(int layer, const PType *t, V2 pos, uint32_t color, float dir) {
   /* (none far outside the view: emitters out of sight would take the visible ones' places) */
   if (pos.x < g_level.cam.x - 64 || pos.x > g_level.cam.x + 384 || pos.y < g_level.cam.y - 64 || pos.y > g_level.cam.y + 244) return;
-  Particle *p = &parts[part_base[layer] + next_part[layer]];
-  next_part[layer] = (uint8_t)((next_part[layer] + 1) % part_count[layer]);
+  Particle *p = &parts[next_part];
+  next_part = (next_part + 1) % MAX_PARTICLES;
   p->type = t;
   p->active = 1;
   p->layer = (uint8_t)layer;
@@ -104,10 +101,10 @@ static int part_reach(const Particle *p) {
 }
 static void particles_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
   int layer = (int)(intptr_t)ctx;
-  for (int i = part_base[layer]; i < part_base[layer] + part_count[layer]; i++) {
+  for (int i = 0; i < MAX_PARTICLES; i++) {
     Particle *p = &parts[i];
     uint8_t a = (uint8_t)(p->color >> 24);
-    if (!p->active || !a) continue;
+    if (!p->active || p->layer != layer || !a) continue;
     float x = (float)(int)p->pos.x, y = (float)(int)p->pos.y;   /* (Particle.Render: the position truncated) */
     int r = part_reach(p), sx = (int)x - g_camx, sy = (int)y - g_camy;
     if (sy + r < sy0 || sy - r >= sy1 || sx + r < 0 || sx - r >= VIEW_W) continue;
@@ -126,9 +123,9 @@ static void particles_strip(uint16_t *strip, int sy0, int sy1, void *ctx) {
 }
 void particles_render(int layer) {
   int y0 = 1 << 30, y1 = -(1 << 30);
-  for (int i = part_base[layer]; i < part_base[layer] + part_count[layer]; i++) {
+  for (int i = 0; i < MAX_PARTICLES; i++) {
     Particle *p = &parts[i];
-    if (!p->active || !(p->color >> 24)) continue;
+    if (!p->active || p->layer != layer || !(p->color >> 24)) continue;
     int r = part_reach(p), sx = (int)p->pos.x - g_camx, sy = (int)p->pos.y - g_camy;   /* (loads it now: nothing loads
                                                                                             while the strips are drawn) */
     if (sy + r < 0 || sy - r >= VIEW_H || sx + r < 0 || sx - r >= VIEW_W) continue;

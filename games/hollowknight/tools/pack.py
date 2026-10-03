@@ -569,8 +569,8 @@ def main():
     fleurs.update(collect.build())
     fleurs.update(stag.build(SPRITES, TEXTS, hud_res, actors.clip_id, ents.pd_flags(), vm.STR.id, ROOMS))
     import gamemap
-    fleurs.update(gamemap.build(SPRITES, TEXTS, hud_res, ROOMS, ents.pd_flags(),
-                                lambda r: scene.settings(unity.scene(r)).get("map_zone") or 0))
+    fleurs.update(gamemap.build(SPRITES, TEXTS, hud_res, list(ROOMS) + list(vm.MAP_SCENES), ents.pd_flags(),
+                                lambda r: scene.settings(unity.scene(vm.MAP_SCENES.get(r, r))).get("map_zone") or 0))
     fleurs["ROOM_ZONES"] = "{%s}" % ", ".join(str(scene.settings(unity.scene(r)).get("map_zone") or 0) for r in ROOMS)
     for i, item in enumerate(text.MSGS):
         fleurs["MSG_" + item] = i

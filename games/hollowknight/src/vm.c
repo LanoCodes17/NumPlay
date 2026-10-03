@@ -1392,6 +1392,9 @@ static bool act(Fsm *f, const uint8_t *a, int mode) {
           if (vm.fsms[i].owner == o && vm.fsms[i].name == fname) set_var(&vm.fsms[i], slot, x);
       return true;
     }
+    case VMOP_SCENEVISITED:
+      map_scene_visited(rb(&r));
+      return true;
     case VMOP_STARTCONVERSATION:
       dialogue_start(rv(&r));
       return true;

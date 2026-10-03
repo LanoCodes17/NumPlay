@@ -48,12 +48,13 @@ ROOMS = {
     "Fungus1_03": ["Set Hornet Encounter"],
     "Fungus1_17": ["Set Hornet Encounter", "Inspect Region"],
     "Fungus1_31": ["Hornet Encounter Control", "_Props/Breakable Wall", "Toll Gate Machine", "Toll Gate Machine (1)",
-                   "Toll Gate", "Toll Gate (1)"],
+                   "Toll Gate", "Toll Gate (1)", "Gate Saver"],
     # the world's other scripted things: walls that break, floors, a soul totem, tablets, a wall that turns on
     "Crossroads_08": ["Break Wall 2"],
     "Crossroads_04": ["_Scenery/Break Floor 1", "CamLock Destroyer", "_Transition Gates/Mender Door"],
     "Crossroads_19": ["Soul Totem mini_two_horned"],
-    "Crossroads_21": ["Breakable Wall", "Polygon_Collider_Cross_21 1/Roof Collider (1)", "Collapser Small"],
+    "Crossroads_21": ["Breakable Wall", "Polygon_Collider_Cross_21 1/Roof Collider (1)", "Collapser Small",
+                      "Map Scene Region"],
     "Crossroads_07": ["Breakable Wall_Silhouette"],
     "Crossroads_30": ["Spa Region"],
     "Crossroads_33": ["_Props/full_wall_left", "Cornifer", "Cornifer Card"],
@@ -85,6 +86,7 @@ def _piece(doc, q, rigid=True):
             "gravity": (rb or {}).get("m_GravityScale", 1), "bounce": ob.get("bounceFactor", 0) if ob else -1,
             "spin": spin, "mirror": mirror}
 PIECE_SPRITES = None   # (prepare: the sprites' id maker)
+ROOM_NAMES = []        # (prepare: the rooms, in their order)
 
 
 def _fsm(name, start, vars_, states):
@@ -167,6 +169,8 @@ SKIP_NAMES = {"Dream Dialogue", "Dream Dialogue Flower", "Flower", "Flower Give"
 # battle gate: src/obj.c's, which FindChild finds)
 SKIP_PATHS = {("Crossroads_04", "_Transition Gates/Mender Door/Inspect"), ("Crossroads_10", "Fk Break Wall/Battle Gate 1")}
 MAX_OBJS, MAX_FSMS, MAX_VARS, MAX_ANIMS = 48, 27, 256, 20   # (src/vm.c)
+# map pieces of their own a script marks visited (AddToScenesVisited), as their room's (src/map.c: after the rooms)
+MAP_SCENES = {"Crossroads_21_b": "Crossroads_21"}
 # the grubs in this part of the game (Crossroads_03, Fungus1_21): the Grubfather's rewards past them never come
 GRUBS = 2
 # the ints ConvertIntToString turns into strings here (the Grubfather's rewards given)
@@ -421,6 +425,7 @@ op("SendEventByScale", ("gameObject", "o"), ("positiveEvent", "e"), ("negativeEv
 op("ListenForQuickMap", ("wasPressed", "e"))
 op("MapUpdateMsg")   # (Map Update Msg: src/map.c's)
 op("UpdateGameMap", ("store", "B"))   # (GameManager.UpdateGameMap: any room newly mapped)
+op("SceneVisited", ("room", "n"))     # (GameManager.AddToScenesVisited: a map piece of its own, MAP_SCENES)
 
 # HeroController's methods the scripts call (HeroCall's method)
 HERO_METHODS = ["RelinquishControl", "RegainControl", "StopAnimationControl", "StartAnimationControl", "FaceLeft",
@@ -1308,6 +1313,10 @@ class Compiler:
                 return None
             if beh == "GameManager" and m == "UpdateGameMap":
                 return self.emit("UpdateGameMap", {"store": P.get("storeResult")})
+            if beh == "GameManager" and m == "AddToScenesVisited":
+                names = self.string_values(args[0]["s"] if isinstance(args[0], dict) else args[0])
+                assert len(names) == 1 and names[0] in MAP_SCENES, names
+                return self.emit("SceneVisited", {"room": len(ROOM_NAMES) + list(MAP_SCENES).index(names[0])})
             if beh == "GameMap" and m == "SetupMap":
                 return None   # (the map: drawn as PlayerData has it, src/map.c)
             if beh == "HeroPlatformStick" and m in ("Activate", "Deactivate"):
@@ -1574,6 +1583,8 @@ def prepare(rooms, sprites, texts):
     import actors, ents, tk2d
     global PIECE_SPRITES
     PIECE_SPRITES = sprites.id
+    ROOM_NAMES[:] = rooms
+    assert len(rooms) + len(MAP_SCENES) <= 40   # (src/game.h: rooms_visited's bits)
     for name, prefixes in ROOMS.items():
         if name not in rooms:
             continue

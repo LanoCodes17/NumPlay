@@ -336,6 +336,7 @@ void map_hud_tick(void);
 void map_draw(void);
 bool map_shown(void);
 void map_room_entered(void);  /* (scenesVisited) */
+void map_scene_visited(int r);   /* (AddToScenesVisited: a map piece of its own, after the rooms) */
 void map_cocoon_broken(void); /* (AddToCocoonList) */
 bool map_update(void);        /* UpdateGameMap: the quill's -> any room newly mapped */
 void map_quick(bool open);    /* (a bench's: OPEN QUICK MAP, CLOSE QUICK MAP) */

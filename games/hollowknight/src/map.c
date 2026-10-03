@@ -50,6 +50,7 @@ static void set_bit(uint8_t *b, int i) {
 }
 
 void map_room_entered(void) { set_bit(g_pd.rooms_visited, g_room.id); }   /* (SceneManager: scenesVisited) */
+void map_scene_visited(int r) { set_bit(g_pd.rooms_visited, r); }          /* (AddToScenesVisited: a map piece) */
 void map_cocoon_broken(void) { set_bit(g_pd.rooms_cocoon, g_room.id); }   /* (AddToCocoonList) */
 
 static bool have_area(int a) { return areas[a].have == -1 || (areas[a].have >= 0 && pd_flag(areas[a].have)); }

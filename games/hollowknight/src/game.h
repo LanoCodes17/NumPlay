@@ -8,6 +8,7 @@
 /* the game's many bools (PlayerData's), by number: new ones only ever added at the end (saves keep them) */
 enum {
   PDF_AT_BENCH, PDF_HAS_MAP, PDF_HAS_QUILL, PDF_HAS_CHARM, PDF_CHARM_BENCH_MSG, PDF_MET_ELDERBUG, PDF_VISITED_CROSSROADS,
+  PDF_FALSE_KNIGHT_DEFEATED, PDF_FK_FIRST_PLOP, PDF_MAPPER_SHOP, PDF_CORN_CROSSROADS_LEFT, PDF_HORNET1_DEFEATED,
   PDF_COUNT
 };
 typedef struct {
@@ -51,7 +52,8 @@ void save_set_respawn(const char *marker, bool facing_right);   /* (Bench Contro
 /* ---------------------------------------------------------------- the room's game objects (tools/ents.py) */
 enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE,
        ENT_BOX, ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER };   /* (shape, box, piece: more of the record before) */
-enum { OK_BREAKABLE = 1, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH };   /* objects (ENT_OBJ's flags) */
+enum { OK_BREAKABLE = 1, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR };   /* objects (ENT_OBJ's flags) */
+#define EF_PREBATTLE 4   /* (an enemy record's s1: one of an arena's Pre Battle Enemies) */
 enum { HB_BOUNCE = 1, HB_RECOIL = 2 };    /* a hit box (ENT_BOX's flags): a down slash bounces off it, a slash recoils */
 enum { HAZ_NONE, HAZ_NORMAL, HAZ_SPIKES, HAZ_ACID, HAZ_LAVA, HAZ_PIT };   /* DamageHero.hazardType */
 enum { MK_SECRET = 1, MK_REMASK = 2, MK_SIMPLE = 4 };   /* masks: the unmasker, remasker and inverse FSMs */
@@ -289,6 +291,7 @@ enum { SHAKE_ENEMY_KILL = 1, SHAKE_AVERAGE, SHAKE_BIG, SHAKE_SMALL };   /* the C
 void cam_shake(int kind);
 enum { RUMBLE_OFF, RUMBLE_SMALL, RUMBLE_MED, RUMBLE_BIG };
 void cam_rumble(int kind);   /* (RumblingSmall, ...: on until turned off) */
+void ent_set_enabled(int i, bool on);   /* (a trigger record on or off: its object (de)activated) */
 void cam_freeze(void);         /* FreezeInPlace (both) */
 void cam_lock(int ent);      /* CameraController.LockToArea, the hero entering the area's trigger */
 void cam_release(int ent);   /* ReleaseLock */

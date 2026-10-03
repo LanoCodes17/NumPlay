@@ -46,6 +46,12 @@ ENEMY_KINDS = [
     ("guard", "Zombie Guard", ("sharedassets58.assets", 57), "GUARD", {"IDLE": "Idle"},
      ["Dormant", "Wake", "Walk", "Run", "Stop Run", "Stop Walk", "Turn", "Anticipate", "Startle", "Stomp Antic",
       "Stomp Land", "Attack2", "Swipe", "Stomp Jump"]),
+    ("fk", "FalseyControl", ("sharedassets47.assets", 9), "FK", {"IDLE": "Idle"},
+     ["Jump Antic", "Land", "Jump", "Attack Antic", "Turn", "Jump Attack Up", "Jump Attack Hit 1", "Jump Attack Hit 2",
+      "Jump Attack Hit 3", "Attack", "Attack Recover", "Blank", "Run Antic", "Run", "Stun Roll", "Stun Roll End",
+      "Stun Open", "Stun Hit", "Stun Recover", "Rage", "Death Fall", "Death Land", "Death Head 1", "Death Head 2",
+      "Death Spaz", "Body", "Stun Opened"]),
+    ("fkhead", "Health Check", ("sharedassets47.assets", 9), "FKHEAD", {"IDLE": "Head Idle"}, ["Head Hit", "Head Spaz"]),
 ]
 ENEMY_CORPSE_LIBS = {}   # (name -> its corpse's library, if not its own)
 
@@ -109,6 +115,9 @@ NAMED = {
     "DIALOGUE_BACKBOARD": ("resources.assets", 4446, "DialogueManager/DialogueBox/backboard", "hud", 2.325 * text.TEXT_K),
     "PROMPT_SHADOW": ("resources.assets", 8342, "Arrow Prompt New/Shadow", 1.0, 0.8),
     "CORPSE_NAIL": ("resources.assets", 6648, "Corpse Nail Hero", 1.0),
+    # (the False Knight's barrels, and its staff flung as it dies: a scene's object)
+    "FK_BARREL": ("sharedassets48.assets", 61, "Falling Barrel", 1.0),
+    "FK_STAFF": ("scene:Crossroads_10_boss", 0, "Battle Scene/False Knight New/Staff", 1.0),
 }
 
 
@@ -116,7 +125,7 @@ def named_sprites(sprites):
     """Registers NAMED in sprites (ents.Sprites) -> {name: sprite id}."""
     out = {}
     for name, (path, gid, opath, res, *scale) in NAMED.items():
-        d = unity.prefab(path, gid)
+        d = unity.scene(path[6:]) if path.startswith("scene:") else unity.prefab(path, gid)
         o = next(o for o in d["objects"] if o["path"] == opath)
         v = next(c["v"] for c in o["c"] if c["type"] == "SpriteRenderer")
         m = np.array(o["m3"]).reshape(3, 3)

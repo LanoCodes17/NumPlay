@@ -129,8 +129,44 @@ class Inst:
     pass
 
 
+@functools.lru_cache(maxsize=None)
+def additive(name):
+    """The scenes a scene loads with it (SceneAdditiveLoadConditional): [(scene, PlayerData bool, value, which)]: the
+    first (which 1) loaded when the bool has that value, the alternative (which 2) otherwise."""
+    out = []
+    for o in unity.scene(name)["objects"]:
+        for c in o["c"]:
+            v = c.get("v") or {}
+            if c.get("class") == "SceneAdditiveLoadConditional" and o["active"]:
+                flag, val = v.get("needsPlayerDataBool", ""), bool(v.get("playerDataBoolValue"))
+                if v.get("sceneNameToLoad"):
+                    out.append((v["sceneNameToLoad"], flag, val, 1))
+                if v.get("altSceneNameToLoad"):
+                    out.append((v["altSceneNameToLoad"], flag, val, 2))
+    return out
+
+
+def additive_scenes(rooms):
+    return {a[0] for r in rooms for a in additive(r)}
+
+
+@functools.lru_cache(maxsize=None)
 def instances(name):
-    """The scene's SpriteRenderers, active and enabled, in a fixed draw order (sorting layer, order, depth)."""
+    """The scene's SpriteRenderers, active and enabled, in a fixed draw order (sorting layer, order, depth); with those
+    of the scenes it loads with it (tagged: it.scene, it.which)."""
+    out = _instances(name)
+    for k, (an, _, _, which) in enumerate(additive(name)):
+        for it in _instances(an):
+            it.scene, it.which = an, which
+            out.append(it)
+    if additive(name):
+        out.sort(key=lambda i: (i.layer, i.order, -i.z))
+        for k, it in enumerate(out):
+            it.id = k
+    return out
+
+
+def _instances(name):
     d = unity.scene(name)
     level, exts = d["level"], tuple(d["externals"])
     dyn = dynamic_ids(d)
@@ -151,6 +187,7 @@ def instances(name):
             mat = unity.material(unity.ref_path(d, mats[0][0]), mats[0][1]) if mats and mats[0] else ("?", "?")
             col = v["m_Color"]
             it = Inst()
+            it.scene, it.which = name, 0
             it.obj, it.sprite, it.mat = o, s, mat
             it.pos, it.m3 = o["pos"], o["m3"]
             it.color = (col["r"], col["g"], col["b"], col["a"])

@@ -114,7 +114,9 @@ typedef struct {
   const SectorRec *secs;
   int nnear;
   uint8_t near[MAX_LOADED];   /* the sectors near the camera */
+  uint16_t hide_lo, hide_hi;  /* (a scene loaded with it, not this time: its sprites' groups, hidden) */
 } Room;
+bool room_flag(int flag);     /* (game.c: a PlayerData bool, the room's variant chosen by) */
 extern Room g_room;
 bool room_load(int id);
 void room_near(float cx, float cy);   /* picks the sectors near the camera */

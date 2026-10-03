@@ -7,7 +7,10 @@ sys.path.insert(0, HERE)
 import unity, scene, visible, art, actors, coll, ents, font, text
 
 SRC = os.path.join(HERE, "..", "src")
-ROOMS = [l.strip() for l in open(os.path.join(HERE, "rooms.txt")) if l.strip() and not l.startswith("#")]
+ALL_ROOMS = [l.strip() for l in open(os.path.join(HERE, "rooms.txt")) if l.strip() and not l.startswith("#")]
+# (scenes loaded with others are part of those: two variants of the room, by a PlayerData bool)
+ROOMS = [r for r in ALL_ROOMS if r not in scene.additive_scenes(ALL_ROOMS)]
+VARIANT_ROOMS = [r for r in ROOMS if scene.additive(r)]
 STRINGS = ents.Strings()
 PERSIST = ents.Persist()
 SPRITES = ents.Sprites()
@@ -18,18 +21,55 @@ PROMPTS = ["Listen", "Rest", "Inspect", "Enter", "Sit", "Shop", "Travel", "Ascen
 ROOM_DATA = {}   # name -> (coll.room's, ents.room's)
 
 
-def room_data(name):
-    """A room's ground and objects (once: the objects' sprites go into SPRITES)."""
-    if name not in ROOM_DATA:
+def room_data(name, variant=0):
+    """A room's ground and objects (once: the objects' sprites go into SPRITES) -> (coll.room's, (records, {(scene,
+    object id): group}), {which: its groups (first, last)}). With the scenes it loads with it: variant 0 has the first's
+    (which 1), variant 1 the alternative's (which 2); the groups of both numbered the same in either, after the room's;
+    (scene, None): the group of a scene's sprites with none of their own."""
+    if (name, variant) not in ROOM_DATA:
         d = unity.scene(name)
         st = scene.settings(d)
         w, h = st["size"] if st["size"] else (40, 24)
-        cr = coll.room(d, w, h)
-        ROOM_DATA[name] = (cr, ents.room(d, ROOMS, STRINGS, PERSIST, name, SPRITES, cr[3]))
-    return ROOM_DATA[name]
+        solid, segs, cols, owners = coll.room(d, w, h)
+        recs, gr = ents.room(d, ROOMS, STRINGS, PERSIST, name, SPRITES, owners)
+        groups = {(name, k): g for k, g in gr.items()}
+        segs, cols, recs = list(segs), list(cols), list(recs)
+        gb = max(gr.values(), default=0)
+        spans = {}
+        for an, flag, val, which in scene.additive(name):
+            da = unity.scene(an)
+            _, asegs, acols, aown = coll.room(da, w, h)
+            ar, ag = ents.room(da, ROOMS, STRINGS, PERSIST, an, SPRITES, aown, rec_base=len(recs), col_base=len(cols),
+                               group_base=gb)
+            cond = max(ag.values(), default=gb) + 1
+            groups.update({(an, k): g for k, g in ag.items()})
+            groups[(an, None)] = cond
+            spans[which] = (gb + 1, cond)
+            gb = cond
+            if (which == 1) == (variant == 0):
+                segs += [(x0, y0, x1, y1, ci + len(cols)) for x0, y0, x1, y1, ci in asegs]
+                cols += acols
+                recs += ar
+        assert gb < ents.MAX_GROUPS, (name, gb)
+        ROOM_DATA[(name, variant)] = ((solid, segs, cols, owners), (recs, groups), spans)
+    return ROOM_DATA[(name, variant)]
 
 SECTIONS = ["TEX", "TMAP", "PAL", "BIDX", "BLK", "ROOMS", "RBLOB", "PRIOR", "SOFT", "SPR", "CLIP", "STR", "TEXT", "FONT", "PHASH",
-            "SCOL"]
+            "SCOL", "RVAR"]
+
+
+def _pdf_flags():
+    """PlayerData's bools as the game numbers them (src/game.h: PDF_*), by their names in the game ("falseKnightDefeated")"""
+    import re
+    src = open(os.path.join(SRC, "game.h")).read()
+    names = re.search(r"enum \{\s*(PDF_AT_BENCH[^}]*)\}", src).group(1)
+    ids = [n.strip() for n in names.replace("\n", " ").split(",") if n.strip() and n.strip() != "PDF_COUNT"]
+    camel = lambda n: "".join(w.capitalize() for w in n[4:].lower().split("_"))
+    out = {}
+    for i, n in enumerate(ids):
+        c = camel(n)
+        out[c[0].lower() + c[1:]] = i
+    return out
 BLENDS = {"alpha": 0, "add": 1, "screen": 2, "linearlight": 3, "overlay": 4, "multiply": 5}
 F_LIT, F_ROT, F_SOLID, F_DYN, F_GRASS = 8, 16, 32, 64, 128
 
@@ -180,16 +220,16 @@ def sector_stream(recs):
     return bytes(out)
 
 
-def room_blobs(name, keep, st, tex_id):
+def room_blobs(name, keep, st, tex_id, variant=0):
     """A room: its header (kept in RAM) and its instances in sectors (decoded when the camera is near)."""
     w, h = st["size"] if st["size"] else (40, 24)
     cx0, cx1, cy0, cy1 = scene.camera_range(st) if st["size"] else (20, 20, 12, 12)
     axis = 0 if (cx1 - cx0) >= (cy1 - cy0) else 1
     lo, hi = (cx0, cx1) if axis == 0 else (cy0, cy1)
     HWU, HHU = scene.VIEW_W / 2 / scene.FOCAL, scene.VIEW_H / 2 / scene.FOCAL
-    (solid, segs, cols, _), (erecs, groups) = room_data(name)
+    (solid, segs, cols, _), (erecs, groups), _ = room_data(name, variant)
     for it in keep:
-        it.group = groups.get(it.obj["id"], 0)
+        it.group = groups.get((it.scene, it.obj["id"]), groups.get((it.scene, None), 0) if it.which else 0)
     tints = [(255, 255, 255, 255)]
     secs = {}
     for rank, it in enumerate(keep):
@@ -300,6 +340,8 @@ def main():
     TEXTS.id("Elderbug", "ELDERBUG_INTRO_MAIN")   # (until the NPCs: a conversation to try)
     for r in ROOMS:
         room_data(r)
+        if r in VARIANT_ROOMS:
+            room_data(r, 1)
     sprites += actors.unity_sprites(SPRITES.list)
     # the HUD's geo count: TrajanPro-Bold digits (TextMesh: size 45, character size 1, scale 0.1527)
     digit_base = len(sprites)
@@ -409,23 +451,35 @@ def main():
             name = v.name if isinstance(v, art.ImageJob) else v.sprite.name
             f.write("%d %s %.3f %d %d %dx%d %d\n" % (i, name.replace(" ", "_"), getattr(v, "scale", 1.0), v.blur, v.alpha_only,
                                                       t.w, t.h, t.ntiles))
-    rooms = bytearray(struct.pack("<I", len(ROOMS)))
-    for r in ROOMS:
-        keep, st = per_room[r]
-        body, o_sec, blobs, ground, recs = room_blobs(r, keep, st, tex_id)
+    rooms = bytearray(struct.pack("<I", len(ROOMS) + len(VARIANT_ROOMS)))
+    sector_offs, rvar = {}, bytearray(struct.pack("<I", len(VARIANT_ROOMS)))
+    pdf = _pdf_flags()
+    for r in ROOMS + [r + "@1" for r in VARIANT_ROOMS]:
+        base, variant = (r[:-2], 1) if r.endswith("@1") else (r, 0)
+        keep, st = per_room[base]
+        body, o_sec, blobs, ground, recs = room_blobs(base, keep, st, tex_id, variant)
         struct.pack_into("<I", body, 76, secs["RBLOB"].add(ground))
         struct.pack_into("<I", body, 80, secs["RBLOB"].add(recs))
         packed = 0
         for i, (c, n) in enumerate(blobs):
-            off = secs["RBLOB"].add(c)
+            # (a room's variant: the same sectors)
+            off = sector_offs[(base, i)] if variant else secs["RBLOB"].add(c)
+            sector_offs[(base, i)] = off
             struct.pack_into("<II", body, o_sec + 20 * i, off, len(c))
             packed += len(c)
+        if variant:
+            # its variants: which entry, by which PlayerData bool, and each one's groups to hide in the other
+            (flag, val), spans = next(((a[1], a[2]) for a in scene.additive(base)), ("", False)), room_data(base)[2]
+            s1, s2 = spans.get(1, (0, 0)), spans.get(2, (0, 0))
+            rvar += struct.pack("<HHHBB4H", ROOMS.index(base), len(ROOMS) + VARIANT_ROOMS.index(base), pdf[flag], val, 0,
+                                *s1, *s2)
         hc = lz(bytes(body))
         off = secs["RBLOB"].add(hc)
         assert len(r) < 32, r
-        rooms += struct.pack("<32sIII", r.encode(), off, len(hc), len(body))
+        rooms += struct.pack("<32sIII", base.encode(), off, len(hc), len(body))
         print("room %-26s %5d instances in %2d sectors, %6d packed, ground %d, recs %d" % (r, len(keep), len(blobs), packed + len(hc), len(ground), len(recs)), flush=True)
     secs["ROOMS"].b += rooms
+    secs["RVAR"].b += rvar
     secs["STR"].b += STRINGS.blob()
     secs["TEXT"].b += TEXTS.blob()
     secs["FONT"].b += TEXTS.fonts()

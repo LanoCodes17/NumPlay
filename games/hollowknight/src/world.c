@@ -117,6 +117,7 @@ void world_enter(void) {
   memset(es, 0, sizeof es);
   memset(fades, 0, sizeof fades);
   memset(g_group_alpha, 255, sizeof g_group_alpha);
+  for (int g = g_room.hide_lo; g && g <= g_room.hide_hi && g < MAX_GROUPS; g++) g_group_alpha[g] = 0;
   hero_in_position = false;
   int n;
   const Ent *e = room_ents(&n);

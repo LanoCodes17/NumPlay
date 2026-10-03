@@ -9,15 +9,34 @@ Room g_room = {.id = -1};
 static const uint8_t *room_entry(int id) { return section(SEC_ROOMS) + 4 + ENTRY * id; }
 const char *room_name(int id) { return (const char *)room_entry(id); }
 
+/* (tools/pack.py: RVAR) a room loads with other scenes: by a PlayerData bool, its first one (the room's own entry) or
+ * the alternative (an entry of its own); each one's groups hidden in the other */
+static int room_variant(int id, uint16_t *lo, uint16_t *hi) {
+  const uint8_t *v = section(SEC_RVAR);
+  uint32_t n = rd32(v);
+  *lo = *hi = 0;
+  for (uint32_t i = 0; i < n; i++) {
+    const uint8_t *r = v + 4 + 16 * i;
+    if ((r[0] | r[1] << 8) != id) continue;
+    bool first = room_flag(r[4] | r[5] << 8) == (r[6] != 0);
+    const uint8_t *h = r + (first ? 12 : 8);   /* (the other's groups) */
+    *lo = (uint16_t)(h[0] | h[1] << 8), *hi = (uint16_t)(h[2] | h[3] << 8);
+    return first ? id : (r[2] | r[3] << 8);
+  }
+  return id;
+}
+
 bool room_load(int id) {
   if (id < 0 || id >= NUM_ROOMS) return false;
-  const uint8_t *e = room_entry(id);
+  uint16_t lo, hi;
+  const uint8_t *e = room_entry(room_variant(id, &lo, &hi));
   uint32_t off = rd32(e + 32), comp = rd32(e + 36), raw = rd32(e + 40);
   if (raw > sizeof hdr_ram) return false;
   lz_decode(section(SEC_RBLOB) + off, comp, (uint8_t *)hdr_ram, raw);
   RoomHdr *h = (RoomHdr *)hdr_ram;
   g_room.id = id;
   g_room.h = h;
+  g_room.hide_lo = lo, g_room.hide_hi = hi;
   g_room.tints = (const uint8_t *)hdr_ram + sizeof(RoomHdr);
   g_room.secs = (const SectorRec *)((const uint8_t *)hdr_ram + ((sizeof(RoomHdr) + 4u * h->ntint + 3) & ~3u));
   g_room.nnear = 0;

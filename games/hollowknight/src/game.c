@@ -4,6 +4,15 @@
 PlayerData g_pd;
 Game g_game;
 static uint8_t inside[MAX_ENTS / 8];   /* the triggers the Knight is in */
+static uint8_t ent_off[MAX_ENTS / 8];  /* (triggers whose objects are off) */
+
+bool room_flag(int flag) { return flag >= 0 && flag < PDF_COUNT && pd_flag(flag); }
+
+void ent_set_enabled(int i, bool on) {
+  if (i < 0 || i >= MAX_ENTS) return;
+  if (on) ent_off[i >> 3] &= (uint8_t)~(1 << (i & 7));
+  else ent_off[i >> 3] |= (uint8_t)(1 << (i & 7));
+}
 
 void game_new(void) {
   memset(&g_pd, 0, sizeof g_pd);
@@ -24,6 +33,7 @@ void game_new(void) {
 bool game_enter(int room, float x, float y, bool facing_right) {
   if (!room_load(room)) return false;
   memset(inside, 0, sizeof inside);
+  memset(ent_off, 0, sizeof ent_off);
   prompts_reset();
   world_enter();
   hero_init(x, y, facing_right);
@@ -41,6 +51,7 @@ bool game_respawn(void) {
     if (!strcmp(room_name(i), g_pd.respawn_scene)) room = i;
   if (room < 0 || !room_load(room)) return false;
   memset(inside, 0, sizeof inside);
+  memset(ent_off, 0, sizeof ent_off);
   prompts_reset();
   world_enter();
   float x = g_room.h->w / 2, y = g_room.h->h / 2;
@@ -130,6 +141,7 @@ static void scene_load(void) {
   g->scene_phase = SP_NONE;
   if (!room_load(g->next_room)) return;
   memset(inside, 0, sizeof inside);
+  memset(ent_off, 0, sizeof ent_off);
   prompts_reset();   /* (PromptMarker.RecycleOnLevelLoad) */
   world_enter();
   int n;
@@ -189,10 +201,11 @@ static void triggers_tick(void) {
   for (int i = 0; i < n; i++) {
     const Ent *e = &es[i];
     if (e->type != ENT_CAMLOCK && e->type != ENT_GATE && e->type != ENT_HAZARD_TRIGGER && e->type != ENT_MASK) continue;
-    bool in = false;
+    bool in = false, off = ent_off[i >> 3] >> (i & 7) & 1;
     for (int j = i; j < n && (j == i || es[j].type == ENT_BOX); j++)
       if (j == i || !(es[j].flags & 1)) in |= x1 > es[j].x0 && x0 < es[j].x1 && y1 > es[j].y0 && y0 < es[j].y1;
     bool was = inside[i >> 3] >> (i & 7) & 1;
+    if (off) in = false;
     if (in) inside[i >> 3] |= (uint8_t)(1 << (i & 7));
     else inside[i >> 3] &= (uint8_t)~(1 << (i & 7));
     if (in || was) trigger_event(i, e, in && was ? EV_STAY : in ? EV_ENTER : EV_EXIT);

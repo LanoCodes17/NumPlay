@@ -8,7 +8,7 @@ import numpy as np
 ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE, ENT_BOX, \
     ENT_OBJ, ENT_PIECE, ENT_SHADE_MARKER = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
 # objects (ENT_OBJ's flags: src/obj.c)
-OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH = 1, 2, 3, 4, 5, 6
+OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH, OK_BATTLE, OK_FK_FLOOR = 1, 2, 3, 4, 5, 6, 7, 8
 # enemies (an OK_ENEMY's a: src/enemy.c), by their FSM and animation library
 import actors as _actors
 # enemies: by the FSM (or component) that runs them and their animation library -> their kind (actors.ENEMY_KINDS)
@@ -22,7 +22,8 @@ ENEMY_VARS = {"Zombie Swipe": (["Lunge Speed", "Idle Time"], ["Coward"]),
               "Zombie Guard": (["Chase Distance", "Roam Distance"], ["Start Facing Left"])}
 # what follows an enemy's record: ENT_BOX records, tagged
 ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX = 0, 1, 2, 3, 4, 5, 6, 7, 8
-EF_START, EF_STARTLES = 1, 2   # (FSM bools: First Crawler or Start Alert; Startles)
+EF_START, EF_STARTLES, EF_PREBATTLE = 1, 2, 4   # (FSM bools: First Crawler or Start Alert; Startles; one of an arena's
+# Pre Battle Enemies)
 # the layers the nail's slashes touch (Physics2D's collision matrix, layer 17 Attack)
 ATTACK_HITS = {3, 6, 7, 8, 11, 12, 17, 19, 20, 21, 25, 31}
 MAX_GROUPS = 256
@@ -439,7 +440,7 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
             print("ents: %s: corpse %s" % (o["path"], e))
     if owners:
         import coll
-        c0, cn = coll.subtree_colliders(d, owners, o["id"])
+        c0, cn = _subcols(d, owners, o["id"])
         if cn:
             out.append(rec(ENT_BOX, ET_TERRAIN, a=c0, group=cn))
     persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
@@ -448,6 +449,15 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
                a=kind, group=hm.get("largeGeoDrops", 0), persist=persist.id(name, o["path"]) if persistent else NO_PERSIST,
                s0=len(out), s1=fl)
     return [head] + out
+
+
+COL_BASE = [0]   # (a scene loaded with another: its colliders numbered after that one's)
+
+
+def _subcols(d, owners, oid):
+    import coll
+    c0, cn = coll.subtree_colliders(d, owners, oid)
+    return (c0 + COL_BASE[0], cn) if cn else (0, 0)
 
 
 def _tk2d_sprite(d, o):
@@ -472,7 +482,7 @@ def _props(d, o, by_id, rooms, strings, persist, sprites, owners, name):
     import coll
     var = lambda f, k, dflt: (f.get("vars", {}).get(k) or [0, dflt])[1]
     hits = _hit_boxes(o, by_id)
-    c0, cn = coll.subtree_colliders(d, owners, o["id"]) if owners else (0, 0)
+    c0, cn = _subcols(d, owners, o["id"]) if owners else (0, 0)
     persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
     f = _fsm(o, ("Great Door",))
     if f:
@@ -513,13 +523,15 @@ def _props(d, o, by_id, rooms, strings, persist, sprites, owners, name):
     return None
 
 
-def room(d, rooms, strings, persist, name, sprites=None, owners=None):
+def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0, col_base=0, group_base=0):
     """-> (packed records, {object id: render group}). owners: each collider's object (coll.room); sprites: where the
     objects' own sprites go (Sprites)."""
     import coll
     sprites = sprites or Sprites()
     recs = []
     rec_of, receivers = {}, []   # (an object's record; the records that send HIT to another object's)
+    cam_rec, battles = {}, []    # (camera locks' records; arenas, to point at theirs)
+    prebattle = set()
     groups = {}
     marker_index = {}
     objs = [o for o in d["objects"] if o["active"]]
@@ -529,7 +541,8 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
         groups[oid] = g
         for c in by_id[oid].get("children", []):
             subtree(c, g)
-    ngroups = [0]
+    ngroups = [group_base]
+    COL_BASE[0] = col_base
 
     def new_group(oid):
         ngroups[0] += 1
@@ -586,8 +599,58 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
                             group=g_lit, group2=g_light, s0=strings.id(o["name"])))
             recs.append(rec(ENT_BOX, 0, box))
             recs.append(rec(ENT_BOX, 0, dr or box))
+        f = _fsm(o, ("Battle Control",))
+        if f and "False Knight" in f["vars"]:
+            # the False Knight's arena: its trigger, its camera locks (fixed up below), the armour left after the fight;
+            # its pre-battle enemies marked
+            fv = f["vars"]
+            ref = lambda k: (fv.get(k) or [0, None])[1]
+            arm = ref("Armour")
+            g_arm = new_group(arm[2]) if arm and arm[2] in by_id else 0
+            pre = ref("Pre Battle Enemies")
+            if pre and pre[2] in by_id:
+                todo = list(by_id[pre[2]].get("children", []))
+                while todo:
+                    q = todo.pop()
+                    prebattle.add(q)
+                    todo += by_id[q].get("children", [])
+            persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
+            battles.append((len(recs), (ref("CameraLock 1") or [0, 0, 0])[2], (ref("CameraLock 2") or [0, 0, 0])[2]))
+            recs.append(rec(ENT_OBJ, OK_BATTLE, _trigger(o) or (0, 0, 0, 0), (-1, -1, 1, 0), group=g_arm,
+                            persist=persist.id(name, o["path"]) if persistent else NO_PERSIST))
+        f = _fsm(o, ("Floor Control",))
+        if f:
+            # the False Knight's floor: the colliders it loses (Break Floor's), its whole sprites' group, then a record
+            # for each sprite it shows cracked and broken, and its bits (sprite, place, the speed they are flung at)
+            import coll
+            kids = {by_id[c]["name"]: by_id[c] for c in o.get("children", [])}
+            c0, cn = _subcols(d, owners, kids["Break Floor"]["id"]) if owners and "Break Floor" in kids else (0, 0)
+            g_norm = new_group(kids["Normal 1"]["id"]) if "Normal 1" in kids else 0
+            if "Normal 2" in kids:
+                subtree(kids["Normal 2"]["id"], g_norm)
+            extra = []
+            flings = {"Floor Bit 1": (-3, 8), "Floor Bit 2": (2, 6), "Floor Bit 3": (-2, 9)}
+            for k, nm in enumerate(["Cracked 1", "Cracked 2", "Broken", "Floor Bit 1", "Floor Bit 2", "Floor Bit 3"]):
+                q = kids.get(nm)
+                sr = q and next((c["v"] for c in q["c"] if c["type"] == "SpriteRenderer" and (c.get("v") or {}).get("m_Sprite")), None)
+                if not sr:
+                    continue
+                import scene
+                m = np.array(q["m3"]).reshape(3, 3)
+                sid = sprites.id(d, sr["m_Sprite"], float(np.hypot(m[0, 0], m[1, 0])))
+                vx, vy = flings.get(nm, (0, 0))
+                extra.append(rec(ENT_BOX, k, (q["pos"][0], q["pos"][1], q["pos"][2], 0), (vx, vy, 0, 0),
+                                 a=sr.get("m_SortingOrder", 0) + 32768, group=scene.layer_index(sr.get("m_SortingLayerID", 0)),
+                                 s0=sid))
+            recs.append(rec(ENT_OBJ, OK_FK_FLOOR, (o["pos"][0], o["pos"][1], 0, 0), a=c0, group=cn, group2=g_norm,
+                            s0=len(extra)))
+            recs += extra
         en = _enemy(o, by_id, persist, name, d, strings, owners) or _props(d, o, by_id, rooms, strings, persist, sprites, owners, name)
         if en:
+            if o["id"] in prebattle and en[0][1] == OK_ENEMY:
+                b = bytearray(en[0])
+                struct.pack_into("<H", b, 42, struct.unpack_from("<H", b, 42)[0] | EF_PREBATTLE)
+                en[0] = bytes(b)
             recs += en
         br = next((c for c in o["c"] if c.get("class") == "Breakable" and c.get("v") is not None), None)
         if br is not None:
@@ -603,8 +666,8 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
                     g2 = ngroups[0]
                     for r in rem:
                         subtree(r, g2)
-                c0, cn = coll.subtree_colliders(d, owners, o["id"]) if owners else (0, 0)
-                if rem and owners and any(coll.subtree_colliders(d, owners, r)[1] for r in rem):
+                c0, cn = _subcols(d, owners, o["id"]) if owners else (0, 0)
+                if rem and owners and any(_subcols(d, owners, r)[1] for r in rem):
                     print("ents: %s: remnant colliders not handled" % o["path"])
                 debris = [r[1] for r in v.get("debrisParts") or [] if r]
                 pieces = _pieces(d, o, debris, by_id, sprites)
@@ -647,6 +710,7 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
                     continue
                 fl = (CL_PREVENT_UP if v.get("preventLookUp") else 0) | (CL_PREVENT_DOWN if v.get("preventLookDown") else 0) | \
                     (CL_MAX_PRIORITY if v.get("maxPriority") else 0)
+                cam_rec[o["id"]] = len(recs)
                 recs.append(rec(ENT_CAMLOCK, fl, box, (v["cameraXMin"], v["cameraYMin"], v["cameraXMax"], v["cameraYMax"])))
                 recs += _more_boxes(o)
             elif cls == "TransitionPoint":
@@ -661,7 +725,7 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
                 # (its respawn marker: a component; the record of its object)
                 ref = v.get("respawnMarker")
                 mid = ref[1] if isinstance(ref, (list, tuple)) else None
-                marker = next((marker_index[oo["id"]] for oo in objs for cc in oo["c"] if cc.get("pid") == mid and
+                marker = next((marker_index[oo["id"]] + rec_base for oo in objs for cc in oo["c"] if cc.get("pid") == mid and
                                oo["id"] in marker_index), -1)
                 off = v.get("entryOffset") or {"x": 0, "y": 0}
                 recs.append(rec(ENT_GATE, fl, box, (float(v.get("entryDelay", 0)), off["x"], off["y"], marker + 1), a=ti,
@@ -681,13 +745,18 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None):
                             target = oo["id"]
                 if box is None or target not in marker_index:
                     continue
-                recs.append(rec(ENT_HAZARD_TRIGGER, box=box, a=marker_index[target]))
+                recs.append(rec(ENT_HAZARD_TRIGGER, box=box, a=marker_index[target] + rec_base))
                 recs += _more_boxes(o)
+    # (arenas: their camera locks' records)
+    for i, c1, c2 in battles:
+        b = bytearray(recs[i])
+        struct.pack_into("<2f", b, 24, cam_rec[c1] + rec_base if c1 in cam_rec else -1, cam_rec[c2] + rec_base if c2 in cam_rec else -1)
+        recs[i] = bytes(b)
     # (an object that sends HIT to another: that one's record + 1 in its box's y1)
     for i, target in receivers:
         if target in rec_of:
             b = bytearray(recs[i])
-            struct.pack_into("<f", b, 20, rec_of[target] + 1)
+            struct.pack_into("<f", b, 20, rec_of[target] + rec_base + 1)
             recs[i] = bytes(b)
         else:
             print("ents: %s: HIT receiver %d has no record" % (name, target))

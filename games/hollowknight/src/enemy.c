@@ -14,7 +14,10 @@
 
 /* ---------------------------------------------------------------- what each kind is */
 /* (data.h: EK_* each kind, KIND_TABLE: the FSM each runs and the clips its roles play) */
-enum { EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER, EF_ROLLER, EF_BLOCKER, EF_LEAPER, EF_GUARD };
+enum {
+  EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER, EF_ROLLER, EF_BLOCKER, EF_LEAPER, EF_GUARD,
+  EF_FK, EF_FKHEAD
+};
 enum { R_IDLE, R_TURN, R_WALK, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, R_A7, R_A8, R_DEATH_AIR, R_DEATH_LAND, NUM_ROLES };
 typedef struct {
   uint8_t fsm;
@@ -35,7 +38,7 @@ enum { EM_OFF, EM_ALIVE, EM_CORPSE };
 enum { RC_READY, RC_RECOILING, RC_FROZEN };
 enum { CS_AIR, CS_DEATH_ANIM, CS_LANDED };
 /* (flags: 1 collider off, 2 RECOIL HORIZONTAL, 4 invincible, 8 TOOK DAMAGE: for its FSM this frame, 16 collider off
- * by its frame) */
+ * by its frame, 32 not drawn) */
 typedef struct {
   uint8_t mode, kind, st, flags;
   uint16_t ent;                   /* its record (NO_ENT: spawned) */
@@ -315,6 +318,9 @@ static void enemy_die(Enemy *e, float direction, bool has_direction) {
 
 /* HealthManager.Hit (a nail's): evasion, damage, recoil, flash, soul */
 static void blocker_hit(Enemy *e);
+static void fk_head_hit(void);
+static void fk_stun(Enemy *e);
+static void fk_head_stun_end(Enemy *h);
 static void enemy_hit(Enemy *e, float direction, int damage) {
   if (e->mode != EM_ALIVE || e->evasion > 0 || damage <= 0) return;
   int dir = cardinal(direction);
@@ -328,15 +334,21 @@ static void enemy_hit(Enemy *e, float direction, int damage) {
     return;
   }
   recoil_by_direction(e, dir, 1);
-  if (FSM(e) != EF_SHADE) hero_soul_gain();   /* (enemyType 3, a shade: no soul) */
+  if (FSM(e) != EF_SHADE && FSM(e) != EF_FK) hero_soul_gain();   /* (enemyType 3, a shade, or 6: no soul) */
   e->flashing = true, e->flash_t = 0;
   e->flags |= 8;
   e->hp = (int16_t)(e->hp - damage < -50 ? -50 : e->hp - damage);
   if ((FSM(e) == EF_BUZZER || FSM(e) == EF_SHADE || FSM(e) == EF_HUSK) && e->st == 0) e->b1 = true;   /* (TOOK DAMAGE, in Idle / Ready) */
   if (FSM(e) == EF_BLOCKER && e->hp > 0) blocker_hit(e);
+  if (FSM(e) == EF_FKHEAD) fk_head_hit();   /* (its sendHitTo) */
   if (e->hp > 0)
     e->evasion = 0.2f;
-  else
+  else if (FSM(e) == EF_FK || FSM(e) == EF_FKHEAD) {
+    /* (hasSpecialDeath: ZERO HP to its FSMs, then NonFatalHit) */
+    if (FSM(e) == EF_FK) fk_stun(e);
+    else fk_head_stun_end(e);
+    e->evasion = 0.2f;
+  } else
     enemy_die(e, direction, true);
 }
 
@@ -1909,6 +1921,934 @@ static void guard_fixed(Enemy *e) {
   }
 }
 
+/* ---------------------------------------------------------------- the False Knight: FalseyControl, Check Health */
+enum {
+  FK_DORMANT, FK_START_FALL, FK_STATE1, FK_FIRST_IDLE, FK_IDLE, FK_TURN, FK_JUMP_ANTIC, FK_RISE, FK_FALL,
+  FK_JA_ANTIC, FK_JA_RISE, FK_JA_FALL, FK_JA_HIT, FK_JA_SLAM, FK_JA_RECOIL, FK_JA_RECOIL2, FK_JA_END,
+  FK_S_ANTIC, FK_S_RISE, FK_S_FALL, FK_S_LAND, FK_S_ATTACK_ANTIC, FK_S_ATTACK, FK_SLAM, FK_S_RECOVER,
+  FK_RUN_ANTIC, FK_RUN, FK_STUN_START, FK_STUN_AIR, FK_STUN_LAND, FK_ROLL_END, FK_OPEN, FK_OPENED, FK_HIT,
+  FK_STUN_FAIL, FK_RECOVER, FK_IDLE_PAUSE, FK_RAGE_ANTIC, FK_RISE2, FK_FALL2, FK_STATE2, FK_R_ATTACK_ANTIC,
+  FK_RAGE_BEGIN, FK_RAGE, FK_PARTICLE_PAUSE, FK_ANIM_END, FK_RAGE_END, FK_JA_ANTIC2, FK_JA_RISE2, FK_JA_FALL2,
+  FK_JA_HIT2, FK_FLOOR_BREAK, FK_DEATH_LAND, FK_DEATH_OPEN, FK_OPENED2, FK_HIT2, FK_DEATH_ANIM, FK_STEAM, FK_READY,
+  FK_BLOW, FK_HEAD_LAND, FK_DEAD
+};
+#define FK_SCALE 1.3f
+#define FK_RECOVER_HP 65     /* (Check Health: Recover HP, its HP at the start) */
+#define FK_HEAD_HP 40
+#define FK_HEAD_X 2.29f      /* (the Head's place in the False Knight: shown, or out of the way) */
+#define FK_HEAD_Y -3.2709f
+#define MAX_BARRELS 12
+
+typedef struct {
+  bool on, broken, deflected;
+  float x, y, vx, vy, ang, spin, scale, gravity, t;
+} Barrel;
+
+static struct {
+  int8_t fk, head;              /* (their slots) */
+  bool head_shown, first_jump, inert, going_right, kinematic;
+  uint8_t turns, jump_count, ja_row, slam_row, stunned, rages;
+  float jump_x, recoil, stun_x, idle_min, idle_max, shock_x;
+  /* the Barrel Summoner (summon) */
+  uint8_t summon_st, spawns;
+  float summon_t, summon_x0, summon_x1, summon_y;
+  Barrel barrels[MAX_BARRELS];
+  /* its arena (Battle Control) and floor (Floor Control) */
+  int16_t battle, floor;        /* (their records, -1: none) */
+  uint8_t battle_st, floor_st;
+  float battle_t;
+  /* what is left: the Death Head, the staff */
+  bool dhead_on, staff_on;
+  Body dhead, staff;
+  Anim dhead_anim;
+  float staff_ang, staff_w;
+  Body bits[3];
+  bool bits_on;
+} fk;
+
+enum { BT_DETECT, BT_FIGHT, BT_END_WAIT, BT_DONE };
+enum { FL_IDLE, FL_CRACKED, FL_BROKEN };
+
+static Enemy *fk_body(void) { return fk.fk >= 0 && en[fk.fk].mode != EM_OFF ? &en[fk.fk] : NULL; }
+static Enemy *fk_head(void) { return fk.head >= 0 && en[fk.head].mode != EM_OFF ? &en[fk.head] : NULL; }
+
+static void fk_face(Enemy *e, bool right) {
+  fk.stun_x = right ? -10 : 10;
+  e->b0 = right;
+  set_scale_x(e, right ? FK_SCALE : -FK_SCALE);
+}
+
+static bool fk_ground(const Enemy *e) { return e->body.ncontacts && side_hit(e, 3); }
+
+/* (Rise / Fall: the speed up slowed, the speed down quickened, a fixed step at a time) */
+static void fk_air_fixed(Enemy *e) {
+  switch (e->st) {
+    case FK_RISE: case FK_JA_RISE: case FK_S_RISE: case FK_RISE2: case FK_JA_RISE2: e->body.vy *= 0.85f; break;
+    case FK_FALL: case FK_JA_FALL: case FK_S_FALL: case FK_FALL2: case FK_JA_FALL2: e->body.vy *= 1.15f; break;
+    case FK_RUN: e->body.vx = fk.jump_x; break;   /* (Run Speed) */
+  }
+}
+
+static void fk_hitter(Enemy *e, int clip) {
+  if (clip < 0) {
+    e->hb_on = 0, e->sub_hb = 0;
+    return;
+  }
+  e->hb_on |= 1;
+  anim_play_from_frame(&e->sub, clip, 0);
+  e->sub_hb = 1;
+}
+
+static void fk_jump(Enemy *e, float gravity, int clip, float vy, int st) {
+  e->body.gravity_scale = gravity;
+  anim_play_from_frame(&e->anim, clip, 0);
+  e->body.vx = fk.jump_x, e->body.vy = vy;
+  cam_shake(SHAKE_ENEMY_KILL);
+  e->st = st;
+}
+
+static void fk_idle(Enemy *e) {
+  e->body.gravity_scale = 0.39f;
+  anim_play(&e->anim, CLIP_FK_IDLE);
+  fk_hitter(e, -1);
+  e->wait = rand_range(fk.idle_min, fk.idle_max);
+  e->t0 = 0;
+  e->st = FK_IDLE;
+}
+
+/* the hero's x, its own */
+static bool fk_hero_right(const Enemy *e) { return hero_x() > e->body.x; }
+
+/* JA Check Hero Pos .. JA Antic */
+static void fk_jump_attack(Enemy *e) {
+  fk.jump_count = 0;
+  cam_rumble(RUMBLE_OFF);
+  bool right = fk_hero_right(e);
+  fk.jump_x = hero_x() + (right ? -3 : 3) - e->body.x;
+  fk.recoil = right ? -3 : 3;
+  e->body.vx = 0;
+  fk.jump_x *= 0.58f;
+  fk.jump_x = fk.jump_x > 12 ? 12 : fk.jump_x < -12 ? -12 : fk.jump_x;
+  anim_play_from_frame(&e->anim, CLIP_FK_JUMP_ANTIC, 0);
+  e->st = FK_JA_ANTIC;
+}
+
+static void fk_slam_antic(Enemy *e) {
+  anim_play_from_frame(&e->anim, CLIP_FK_ATTACK_ANTIC, 0);
+  e->st = FK_S_ATTACK_ANTIC, e->t0 = 0;
+}
+
+static void fk_walls_jump(Enemy *e);
+
+/* Move Choice: a run at a far hero, else a slam, a jump attack or a jump */
+static void fk_move_choice(Enemy *e) {
+  fk.turns = 0;
+  for (int guard = 0; guard < 16; guard++) {
+    float dx = hero_x() - e->body.x, dy = hero_y() - e->body.y;
+    if (dx * dx + dy * dy > 21 * 21) {
+      /* Run Antic: at its scale times 14 */
+      anim_play_from_frame(&e->anim, CLIP_FK_RUN_ANTIC, 0);
+      fk.jump_x = e->sx * 14;
+      e->st = FK_RUN_ANTIC;
+      return;
+    }
+    int r = (int)rand_range(0, 3);
+    if (r == 0) {
+      /* S Check Hero Pos */
+      if (fk.slam_row > 2) continue;
+      fk.ja_row = 0, fk.slam_row++, fk.jump_count = 0;
+      bool right = fk_hero_right(e);
+      fk.jump_x = hero_x() + (right ? -1 : 1) * rand_range(12, 18) - e->body.x;
+      fk.recoil = right ? -5 : 5, fk.shock_x = right ? 5.5f : -5.5f, fk.going_right = right;
+      /* S Antic: a smash from where it is if the hero is far, else a jump back first */
+      if (dx * dx + dy * dy >= 12 * 12) {
+        fk_slam_antic(e);
+        return;
+      }
+      fk.jump_x *= 0.9f;
+      fk.jump_x = fk.jump_x > 12 ? 12 : fk.jump_x < -12 ? -12 : fk.jump_x;
+      anim_play_from_frame(&e->anim, CLIP_FK_JUMP_ANTIC, 0);
+      e->st = FK_S_ANTIC;
+      return;
+    }
+    if (r == 1) {
+      /* Row Check */
+      if (fk.ja_row > 3) continue;
+      fk.slam_row = 0, fk.ja_row++;
+      fk_jump_attack(e);
+      return;
+    }
+    /* Determine Jump */
+    if (fk.jump_count > 0 || fk.stunned == 2) continue;
+    fk.jump_count++;
+    if (rand_range(0, 1) < 0.5f) fk_walls_jump(e);
+    else {
+      /* Towards */
+      float hx = hero_x() < 15 ? 15 : hero_x() > 42 ? 42 : hero_x();
+      fk.jump_x = (hx - e->body.x) * 0.9f;
+      fk.jump_x = fk.jump_x > 12 ? 12 : fk.jump_x < -12 ? -12 : fk.jump_x;
+    }
+    anim_play_from_frame(&e->anim, CLIP_FK_JUMP_ANTIC, 0);
+    e->st = FK_JUMP_ANTIC;
+    return;
+  }
+  fk_idle(e);
+}
+
+/* Walls Check, Random: away from a near wall, else either way */
+static void fk_walls_jump(Enemy *e) {
+  if (phys_ray(e->body.x, e->body.y, -1, 0, 8, CF_TERRAIN, NULL)) fk.jump_x = 5;          /* (Random R, Random Right) */
+  else if (phys_ray(e->body.x, e->body.y, 1, 0, 8, CF_TERRAIN, NULL)) fk.jump_x = -5;     /* (Random L, Random Left) */
+  else {
+    fk.jump_x = rand_range(-10, 10);
+    fk.jump_x = fk.jump_x <= 0 ? (fk.jump_x > -5 ? -5 : fk.jump_x) : (fk.jump_x < 5 ? 5 : fk.jump_x);
+  }
+}
+
+static void fk_head_show(bool on) {
+  Enemy *h = fk_head();
+  fk.head_shown = on;
+  if (h) {
+    if (on) h->flags &= (uint8_t)~1;
+    else h->flags |= 1;
+  }
+}
+
+/* Recover / Stun Fail: up again */
+static void fk_recover(Enemy *e, bool stunned) {
+  if (stunned) fk.stunned++, cam_shake(SHAKE_ENEMY_KILL);
+  fk_head_show(false);
+  fk.kinematic = false;
+  anim_play_from_frame(&e->anim, CLIP_FK_STUN_RECOVER, 0);
+  e->damage = 1;
+  if (!stunned) e->flags &= (uint8_t)~4;
+  e->st = stunned ? FK_RECOVER : FK_STUN_FAIL;
+}
+
+static void barrel_summon(void);
+static void fk_floor_event(int ev);
+static void fk_battle_end(void);
+
+/* (Check Health: its health gone, STUN, its health back) */
+static void fk_stun(Enemy *e) {
+  if (fk.inert) return;
+  e->hp = FK_RECOVER_HP;
+  /* Check Direction: facing the hero; Stun Start */
+  fk_hitter(e, -1);
+  bool right = fk_hero_right(e);
+  if (e->b0 != right) fk_face(e, right), fk.jump_x = right ? 14 : -14;
+  e->flags |= 4;
+  e->damage = 0;
+  e->body.gravity_scale = 1;
+  anim_play_from_frame(&e->anim, CLIP_FK_STUN_ROLL, 0);
+  e->body.vx = fk.stun_x, e->body.vy = 20;
+  cam_shake(SHAKE_BIG);
+  cam_rumble(RUMBLE_OFF);
+  e->st = FK_STUN_START;
+}
+
+static void fk_start(Enemy *e) {
+  fk.idle_min = fk.idle_max = 1;
+#ifdef HOST
+  if (getenv("FKSTUNNED")) fk.stunned = (uint8_t)atoi(getenv("FKSTUNNED"));   /* (tests: the fight further on) */
+#endif
+  fk.fk = (int8_t)(e - en);
+  e->body.gravity_scale = 0;
+  e->flags |= 32;   /* (its renderer off till it falls) */
+  fk_face(e, e->sx > 0);
+  e->st = FK_DORMANT;
+  fk_head_show(false);
+}
+
+static void fk_head_start(Enemy *e) {
+  fk.head = (int8_t)(e - en);
+  e->body.gravity_scale = 0;
+  e->flags |= 1;
+  e->damage = 0;
+}
+
+/* the Head, where its FSM puts it in the False Knight */
+static void fk_head_place(void) {
+  Enemy *h = fk_head(), *e = fk_body();
+  if (!h || !e) return;
+  h->sx = e->sx;
+  h->body.x = e->body.x + FK_HEAD_X * e->sx, h->body.y = e->body.y + FK_HEAD_Y * FK_SCALE;
+  h->body.vx = h->body.vy = 0;
+}
+
+/* (BATTLE START) */
+static void fk_battle_start(void) {
+  Enemy *e = fk_body();
+  if (!e || e->st != FK_DORMANT) return;
+  /* Start Fall */
+  e->flags &= (uint8_t)~32;
+  cam_shake(SHAKE_BIG);
+  e->body.gravity_scale = 1;
+  e->st = FK_START_FALL;
+}
+
+static void fk_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0, sub_done = e->sub_hb && ((e->sub.events & ANIM_DONE) || !e->sub.playing);
+  bool hit = (e->flags & 8) != 0;
+  (void)hit;
+  e->t0 += DT;
+  switch (e->st) {
+    case FK_DORMANT:
+      break;
+    case FK_START_FALL:
+      if (fk_ground(e)) {
+        /* Rubble End: KILL ALL ENEMIES; State 1 */
+        for (int i = 0; i < MAX_ENEMIES; i++)
+          if (en[i].mode == EM_ALIVE && en[i].ent != NO_ENT && (ent_at(en[i].ent)->s1 & EF_PREBATTLE)) {
+            en[i].flags &= (uint8_t)~4, en[i].evasion = 0;
+            enemy_hit(&en[i], 90, 9999);
+          }
+        e->body.vx = 0;
+        anim_play_from_frame(&e->anim, CLIP_FK_LAND, 0);
+        cam_shake(SHAKE_AVERAGE);
+        e->st = FK_STATE1;
+      }
+      break;
+    case FK_STATE1:
+      if (done) {
+        if (fk.first_jump) fk_idle(e);
+        else {
+          /* Music: (its title shown), First Idle */
+          e->body.gravity_scale = 0.39f;
+          anim_play(&e->anim, CLIP_FK_IDLE);
+          fk_hitter(e, -1);
+          fk.first_jump = true;
+          e->st = FK_FIRST_IDLE, e->t0 = 0;
+        }
+      }
+      break;
+    case FK_FIRST_IDLE:
+      if (e->t0 >= 1.5f) {
+        fk_walls_jump(e);   /* (Random) */
+        fk.jump_x = rand_range(-10, 10);
+        fk.jump_x = fk.jump_x <= 0 ? (fk.jump_x > -5 ? -5 : fk.jump_x) : (fk.jump_x < 5 ? 5 : fk.jump_x);
+        anim_play_from_frame(&e->anim, CLIP_FK_JUMP_ANTIC, 0);
+        e->st = FK_JUMP_ANTIC;
+      }
+      break;
+    case FK_IDLE: {
+      bool right = fk_hero_right(e);
+      if (e->b0 != right) {
+        /* Turn L / R: three turns in a row, then a move */
+        if (fk.turns == 3) {
+          fk_move_choice(e);
+          break;
+        }
+        fk.turns++;
+        fk_face(e, right);
+        anim_play_from_frame(&e->anim, CLIP_FK_TURN, 0);
+        e->st = FK_TURN;
+      } else if (e->t0 >= e->wait)
+        fk_move_choice(e);
+      break;
+    }
+    case FK_TURN:
+      if (done) fk_idle(e);
+      break;
+    case FK_JUMP_ANTIC:
+      if (done) fk_jump(e, 0.125f, CLIP_FK_JUMP, 90, FK_RISE);
+      break;
+    case FK_RISE: case FK_S_RISE: case FK_RISE2:
+      if (e->body.vy < 0) e->st++;   /* (FALL) */
+      break;
+    case FK_FALL: case FK_FALL2:
+      if (fk_ground(e)) {
+        /* State 1 / State 2: landed */
+        e->body.vx = 0;
+        anim_play_from_frame(&e->anim, CLIP_FK_LAND, 0);
+        cam_shake(SHAKE_AVERAGE);
+        e->st = e->st == FK_FALL ? FK_STATE1 : FK_STATE2;
+      }
+      break;
+    case FK_JA_ANTIC:
+      if (done) fk_jump(e, 0.12f, CLIP_FK_JUMP_ATTACK_UP, 90, FK_JA_RISE);
+      break;
+    case FK_JA_RISE: case FK_JA_RISE2:
+      if (e->body.vy < 0) e->st++;
+      break;
+    case FK_JA_FALL: case FK_JA_FALL2:
+      if (e->st == FK_JA_FALL2) fk.inert = true;   /* (FALLEN: Check Health inert) */
+      if (phys_ray(e->body.x, e->body.y, 0, -1, 9.5f, CF_TERRAIN, NULL)) {
+        /* JA Hit: the mace down */
+        fk_hitter(e, CLIP_FK_JUMP_ATTACK_HIT_1);
+        anim_play(&e->anim, CLIP_FK_BLANK);
+        e->st = e->st == FK_JA_FALL ? FK_JA_HIT : FK_JA_HIT2;
+      }
+      break;
+    case FK_JA_HIT:
+      if (fk_ground(e)) {
+        /* JA Slam */
+        e->body.vx = 0;
+        cam_shake(SHAKE_BIG);
+        e->st = FK_JA_SLAM, e->t0 = 0;
+      }
+      break;
+    case FK_JA_SLAM:
+      if (e->t0 >= 0.083f || sub_done) {
+        /* (Barrels?) JA Recoil: back off, barrels summoned */
+        fk_hitter(e, -1);
+        anim_play_from_frame(&e->anim, CLIP_FK_JUMP_ATTACK_HIT_2, 0);
+        e->body.vx = fk.recoil;
+        barrel_summon();
+        e->st = FK_JA_RECOIL;
+      }
+      break;
+    case FK_JA_RECOIL:
+      if (done) {
+        anim_play_from_frame(&e->anim, CLIP_FK_JUMP_ATTACK_HIT_3, 0);
+        fk.recoil /= 2;
+        e->body.vx = fk.recoil;
+        e->st = FK_JA_RECOIL2, e->t0 = 0;
+      }
+      break;
+    case FK_JA_RECOIL2:
+      if (e->t0 >= 0.084f) e->body.gravity_scale = 0.39f, e->body.vx = 0, e->st = FK_JA_END;
+      break;
+    case FK_JA_END:
+      if (done || !e->anim.playing) fk_idle(e);
+      break;
+    case FK_S_ANTIC:
+      if (done) {
+        /* Check Jump Dir, Walls Check 2: no jump back into a wall */
+        float dir = fk.jump_x <= 0 ? -1 : 1;
+        if (phys_ray(e->body.x, e->body.y, dir, 0, 8, CF_TERRAIN, NULL)) fk_slam_antic(e);
+        else {
+          cam_shake(SHAKE_ENEMY_KILL);
+          anim_play_from_frame(&e->anim, CLIP_FK_JUMP, 0);
+          e->body.vx = fk.jump_x, e->body.vy = 105;
+          e->st = FK_S_RISE;
+        }
+      }
+      break;
+    case FK_S_FALL:
+      if (fk_ground(e)) {
+        cam_shake(SHAKE_AVERAGE);
+        e->body.vx = 0;
+        anim_play_from_frame(&e->anim, CLIP_FK_LAND, 0);
+        e->st = FK_S_LAND;
+      }
+      break;
+    case FK_S_LAND:
+      if (done) fk_slam_antic(e);
+      break;
+    case FK_S_ATTACK_ANTIC:
+      if (e->t0 >= 1.2f) {
+        /* S Attack: the mace swung */
+        fk_hitter(e, CLIP_FK_ATTACK);
+        anim_play(&e->anim, CLIP_FK_BLANK);
+        e->st = FK_S_ATTACK, e->t0 = 0;
+      }
+      break;
+    case FK_S_ATTACK:
+      if (e->t0 >= 0.12f) cam_shake(SHAKE_BIG), e->st = FK_SLAM;
+      break;
+    case FK_SLAM:
+      if (sub_done) {
+        /* S Attack Recover: barrels, a shockwave the way it faced */
+        barrel_summon();
+        wave_spawn(e->body.x + fk.shock_x, e->body.y - 5.8f, fk.going_right, 22, 1);
+        anim_play_from_frame(&e->anim, CLIP_FK_ATTACK_RECOVER, 0);
+        fk_hitter(e, -1);
+        e->st = FK_S_RECOVER;
+      }
+      break;
+    case FK_S_RECOVER:
+      if (done) fk_idle(e);
+      break;
+    case FK_RUN_ANTIC:
+      if (done) {
+        cam_rumble(RUMBLE_MED);
+        anim_play(&e->anim, CLIP_FK_RUN);
+        e->st = FK_RUN;
+      }
+      break;
+    case FK_RUN: {
+      float dx = hero_x() - e->body.x, dy = hero_y() - e->body.y;
+      if (dx * dx + dy * dy < 14 * 14) fk_jump_attack(e);
+      break;
+    }
+    case FK_STUN_START:
+      e->st = FK_STUN_AIR;
+      break;
+    case FK_STUN_AIR:
+      if (fk_ground(e)) e->st = FK_STUN_LAND, e->t0 = 0;
+      break;
+    case FK_STUN_LAND:
+      /* (END: rolling left fast, or half a second) */
+      if (e->body.vx < -3 || e->t0 >= 0.5f) {
+        /* Roll End: lying there a while */
+        fk.kinematic = true;
+        e->body.vx = e->body.vy = 0;
+        anim_play_from_frame(&e->anim, CLIP_FK_STUN_ROLL_END, 0);
+        e->wait = pd_flag(PDF_FK_FIRST_PLOP) ? 1.2f : 2.5f;
+        pd_set_flag(PDF_FK_FIRST_PLOP, true);
+        e->st = FK_ROLL_END, e->t0 = 0;
+      }
+      break;
+    case FK_ROLL_END:
+      if (e->t0 >= e->wait) anim_play_from_frame(&e->anim, CLIP_FK_STUN_OPEN, 0), e->st = FK_OPEN;
+      break;
+    case FK_OPEN:
+      if (done) {
+        /* Head Reset, Opened: the head out, for five seconds */
+        Enemy *h = fk_head();
+        if (h) anim_play_from_frame(&h->anim, h->anim.clip, 0);
+        anim_play(&e->anim, CLIP_FK_STUN_OPENED);
+        fk_head_show(true);
+        e->st = FK_OPENED, e->t0 = 0;
+      }
+      break;
+    case FK_OPENED:
+      if (e->t0 >= 5) fk_recover(e, false);
+      break;
+    case FK_HIT: case FK_HIT2:
+      if (done) anim_play(&e->anim, CLIP_FK_STUN_OPENED), e->st = e->st == FK_HIT ? FK_OPENED : FK_OPENED2, e->t0 = 0;
+      break;
+    case FK_STUN_FAIL:
+      if (done) fk_idle(e);
+      break;
+    case FK_RECOVER:
+      if (done) {
+        anim_play(&e->anim, CLIP_FK_IDLE);
+        e->flags &= (uint8_t)~4;
+        e->st = FK_IDLE_PAUSE, e->t0 = 0;
+      }
+      break;
+    case FK_IDLE_PAUSE:
+      if (e->t0 >= 0.5f) {
+        /* Rage Jump Antic: to the arena's middle */
+        fk.jump_x = (28.9f - e->body.x) * 1.05f;
+        anim_play_from_frame(&e->anim, CLIP_FK_JUMP_ANTIC, 0);
+        e->st = FK_RAGE_ANTIC;
+      }
+      break;
+    case FK_RAGE_ANTIC:
+      if (done) fk_jump(e, 0.3f, CLIP_FK_JUMP, 105, FK_RISE2);
+      break;
+    case FK_STATE2:
+      if (done) {
+        fk.rages = 8;
+        anim_play_from_frame(&e->anim, CLIP_FK_ATTACK_ANTIC, 0);
+        e->st = FK_R_ATTACK_ANTIC, e->t0 = 0;
+      }
+      break;
+    case FK_R_ATTACK_ANTIC:
+      if (e->t0 >= 0.7f) {
+        fk_hitter(e, CLIP_FK_RAGE);
+        anim_play(&e->anim, CLIP_FK_BLANK);
+        e->st = FK_RAGE_BEGIN;
+      }
+      break;
+    case FK_RAGE_BEGIN:
+      e->st = FK_RAGE, e->t0 = 0;
+      fk_hitter(e, CLIP_FK_RAGE);
+      break;
+    case FK_RAGE:
+      if (e->t0 >= 0.249f) {
+        /* Rage Slam; Floor Crack? (the last of the second rage's) */
+        cam_shake(SHAKE_AVERAGE);
+        if (fk.stunned == 2 && fk.rages == 1) fk_floor_event(FL_CRACKED);
+        e->st = FK_PARTICLE_PAUSE, e->t0 = 0;
+      }
+      break;
+    case FK_PARTICLE_PAUSE:
+      if (e->t0 >= 0.1f) e->st = FK_ANIM_END;
+      break;
+    case FK_ANIM_END:
+      if (sub_done) {
+        /* Turn: barrels, the other way */
+        barrel_summon();
+        fk.rages--;
+        set_scale_x(e, -e->sx);
+        if (fk.rages <= 0) {
+          /* Rage Check */
+          if (fk.stunned >= 3) {
+            /* JA Antic 2: the last jump, onto the floor's middle */
+            e->flags |= 4;
+            fk_hitter(e, -1);
+            fk.jump_x = (34 - e->body.x) * 0.76f;
+            anim_play_from_frame(&e->anim, CLIP_FK_JUMP_ANTIC, 0);
+            fk_face(e, true);
+            e->st = FK_JA_ANTIC2;
+            break;
+          }
+          /* To Phase 2 / 3, Rage End */
+          fk.idle_min = 0.8f, fk.idle_max = 1;
+          fk_hitter(e, -1);
+          anim_play(&e->anim, CLIP_FK_IDLE);
+          e->st = FK_RAGE_END, e->t0 = 0;
+        } else
+          e->st = FK_RAGE, e->t0 = 0, fk_hitter(e, CLIP_FK_RAGE);
+      }
+      break;
+    case FK_RAGE_END:
+      if (e->t0 >= 0.75f) fk_idle(e);
+      break;
+    case FK_JA_ANTIC2:
+      if (done) {
+        e->body.gravity_scale = 0.2f;
+        anim_play_from_frame(&e->anim, CLIP_FK_JUMP_ATTACK_UP, 0);
+        e->body.vx = fk.jump_x, e->body.vy = 90;
+        e->st = FK_JA_RISE2;
+      }
+      break;
+    case FK_JA_HIT2:
+      if (fk_ground(e)) {
+        /* Floor Break: through the floor */
+        fk_hitter(e, -1);
+        fk_floor_event(FL_BROKEN);
+        e->body.gravity_scale = 1;
+        anim_play_from_frame(&e->anim, CLIP_FK_DEATH_FALL, 0);
+        e->body.vx = 0, e->body.vy = 15;
+        cam_shake(SHAKE_BIG);
+        e->damage = 0;
+        e->st = FK_FLOOR_BREAK;
+      }
+      break;
+    case FK_FLOOR_BREAK:
+      if (e->body.vy <= 0 && fk_ground(e)) {
+        anim_play_from_frame(&e->anim, CLIP_FK_DEATH_LAND, 0);
+        fk.kinematic = true;
+        e->body.vx = e->body.vy = 0;
+        e->st = FK_DEATH_LAND, e->t0 = 0;
+      }
+      break;
+    case FK_DEATH_LAND:
+      if (e->t0 >= 2) anim_play_from_frame(&e->anim, CLIP_FK_STUN_OPEN, 0), e->st = FK_DEATH_OPEN;
+      break;
+    case FK_DEATH_OPEN:
+      if (done) {
+        Enemy *h = fk_head();
+        if (h) anim_play_from_frame(&h->anim, h->anim.clip, 0);
+        anim_play(&e->anim, CLIP_FK_STUN_OPENED);
+        fk_head_show(true);
+        e->st = FK_OPENED2;
+      }
+      break;
+    case FK_DEATH_ANIM:
+      if (e->t0 >= 1) {
+        /* Open Map Shop and Journal; Steam */
+        pd_set_flag(PDF_MAPPER_SHOP, true);
+        pd_set_flag(PDF_CORN_CROSSROADS_LEFT, true);
+        e->flags |= 1;
+        cam_shake(SHAKE_BIG);
+        e->st = FK_STEAM, e->t0 = 0;
+      }
+      break;
+    case FK_STEAM:
+      if (e->t0 >= 3) e->st = FK_READY, e->t0 = 0;
+      break;
+    case FK_READY:
+      if (e->t0 >= 1) {
+        /* Blow: the maggot out, the staff flung */
+        Enemy *h = fk_head();
+        if (h) h->mode = EM_OFF;
+        fk.head_shown = false;
+        cam_shake(SHAKE_BIG);
+        anim_play(&e->anim, CLIP_FK_BODY);
+        fk.dhead_on = true;
+        memset(&fk.dhead, 0, sizeof fk.dhead);
+        fk.dhead.x = e->body.x + 3.11f * e->sx, fk.dhead.y = e->body.y - 2.86f * FK_SCALE;
+        fk.dhead.vx = e->b0 ? 4 : -4;
+        fk.dhead.ox = -0.1094f * 0.975f * (e->sx < 0 ? -1 : 1), fk.dhead.oy = -0.7812f * 0.975f;
+        fk.dhead.hx = 2.8125f / 2 * 0.975f, fk.dhead.hy = 2.1562f / 2 * 0.975f;
+        fk.dhead.gravity_scale = 1, fk.dhead.friction = 0.2828f, fk.dhead.mask = CF_SOLID;
+        anim_play_from_frame(&fk.dhead_anim, CLIP_FK_DEATH_HEAD_1, 0);
+        fk.staff_on = true;
+        memset(&fk.staff, 0, sizeof fk.staff);
+        fk.staff.x = e->body.x - 1.45f * e->sx, fk.staff.y = e->body.y + 0.04f * FK_SCALE;
+        fk.staff.vx = cosf(150 * (float)M_PI / 180) * 20, fk.staff.vy = sinf(150 * (float)M_PI / 180) * 20;
+        fk.staff.hx = fk.staff.hy = 0.2f;
+        fk.staff.gravity_scale = 1, fk.staff.friction = 0.2828f, fk.staff.mask = CF_SOLID;
+        fk.staff_ang = 0, fk.staff_w = 700;
+        e->st = FK_BLOW;
+      }
+      break;
+    case FK_BLOW:
+      if ((fk.dhead_anim.events & ANIM_DONE) || !fk.dhead_anim.playing) {
+        fk.dhead.vx = 0;
+        anim_play_from_frame(&fk.dhead_anim, CLIP_FK_DEATH_HEAD_2, 0);
+        e->st = FK_HEAD_LAND, e->t0 = 0;
+      }
+      break;
+    case FK_HEAD_LAND:
+      if (e->t0 >= 1.5f) {
+        /* Decrement Battle Enemies, Cough */
+        fk_battle_end();
+        e->st = FK_DEAD;
+      }
+      break;
+  }
+}
+
+static void fk_fixed(Enemy *e) {
+  if (e->st == FK_DORMANT) e->body.vx = e->body.vy = 0;
+  fk_air_fixed(e);
+}
+
+/* the head's HP gone (its Health Check: STUN END, its HP back) */
+static void fk_head_stun_end(Enemy *h) {
+  h->hp = FK_HEAD_HP;
+  anim_play(&h->anim, CLIP_FKHEAD_HEAD_IDLE);
+  Enemy *e = fk_body();
+  if (!e) return;
+  if (e->st == FK_OPENED || e->st == FK_HIT) fk_recover(e, true);
+  else if (e->st == FK_OPENED2 || e->st == FK_HIT2) {
+    /* Death Anim Start */
+    pd_set_flag(PDF_FALSE_KNIGHT_DEFEATED, true);
+    cam_shake(SHAKE_ENEMY_KILL);
+    anim_play(&h->anim, CLIP_FKHEAD_HEAD_SPAZ);
+    h->flags |= 1;
+    fk.kinematic = false;
+    anim_play(&e->anim, CLIP_FK_DEATH_SPAZ);
+    e->st = FK_DEATH_ANIM, e->t0 = 0;
+  }
+}
+
+/* (the head's HealthManager: HIT to the False Knight) */
+static void fk_head_hit(void) {
+  Enemy *e = fk_body(), *h = fk_head();
+  if (!e) return;
+  if (e->st == FK_OPENED || e->st == FK_OPENED2 || e->st == FK_HIT || e->st == FK_HIT2) {
+    anim_play_from_frame(&e->anim, CLIP_FK_STUN_HIT, 0);
+    if (h) anim_play_from_frame(&h->anim, CLIP_FKHEAD_HEAD_HIT, 0);
+    e->st = e->st == FK_OPENED || e->st == FK_HIT ? FK_HIT : FK_HIT2;
+  }
+}
+
+/* ---------------------------------------------------------------- the barrels the False Knight brings down */
+/* (summon: Determine Spawns, Spawn, Check Spawns: six to eight, a fifth of a second or so apart) */
+static void barrel_summon(void) {
+  if (fk.summon_st) return;
+  fk.spawns = (uint8_t)(6 + (int)rand_range(0, 3));
+  fk.summon_t = rand_range(0.15f, 0.25f);
+  fk.summon_st = 1;
+}
+
+static void barrels_tick(void) {
+  if (fk.summon_st && (fk.summon_t -= DT) <= 0) {
+    if (fk.spawns == 0) fk.summon_st = 0;
+    else {
+      for (int i = 0; i < MAX_BARRELS; i++) {
+        Barrel *b = &fk.barrels[i];
+        if (b->on) continue;
+        memset(b, 0, sizeof *b);
+        b->on = true;
+        b->x = rand_range(fk.summon_x0, fk.summon_x1), b->y = fk.summon_y;
+        b->scale = rand_range(0.8f, 1);
+        b->gravity = 0.325f;
+        b->spin = rand_range(0, 1) < 0.5f ? -720 : 720;
+        break;
+      }
+      fk.spawns--;
+      fk.summon_t = rand_range(0.15f, 0.25f);
+    }
+  }
+  for (int i = 0; i < MAX_BARRELS; i++) {
+    Barrel *b = &fk.barrels[i];
+    if (!b->on) continue;
+    if (b->broken) {
+      if ((b->t += DT) >= 3) b->on = false;
+      continue;
+    }
+    b->vy -= 60 * b->gravity * DT;
+    b->ang += b->spin * DT;
+    float hx = 0.59f * b->scale, hy = 0.555f * b->scale;
+    b->x += b->vx * DT, b->y += b->vy * DT;
+    /* (its trigger: the terrain, the hero or an enemy breaks it) */
+    bool brk = false;
+    for (int k = -1; k <= 1 && !brk; k += 2)
+      brk = phys_ray(b->x, b->y, 0, (float)k, hy, CF_TERRAIN, NULL) || phys_ray(b->x, b->y, (float)k, 0, hx, CF_TERRAIN, NULL);
+    for (int j = 0; j < MAX_ENEMIES && !brk; j++) {
+      Enemy *e = &en[j];
+      if (e->mode != EM_ALIVE || (e->flags & 17)) continue;
+      float x0, y0, x1, y1;
+      enemy_box(e, &x0, &y0, &x1, &y1);
+      if (b->x + hx > x0 && b->x - hx < x1 && b->y + hy > y0 && b->y - hy < y1) {
+        brk = true;
+        if (b->deflected) enemy_hit(e, b->vx >= 0 ? 0 : 180, 10);   /* (damages_enemy: 10, once deflected) */
+      }
+    }
+    if (brk || b->y < -20) b->broken = true, b->t = 0;
+  }
+}
+
+static int barrels_touch(float x0, float y0, float x1, float y1, int *side) {
+  for (int i = 0; i < MAX_BARRELS; i++) {
+    Barrel *b = &fk.barrels[i];
+    if (!b->on || b->broken) continue;
+    float hx = 0.59f * b->scale, hy = 0.555f * b->scale;
+    if (x1 > b->x - hx && x0 < b->x + hx && y1 > b->y - hy && y0 < b->y + hy) {
+      b->broken = true, b->t = 0;
+      *side = b->x > g_hero.body.x ? SIDE_RIGHT : SIDE_LEFT;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* a nail's swing at the barrels: struck the way it swung (Check Direct) */
+static void barrels_nail(const float *pts, int npts, float direction) {
+  for (int i = 0; i < MAX_BARRELS; i++) {
+    Barrel *b = &fk.barrels[i];
+    if (!b->on || b->broken || b->deflected) continue;
+    float hx = 0.59f * b->scale, hy = 0.555f * b->scale;
+    if (!box_meets_shape(b->x - hx, b->y - hy, b->x + hx, b->y + hy, pts, npts)) continue;
+    float a = direction * (float)M_PI / 180;
+    b->vx = cosf(a) * 45, b->vy = sinf(a) * 45;
+    b->gravity = 0.3f;
+    b->deflected = true;
+  }
+}
+
+static void barrels_draw(void) {
+  for (int i = 0; i < MAX_BARRELS; i++) {
+    const Barrel *b = &fk.barrels[i];
+    if (!b->on || b->broken) continue;
+    Inst in;
+    sprite_inst_rot(SPRITE_FK_BARREL, b->x, b->y, 0.006f, b->scale, b->scale, b->ang, 0, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+  }
+}
+
+/* ---------------------------------------------------------------- its arena and floor */
+static void fk_floor_event(int ev) {
+  if (fk.floor < 0 || fk.floor_st >= ev) return;
+  const Ent *f = ent_at(fk.floor);
+  fk.floor_st = (uint8_t)ev;
+  group_fade(f->group2, 0, 0);   /* (Normal 1, 2 off) */
+  if (ev == FL_BROKEN) {
+    for (int c = f->a; c < f->a + f->group; c++) phys_collider_enable(c, false);   /* (Break Floor off) */
+    fk.bits_on = true;
+    for (int k = 0; k < 3; k++) {
+      const Ent *r = f + 1;
+      for (int j = 1; j <= f->s0; j++)
+        if (f[j].flags == 3 + k) r = &f[j];
+      Body *b = &fk.bits[k];
+      memset(b, 0, sizeof *b);
+      b->x = r->x0, b->y = r->y0, b->vx = r->p0, b->vy = r->p1;
+      b->gravity_scale = 1;
+    }
+  }
+}
+
+static void fk_battle_end(void) {
+  if (fk.battle < 0 || fk.battle_st != BT_FIGHT) return;
+  const Ent *b = ent_at(fk.battle);
+  persist_set(b->persist);
+  if (b->p0 >= 0) ent_set_enabled((int)b->p0, false);
+  if (b->p1 >= 0) ent_set_enabled((int)b->p1, false);
+  cam_rumble(RUMBLE_OFF);
+  fk.battle_st = BT_END_WAIT, fk.battle_t = 0;
+}
+
+/* the arena's records: Battle Control (Init; Activate if its fight is over), Floor Control */
+static void fk_arena_enter(void) {
+  memset(&fk, 0, sizeof fk);
+  fk.battle = fk.floor = -1;
+  fk.fk = fk.head = -1;
+  int n;
+  const Ent *es = room_ents(&n);
+  for (int i = 0; i < n; i++) {
+    if (es[i].type != ENT_OBJ) continue;
+    if (es[i].flags == OK_BATTLE) fk.battle = (int16_t)i;
+    if (es[i].flags == OK_FK_FLOOR) fk.floor = (int16_t)i;
+  }
+  if (fk.battle < 0) return;
+  const Ent *b = &es[fk.battle];
+  fk.summon_x0 = 13.18f, fk.summon_x1 = 44.27f, fk.summon_y = 40.98f;   /* (summon: Summon Min, Max; its y) */
+  if (persist_get(b->persist)) {
+    /* Activate: the fight over, the floor broken, the armour there */
+    if (b->p0 >= 0) ent_set_enabled((int)b->p0, false);
+    if (b->p1 >= 0) ent_set_enabled((int)b->p1, false);
+    fk.battle_st = BT_DONE;
+    if (fk.floor >= 0) {
+      const Ent *f = &es[fk.floor];
+      fk.floor_st = FL_BROKEN;
+      group_fade(f->group2, 0, 0);
+      for (int c = f->a; c < f->a + f->group; c++) phys_collider_enable(c, false);
+    }
+  } else {
+    if (b->p0 >= 0) ent_set_enabled((int)b->p0, false);   /* (Init: CameraLock 1 off) */
+    if (b->group) group_fade(b->group, 0, 0);              /* (the armour not there yet) */
+    fk.battle_st = BT_DETECT;
+    fk.floor_st = FL_IDLE;
+  }
+}
+
+static void fk_arena_tick(void) {
+  if (fk.battle < 0) return;
+  const Ent *b = ent_at(fk.battle);
+  switch (fk.battle_st) {
+    case BT_DETECT: {
+      const Body *k = &g_hero.body;
+      float x0 = k->x + k->ox - k->hx, x1 = k->x + k->ox + k->hx, y0 = k->y + k->oy - k->hy, y1 = k->y + k->oy + k->hy;
+      if (x1 > b->x0 && x0 < b->x1 && y1 > b->y0 && y0 < b->y1) {
+        /* Start: the camera locked to the arena, BATTLE START */
+        if (b->p0 >= 0) ent_set_enabled((int)b->p0, true);
+        if (b->p1 >= 0) ent_set_enabled((int)b->p1, false);
+        fk.battle_st = BT_FIGHT;
+        fk_battle_start();
+      }
+      break;
+    }
+    case BT_END_WAIT:
+      if ((fk.battle_t += DT) >= 2) fk.battle_st = BT_DONE;
+      break;
+  }
+  barrels_tick();
+  /* what is left of it */
+  if (fk.dhead_on) {
+    fk.dhead_anim.events = 0;
+    anim_update(&fk.dhead_anim, DT);
+    body_step(&fk.dhead, DT);
+  }
+  if (fk.staff_on) {
+    body_step(&fk.staff, DT);
+    fk.staff_ang += fk.staff_w * DT;
+    if (fk.staff.ncontacts) fk.staff_w *= 0.9f;
+  }
+  if (fk.bits_on)
+    for (int k = 0; k < 3; k++) {
+      Body *bb = &fk.bits[k];
+      bb->vy -= 60 * bb->gravity_scale * DT;
+      bb->x += bb->vx * DT, bb->y += bb->vy * DT;
+    }
+}
+
+static void fk_arena_draw(void) {
+  if (fk.battle < 0) return;
+  barrels_draw();
+  Inst in;
+  if (fk.dhead_on && fk.dhead_anim.sprite >= 0) {
+    Enemy *e = fk_body();
+    float s = 0.975f * (e && e->sx < 0 ? -1 : 1);
+    sprite_inst(fk.dhead_anim.sprite, fk.dhead.x, fk.dhead.y, 0.0054f, s, 0.975f, 0, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+  }
+  if (fk.staff_on) {
+    sprite_inst_rot(SPRITE_FK_STAFF, fk.staff.x, fk.staff.y, 0.005f, 1, 1, fk.staff_ang, 0, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+  }
+  if (fk.floor >= 0 && fk.floor_st != FL_IDLE) {
+    const Ent *f = ent_at(fk.floor);
+    for (int j = 1; j <= f->s0; j++) {
+      const Ent *r = &f[j];
+      bool show = fk.floor_st == FL_CRACKED ? r->flags <= 1 : r->flags == 2 || (r->flags >= 3 && fk.bits_on);
+      if (!show) continue;
+      float x = r->x0, y = r->y0;
+      if (r->flags >= 3 && fk.bits_on) x = fk.bits[r->flags - 3].x, y = fk.bits[r->flags - 3].y;
+      sprite_inst(r->s0, x, y, r->x1, 1, 1, 0, &in);
+      gfx_actor(&in, SORT_KEY(r->group, (int)r->a - 32768));
+    }
+  }
+}
+
 /* ---------------------------------------------------------------- the Hollow Shade: its Shade Control FSM */
 enum {
   SH_IDLE, SH_STARTLE, SH_FLY, SH_POSITION, SH_SLASH_ANTIC, SH_SLASH, SH_SLASH_BOX, SH_SLASH_CD, SH_FIREBALL_POS,
@@ -2251,6 +3191,7 @@ static void balls_tick(void) {
 void enemies_enter(void) {
   memset(en, 0, sizeof en);
   memset(geo, 0, sizeof geo);
+  fk_arena_enter();
   int n, k = 0;
   const Ent *es = room_ents(&n);
   for (int i = 0; i < n && k < MAX_ENEMIES; i++) {
@@ -2289,6 +3230,8 @@ void enemies_enter(void) {
     else if (FSM(e) == EF_BLOCKER) blocker_start(e);
     else if (FSM(e) == EF_LEAPER) leaper_start(e);
     else if (FSM(e) == EF_GUARD) guard_start(e);
+    else if (FSM(e) == EF_FK) fk_start(e);
+    else if (FSM(e) == EF_FKHEAD) fk_head_start(e);
     for (int h = 0; h < 8; h++) {
       const Ent *r = hitbox_rec(e, h);
       if (!r) break;
@@ -2321,6 +3264,13 @@ void enemies_fixed(void) {
       if (e->st != SH_RETREAT) body_step(&e->body, DT);
       continue;
     }
+    if (e->mode == EM_ALIVE && FSM(e) == EF_FK) {
+      fk_fixed(e);
+      if (fk.kinematic) e->body.vx = e->body.vy = 0;
+      else body_step(&e->body, DT);
+      continue;
+    }
+    if (e->mode == EM_ALIVE && FSM(e) == EF_FKHEAD) continue;
     if (e->mode == EM_ALIVE && FSM(e) == EF_CLIMBER) {
       /* (a kinematic body: its velocity, nothing in its way) */
       recoil_fixed(e);
@@ -2369,6 +3319,8 @@ void enemies_fixed(void) {
   balls_tick();
   bullets_tick();
   waves_tick();
+  fk_arena_tick();
+  fk_head_place();
 }
 
 /* Update: the FSMs' every-frame actions, the animations, the timers */
@@ -2393,7 +3345,13 @@ void enemies_update(void) {
       else if (FSM(e) == EF_BLOCKER) blocker_update(e);
       else if (FSM(e) == EF_LEAPER) leaper_update(e);
       else if (FSM(e) == EF_GUARD) guard_update(e);
-      hitbox_tick(e);
+      else if (FSM(e) == EF_FK) fk_update(e);
+      if (FSM(e) == EF_FK) {
+        /* (its Hitter: on till its FSM turns it off) */
+        e->sub.events = 0;
+        if (e->sub_hb) anim_update(&e->sub, DT);
+      } else
+        hitbox_tick(e);
       e->flags &= (uint8_t)~8;
     } else if (FSM(e) == EF_SHADE)
       shade_update(e);
@@ -2411,13 +3369,15 @@ void enemies_draw(void) {
     Inst in;
     float z = e->mode == EM_CORPSE && FSM(e) != EF_SHADE ? 0.0085f : e->z;
     if (FSM(e) == EF_SHADE && e->st == SH_DISSIPATE) continue;   /* (its renderer off) */
+    if ((e->flags & 32) || (FSM(e) == EF_FKHEAD && !fk.head_shown && e->mode == EM_ALIVE)) continue;
+    float sy = fabsf(e->sx) > 0 ? fabsf(e->sx) : 1;
     if (e->ang != 0 && e->mode == EM_ALIVE)
       sprite_inst_rot(e->anim.sprite, e->body.x, e->body.y, z, e->sx, 1, e->ang, flash_tint(e, 2 + i % 5), &in);
     else
-      sprite_inst(e->anim.sprite, e->body.x + e->jx, e->body.y + e->jy, z, e->sx, 1, flash_tint(e, 2 + i % 5), &in);
+      sprite_inst(e->anim.sprite, e->body.x + e->jx, e->body.y + e->jy, z, e->sx, sy, flash_tint(e, 2 + i % 5), &in);
     gfx_actor(&in, SORT_KEY(0, 0));
     if (e->sub_hb && e->sub.sprite >= 0 && e->mode == EM_ALIVE) {
-      sprite_inst(e->sub.sprite, e->body.x, e->body.y, z - 0.001f, e->sx, 1, 0, &in);
+      sprite_inst(e->sub.sprite, e->body.x, e->body.y, z - 0.001f, e->sx, sy, flash_tint(e, 2 + i % 5), &in);
       gfx_actor(&in, SORT_KEY(0, 0));
     }
     if (FSM(e) == EF_SHADE && sh.slash_on) {
@@ -2427,6 +3387,7 @@ void enemies_draw(void) {
   }
   bullets_draw();
   spurts_draw();
+  fk_arena_draw();
   for (int i = 0; i < MAX_BALLS; i++) {
     const Ball *b = &balls[i];
     if (!b->on) continue;
@@ -2449,6 +3410,7 @@ void enemies_swing_start(void) { swing_bits = 0; }
 /* the slash's shape: enemies it touches are hit, once a swing -> HB_* */
 int enemies_nail(const float *pts, int npts, float direction, int damage) {
   int out = 0;
+  barrels_nail(pts, npts, direction);
   for (int i = 0; i < MAX_ENEMIES; i++) {
     Enemy *e = &en[i];
     if (e->mode != EM_ALIVE || (e->flags & 17)) continue;
@@ -2494,6 +3456,8 @@ int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side) {
   if (dmg) return dmg;
   dmg = spurts_touch(x0, y0, x1, y1, side);
   if (dmg) return dmg;
+  dmg = barrels_touch(x0, y0, x1, y1, side);
+  if (dmg) return dmg;
   for (int i = 0; i < MAX_BALLS; i++) {
     const Ball *b = &balls[i];
     if (!b->on || b->ending) continue;
@@ -2524,8 +3488,9 @@ void enemies_debug_hit(int damage) {
   for (int i = 0; i < MAX_ENEMIES; i++) {
     Enemy *e = &en[i];
     float dx = e->body.x - g_hero.body.x, dy = e->body.y - g_hero.body.y;
-    if (e->mode != EM_ALIVE || dx * dx + dy * dy > 15 * 15) continue;
-    e->flags &= (uint8_t)~4, e->evasion = 0;
+    float r = getenv("HKHITR") ? (float)atof(getenv("HKHITR")) : 15;
+    if (e->mode != EM_ALIVE || (e->flags & 5) || dx * dx + dy * dy > r * r) continue;
+    if (FSM(e) == EF_FK && e->st == FK_DORMANT) continue;
     enemy_hit(e, dx > 0 ? 0 : 180, damage);
   }
 }

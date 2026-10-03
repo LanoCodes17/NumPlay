@@ -78,7 +78,23 @@ int main(int argc, char **argv) {
         }
       }
     }
-    if (shot) game_draw(), host_shot(shot);
+    if (shot) {
+      int nf = getenv("NF") ? atoi(getenv("NF")) : 3;
+      for (int i = 0; i < nf; i++) game_draw();   /* (the tile cache warm, as while playing) */
+      host_shot(shot);
+    }
+    if (getenv("HKGROUPS")) {
+      printf("fade %d items %u cam %.2f,%.2f groups:", g_screen_fade, g_gfx_items, g_cam_x, g_cam_y);
+      for (int g = 1; g < MAX_GROUPS; g++)
+        if (g_group_alpha[g] != 255) printf(" %d=%d", g, g_group_alpha[g]);
+      printf("\n");
+      int n;
+      const Ent *e = room_ents(&n);
+      for (int i = 0; i < n; i++)
+        if (e[i].type == ENT_MASK || e[i].type == ENT_BOX)
+          printf("ent %d type %d flags %d group %d,%d box %.1f,%.1f %.1f,%.1f p %.2f %.2f %.2f %.2f\n", i, e[i].type, e[i].flags,
+                 e[i].group, e[i].group2, e[i].x0, e[i].y0, e[i].x1, e[i].y1, e[i].p0, e[i].p1, e[i].p2, e[i].p3);
+    }
     printf("end: pos %.3f,%.3f state %d\n", g_hero.body.x, g_hero.body.y, g_hero.state);
     return 0;
   }

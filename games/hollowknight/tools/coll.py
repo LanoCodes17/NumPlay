@@ -143,7 +143,13 @@ def room(d, w, h):
                     if a != b:
                         segs.append((a[0], a[1], b[0], b[1], ci))
     solid = _tilemap_solid(tm_edges, w, h)
-    want, got = _unit_edges(tm_edges), tile_faces(solid)
+    # (the tilemap's chunks also outline their borders: edges inside solid ground, no faces)
+    th, tw = solid.shape
+    def s(x, y):
+        return 0 <= x < tw and 0 <= y < th and solid[y, x]
+    want = {(k, x, y) for k, x, y in _unit_edges(tm_edges)
+            if not (s(x - 1, y) and s(x, y) if k == "v" else s(x, y - 1) and s(x, y))}
+    got = tile_faces(solid)
     if want != got:
         print("coll: tilemap faces differ: %d missing, %d extra" % (len(want - got), len(got - want)))
     return solid, segs, cols

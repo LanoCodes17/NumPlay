@@ -102,19 +102,32 @@ static uint32_t grade(float r, float g, float b, float a) {
 }
 
 uint8_t g_group_alpha[MAX_GROUPS];
+uint8_t g_screen_fade;   /* how black the screen is (the camera's fade) */
+
+/* tints: the room's, then colors the game sets (gfx_dyn_tint) */
+#define DYN_TINT 240
+static uint8_t dyn_tints[256 - DYN_TINT][4];
+static inline const uint8_t *tint_rgba(int tint) { return tint >= DYN_TINT ? dyn_tints[tint - DYN_TINT] : g_room.tints + 4 * tint; }
+
+uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+  uint8_t *t = dyn_tints[slot & 15];
+  t[0] = r, t[1] = g, t[2] = b, t[3] = a;
+  return (uint8_t)(DYN_TINT + (slot & 15));
+}
 
 /* the instance's alpha: its tint's, times its render group's */
 static inline uint32_t inst_alpha(const Inst *in) {
-  uint32_t a = g_room.tints[4 * in->tint + 3];
-  return in->group ? (a * g_group_alpha[in->group] + 127) / 255 : a;
+  uint32_t a = tint_rgba(in->tint)[3];
+  return in->group ? (a * g_group_alpha[in->group & (MAX_GROUPS - 1)] + 127) / 255 : a;
 }
 
 static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
-  uint32_t key = (uint32_t)tex << 16 | alpha << 8 | (uint32_t)tint << 1 | ((flags & F_LIT) ? 1 : 0);
+  /* (tex << 17: solid colors' TEX_NONE comes out as 0xFFFE....; black textures' keys below those) */
+  uint32_t key = (uint32_t)tex << 17 | alpha << 9 | (uint32_t)tint << 1 | ((flags & F_LIT) ? 1 : 0);
   if (tex != TEX_NONE) {
     const TexRec *r = tex_rec(tex);
     if (r->fmt >= FMT_SOFT) return 0;   /* (no colors: soft_get) */
-    if (r->fmt == FMT_ALPHA2) key = 0xFFFE0000u | alpha;   /* black: only the alpha matters */
+    if (r->fmt == FMT_ALPHA2) key = 0xFFFC0000u | alpha;   /* black: only the alpha matters */
   }
   for (int i = 0; i < NPAL; i++)
     if (pals[i].key == key) {
@@ -133,7 +146,7 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
   pal_hand = (s + 1) % NPAL;
   Pal *p = &pals[s];
   p->key = key, p->frame = pal_frame;
-  const uint8_t *t = g_room.tints + 4 * tint;
+  const uint8_t *t = tint_rgba(tint);
   p->solid = alpha == 255;
   float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f, ta = alpha / 255.0f;
   if (flags & F_LIT) {
@@ -180,7 +193,7 @@ uint32_t g_soft_misses;
 static const uint32_t *soft_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
   const TexRec *rr = tex_rec(tex);
   if (rr->fmt == FMT_SOFTA) return (const uint32_t *)(const void *)(section(SEC_SOFT) + rr->pal_off);   /* (alpha, in place) */
-  uint32_t key = (uint32_t)tex << 16 | alpha << 8 | (uint32_t)tint << 1 | ((flags & F_LIT) ? 1 : 0);
+  uint32_t key = (uint32_t)tex << 17 | alpha << 9 | (uint32_t)tint << 1 | ((flags & F_LIT) ? 1 : 0);
   for (int i = 0; i < nsoft; i++)
     if (soft_ent[i].key == key) {
       soft_ent[i].frame = pal_frame;
@@ -206,7 +219,7 @@ static const uint32_t *soft_get(uint16_t tex, uint8_t tint, uint8_t flags, uint3
   uint32_t *px = soft_pool + soft_top;
   const uint8_t *src = section(SEC_SOFT) + r->pal_off;
   lz_decode(src + 4, rd32(src), (uint8_t *)px, (uint32_t)n * 4);
-  const uint8_t *t = g_room.tints + 4 * tint;
+  const uint8_t *t = tint_rgba(tint);
   float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f, ta = alpha / 255.0f;
   if (flags & F_LIT) {
     const float *am = g_room.h->ambient;
@@ -729,7 +742,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
       soft = soft_get(in->tex, in->tint, in->flags, inst_alpha(in));
       if (!soft) return;
       if (c.r->fmt == FMT_SOFTA) {
-        const uint8_t *t = g_room.tints + 4 * in->tint;
+        const uint8_t *t = tint_rgba(in->tint);
         float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f;
         if (in->flags & F_LIT) tr *= g_room.h->ambient[0], tg *= g_room.h->ambient[1], tb *= g_room.h->ambient[2];
         uint32_t base = c.r->map_off;
@@ -828,7 +841,7 @@ static void draw_bg_item(Item *it) {
     soft = soft_get(in->tex, in->tint, in->flags, inst_alpha(in));
     if (!soft) return;
     if (r->fmt == FMT_SOFTA) {
-      const uint8_t *t = g_room.tints + 4 * in->tint;
+      const uint8_t *t = tint_rgba(in->tint);
       float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f;
       if (in->flags & F_LIT) tr *= g_room.h->ambient[0], tg *= g_room.h->ambient[1], tb *= g_room.h->ambient[2];
       uint32_t base = r->map_off;
@@ -927,6 +940,16 @@ __attribute__((noinline)) static void finish_strip(int sy0, int rows) {
   }
 #endif
   uint16_t *out = (uint16_t *)(void *)arb;   /* in place: each 16-bit pixel goes where its 32-bit one was read */
+  if (g_screen_fade) {
+    /* (the camera fading to black: the light, and the background, dimmed) */
+    uint32_t k = 255u - g_screen_fade;
+    for (int p = 0; p < NPX; p++) {
+      uint32_t rb = arb[p];
+      arb[p] = ((rb >> 16) * k / 255) << 16 | ((rb & 0xFFFF) * k / 255);
+      ag[p] = (uint16_t)(ag[p] * k / 255);
+      trans[p] = (uint8_t)(trans[p] * k / 255);
+    }
+  }
   for (int y = 0; y < rows; y++) {
     int sy = sy0 + y;
     if (bg_on) {

@@ -160,6 +160,8 @@ typedef struct {
 bool phys_ray(float x, float y, float dx, float dy, float dist, uint8_t mask, PhysHit *hit);
 uint8_t phys_col_flags(int col);
 bool phys_tile_solid(int x, int y);
+/* a box and a convex polygon (n points, x y pairs): do they overlap? */
+bool box_meets_shape(float x0, float y0, float x1, float y1, const float *pts, int n);
 
 enum { EV_ENTER, EV_STAY, EV_EXIT };
 typedef struct {
@@ -188,4 +190,6 @@ void gfx_frame(void);            /* draws the room at the camera into the screen
 /* a sprite of the Knight, an enemy, an effect... for the next frame, among the room's by its sorting layer and order
  * (SORT_KEY), then depth */
 bool gfx_actor(const Inst *in, uint32_t group);
+uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a);   /* a tint (for Inst.tint) of that color */
+extern uint8_t g_screen_fade;   /* 0 .. 255: the screen faded to black */
 extern uint32_t g_gfx_items, g_gfx_pixels;

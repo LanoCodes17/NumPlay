@@ -62,13 +62,6 @@ static void mask_idle(const Ent *e, EntState *s) {
   s->state = M_IDLE;
 }
 
-static void mask_tick(const Ent *e, EntState *s) {
-  if (s->state == M_PAUSE && hero_in_position) {
-    s->timer += DT;
-    if (s->timer >= e->p1) mask_idle(e, s);
-  }
-}
-
 static void mask_trigger(const Ent *e, EntState *s, int kind) {
   float t = e->p0;
   switch (e->flags) {
@@ -118,7 +111,16 @@ void world_enter(void) {
   }
 }
 
-void world_hero_in_position(void) { hero_in_position = true; }
+/* (Pause's WaitForHeroInPosition: the masks start as the Knight is placed; its Wait only counts when it was placed
+ * already) */
+void world_hero_in_position(void) {
+  if (hero_in_position) return;
+  hero_in_position = true;
+  int n;
+  const Ent *e = room_ents(&n);
+  for (int i = 0; i < n && i < MAX_ENTS; i++)
+    if (e[i].type == ENT_MASK && es[i].state == M_PAUSE) mask_idle(&e[i], &es[i]);
+}
 
 void world_trigger(int i, int kind) {
   int n;
@@ -126,10 +128,4 @@ void world_trigger(int i, int kind) {
   if (e->type == ENT_MASK) mask_trigger(e, &es[i], kind);
 }
 
-void world_tick(void) {
-  int n;
-  const Ent *e = room_ents(&n);
-  for (int i = 0; i < n && i < MAX_ENTS; i++)
-    if (e[i].type == ENT_MASK) mask_tick(&e[i], &es[i]);
-  fades_tick();
-}
+void world_tick(void) { fades_tick(); }

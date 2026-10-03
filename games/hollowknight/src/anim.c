@@ -163,4 +163,5 @@ void sprite_inst(int sprite, float x, float y, float z, float sx, float sy, uint
   out->a = to_f16(sx * s->tu);
   out->b = to_f16(-sy * s->tv);
   out->rot = 0;
+  out->group = 0;
 }

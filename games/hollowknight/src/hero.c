@@ -94,6 +94,10 @@ static bool check_for_bump(int left) {
 
 /* ---------------------------------------------------------------- state */
 static void anim_update_state(int s);
+static void invulnerable_tick(void);
+static void respawn_tick(void);
+static void die_from_hazard(void);
+void hero_die(void);
 
 static bool can_exit_no_input(void) { return !g_hero.doing_hazard_respawn && !g_hero.cs.dead; }
 
@@ -780,6 +784,8 @@ void hero_fixed(uint32_t keys) {
 void hero_update(void) {
   Hero *h = &g_hero;
   update();
+  invulnerable_tick();
+  respawn_tick();
   if (h->anim_control) animation();
   h->anim.events = 0;
   anim_update(&h->anim, DT);
@@ -791,10 +797,20 @@ void hero_update(void) {
 
 void hero_draw(void) {
   Hero *h = &g_hero;
+  if (h->hidden) return;
   Inst in;
-  sprite_inst(h->anim.sprite, h->body.x, h->body.y, 0.004f, h->cs.facing_right ? -1.0f : 1.0f, 1, 0, &in);
+  /* (InvulnerablePulse: the color towards its invulnerable one) */
+  uint8_t tint = 0;
+  if (h->pulsing) tint = gfx_dyn_tint(0, 255, 255, 255, (uint8_t)(255 - 255 * 0.5f * h->pulse_t / 0.1f));
+  sprite_inst(h->anim.sprite, h->body.x, h->body.y, 0.004f, h->cs.facing_right ? -1.0f : 1.0f, 1, tint, &in);
   gfx_actor(&in, SORT_KEY(0, 0));
   slash_draw();
+}
+
+/* (the Knight dying: for now, as a hazard) */
+void hero_die(void) {
+  g_pd.health = g_pd.max_health;
+  die_from_hazard();
 }
 
 /* ---------------------------------------------------------------- NailSlash: the slash effect, a child of the Knight */
@@ -863,10 +879,223 @@ void slash_draw(void) {
 
 void fx_dash_burst(float x, float y, bool facing_right, bool on_ground) { (void)x, (void)y, (void)facing_right, (void)on_ground; }
 
+/* FinishedEnteringScene */
 void hero_finished_entering_scene(void) {
   Hero *h = &g_hero;
-  h->transition_state = TS_WAITING_TO_TRANSITION;
+  h->doing_hazard_respawn = false;
   h->cs.transitioning = false;
-  h->state = HS_IDLE;
-  set_state(HS_GROUNDED);
+  h->transition_state = TS_WAITING_TO_TRANSITION;
+  /* SetStartingMotionState */
+  h->move_input = 0;
+  h->cs.touching_wall = false;
+  if (hero_touching_ground()) {
+    h->cs.on_ground = true;
+    set_state(HS_GROUNDED);
+    h->air_dashed = false;
+  } else {
+    h->cs.on_ground = false;
+    set_state(HS_AIRBORNE);
+  }
+  anim_update_state(h->state);
+  affected_by_gravity(true);
+  h->damage_mode = DAMAGE_FULL;
+  h->accepting_input = true;
+}
+
+/* ---------------------------------------------------------------- damage (TakeDamage, StartRecoil, Invulnerable) */
+#define RECOIL_VELOCITY 15.0f
+#define INVUL_TIME 1.3f
+#define DAMAGE_FREEZE_DOWN 0.001f
+#define PULSE_DURATION 0.1f
+
+static bool can_take_damage(void) {
+  Hero *h = &g_hero;
+  return h->damage_mode != DAMAGE_NONE && h->transition_state == TS_WAITING_TO_TRANSITION && !h->cs.invulnerable &&
+         !h->cs.recoiling && !h->cs.dead && !h->cs.hazard_death;
+}
+
+static void start_invulnerable(float duration) {
+  Hero *h = &g_hero;
+  if (!h->invuln_routine) {
+    h->cs.invulnerable = true;
+    h->invuln_freeze = DAMAGE_FREEZE_DOWN, h->invuln_time = duration;
+    h->invuln_routine = true;
+  } else if (h->invuln_freeze + h->invuln_time < duration + DAMAGE_FREEZE_DOWN) {
+    if (h->invuln_freeze > 0) h->invuln_freeze = DAMAGE_FREEZE_DOWN;
+    else duration += DAMAGE_FREEZE_DOWN;
+    h->invuln_time = duration;
+  }
+}
+
+/* (the Invulnerable coroutine, and InvulnerablePulse) */
+static void invulnerable_tick(void) {
+  Hero *h = &g_hero;
+  if (!h->invuln_routine) return;
+  if (h->invuln_freeze > 0) {
+    h->invuln_freeze -= DT;
+    if (h->invuln_freeze <= 0) h->pulsing = true, h->pulse_t = 0;
+    return;
+  }
+  h->invuln_time -= DT;
+  if (h->pulsing) {
+    if (!h->pulse_reverse) {
+      h->pulse_t += DT;
+      if (h->pulse_t > PULSE_DURATION) h->pulse_t = PULSE_DURATION, h->pulse_reverse = true;
+    } else {
+      h->pulse_t -= DT;
+      if (h->pulse_t < 0) h->pulse_t = 0, h->pulse_reverse = false;
+    }
+  }
+  if (h->invuln_time <= 0) {
+    h->pulsing = false, h->pulse_t = 0;
+    h->cs.invulnerable = false;
+    h->cs.recoiling = false;
+    h->invuln_routine = false;
+  }
+}
+
+static void die_from_hazard(void) {
+  Hero *h = &g_hero;
+  if (h->cs.hazard_death) return;
+  set_state(HS_NO_INPUT);
+  h->cs.hazard_death = true;
+  reset_motion();
+  h->hard_landing_timer = 0;
+  affected_by_gravity(false);
+  h->hidden = true;
+  game_player_dead_from_hazard();
+}
+
+static void start_recoil(int side) {
+  Hero *h = &g_hero;
+  if (h->cs.recoiling) return;
+  reset_motion();
+  affected_by_gravity(false);
+  if (side == SIDE_LEFT) {
+    h->recoil_vx = RECOIL_VELOCITY, h->recoil_vy = RECOIL_VELOCITY * 0.5f;
+    if (h->cs.facing_right) flip_sprite();
+  } else if (side == SIDE_RIGHT) {
+    h->recoil_vx = -RECOIL_VELOCITY, h->recoil_vy = RECOIL_VELOCITY * 0.5f;
+    if (!h->cs.facing_right) flip_sprite();
+  } else
+    h->recoil_vx = h->recoil_vy = 0;
+  set_state(HS_NO_INPUT);
+  h->cs.recoil_frozen = true;
+  start_invulnerable(INVUL_TIME);
+  game_freeze_moment();   /* (then hero_recoil_unfreeze) */
+}
+
+void hero_recoil_unfreeze(void) {
+  g_hero.cs.recoil_frozen = false;
+  g_hero.cs.recoiling = true;
+}
+
+void hero_take_damage(int side, int damage, int hazard) {
+  Hero *h = &g_hero;
+  if (damage <= 0) return;
+  if (can_take_damage()) {
+    if (h->damage_mode == DAMAGE_HAZARD_ONLY && hazard == HAZ_NORMAL) return;
+    cancel_attack();
+    if (h->cs.recoiling_left || h->cs.recoiling_right) cancel_recoil_horizontal();
+    if (h->cs.bouncing) cancel_bounce(), h->body.vy = 0;
+    g_pd.health = (int8_t)(g_pd.health > damage ? g_pd.health - damage : 0);
+    if (g_pd.health == 0) {
+      hero_die();
+      return;
+    }
+    if (hazard == HAZ_SPIKES || hazard == HAZ_ACID || hazard == HAZ_PIT) die_from_hazard();
+    else if (hazard != HAZ_LAVA) start_recoil(side);
+  } else if (h->cs.invulnerable && !h->cs.hazard_death && (hazard == HAZ_SPIKES || hazard == HAZ_ACID)) {
+    /* (spikes and acid hurt even through invulnerability) */
+    g_pd.health = (int8_t)(g_pd.health > damage ? g_pd.health - damage : 0);
+    if (g_pd.health == 0) hero_die();
+    else die_from_hazard();
+  }
+}
+
+/* HeroController.HazardRespawn: back at the hazard marker, standing */
+void hero_hazard_respawn(void) {
+  Hero *h = &g_hero;
+  h->doing_hazard_respawn = true;
+  set_state(HS_NO_INPUT);
+  reset_look();
+  h->cs.hazard_death = false;
+  h->cs.on_ground = true;
+  h->cs.hazard_respawning = true;
+  reset_motion();
+  h->hard_landing_timer = 0;
+  reset_attacks();
+  reset_input();
+  h->cs.recoiling = false;
+  h->air_dashed = false;
+  /* FindGroundPoint (extended) */
+  PhysHit hit;
+  float x = g_game.hazard_x, y = g_game.hazard_y;
+  if (phys_ray(x, y, 0, -1, 50, CF_TERRAIN, &hit)) y = hit.y + h->body.hy - h->body.oy + 0.01f;
+  h->body.x = x, h->body.y = y;
+  h->body.ncontacts = 0;
+  h->hidden = false;
+  if (g_game.hazard_facing_right) face_right();
+  else face_left();
+  world_hero_in_position();
+  start_invulnerable(INVUL_TIME * 2);
+  game_fade(0, 0.5f, 0.1f);   /* (the camera's RESPAWN: FadeIn) */
+  h->anim_control = false;
+  anim_play(&h->anim, CLIP_KNIGHT_HAZARD_RESPAWN);
+  h->respawn_timer = clip_duration(CLIP_KNIGHT_HAZARD_RESPAWN);
+  h->respawning = true;
+  cam_snap_to_hero();
+}
+
+static void respawn_tick(void) {
+  Hero *h = &g_hero;
+  if (!h->respawning) return;
+  h->respawn_timer -= DT;
+  if (h->respawn_timer > 0) return;
+  h->respawning = false;
+  h->cs.hazard_respawning = false;
+  h->anim_control = true;
+  hero_finished_entering_scene();
+}
+
+/* HeroBox: what touches the Knight's hurt box (hazards; enemies through world.c) */
+void hero_check_damage(void) {
+  Hero *h = &g_hero;
+  if (h->hidden || h->cs.dead) return;
+  float k = h->cs.facing_right ? -1.0f : 1.0f;
+  float cx = h->body.x + 0.0055733f * k, cy = h->body.y - 0.6942673f;
+  float x0 = cx - 0.2277069f, x1 = cx + 0.2277069f, y0 = cy - 0.5848932f, y1 = cy + 0.5848932f;
+  int n;
+  const Ent *es = room_ents(&n);
+  for (int i = 0; i < n; i++) {
+    const Ent *e = &es[i];
+    if (e->type != ENT_DAMAGE) continue;
+    if (!(x1 > e->x0 && x0 < e->x1 && y1 > e->y0 && y0 < e->y1)) continue;
+    if (e->a) {
+      /* (its outline: 4 points a record after it) */
+      float pts[16];
+      int np = (int)e->p2;
+      for (int k = 0; k < np && k < 8; k++) {
+        const Ent *r = &es[i + 1 + k / 4];
+        const float *f = &r->x0;
+        pts[2 * k] = f[2 * (k & 3)], pts[2 * k + 1] = f[2 * (k & 3) + 1];
+      }
+      if (!box_meets_shape(x0, y0, x1, y1, pts, np < 8 ? np : 8)) continue;
+    }
+    int side = (e->x0 + e->x1) / 2 > h->body.x ? SIDE_RIGHT : SIDE_LEFT;
+    int hazard = (int)e->p0, damage = (int)e->p1;
+    if (hazard == HAZ_NONE) {
+      /* (buffered to LateUpdate) */
+      h->hit_buffered = true, h->buffered_side = (int8_t)side, h->buffered_damage = (int8_t)damage, h->buffered_hazard = (int8_t)hazard;
+    } else
+      hero_take_damage(side, damage, hazard);
+  }
+}
+
+void hero_late_update(void) {
+  Hero *h = &g_hero;
+  if (h->hit_buffered) {
+    h->hit_buffered = false;
+    hero_take_damage(h->buffered_side, h->buffered_damage, h->buffered_hazard);
+  }
 }

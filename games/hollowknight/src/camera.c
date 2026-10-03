@@ -287,3 +287,25 @@ void cam_tick(void) {
   controller_late_update();
   g_cam_x = c.cx, g_cam_y = c.cy;
 }
+
+/* after a respawn: the camera with the Knight (PositionToHero) */
+void cam_snap_to_hero(void) {
+  const Hero *h = &g_hero;
+  c.tmode = c.cur_lock >= 0 ? TM_LOCK_ZONE : TM_FOLLOW_HERO;
+  c.mode = c.cur_lock >= 0 ? CM_LOCKED : CM_FOLLOWING;
+  c.start_locked_timer = 0.5f;
+  c.tx = h->body.x, c.ty = h->body.y;
+  if (c.tmode == TM_LOCK_ZONE) c.tx = clampf(c.tx, c.lock_x0, c.lock_x1), c.ty = clampf(c.ty, c.lock_y0, c.lock_y1);
+  c.x_offset = h->cs.facing_right ? 1.0f : -1.0f;
+  c.vx_x = c.vy_y = c.cvx = c.cvy = 0;
+  c.cx = c.tx + c.x_offset, c.cy = c.ty;
+  keep_in_scene(&c.cx, &c.cy);
+  c.stick_x = c.stick_y = true;
+  c.prev_hx = h->body.x, c.prev_hy = h->body.y;
+  g_cam_x = c.cx, g_cam_y = c.cy;
+}
+
+void cam_freeze(void) {
+  c.mode = CM_FROZEN;
+  c.tmode = TM_FREE;
+}

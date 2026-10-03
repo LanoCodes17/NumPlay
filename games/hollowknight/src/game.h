@@ -16,7 +16,9 @@ typedef struct {
 extern PlayerData g_pd;
 
 /* ---------------------------------------------------------------- the room's game objects (tools/ents.py) */
-enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK };
+enum { ENT_CAMLOCK = 1, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE,
+       ENT_BOX };   /* (shape, box: more of the record before) */
+enum { HAZ_NONE, HAZ_NORMAL, HAZ_SPIKES, HAZ_ACID, HAZ_LAVA, HAZ_PIT };   /* DamageHero.hazardType */
 enum { MK_SECRET = 1, MK_REMASK = 2, MK_SIMPLE = 4 };   /* masks: the unmasker, remasker and inverse FSMs */
 enum { CL_PREVENT_UP = 1, CL_PREVENT_DOWN = 2, CL_MAX_PRIORITY = 4 };
 enum { G_DOOR = 1, G_ENTER_RIGHT = 2, G_ENTER_LEFT = 4, G_DONT_WALK_OUT = 8, G_NON_HAZARD = 16 };
@@ -44,9 +46,21 @@ const Ent *room_ents(int *n);
 typedef struct {
   bool paused;
   float time;
+  float time_scale;           /* (Time.timeScale: freezes when the Knight is hit) */
+  float step_acc;
   float hazard_x, hazard_y;   /* where a hazard sends the Knight back to */
   bool hazard_facing_right;
+  /* GameManager's coroutines */
+  uint8_t freeze_phase;
+  float freeze_t, freeze_from;
+  uint8_t hazard_phase;
+  float hazard_t;
+  /* the camera's fade to black */
+  float fade, fade_from, fade_to, fade_t, fade_time, fade_delay;
 } Game;
+void game_freeze_moment(void);         /* GameManager.FreezeMoment (a hit) */
+void game_player_dead_from_hazard(void);
+void game_fade(float to, float time, float delay);
 extern Game g_game;
 
 /* ---------------------------------------------------------------- the Knight (hero.c) */
@@ -83,6 +97,10 @@ typedef struct {
   float transition_vx, transition_vy;
   bool accepting_input, control_relinquished, doing_hazard_respawn, landed_event;
   bool touching_wall_l, touching_wall_r;
+  bool hidden, hit_buffered;
+  int8_t buffered_side, buffered_damage, buffered_hazard;
+  float invuln_freeze, invuln_time, pulse_t, recoil_timer2, respawn_timer;
+  bool invuln_routine, pulsing, pulse_reverse, respawning;
   int8_t thunk_dir;
   bool thunk_hit;
   float thunk_timer;
@@ -103,6 +121,11 @@ void hero_recoil_right(void);
 void hero_recoil_down(void);
 void hero_bounce(void);
 void hero_finished_entering_scene(void);
+void hero_take_damage(int side, int damage, int hazard);   /* (side: where the damage comes from, SIDE_LEFT/RIGHT) */
+void hero_recoil_unfreeze(void);       /* the end of StartRecoil, after the freeze */
+void hero_hazard_respawn(void);        /* HeroController.HazardRespawn */
+void hero_check_damage(void);          /* HeroBox: the hazards and enemies touching it */
+void hero_late_update(void);           /* (HeroBox.LateUpdate: a buffered hit) */
 
 /* the nail's slashes (NailSlash), children of the Knight */
 void slash_start(int kind);
@@ -121,5 +144,7 @@ void game_draw(void);
 /* ---------------------------------------------------------------- the camera (camera.c) */
 void cam_init(void);
 void cam_tick(void);
+void cam_snap_to_hero(void);   /* (after a respawn) */
+void cam_freeze(void);         /* FreezeInPlace (both) */
 void cam_lock(int ent);      /* CameraController.LockToArea, the hero entering the area's trigger */
 void cam_release(int ent);   /* ReleaseLock */

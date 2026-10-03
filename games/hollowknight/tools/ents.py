@@ -5,7 +5,8 @@ import struct
 import numpy as np
 
 # record types (src/game.h: ENT_*)
-ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK = 1, 2, 3, 4, 5, 6
+ENT_CAMLOCK, ENT_GATE, ENT_HAZARD_MARKER, ENT_RESPAWN, ENT_HAZARD_TRIGGER, ENT_MASK, ENT_DAMAGE, ENT_SHAPE, ENT_BOX = \
+    1, 2, 3, 4, 5, 6, 7, 8, 9
 # masks (the unmasker, remasker and remasker_inverse FSMs)
 MK_SECRET, MK_REMASK, MK_SIMPLE = 1, 2, 4
 # flags
@@ -65,11 +66,42 @@ def _box(o, c):
     return (min(xs), min(ys), max(xs), max(ys))
 
 
+def _shape(o, c):
+    """A collider's outline in world units (a box's four corners, a polygon's first path)."""
+    v = c["v"]
+    m = np.array(o["m3"]).reshape(3, 3)
+    p = np.array(o["pos"])
+    off = (v["m_Offset"]["x"], v["m_Offset"]["y"])
+    if c["type"] == "BoxCollider2D":
+        sx, sy = v["m_Size"]["x"] / 2, v["m_Size"]["y"] / 2
+        pts = [(-sx, -sy), (sx, -sy), (sx, sy), (-sx, sy)]
+    elif c["type"] == "PolygonCollider2D":
+        paths = v["m_Points"]["m_Paths"] if isinstance(v["m_Points"], dict) else v["m_Points"]
+        pts = [(q["x"], q["y"]) for q in paths[0]]
+    else:
+        return None
+    return [tuple((m @ np.array([x + off[0], y + off[1], 0.0]) + p)[:2]) for x, y in pts]
+
+
+def _is_axis_box(pts):
+    xs, ys = sorted(set(round(q[0], 4) for q in pts)), sorted(set(round(q[1], 4) for q in pts))
+    return len(pts) == 4 and len(xs) == 2 and len(ys) == 2
+
+
+def _triggers(o):
+    """The boxes of the object's trigger colliders (the events come from any of them)."""
+    return [_box(o, c) for c in o["c"] if c["type"] in ("BoxCollider2D", "PolygonCollider2D", "CircleCollider2D") and
+            c.get("v") and c["v"].get("m_IsTrigger") and c["v"].get("m_Enabled", 1)]
+
+
 def _trigger(o):
-    for c in o["c"]:
-        if c["type"] in ("BoxCollider2D", "PolygonCollider2D", "CircleCollider2D") and c.get("v") and c["v"].get("m_IsTrigger"):
-            return _box(o, c)
-    return None
+    t = _triggers(o)
+    return t[0] if t else None
+
+
+def _more_boxes(o):
+    """Records for the object's other trigger boxes: they follow its own."""
+    return [rec(ENT_BOX, box=b) for b in _triggers(o)[1:]]
 
 
 def rec(type_, flags=0, box=(0, 0, 0, 0), p=(0, 0, 0, 0), a=0, group=0, group2=0, persist=NO_PERSIST, s0=0, s1=0):
@@ -195,6 +227,29 @@ def room(d, rooms, strings, persist, name):
                 persistent = any(c.get("class") == "PersistentBoolItem" for c in o["c"])
                 recs.append(rec(ENT_MASK, kind, box, (fade, pause, p2, p3), group=g, group2=g2,
                                 persist=persist.id(name, o["path"]) if persistent else NO_PERSIST))
+                recs += _more_boxes(o)
+        classes = {c.get("class") for c in o["c"]}
+        dh = [c for c in o["c"] if c.get("class") == "DamageHero"]
+        if dh and not classes & {"HealthManager", "StalactiteControl"}:
+            # a hazard (spikes, acid): its colliders' outlines, as boxes or as shapes after it
+            v = dh[0].get("v") or {}
+            for c in o["c"]:
+                if c["type"] not in ("BoxCollider2D", "PolygonCollider2D") or not c.get("v") or not c["v"].get("m_Enabled", 1):
+                    continue
+                pts = _shape(o, c)
+                if not pts:
+                    continue
+                xs, ys = [q[0] for q in pts], [q[1] for q in pts]
+                box = (min(xs), min(ys), max(xs), max(ys))
+                if _is_axis_box(pts):
+                    recs.append(rec(ENT_DAMAGE, box=box, p=(v.get("hazardType", 1), v.get("damageDealt", 1), 0, 0)))
+                else:
+                    pts = pts[:8]
+                    nrec = (len(pts) + 3) // 4
+                    recs.append(rec(ENT_DAMAGE, box=box, p=(v.get("hazardType", 1), v.get("damageDealt", 1), len(pts), 0), a=nrec))
+                    for i in range(nrec):
+                        q = pts[4 * i:4 * i + 4] + [pts[-1]] * (4 - len(pts[4 * i:4 * i + 4]))
+                        recs.append(rec(ENT_SHAPE, box=(q[0][0], q[0][1], q[1][0], q[1][1]), p=(q[2][0], q[2][1], q[3][0], q[3][1])))
         for c in o["c"]:
             cls, v = c.get("class"), c.get("v") or {}
             if cls == "CameraLockArea":
@@ -204,6 +259,7 @@ def room(d, rooms, strings, persist, name):
                 fl = (CL_PREVENT_UP if v.get("preventLookUp") else 0) | (CL_PREVENT_DOWN if v.get("preventLookDown") else 0) | \
                     (CL_MAX_PRIORITY if v.get("maxPriority") else 0)
                 recs.append(rec(ENT_CAMLOCK, fl, box, (v["cameraXMin"], v["cameraYMin"], v["cameraXMax"], v["cameraYMax"])))
+                recs += _more_boxes(o)
             elif cls == "TransitionPoint":
                 box = _trigger(o)
                 if box is None:
@@ -215,6 +271,7 @@ def room(d, rooms, strings, persist, name):
                 ti = rooms.index(target) if target in rooms else 0xFFFF
                 recs.append(rec(ENT_GATE, fl, box, (float(v.get("entryDelay", 0)), 0, 0, 0), a=ti, s0=strings.id(o["name"]),
                                 s1=strings.id(v.get("entryPoint") or "")))
+                recs += _more_boxes(o)
             elif cls == "HazardRespawnTrigger":
                 box = _trigger(o)
                 ref = v.get("respawnMarker")
@@ -228,5 +285,6 @@ def room(d, rooms, strings, persist, name):
                 if box is None or target not in marker_index:
                     continue
                 recs.append(rec(ENT_HAZARD_TRIGGER, box=box, a=marker_index[target]))
+                recs += _more_boxes(o)
     assert ngroups[0] < 64, ngroups[0]
     return recs, groups

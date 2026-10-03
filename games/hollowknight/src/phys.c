@@ -273,3 +273,29 @@ void body_step(Body *b, float dt) {
   b->ncontacts = n;
   for (int j = 0; j < n; j++) b->ccol[j] = cols[j], b->cnx[j] = nxs[j], b->cny[j] = nys[j];
 }
+
+/* a box (x0, y0, x1, y1) and a convex polygon of n points: do they overlap (separating axes)? */
+bool box_meets_shape(float x0, float y0, float x1, float y1, const float *pts, int n) {
+  if (n < 3) return true;
+  for (int i = 0; i < n; i++) {
+    float ax = pts[2 * i], ay = pts[2 * i + 1], bx = pts[2 * ((i + 1) % n)], by = pts[2 * ((i + 1) % n) + 1];
+    float nx = -(by - ay), ny = bx - ax;
+    if (nx == 0 && ny == 0) continue;
+    float pmin = 1e30f, pmax = -1e30f;
+    for (int j = 0; j < n; j++) {
+      float d = pts[2 * j] * nx + pts[2 * j + 1] * ny;
+      if (d < pmin) pmin = d;
+      if (d > pmax) pmax = d;
+    }
+    float c[4] = {x0 * nx + y0 * ny, x1 * nx + y0 * ny, x0 * nx + y1 * ny, x1 * nx + y1 * ny};
+    float bmin = c[0], bmax = c[0];
+    for (int k = 1; k < 4; k++) bmin = c[k] < bmin ? c[k] : bmin, bmax = c[k] > bmax ? c[k] : bmax;
+    if (bmax < pmin || bmin > pmax) return false;
+  }
+  /* (and the box's own axes) */
+  float px0 = 1e30f, px1 = -1e30f, py0 = 1e30f, py1 = -1e30f;
+  for (int j = 0; j < n; j++) {
+    px0 = fminf(px0, pts[2 * j]), px1 = fmaxf(px1, pts[2 * j]), py0 = fminf(py0, pts[2 * j + 1]), py1 = fmaxf(py1, pts[2 * j + 1]);
+  }
+  return !(px1 < x0 || px0 > x1 || py1 < y0 || py0 > y1);
+}

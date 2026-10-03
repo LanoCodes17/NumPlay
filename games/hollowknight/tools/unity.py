@@ -165,8 +165,7 @@ def _dump(name):
                         v, _, _ = typetree.parse(o, sc)
                         ent["enabled"] = bool(v.get("m_Enabled", 1))
                         if sc.m_ClassName == "PlayMakerFSM":
-                            dfs = fsmdec.decode(v)
-                            ent["fsm"] = clean(dfs)
+                            ent["fsm"] = clean(decode_fsm(o.assets_file, v))
                         else:
                             ent["v"] = clean({k: x for k, x in v.items() if k not in ("m_GameObject", "m_Enabled", "m_Script", "m_Name")})
                     except Exception as e:
@@ -188,6 +187,31 @@ def _dump(name):
         rec["c"] = cl
         out["objects"].append(rec)
     return out
+
+
+def decode_fsm(f, v):
+    """A PlayMakerFSM's decoded FSM; one made from a template (FsmTemplate) takes the template's, with the
+    component's own variable values and name."""
+    t = v.get("fsmTemplate") or {}
+    tp = t.get("m_PathID", 0) if isinstance(t, dict) else 0
+    if tp:
+        try:
+            fid = t.get("m_FileID", 0)
+            tf = f if fid == 0 else asset_file(f.externals[fid - 1].path)
+            to = tf.objects[tp]
+            tmb = to.read(check_read=False)
+            tv, _, _ = typetree.parse(to, tmb.m_Script.read())
+            d = fsmdec.decode({"fsm": tv["fsm"]})
+            own = fsmdec.decode(v)
+            for k, val in (own.get("vars") or {}).items():
+                if k in d.get("vars", {}):
+                    d["vars"][k] = val
+            d["name"] = own.get("name", d.get("name"))
+            d["template"] = S(tmb.m_Name) if hasattr(tmb, "m_Name") else "?"
+            return d
+        except Exception:
+            pass
+    return fsmdec.decode(v)
 
 
 @functools.lru_cache(maxsize=None)

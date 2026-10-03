@@ -69,17 +69,25 @@ static void keep_in_scene(float *x, float *y) {
 static struct {
   float ex, time, t, priority;
   float dx, dy;
+  uint8_t rumble;   /* (Rumbling*: a looping shake, whenever no other) */
 } sh;
 
 void cam_shake(int kind) {
-  static const float shakes[][3] = {{0, 0, 0}, {0.105f, 0.5f, 6}, {0.15f, 1, 7}, {0.5f, 1, 10}};   /* extents, time, priority */
-  if (kind <= 0 || kind > SHAKE_BIG || shakes[kind][2] <= sh.priority) return;
+  /* extents, time, priority: EnemyKillShake, AverageShake, BigShake, SmallShake */
+  static const float shakes[][3] = {{0, 0, 0}, {0.105f, 0.5f, 6}, {0.15f, 1, 7}, {0.5f, 1, 10}, {0.08f, 0.5f, 3}};
+  if (kind <= 0 || kind > SHAKE_SMALL || shakes[kind][2] <= sh.priority) return;
   sh.ex = shakes[kind][0], sh.time = shakes[kind][1], sh.priority = shakes[kind][2], sh.t = 0;
 }
 
+void cam_rumble(int kind) { sh.rumble = (uint8_t)kind; }
+
 static void shake_tick(void) {
   sh.dx = sh.dy = 0;
-  if (sh.priority <= 0) return;
+  if (sh.priority <= 0) {
+    static const float rumbles[] = {0, 0.08f, 0.15f, 0.5f};   /* SmallShake, AverageShake, BigShake */
+    if (sh.rumble) sh.dx = rumbles[sh.rumble] * rand_range(-1, 1), sh.dy = rumbles[sh.rumble] * rand_range(-1, 1);
+    return;
+  }
   sh.t += 0.02f * g_game.time_scale;
   float k = 1 - sh.t / sh.time;
   if (k < 0) k = 0;

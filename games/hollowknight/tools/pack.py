@@ -62,8 +62,8 @@ class Blob:
         while len(self.b) % n:
             self.b.append(0)
 
-    def add(self, data):
-        self.align()
+    def add(self, data, align=4):
+        self.align(align)
         o = len(self.b)
         self.b += data
         return o
@@ -322,13 +322,19 @@ def main():
     # the starting probabilities as the game uses them: each with its count (tilecode.h: tc_pack)
     secs["PRIOR"].b += b"".join(struct.pack("<H", v << 4 | TC_N0) for v in struct.unpack("<%dH" % (len(prior) // 2), prior))
     tex_id = {}
+    pal_at = {}   # (palettes shared: once each)
     nblk = 0
     texrec = bytearray()
     for i, (v, t) in enumerate(zip(variants, texs)):
         tex_id[id(v)] = (i, t.w, t.h)
         pal_off = 0xFFFFFFFF
         if t.pal is not None:
-            pal_off = secs["PAL"].add(t.pal.tobytes())
+            # (15 colors: RGB565, then alpha; read a byte at a time)
+            pb = b"".join(struct.pack("<HB", (int(r) * 31 + 127) // 255 << 11 | (int(g) * 63 + 127) // 255 << 5 |
+                                      (int(b) * 31 + 127) // 255, int(a)) for r, g, b, a in t.pal)
+            if pb not in pal_at:
+                pal_at[pb] = secs["PAL"].add(pb, 1)
+            pal_off = pal_at[pb]
         if t.fmt == art.FMT_SOFTA:   # (alpha only: read in place)
             pal_off = secs["SOFT"].add(t.soft)
             texrec += struct.pack("<HHBBBBIII", t.w, t.h, 0, 0, t.fmt, 0, pal_off, t.base, 0)
@@ -357,6 +363,16 @@ def main():
             secs["BLK"].b += bl
         bidx += struct.pack("<I", len(secs["BLK"].b))
         texrec += struct.pack("<HHBBBBIII", t.w, t.h, t.tw, t.th, t.fmt, 1 if v.blur else 0, pal_off, map_off, first)
+    if os.environ.get("ACTSTATS"):
+        import collections
+        tot = collections.Counter()
+        for j, sp in enumerate(sprites):
+            t = texs[len(variants) - len(sprites) + j]
+            nb = sum(len(b) for b in coded[t.first_block:t.first_block + (t.ntiles + art.BLOCK_TILES - 1) // art.BLOCK_TILES]) if t.fmt not in (art.FMT_SOFTA, art.FMT_SOFT) else len(t.soft or b"")
+            nb += (len(t.pal.tobytes()) if t.pal is not None else 0)
+            tot[str(sp.get("key", ("?",)))[:30].split(",")[0]] += nb
+        for k, v in tot.most_common(40):
+            print("ACT", v, k)
     secs["TEX"].b += struct.pack("<I", len(variants)) + texrec
     # actors: each sprite frame's texture and where its top-left corner is (local units), units a texel; the clips
     first_actor = len(variants) - len(sprites)
@@ -388,7 +404,7 @@ def main():
         off = secs["RBLOB"].add(hc)
         assert len(r) < 32, r
         rooms += struct.pack("<32sIII", r.encode(), off, len(hc), len(body))
-        print("room %-26s %5d instances in %2d sectors, %6d packed" % (r, len(keep), len(blobs), packed + len(hc)), flush=True)
+        print("room %-26s %5d instances in %2d sectors, %6d packed, ground %d, recs %d" % (r, len(keep), len(blobs), packed + len(hc), len(ground), len(recs)), flush=True)
     secs["ROOMS"].b += rooms
     secs["STR"].b += STRINGS.blob()
     secs["TEXT"].b += TEXTS.blob()

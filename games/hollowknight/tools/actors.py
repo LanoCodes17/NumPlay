@@ -40,6 +40,12 @@ ENEMY_KINDS = [
      {"IDLE": "Idle", "TURN": "Turn", "WALK": "Walk", "A1": "Attack Anticipate", "A2": "Attack Lunge", "A3": "Attack Cooldown"}),
     ("hornhead", "Zombie Swipe", ("sharedassets40.assets", 192), "HUSK",
      {"IDLE": "Idle", "TURN": "Turn", "WALK": "Walk", "A1": "Attack Anticipate", "A2": "Attack Lunge", "A3": "Attack Cooldown"}),
+    ("leaper", "Zombie Leap", ("sharedassets57.assets", 82), "LEAPER",
+     {"IDLE": "Idle", "TURN": "Turn", "WALK": "Walk", "A1": "Attack", "A2": "Land"}),
+    # (its own code plays its clips by name: CLIP_GUARD_*)
+    ("guard", "Zombie Guard", ("sharedassets58.assets", 57), "GUARD", {"IDLE": "Idle"},
+     ["Dormant", "Wake", "Walk", "Run", "Stop Run", "Stop Walk", "Turn", "Anticipate", "Startle", "Stomp Antic",
+      "Stomp Land", "Attack2", "Swipe", "Stomp Jump"]),
 ]
 ENEMY_CORPSE_LIBS = {}   # (name -> its corpse's library, if not its own)
 
@@ -50,21 +56,21 @@ def enemy_kind_id(name):
 
 def _enemy_actors():
     out = {}
-    for name, fsm, (f, pid), code, roles in ENEMY_KINDS:
+    for name, fsm, (f, pid), code, roles, *extra in ENEMY_KINDS:
         if name in ("crawler", "buzzer"):
             out[name] = (f, pid, None)
             continue
         if name == "shade":
             continue
         have = {unity.S(c["name"]) for c in tk2d.animation(f, pid)["clips"]}
-        out[name] = (f, pid, sorted((set(roles.values()) | {"Death Air", "Death Land"}) & have))
+        out[name] = (f, pid, sorted((set(roles.values()) | set(extra[0] if extra else []) | {"Death Air", "Death Land"}) & have))
     return out
 
 
 def kind_table(clip_ids):
     """src/data.h's KIND_TABLE: each kind's FSM code and its roles' clips (-1: none)"""
     rows = []
-    for name, fsm, lib, code, roles in ENEMY_KINDS:
+    for name, fsm, lib, code, roles, *extra in ENEMY_KINDS:
         ids = []
         for r in ROLES:
             clip = roles.get(r) or {"DEATH_AIR": "Death Air", "DEATH_LAND": "Death Land"}.get(r)
@@ -94,7 +100,7 @@ ACTORS = {"knight": KNIGHT,
                                                  "Appear", "Fireball", "Fireball End", "Cast Ring"])}
 ACTORS.update(_enemy_actors())
 # enemies' shots (EnemyBullet)
-ACTORS["bullet"] = ("sharedassets32.assets", 745, ["Idle", "Impact"])
+ACTORS["bullet"] = ("sharedassets32.assets", 745, ["Idle", "Impact", "Shockwave Spurt"])
 
 # sprites of prefab objects the game draws itself: name -> (file, prefab, object, resolution)
 NAMED = {
@@ -160,6 +166,12 @@ def build():
                 frames.append((index[key], bool(f.get("triggerEvent"))))
             clips.append({"id": clip_id(actor, name), "fps": float(c["fps"]), "wrap": int(c["wrapMode"]),
                           "loop": int(c.get("loopStart", 0)), "frames": frames})
+            # (the clip's new frames share one palette: theirs together)
+            new = sorted({i for i, _ in frames if sprites[i]["job"].pal is None})
+            if new:
+                pal = art.joint_palette([sprites[i]["job"].arr for i in new])
+                for i in new:
+                    sprites[i]["job"].pal = pal
     return sprites, clips
 
 

@@ -12,14 +12,16 @@ OK_BREAKABLE, OK_ENEMY, OK_GREAT_DOOR, OK_GEO_ROCK, OK_CHEST, OK_BENCH = 1, 2, 3
 # enemies (an OK_ENEMY's a: src/enemy.c), by their FSM and animation library
 import actors as _actors
 # enemies: by the FSM (or component) that runs them and their animation library -> their kind (actors.ENEMY_KINDS)
-ENEMIES = {(fsm, f, pid): i + 1 for i, (name, fsm, (f, pid), code, roles) in enumerate(_actors.ENEMY_KINDS) if fsm}
+ENEMIES = {(k[1], k[2][0], k[2][1]): i + 1 for i, k in enumerate(_actors.ENEMY_KINDS) if k[1]}
 # their FSMs' variables an enemy's record keeps (ET_VARS: up to four numbers, then bools as bits)
 ENEMY_VARS = {"Zombie Swipe": (["Lunge Speed", "Idle Time"], ["Coward"]),
               "Bouncer Control": (["Speed"], ["Starts Inactive", "Start Up"]),
               "Roller": (["Acceleration", "Max Speed", "Roll time Min", "Roll time Max", "Stop Time"], ["Moving Right"]),
-              "Blocker Control": (["Shot Y Speed"], ["Facing Right"])}
+              "Blocker Control": (["Shot Y Speed"], ["Facing Right"]),
+              "Zombie Leap": (["Idle Time"], []),
+              "Zombie Guard": (["Chase Distance", "Roam Distance"], ["Start Facing Left"])}
 # what follows an enemy's record: ENT_BOX records, tagged
-ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN = 0, 1, 2, 3, 4, 5, 6, 7
+ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX = 0, 1, 2, 3, 4, 5, 6, 7, 8
 EF_START, EF_STARTLES = 1, 2   # (FSM bools: First Crawler or Start Alert; Startles)
 # the layers the nail's slashes touch (Physics2D's collision matrix, layer 17 Attack)
 ATTACK_HITS = {3, 6, 7, 8, 11, 12, 17, 19, 20, 21, 25, 31}
@@ -358,10 +360,31 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
         r = _alert_range(q)
         if r is None:
             continue
+        # (p0, p1: its scale, for an FSM that changes it)
+        k = (abs(q["lscale"][0]), abs(q["lscale"][1]), 0, 0)
         if q["name"] == "Alert Range New":
-            out.append(rec(ENT_BOX, ET_ALERT, box=r))
+            out.append(rec(ENT_BOX, ET_ALERT, box=r, p=k))
         else:
-            out.append(rec(ENT_BOX, ET_RANGE, box=r, s0=strings.id(q["name"]) if strings else 0))
+            out.append(rec(ENT_BOX, ET_RANGE, box=r, p=k, s0=strings.id(q["name"]) if strings else 0))
+    # its attacks: children that hurt the Knight (DamageHero), their outlines in its own units (x as if facing its
+    # scale's way), then their shapes' points; a: on at first; s0: the child's name
+    sgn = -1.0 if o["lscale"][0] < 0 else 1.0
+    for ch in o.get("children", []):
+        q = by_id[ch]
+        qd = next((c.get("v") for c in q["c"] if c.get("class") == "DamageHero" and c.get("v") is not None), None)
+        qc = next((c for c in q["c"] if c["type"] in ("BoxCollider2D", "PolygonCollider2D") and c.get("v") and
+                   c["v"].get("m_IsTrigger") and c["v"].get("m_Enabled", 1)), None)
+        if qd is None or qc is None:
+            continue
+        pts = [((x - o["pos"][0]) * sgn, y - o["pos"][1]) for x, y in _shape(q, qc)][:8]
+        xs, ys = [t[0] for t in pts], [t[1] for t in pts]
+        nrec = (len(pts) + 3) // 4
+        out.append(rec(ENT_BOX, ET_HITBOX, box=(min(xs), min(ys), max(xs), max(ys)),
+                       p=(len(pts), qd.get("damageDealt", 1), qd.get("hazardType", 1), 0), a=1 if q["self_active"] else 0,
+                       group=nrec, s0=strings.id(q["name"]) if strings else 0))
+        for i in range(nrec):
+            t = pts[4 * i:4 * i + 4] + [pts[-1]] * (4 - len(pts[4 * i:4 * i + 4]))
+            out.append(rec(ENT_SHAPE, box=(t[0][0], t[0][1], t[1][0], t[1][1]), p=(t[2][0], t[2][1], t[3][0], t[3][1])))
     w = next((c.get("v") for c in o["c"] if c.get("class") == "Walker" and c.get("v")), None)
     if w:
         wf = (1 if w.get("pauses") else 0) | (2 if w.get("ignoreHoles") else 0) | \

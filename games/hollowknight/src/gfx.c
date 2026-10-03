@@ -190,9 +190,12 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
     /* (a flash: towards its color by its amount, the alpha kept) */
     float fk = tint >= DYN_TINT ? t[7] / 255.0f : 0, fr = fk ? t[4] / 255.0f * fk : 0, fg = fk ? t[5] / 255.0f * fk : 0,
           fb = fk ? t[6] / 255.0f * fk : 0;
-    for (int i = 0; i < 15; i++)
-      p->c[i + 1] = grade(pc[4 * i] / 255.0f * tr * (1 - fk) + fr, pc[4 * i + 1] / 255.0f * tg * (1 - fk) + fg,
-                          pc[4 * i + 2] / 255.0f * tb * (1 - fk) + fb, pc[4 * i + 3] / 255.0f * ta);
+    for (int i = 0; i < 15; i++) {
+      /* (RGB565, then alpha) */
+      unsigned v = pc[3 * i] | pc[3 * i + 1] << 8;
+      p->c[i + 1] = grade((float)(v >> 11) / 31 * tr * (1 - fk) + fr, (float)(v >> 5 & 63) / 63 * tg * (1 - fk) + fg,
+                          (float)(v & 31) / 31 * tb * (1 - fk) + fb, pc[3 * i + 2] / 255.0f * ta);
+    }
   }
   return s;
 }

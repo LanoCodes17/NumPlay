@@ -285,8 +285,10 @@ void hud_draw(void);
 void cam_init(void);
 void cam_tick(void);
 void cam_snap_to_hero(void);   /* (after a respawn) */
-enum { SHAKE_ENEMY_KILL = 1, SHAKE_AVERAGE, SHAKE_BIG };   /* the CameraShake FSM's events */
+enum { SHAKE_ENEMY_KILL = 1, SHAKE_AVERAGE, SHAKE_BIG, SHAKE_SMALL };   /* the CameraShake FSM's events */
 void cam_shake(int kind);
+enum { RUMBLE_OFF, RUMBLE_SMALL, RUMBLE_MED, RUMBLE_BIG };
+void cam_rumble(int kind);   /* (RumblingSmall, ...: on until turned off) */
 void cam_freeze(void);         /* FreezeInPlace (both) */
 void cam_lock(int ent);      /* CameraController.LockToArea, the hero entering the area's trigger */
 void cam_release(int ent);   /* ReleaseLock */

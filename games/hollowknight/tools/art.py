@@ -89,6 +89,43 @@ def kmeans_palette(px, k, iters=10, seed=0):
     return c, labels
 
 
+def _features(p):
+    """RGBA texels (N x 4 float) -> what colors are told apart by: premultiplied color, and alpha weighted more"""
+    al = p[:, 3:4] / 255.0
+    return np.concatenate([p[:, :3] * al, p[:, 3:4] * 1.5], 1)
+
+
+def joint_palette(arrs):
+    """The palette (15 x RGBA, by brightness) several images share (an animation's frames)."""
+    px = [a[a[..., 3] >= 8].astype(np.float32) for a in arrs]
+    px = np.concatenate([p for p in px if len(p)] or [np.zeros((0, 4), np.float32)])
+    pal = np.zeros((15, 4), np.uint8)
+    if not len(px):
+        return pal
+    c, _ = kmeans_palette(_features(px), 15)
+    ca = np.clip(c[:, 3] / 1.5, 1, 255)
+    ca[ca >= 250] = 255
+    rgb = np.clip(c[:, :3] / (ca[:, None] / 255.0), 0, 255)
+    cols = np.concatenate([rgb, ca[:, None]], 1)
+    cols = cols[np.argsort(cols[:, :3].sum(1) * cols[:, 3])]
+    pal[:len(cols)] = np.round(cols).astype(np.uint8)
+    return pal
+
+
+def quantize_to(a, pal):
+    """RGBA uint8 image, a palette -> indices (0 transparent, 1..15: the nearest of the palette's colors)."""
+    mask = a[..., 3] >= 8
+    idx = np.zeros(a.shape[:2], np.uint8)
+    if mask.any():
+        f = _features(a[mask].astype(np.float32))
+        c = _features(pal.astype(np.float32))
+        lab = np.empty(len(f), np.int32)
+        for i in range(0, len(f), 65536):
+            lab[i:i + 65536] = ((f[i:i + 65536, None, :] - c[None]) ** 2).sum(-1).argmin(1)
+        idx[mask] = (lab + 1).astype(np.uint8)
+    return idx
+
+
 def quantize(a):
     """RGBA uint8 image -> (indices: 0 transparent, 1..15), palette 15 x RGBA (straight alpha)."""
     alpha = a[..., 3].astype(np.float32)
@@ -203,7 +240,8 @@ def encode_job(job):
     if _SRC_HASH is None:
         _SRC_HASH = hashlib.sha1(open(__file__, "rb").read()).hexdigest()
     if isinstance(job, ImageJob):
-        key = hashlib.sha1(_SRC_HASH.encode() + job.arr.tobytes() + repr(job.arr.shape).encode()).hexdigest()
+        key = hashlib.sha1(_SRC_HASH.encode() + job.arr.tobytes() + repr(job.arr.shape).encode() +
+                           (job.pal.tobytes() if getattr(job, "pal", None) is not None else b"")).hexdigest()
     else:
         key = hashlib.sha1(repr((_SRC_HASH, job.key, job.scale, job.blur, job.alpha_only, job.all_cells, job.cells,
                                  job.magnified)).encode()).hexdigest()
@@ -291,8 +329,9 @@ def soft_factor(arr, magnified):
 
 class ImageJob:
     """A texture made from an image already at its size (actors' sprite frames): all of it kept."""
-    def __init__(self, arr, name):
+    def __init__(self, arr, name, pal=None):
         self.arr, self.name = arr, name
+        self.pal = pal   # (a palette shared with others: its clip's)
         self.alpha_only = False
         self.blur = False
         self.magnified = False
@@ -341,6 +380,8 @@ def encode_variant(v):
     if v.alpha_only:
         idx = np.clip(np.round(arr[..., 3] / 85.0), 0, 3).astype(np.uint8)
         t.pal = None
+    elif getattr(v, "pal", None) is not None:
+        idx, t.pal = quantize_to(arr, v.pal), v.pal
     else:
         idx, t.pal = quantize(arr)
     TW = WIDE if v.alpha_only else TILE

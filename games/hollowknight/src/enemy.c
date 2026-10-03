@@ -14,7 +14,7 @@
 
 /* ---------------------------------------------------------------- what each kind is */
 /* (data.h: EK_* each kind, KIND_TABLE: the FSM each runs and the clips its roles play) */
-enum { EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER, EF_ROLLER, EF_BLOCKER };
+enum { EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER, EF_ROLLER, EF_BLOCKER, EF_LEAPER, EF_GUARD };
 enum { R_IDLE, R_TURN, R_WALK, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, R_A7, R_A8, R_DEATH_AIR, R_DEATH_LAND, NUM_ROLES };
 typedef struct {
   uint8_t fsm;
@@ -25,7 +25,7 @@ static const Kind kinds[NUM_KINDS] = KIND_TABLE;
 #define FSM(e) (kinds[(e)->kind].fsm)
 #define NO_ENT 0xFFFF   /* (an enemy spawned, not one of the room's) */
 /* the records after an enemy's (tools/ents.py: ET_*) */
-enum { ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN };
+enum { ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX };
 enum { CF_BREAKER = 1, CF_FACES_RIGHT = 2, CF_LOW_ARC = 4, CF_NO_COLLIDER = 32 };   /* a corpse's (ET_CORPSE) */
 enum { WF_PAUSES = 1, WF_IGNORE_HOLES = 2, WF_NO_TURN_TO_HERO = 4, WF_START_INACTIVE = 8, WF_AMBUSH = 16, WF_WAIT_HERO_X = 32,
        WF_PREVENT_TURN = 64, WF_NO_SCALE = 128, WF_RIGHT_NEG = 256 };   /* a Walker's (ET_WALKER) */
@@ -34,6 +34,7 @@ enum { WF_PAUSES = 1, WF_IGNORE_HOLES = 2, WF_NO_TURN_TO_HERO = 4, WF_START_INAC
 enum { EM_OFF, EM_ALIVE, EM_CORPSE };
 enum { RC_READY, RC_RECOILING, RC_FROZEN };
 enum { CS_AIR, CS_DEATH_ANIM, CS_LANDED };
+/* (flags: 1 collider off, 2 RECOIL HORIZONTAL, 4 invincible, 8 TOOK DAMAGE: for its FSM this frame) */
 typedef struct {
   uint8_t mode, kind, st, flags;
   uint16_t ent;                   /* its record (NO_ENT: spawned) */
@@ -62,6 +63,9 @@ typedef struct {
   float t0, t1, wait, start_x, start_y, ax, ay, pause0, pause1, jx, jy;
   float ang, qx, qy, tx, ty;   /* (its rotation, degrees; a tween's from and to) */
   bool b0, b1;
+  uint8_t c0, c1;              /* (counters) */
+  uint8_t hb_on, sub_hb;       /* its attacks on (ET_HITBOX's bits); the one whose sprite plays (k + 1) */
+  Anim sub;                    /* (that sprite's) */
   /* alert range (local circle, or box: ar_hy >= 0) and sight */
   float ar_x, ar_y, ar_r, ar_hy;
   bool in_alert, can_see;
@@ -310,6 +314,7 @@ static void enemy_hit(Enemy *e, float direction, int damage) {
   recoil_by_direction(e, dir, 1);
   if (FSM(e) != EF_SHADE) hero_soul_gain();   /* (enemyType 3, a shade: no soul) */
   e->flashing = true, e->flash_t = 0;
+  e->flags |= 8;
   e->hp = (int16_t)(e->hp - damage < -50 ? -50 : e->hp - damage);
   if ((FSM(e) == EF_BUZZER || FSM(e) == EF_SHADE || FSM(e) == EF_HUSK) && e->st == 0) e->b1 = true;   /* (TOOK DAMAGE, in Idle / Ready) */
   if (FSM(e) == EF_BLOCKER && e->hp > 0) blocker_hit(e);
@@ -1421,6 +1426,455 @@ static void husk_fixed(Enemy *e) {
   }
 }
 
+/* ---------------------------------------------------------------- attacks: children that hurt the Knight */
+/* its hitbox k (ET_HITBOX's, in order), or NULL */
+static const Ent *hitbox_rec(const Enemy *e, int k) {
+  if (e->ent == NO_ENT) return NULL;
+  const Ent *d = ent_at(e->ent);
+  for (int i = 1; i <= d->s0; i++)
+    if (d[i].type == ENT_BOX && d[i].flags == ET_HITBOX && k-- == 0) return &d[i];
+  return NULL;
+}
+
+/* (the child on: its collider, and the sprite it plays till its clip ends: DeactivateAfter2dtkAnimation) */
+static void hitbox_on(Enemy *e, int k, int clip) {
+  e->hb_on |= (uint8_t)(1 << k);
+  if (clip >= 0) anim_play_from_frame(&e->sub, clip, 0), e->sub_hb = (uint8_t)(k + 1);
+}
+
+static void hitbox_tick(Enemy *e) {
+  if (!e->sub_hb) return;
+  e->sub.events = 0;
+  anim_update(&e->sub, DT);
+  if ((e->sub.events & ANIM_DONE) || !e->sub.playing) e->hb_on &= (uint8_t)~(1 << (e->sub_hb - 1)), e->sub_hb = 0;
+}
+
+/* the Knight's box and its hitboxes on: the damage of the first it meets */
+static int hitbox_touch(const Enemy *e, float x0, float y0, float x1, float y1) {
+  float k = e->sx < 0 ? -1.0f : 1.0f;
+  for (int i = 0; i < 8 && e->hb_on >> i; i++) {
+    if (!(e->hb_on >> i & 1)) continue;
+    const Ent *h = hitbox_rec(e, i);
+    if (!h) continue;
+    float a0 = e->body.x + (k > 0 ? h->x0 : -h->x1), a1 = e->body.x + (k > 0 ? h->x1 : -h->x0);
+    if (!(x1 > a0 && x0 < a1 && y1 > e->body.y + h->y0 && y0 < e->body.y + h->y1)) continue;
+    float pts[16];
+    int np = (int)h->p0;
+    for (int j = 0; j < np && j < 8; j++) {
+      const float *f = &h[1 + j / 4].x0;
+      pts[2 * j] = e->body.x + f[2 * (j & 3)] * k, pts[2 * j + 1] = e->body.y + f[2 * (j & 3) + 1];
+    }
+    if (box_meets_shape(x0, y0, x1, y1, pts, np < 8 ? np : 8)) return (int)h->p1;
+  }
+  return 0;
+}
+
+/* ---------------------------------------------------------------- shockwaves (the shockwave FSM, its spurts) */
+#define MAX_WAVES 4
+#define MAX_SPURTS 32
+typedef struct {
+  bool on, spurting;
+  float x, y, speed, inc, scale, t;
+  int8_t dir;
+} Wave;
+typedef struct {
+  bool on;
+  float x, y, scale, t;
+  int8_t dir;
+  Anim anim;
+} Spurt;
+static Wave waves[MAX_WAVES];
+static Spurt spurts[MAX_SPURTS];
+
+/* a wave from (x, y) along the ground, its speed and scale (Start, Right / Left, Start Move) */
+static void wave_spawn(float x, float y, bool right, float speed, float scale) {
+  Wave *w = NULL;
+  for (int i = 0; i < MAX_WAVES && !w; i++)
+    if (!waves[i].on) w = &waves[i];
+  if (!w) return;
+  memset(w, 0, sizeof *w);
+  w->on = w->spurting = true;
+  w->x = x, w->y = y, w->scale = scale, w->dir = right ? 1 : -1;
+  w->inc = speed * 2 * w->dir, w->speed = speed * 0.025f * w->dir;
+}
+
+static void spurt_spawn(const Wave *w) {
+  Spurt *s = NULL;
+  for (int i = 0; i < MAX_SPURTS && !s; i++)
+    if (!spurts[i].on) s = &spurts[i];
+  if (!s) return;
+  s->on = true, s->x = w->x, s->y = w->y, s->scale = w->scale, s->t = 0, s->dir = w->dir;
+  anim_play_from_frame(&s->anim, CLIP_BULLET_SHOCKWAVE_SPURT, 0);
+}
+
+static void waves_tick(void) {
+  for (int i = 0; i < MAX_WAVES; i++) {
+    Wave *w = &waves[i];
+    if (!w->on) continue;
+    w->t += DT;
+    if (w->spurting) {
+      /* Move: faster and faster; into a wall (its trigger meeting the terrain), or past the ground's end: done. (Its
+       * trigger: scaled by the wave's x scale, which Left sets to -1; the ground ray from a unit ahead, unscaled) */
+      w->speed += w->inc * DT;
+      float dx = w->speed * DT, kx = w->dir > 0 ? w->scale : 1;
+      float front = w->x + (-0.2374f * w->dir + 0.32855f * w->dir) * kx;
+      if (w->t >= 0)
+        for (int k = 0; k < 3; k++)
+          if (phys_ray(front, w->y + 0.4f + 0.65f * (float)k, w->dir, 0, fabsf(dx), CF_TERRAIN, NULL)) {
+            w->t = -0.15f;   /* (End Pause: spurts a moment more) */
+            break;
+          }
+      w->x += dx;
+      if (w->t >= 0 && !phys_ray(w->x + w->dir, w->y + 1, 0, -1, 1.6f, CF_TERRAIN, NULL))
+        w->spurting = false, w->t = 0;   /* (HIT: End Particle) */
+      else if (w->t < 0 && w->t + DT >= 0)
+        w->spurting = false, w->t = 0;
+      if (w->spurting) spurt_spawn(w);
+    } else {
+      w->x += w->speed * DT;
+      if (w->t >= 1) w->on = false;   /* (End Particle: a second, then recycled) */
+    }
+  }
+  for (int i = 0; i < MAX_SPURTS; i++) {
+    Spurt *s = &spurts[i];
+    if (!s->on) continue;
+    s->t += DT;
+    s->anim.events = 0;
+    anim_update(&s->anim, DT);
+    if ((s->anim.events & ANIM_DONE) || !s->anim.playing) s->on = false;   /* (RecycleAfter2dtkAnimation) */
+  }
+}
+
+/* (Damage timing: a spurt hurts from 0.05 s to 0.1 s) */
+static int spurts_touch(float x0, float y0, float x1, float y1, int *side) {
+  for (int i = 0; i < MAX_SPURTS; i++) {
+    const Spurt *s = &spurts[i];
+    if (!s->on || s->t < 0.05f || s->t >= 0.1f + DT / 2) continue;
+    float cx = s->x - 0.0473f * s->dir * s->scale, cy = s->y + 0.87f * s->scale;
+    float hx = 0.2022f * s->scale, hy = 0.8718f * s->scale;
+    if (x1 > cx - hx && x0 < cx + hx && y1 > cy - hy && y0 < cy + hy) {
+      *side = s->x > g_hero.body.x ? SIDE_RIGHT : SIDE_LEFT;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static void spurts_draw(void) {
+  for (int i = 0; i < MAX_SPURTS; i++) {
+    const Spurt *s = &spurts[i];
+    if (!s->on || s->anim.sprite < 0) continue;
+    Inst in;
+    sprite_inst(s->anim.sprite, s->x, s->y, -0.12f, s->scale * s->dir, s->scale, 0, &in);
+    gfx_actor(&in, SORT_KEY(0, 0));
+  }
+}
+
+/* ---------------------------------------------------------------- Leaping Husks: the Zombie Leap FSM, a Walker */
+enum { ZL_READY, ZL_ANTICIPATE, ZL_LAUNCH, ZL_LUNGE, ZL_COOLDOWN, ZL_IDLE };
+
+static void leaper_start(Enemy *e) {
+  walker_init(e);
+  e->st = ZL_READY;
+}
+
+static void leaper_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0;
+  switch (e->st) {
+    case ZL_READY:
+      walker_update(e);
+      if (e->can_see && e->in_alert) {
+        /* Left or Right?: the walker stopped, its leap aimed a little past the hero, facing it */
+        walker_stop(e, STOP_CONTROLLED);
+        bool right = hero_x() > e->body.x;
+        e->ax = (hero_x() - e->body.x) * 1.25f;
+        set_scale_x(e, right ? -1.0f : 1.0f);
+        e->wk_facing = right ? 1 : -1;
+        /* Anticipate */
+        e->body.vx = e->body.vy = 0;
+        anim_play_from_frame(&e->anim, CLIP(e, R_A1), 0);
+        e->st = ZL_ANTICIPATE;
+      }
+      break;
+    case ZL_ANTICIPATE:
+      if (e->anim.events & ANIM_TRIGGER) {
+        e->body.vx = e->ax, e->body.vy = 20;   /* (Launch) */
+        e->st = ZL_LAUNCH;
+      }
+      break;
+    case ZL_LAUNCH:
+      e->st = ZL_LUNGE;
+      break;
+    case ZL_LUNGE:
+      if (e->body.ncontacts && side_hit(e, 3)) {
+        anim_play_from_frame(&e->anim, CLIP(e, R_A2), 0);   /* (Cooldown: Land) */
+        e->body.vx = 0;
+        e->st = ZL_COOLDOWN;
+      }
+      break;
+    case ZL_COOLDOWN:
+      if (done) {
+        anim_play(&e->anim, CLIP(e, R_IDLE));
+        e->st = ZL_IDLE, e->t0 = 0;
+      }
+      break;
+    case ZL_IDLE: {
+      const Ent *v = enemy_rec(e, ET_VARS);
+      if ((e->t0 += DT) >= (v ? v->p0 : 0.5f)) {
+        /* Reset: StartWalker */
+        anim_play(&e->anim, CLIP(e, R_IDLE));
+        walker_start(e);
+        e->st = ZL_READY;
+      }
+      break;
+    }
+  }
+}
+
+static void leaper_fixed(Enemy *e) {
+  if (e->st == ZL_READY && e->wk_state == WK_WALKING) {
+    const Ent *w = walker_rec(e);
+    if (w) e->body.vx = e->wk_facing > 0 ? w->y0 : w->x0;
+  }
+}
+
+/* ---------------------------------------------------------------- Husk Guards: the Zombie Guard FSM */
+enum {
+  GD_DORMANT, GD_WAKE, GD_COOLDOWN, GD_IDLE, GD_WAIT, GD_STARTLE, GD_TURN, GD_WALK, GD_RUN, GD_STOP, GD_TURN_BACK,
+  GD_RETURN, GD_ANTIC, GD_ATTACK, GD_RECOIL, GD_ATTACK_END, GD_STOMP_ANTIC, GD_STOMP_AIR, GD_STOMP_LAND, GD_STOMP_CD
+};
+#define GD_ATTACK_SCALE 10.0f   /* (Wake: its Attack Range's x scale) */
+/* (e->b0 facing right, b1 running, wk_stop woken; ax walk speed, ay run speed; qx, qy its roam's ends; tx its idle
+ * spot; c0, c1 clubs, stomps in a row) */
+
+static float guard_var(const Enemy *e, int i) {
+  const Ent *v = enemy_rec(e, ET_VARS);
+  return v ? (i == 0 ? v->p0 : v->p1) : (i == 0 ? 9 : 23.5f);
+}
+
+/* in its Attack Range (smaller once woken) */
+static bool guard_in_attack(const Enemy *e) {
+  const Ent *r = enemy_rec(e, ET_RANGE);
+  if (!r) return false;
+  float k = e->st == GD_DORMANT || r->p0 <= 0 ? 1 : GD_ATTACK_SCALE / r->p0;
+  return hero_in_box(e, r->x0 * k, r->y0, r->x1 * k, r->y1);
+}
+
+static void guard_face(Enemy *e, bool right) {
+  e->b0 = right;
+  set_scale_x(e, right ? 1.0f : -1.0f);
+}
+
+static void guard_idle(Enemy *e) {
+  e->b1 = false;
+  e->body.vx = 0;
+  anim_play(&e->anim, CLIP_GUARD_IDLE);
+  cam_rumble(RUMBLE_OFF);
+  e->st = GD_IDLE, e->t0 = 0;
+}
+
+static bool guard_hero_in_roam(const Enemy *e) { return hero_x() >= e->qx && hero_x() <= e->qy; }
+
+/* Face Hero: towards the hero (Turn), else an attack (Attack Choice) */
+static void guard_face_hero(Enemy *e) {
+  bool right = hero_x() > e->body.x;
+  if (hero_x() == e->body.x) return;
+  e->ax = right ? 5 : -5, e->ay = right ? 10 : -10;
+  cam_rumble(RUMBLE_OFF);
+  if (right != e->b0) {
+    guard_face(e, right);
+    anim_play_from_frame(&e->anim, CLIP_GUARD_TURN, 0);
+    e->st = GD_TURN;
+    return;
+  }
+  for (;;) {
+    bool club = rand_range(0, 1) < 0.75f;
+    if (club && e->c0 < 4) {
+      e->c0++, e->c1 = 0;
+      e->b1 = false;
+      anim_play_from_frame(&e->anim, CLIP_GUARD_ANTICIPATE, 0);
+      e->body.vx = 0;
+      e->st = GD_ANTIC;
+      return;
+    }
+    if (!club && e->c1 < 2) {
+      e->c1++, e->c0 = 0;
+      anim_play_from_frame(&e->anim, CLIP_GUARD_STOMP_ANTIC, 0);
+      e->body.vx = 0;
+      e->st = GD_STOMP_ANTIC, e->t0 = 0;
+      return;
+    }
+  }
+}
+
+/* Alert: towards the hero, walking or running (Chase), or turning first */
+static void guard_alert(Enemy *e) {
+  float dx = hero_x() - e->body.x;
+  if (dx == 0) return;
+  bool right = dx > 0;
+  e->ax = right ? 5 : -5, e->ay = right ? 10 : -10;
+  if (right != e->b0) {
+    cam_rumble(RUMBLE_OFF);
+    guard_face(e, right);
+    anim_play_from_frame(&e->anim, CLIP_GUARD_TURN, 0);
+    e->st = GD_TURN;
+    return;
+  }
+  float dy = hero_y() - e->body.y, dist = sqrtf(dx * dx + dy * dy);
+  if (e->b1 || dist > guard_var(e, 0)) {
+    if (e->st != GD_RUN) cam_shake(SHAKE_SMALL), cam_rumble(RUMBLE_SMALL);   /* (SmallRumble) */
+    e->b1 = true;
+    anim_play(&e->anim, CLIP_GUARD_RUN);
+    e->st = GD_RUN;
+  } else {
+    cam_rumble(RUMBLE_OFF);
+    anim_play(&e->anim, CLIP_GUARD_WALK);
+    e->st = GD_WALK;
+  }
+}
+
+static void guard_start(Enemy *e) {
+  /* Initiate: its roam (and idle spot) about where it starts; Start Left / Right */
+  float roam = guard_var(e, 1);
+  e->qx = e->body.x - roam, e->qy = e->body.x + roam, e->tx = e->body.x;
+  const Ent *v = enemy_rec(e, ET_VARS);
+  guard_face(e, !(v && (v->a & 1)));
+  e->wk_stop = 1;   /* (Woken) */
+  anim_play(&e->anim, CLIP_GUARD_DORMANT);
+  e->st = GD_DORMANT;
+}
+
+static bool guard_overhead(const Enemy *e) { return hero_in_box(e, 0, 1.9629f, 1.545f, 1.7664f); }
+
+static void guard_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0, hit = (e->flags & 8) != 0;
+  bool attack = e->can_see && guard_in_attack(e), alert = e->can_see && e->in_alert;
+  bool lose = !e->can_see || !e->in_alert || hero_x() > e->qy || hero_x() < e->qx;
+  e->t0 += DT;
+  switch (e->st) {
+    case GD_DORMANT:
+      if (attack || hit) anim_play_from_frame(&e->anim, CLIP_GUARD_WAKE, 0), e->st = GD_WAKE;
+      break;
+    case GD_WAKE:
+      if (done) anim_play(&e->anim, CLIP_GUARD_IDLE), e->st = GD_COOLDOWN, e->t0 = 0;
+      break;
+    case GD_COOLDOWN:
+      if (e->t0 >= 0.21f) guard_idle(e);
+      break;
+    case GD_IDLE:
+      if (attack) guard_face_hero(e);
+      else if (alert && guard_hero_in_roam(e)) {
+        /* In Roam Distance?, Woken?: startled first if it went back to its spot */
+        if (e->wk_stop) guard_alert(e);
+        else anim_play_from_frame(&e->anim, CLIP_GUARD_STARTLE, 0), e->wk_stop = 1, e->st = GD_STARTLE;
+      } else if (e->t0 >= 4) {
+        /* Return Check: back to its spot */
+        if (e->body.x > e->tx + 1 || e->body.x < e->tx - 1) {
+          bool right = e->body.x < e->tx - 1;
+          if (right != e->b0) {
+            guard_face(e, right);
+            anim_play_from_frame(&e->anim, CLIP_GUARD_TURN, 0);
+            e->st = GD_TURN_BACK;
+          } else
+            e->st = GD_RETURN, anim_play(&e->anim, CLIP_GUARD_WALK), e->wk_stop = 0, e->b1 = false;
+        } else
+          e->st = GD_WAIT;
+      }
+      break;
+    case GD_WAIT:
+      guard_idle(e);
+      break;
+    case GD_STARTLE:
+      if (done) guard_alert(e);
+      break;
+    case GD_TURN:
+      if (guard_overhead(e)) {
+        e->b1 = false;
+        anim_play_from_frame(&e->anim, CLIP_GUARD_ANTICIPATE, 0);
+        e->body.vx = 0;
+        e->st = GD_ANTIC;
+      } else if (done)
+        guard_idle(e);
+      break;
+    case GD_WALK:
+    case GD_RUN: {
+      float dx = hero_x() - e->body.x, dy = hero_y() - e->body.y;
+      if (e->st == GD_WALK && sqrtf(dx * dx + dy * dy) > guard_var(e, 0)) guard_alert(e);
+      else if (attack) guard_face_hero(e);
+      else if (lose) {
+        cam_rumble(RUMBLE_OFF);
+        e->body.vx = 0;
+        anim_play_from_frame(&e->anim, e->st == GD_RUN ? CLIP_GUARD_STOP_RUN : CLIP_GUARD_STOP_WALK, 0);
+        e->b1 = false;
+        e->st = GD_STOP;
+      } else if (e->t0 > 0)
+        guard_alert(e), e->t0 = 0;   /* (WAIT: Alert again, the next frame) */
+      break;
+    }
+    case GD_STOP:
+      if (done) guard_idle(e);
+      break;
+    case GD_TURN_BACK:
+      if (done) e->st = GD_RETURN, anim_play(&e->anim, CLIP_GUARD_WALK), e->wk_stop = 0, e->b1 = false;
+      break;
+    case GD_RETURN:
+      if (attack) guard_face_hero(e);
+      else if (alert && guard_hero_in_roam(e)) guard_alert(e);
+      else if (e->b0 ? e->body.x > e->tx - 1 : e->body.x < e->tx + 1) guard_idle(e);
+      break;
+    case GD_ANTIC:
+      if (done) {
+        /* Attack: its club swung (Swipe), then the impact */
+        hitbox_on(e, 0, CLIP_GUARD_SWIPE);
+        anim_play_from_frame(&e->anim, CLIP_GUARD_ATTACK2, 0);
+        e->st = GD_ATTACK, e->t0 = 0;
+      }
+      break;
+    case GD_ATTACK:
+      if (e->t0 >= 0.201f) {
+        cam_shake(SHAKE_AVERAGE);   /* (Attack Recoil) */
+        e->st = GD_RECOIL, e->t0 = 0;
+      }
+      break;
+    case GD_RECOIL:
+      if (e->t0 >= 0.14f) e->body.vx = 0, e->st = GD_ATTACK_END;
+      break;
+    case GD_ATTACK_END:
+      if (done || !e->anim.playing) anim_play(&e->anim, CLIP_GUARD_IDLE), e->st = GD_COOLDOWN, e->t0 = 0;
+      break;
+    case GD_STOMP_ANTIC:
+      if (e->t0 >= 0.35f) anim_play_from_frame(&e->anim, CLIP_GUARD_STOMP_JUMP, 0), e->st = GD_STOMP_AIR;
+      break;
+    case GD_STOMP_AIR:
+      if (done) {
+        /* Land: two shockwaves, either way */
+        e->body.vx = 0;
+        anim_play_from_frame(&e->anim, CLIP_GUARD_STOMP_LAND, 0);
+        wave_spawn(e->body.x, e->body.y - 4, true, 18, 1.25f);
+        wave_spawn(e->body.x, e->body.y - 4, false, 18, 1.25f);
+        cam_shake(SHAKE_AVERAGE);
+        e->st = GD_STOMP_LAND;
+      }
+      break;
+    case GD_STOMP_LAND:
+      if (done) anim_play(&e->anim, CLIP_GUARD_IDLE), e->st = GD_STOMP_CD, e->t0 = 0;
+      break;
+    case GD_STOMP_CD:
+      if (e->t0 >= 0.4f) e->st = GD_COOLDOWN, e->t0 = 0;
+      break;
+  }
+}
+
+static void guard_fixed(Enemy *e) {
+  switch (e->st) {
+    case GD_WALK: e->body.vx = e->ax; break;
+    case GD_RUN: e->body.vx = e->ay; break;
+    case GD_RETURN: e->body.vx = e->b0 ? 5 : -5; break;
+    case GD_RECOIL: e->body.vx = e->b0 ? -5 : 5; break;            /* (Recoil) */
+    case GD_STOMP_AIR: e->body.vx = e->b0 ? -10 : 10; break;       /* (Jump Velocity: back) */
+  }
+}
+
 /* ---------------------------------------------------------------- the Hollow Shade: its Shade Control FSM */
 enum {
   SH_IDLE, SH_STARTLE, SH_FLY, SH_POSITION, SH_SLASH_ANTIC, SH_SLASH, SH_SLASH_BOX, SH_SLASH_CD, SH_FIREBALL_POS,
@@ -1799,6 +2253,13 @@ void enemies_enter(void) {
     else if (FSM(e) == EF_SPITTER) spitter_start(e, d);
     else if (FSM(e) == EF_ROLLER) roller_start(e);
     else if (FSM(e) == EF_BLOCKER) blocker_start(e);
+    else if (FSM(e) == EF_LEAPER) leaper_start(e);
+    else if (FSM(e) == EF_GUARD) guard_start(e);
+    for (int h = 0; h < 8; h++) {
+      const Ent *r = hitbox_rec(e, h);
+      if (!r) break;
+      if (r->a) e->hb_on |= (uint8_t)(1 << h);
+    }
   }
 #ifdef HOST
   if (getenv("ENEMYCOUNT")) {
@@ -1810,6 +2271,8 @@ void enemies_enter(void) {
   memset(&sh, 0, sizeof sh);
   memset(balls, 0, sizeof balls);
   memset(bullets, 0, sizeof bullets);
+  memset(waves, 0, sizeof waves);
+  memset(spurts, 0, sizeof spurts);
   shade_spawn_check();
 }
 
@@ -1837,6 +2300,8 @@ void enemies_fixed(void) {
       else if (FSM(e) == EF_BOUNCER) bouncer_fixed(e);
       else if (FSM(e) == EF_SPITTER) spitter_fixed(e);
       else if (FSM(e) == EF_ROLLER) roller_fixed(e);
+      else if (FSM(e) == EF_LEAPER) leaper_fixed(e);
+      else if (FSM(e) == EF_GUARD) guard_fixed(e);
       recoil_fixed(e);
       body_step(&e->body, DT);
     } else if (FSM(e) != EF_BLOCKER) {
@@ -1869,6 +2334,7 @@ void enemies_fixed(void) {
   geo_tick();
   balls_tick();
   bullets_tick();
+  waves_tick();
 }
 
 /* Update: the FSMs' every-frame actions, the animations, the timers */
@@ -1890,6 +2356,10 @@ void enemies_update(void) {
       else if (FSM(e) == EF_SPITTER) spitter_update(e);
       else if (FSM(e) == EF_ROLLER) roller_update(e);
       else if (FSM(e) == EF_BLOCKER) blocker_update(e);
+      else if (FSM(e) == EF_LEAPER) leaper_update(e);
+      else if (FSM(e) == EF_GUARD) guard_update(e);
+      hitbox_tick(e);
+      e->flags &= (uint8_t)~8;
     } else if (FSM(e) == EF_SHADE)
       shade_update(e);
     else if (FSM(e) == EF_BLOCKER)
@@ -1911,12 +2381,17 @@ void enemies_draw(void) {
     else
       sprite_inst(e->anim.sprite, e->body.x + e->jx, e->body.y + e->jy, z, e->sx, 1, flash_tint(e, 2 + i % 5), &in);
     gfx_actor(&in, SORT_KEY(0, 0));
+    if (e->sub_hb && e->sub.sprite >= 0 && e->mode == EM_ALIVE) {
+      sprite_inst(e->sub.sprite, e->body.x, e->body.y, z - 0.001f, e->sx, 1, 0, &in);
+      gfx_actor(&in, SORT_KEY(0, 0));
+    }
     if (FSM(e) == EF_SHADE && sh.slash_on) {
       sprite_inst(sh.slash.sprite, e->body.x - 0.0486f * e->sx, e->body.y - 0.0117f, z - 0.001f, 1.27f * e->sx, 1, 0, &in);
       gfx_actor(&in, SORT_KEY(0, 0));
     }
   }
   bullets_draw();
+  spurts_draw();
   for (int i = 0; i < MAX_BALLS; i++) {
     const Ball *b = &balls[i];
     if (!b->on) continue;
@@ -1964,6 +2439,11 @@ int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side) {
       *side = e->body.x > g_hero.body.x ? SIDE_RIGHT : SIDE_LEFT;
       return e->damage;
     }
+    int hd = e->hb_on ? hitbox_touch(e, x0, y0, x1, y1) : 0;
+    if (hd) {
+      *side = e->body.x > g_hero.body.x ? SIDE_RIGHT : SIDE_LEFT;
+      return hd;
+    }
     if (FSM(e) == EF_SHADE && sh.slash_on) {
       /* its Slash's polygon */
       float pts[10];
@@ -1976,6 +2456,8 @@ int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side) {
     }
   }
   int dmg = bullets_touch_hero(x0, y0, x1, y1, side);
+  if (dmg) return dmg;
+  dmg = spurts_touch(x0, y0, x1, y1, side);
   if (dmg) return dmg;
   for (int i = 0; i < MAX_BALLS; i++) {
     const Ball *b = &balls[i];

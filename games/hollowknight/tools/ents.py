@@ -1,6 +1,7 @@
 """A room's game objects that are not scenery: camera lock areas, gates to other rooms, respawn points and the triggers
 that set them. Each becomes a record (src/game.h: Ent) with its trigger box (world units) and its own values; names go to
 a shared string table."""
+import math
 import struct
 import numpy as np
 
@@ -37,6 +38,10 @@ ENEMY_VARS = {"Zombie Swipe": (["Lunge Speed", "Idle Time"], ["Coward"]),
               "Blocker Control": (["Shot Y Speed"], ["Facing Right"]),
               "Zombie Leap": (["Idle Time"], []),
               "Zombie Guard": (["Chase Distance", "Roam Distance"], ["Start Facing Left"])}
+# enemies whose body is a trigger, whose body is only their frames' colliders, and other children that are ranges
+TRIGGER_BODIES = {"Pigeon"}
+FRAME_BODIES = {"Plant Trap Control"}
+RANGES = {"Moss Walker": ("Wake Range",), "Pigeon": ("Hero Range", "Enemy Range"), "Plant Trap Control": ("Detector",)}
 # what follows an enemy's record: ENT_BOX records, tagged
 ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX, ET_ZONE, ET_COND, \
     ET_CONTACT = 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
@@ -46,6 +51,7 @@ ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TE
 EF_START, EF_STARTLES, EF_PREBATTLE, EF_BATTLE, EF_ARENA_GONE, EF_SPAWNED, EF_ARENA_LATER, EF_DORMANT = \
     1, 2, 4, 8, 16, 32, 64, 128
 EF_DEATH_SHIFT = 8   # (bits 8-11: its enemyDeathType; 12-13: EnemyDeathEffects (0), Uninfected, NoEffect, BlackKnight)
+EF_INVINCIBLE = 0x8000  # (its HealthManager's invincible at first)
 EF_CONTACT = 0x4000  # (off till the Knight touches its parent's trigger: ActivateChildrenOnContact; ET_CONTACT)
 # the layers the nail's slashes touch (Physics2D's collision matrix, layer 17 Attack)
 ATTACK_HITS = {3, 6, 7, 8, 11, 12, 17, 19, 20, 21, 25, 31}
@@ -377,6 +383,12 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
         return None
     dh = next((c.get("v") or {} for c in o["c"] if c.get("class") == "DamageHero"), {})
     box = next((c["v"] for c in o["c"] if c["type"] == "BoxCollider2D" and c.get("v") and not c["v"].get("m_IsTrigger")), None)
+    if box is None and fsm.get("name") in TRIGGER_BODIES:
+        # (a body that is a trigger: touches nothing, the nail still hits it)
+        box = next((c["v"] for c in o["c"] if c["type"] == "BoxCollider2D" and c.get("v")), None)
+    if box is None and fsm.get("name") in FRAME_BODIES:
+        # (no collider but its frames': 2D Toolkit sets it as they show)
+        box = {"m_Offset": {"x": 0, "y": 0}, "m_Size": {"x": 0, "y": 0}}
     if box is None:
         return None
     sx, sy = o["lscale"][0], o["lscale"][1]
@@ -388,6 +400,8 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
         fl |= EF_STARTLES
     if hm.get("battleScene"):
         fl |= EF_BATTLE
+    if hm.get("invincible"):
+        fl |= EF_INVINCIBLE
     fc = next((c for c in o["c"] if c.get("fsm") is fsm), None) if fsm else None
     if fc is not None and fc.get("enabled") is False and any(c.get("class") == "FSMActivator" for c in o["c"]):
         fl |= EF_DORMANT
@@ -397,14 +411,16 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
     fl |= (dv.get("enemyDeathType", 0) & 15) << EF_DEATH_SHIFT
     fl |= {"EnemyDeathEffectsUninfected": 1, "EnemyDeathEffectsNoEffect": 2, "EnemyDeathEffectsBlackKnight": 3}.get(dcls, 0) << 12
     rb = next((c["v"] for c in o["c"] if c["type"] == "Rigidbody2D" and c.get("v")), {})
+    # (p1: its rotation in quarter turns, p2: its y scale's sign; p3: a kinematic body)
+    rq = int(round(math.degrees(2 * math.atan2(o["lrot"][2], o["lrot"][3])) / 90)) % 4
     out = [rec(ENT_BOX, ET_COLLIDER, box=(box["m_Offset"]["x"] * abs(sx), box["m_Offset"]["y"] * abs(sy),
                                           box["m_Size"]["x"] / 2 * abs(sx), box["m_Size"]["y"] / 2 * abs(sy)),
-               p=(rb.get("m_GravityScale", 1), 0, 0, 0))]
+               p=(rb.get("m_GravityScale", 1), rq, -1 if sy < 0 else 1, 1 if rb.get("m_BodyType") == 1 else 0))]
     # its alert ranges (children with AlertRange): "Alert Range New" the main one, others by name
     for ch in o.get("children", []):
         q = by_id[ch]
         if not any(c.get("class") == "AlertRange" for c in q["c"]) and \
-                q["name"] not in ("Alert Range New", "Unalert Range", "Wake Region"):
+                q["name"] not in ("Alert Range New", "Unalert Range", "Wake Region") + RANGES.get(fsm.get("name"), ()):
             continue
         r = _alert_range(q)
         if r is None:
@@ -463,6 +479,17 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
         if fsm.get("name") == "Zombie Swipe" and not _state(fsm, "Coward"):
             bits |= 2   # (an older Zombie Swipe: Ready deaf to TOOK DAMAGE, Reset plays Idle)
         out.append(rec(ENT_BOX, ET_VARS, p=tuple(vals[:4]), box=tuple(vals[4:8]), a=bits))
+    if fsm.get("name") == "Moss Walker":
+        # (its children's places, in its own units: Edge Range, Wall Range, Ground Range; Roams)
+        kid = {by_id[ch]["name"]: by_id[ch]["lpos"] for ch in o.get("children", [])}
+        e, w, g = (kid.get(k, [0, 0]) for k in ("Edge Range", "Wall Range", "Ground Range"))
+        out.append(rec(ENT_BOX, ET_VARS, p=(e[0], e[1], w[0], w[1]), box=(g[0], g[1], 0, 0),
+                       a=1 if (var.get("Roams") or [0, False])[1] else 0))
+    if fsm.get("name") == "Fungus Zombie Attack":
+        # (its gas's hitbox grows from where its child is, from its scale then)
+        q = next((by_id[ch] for ch in o.get("children", []) if by_id[ch]["name"] == "Gas Hit Box"), None)
+        if q:
+            out.append(rec(ENT_BOX, ET_VARS, p=(q["lpos"][0] * abs(sx), q["lpos"][1] * abs(sy), q["lscale"][0], 0)))
     if fsm.get("name") == "Big Fly Control" and d is not None:
         # (Gruz Mother: where her young wait, Fly Spawn; her burster brings them there)
         fs = next((q for q in d["objects"] if q["name"] == "Fly Spawn"), None)
@@ -473,7 +500,7 @@ def _enemy(o, by_id, persist, name, d=None, strings=None, owners=None):
         out.append(rec(ENT_BOX, ET_RECOIL, box=(rc.get("recoilSpeedBase", 15), rc.get("recoilDuration", 0.15), 0, 0),
                        a=(1 if rc.get("stopVelocityXWhenRecoilingUp") else 0) | (2 if rc.get("freezeInPlace") else 0) |
                        (4 if rc.get("preventRecoilUp") else 0)))
-    de = next((c.get("v") for c in o["c"] if c.get("class") == "EnemyDeathEffects" and c.get("v")), None)
+    de = dv
     if de and de.get("corpsePrefab") and d is not None:
         try:
             import unity

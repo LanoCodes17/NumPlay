@@ -178,6 +178,7 @@ void spell_update(void) {
         /* Fireball Recoil: back a little, no gravity, till the cast is over */
         hero_gravity(false);
         sp.state = SP_FIREBALL_RECOIL;
+        enemies_hero_cast_spell();   /* (HERO CAST SPELL, to all) */
       }
       break;
     case SP_FIREBALL_RECOIL:

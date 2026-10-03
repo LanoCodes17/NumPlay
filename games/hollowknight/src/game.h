@@ -118,6 +118,7 @@ void enemies_fixed(void);    /* FixedUpdate and their physics */
 void enemies_update(void);   /* Update */
 void enemies_draw(void);
 void enemies_swing_start(void);
+void enemies_hero_cast_spell(void);   /* (HERO CAST SPELL) */
 int enemies_nail(const float *pts, int npts, float direction, int damage);
 int enemies_touch_hero(float x0, float y0, float x1, float y1, int *side);   /* -> its damage, 0: none */
 void enemies_hero_leave(void);   /* HERO LEAVE (the Knight dead): the shade departs */

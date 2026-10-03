@@ -16,7 +16,7 @@
 /* (data.h: EK_* each kind, KIND_TABLE: the FSM each runs and the clips its roles play) */
 enum {
   EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER, EF_ROLLER, EF_BLOCKER, EF_LEAPER, EF_GUARD,
-  EF_FK, EF_FKHEAD, EF_GFLY, EF_HATCHER, EF_HATCHLING, EF_SLUG
+  EF_FK, EF_FKHEAD, EF_GFLY, EF_HATCHER, EF_HATCHLING, EF_SLUG, EF_MOSSWALKER, EF_PIGEON, EF_PLANTTRAP, EF_SHAKER
 };
 enum { R_IDLE, R_TURN, R_WALK, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, R_A7, R_A8, R_DEATH_AIR, R_DEATH_LAND, NUM_ROLES };
 typedef struct {
@@ -31,6 +31,7 @@ static const Kind kinds[NUM_KINDS] = KIND_TABLE;
 enum { ET_COLLIDER, ET_ALERT, ET_RANGE, ET_WALKER, ET_RECOIL, ET_CORPSE, ET_VARS, ET_TERRAIN, ET_HITBOX, ET_ZONE, ET_COND,
        ET_CONTACT };
 enum { CF_BREAKER = 1, CF_FACES_RIGHT = 2, CF_LOW_ARC = 4, CF_NO_COLLIDER = 32 };   /* a corpse's (ET_CORPSE) */
+#define EF_INVINCIBLE 0x8000   /* (its HealthManager's invincible at first) */
 enum { WF_PAUSES = 1, WF_IGNORE_HOLES = 2, WF_NO_TURN_TO_HERO = 4, WF_START_INACTIVE = 8, WF_AMBUSH = 16, WF_WAIT_HERO_X = 32,
        WF_PREVENT_TURN = 64, WF_NO_SCALE = 128, WF_RIGHT_NEG = 256 };   /* a Walker's (ET_WALKER) */
 
@@ -46,6 +47,8 @@ typedef struct {
   uint16_t ent;                   /* its record (NO_ENT: spawned) */
   int8_t damage;                  /* DamageHero's */
   uint8_t geo_s, geo_m, geo_l;    /* the geo it drops */
+  uint8_t rq;                     /* its rotation (quarter turns) */
+  int8_t sy;                      /* its y scale's sign */
   float z;
   Body body;
   Anim anim;
@@ -81,10 +84,35 @@ typedef struct {
 static Enemy en[MAX_ENEMIES];
 static uint32_t swing_bits;   /* (a bit an enemy: hit this swing) */
 
-/* its transform's x scale (its collider's offset with it) */
+/* its transform's x scale (its collider's offset with it: along its own x, turned) */
 static void set_scale_x(Enemy *e, float sx) {
-  if ((sx < 0) != (e->sx < 0)) e->body.ox = -e->body.ox, e->ar_x = -e->ar_x;
+  if ((sx < 0) != (e->sx < 0)) {
+    if (e->rq & 1) e->body.oy = -e->body.oy, e->ar_y = -e->ar_y;
+    else e->body.ox = -e->body.ox, e->ar_x = -e->ar_x;
+  }
   e->sx = sx;
+}
+
+/* a direction in its own axes -> the world's (TransformDirection: its rotation, not its scale) */
+static void enemy_dir(const Enemy *e, float lx, float ly, float *wx, float *wy) {
+  switch (e->rq & 3) {
+    case 0: *wx = lx, *wy = ly; break;
+    case 1: *wx = -ly, *wy = lx; break;
+    case 2: *wx = -lx, *wy = -ly; break;
+    default: *wx = ly, *wy = -lx; break;
+  }
+}
+
+/* a place in its own units (sized, not signed) -> the world's offset from it: its scale's signs, then its rotation */
+static void enemy_point(const Enemy *e, float lx, float ly, float *wx, float *wy) {
+  enemy_dir(e, e->sx < 0 ? -lx : lx, e->sy < 0 ? -ly : ly, wx, wy);
+}
+
+/* its collider: a box in its own units */
+static void enemy_set_box(Enemy *e, float cx, float cy, float hx, float hy) {
+  enemy_point(e, cx, cy, &e->body.ox, &e->body.oy);
+  if (e->rq & 1) e->body.hx = hy, e->body.hy = hx;
+  else e->body.hx = hx, e->body.hy = hy;
 }
 
 static const Ent *ent_at(int i) {
@@ -99,6 +127,13 @@ static const Ent *enemy_rec(const Enemy *e, int tag) {
   for (int i = 1; i <= d->s0; i++)
     if (d[i].type == ENT_BOX && d[i].flags == tag) return &d[i];
   return NULL;
+}
+
+/* a range (ET_ALERT, ET_RANGE) -> its center's offset, and its radius (hy < 0) or half sizes, turned as it is */
+static void enemy_range(const Enemy *e, const Ent *r, float *x, float *y, float *rx, float *hy) {
+  enemy_point(e, r->x0, r->y0, x, y);
+  *rx = r->x1, *hy = r->y1;
+  if (r->y1 >= 0 && (e->rq & 1)) *rx = r->y1, *hy = r->x1;
 }
 
 /* the terrain it holds (a child's colliders) gone: it died */
@@ -116,7 +151,7 @@ static void frame_collider(Enemy *e) {
   int n, t = sprite_collider(e->anim.sprite, &d, &n);
   float k = fabsf(e->sx);
   if (t == SC_BOX) {
-    e->body.ox = d[0] * e->sx, e->body.oy = d[1] * k, e->body.hx = d[2] * k, e->body.hy = d[3] * k;
+    enemy_set_box(e, d[0] * k, d[1] * k, d[2] * k, d[3] * k);
     e->flags &= (uint8_t)~16;
   } else if (t == SC_NONE)
     e->flags |= 16;
@@ -287,6 +322,14 @@ static void corpse_start(Enemy *e, float direction, bool has_direction) {
   const Ent *c = enemy_rec(e, ET_CORPSE);
   if (!c || kinds[e->kind].clip[R_DEATH_AIR] < 0) {
     e->mode = EM_OFF;   /* (no corpse) */
+    return;
+  }
+  if (FSM(e) == EF_PLANTTRAP) {
+    /* (its corpse: its Death played where it was, turned as it was; then its renderer off) */
+    e->mode = EM_CORPSE, e->st = CS_DEATH_ANIM;
+    e->body.vx = e->body.vy = 0, e->body.gravity_scale = 0, e->body.mask = 0;
+    anim_play_from_frame(&e->anim, kinds[e->kind].clip[R_DEATH_AIR], 0);
+    e->flashing = true, e->flash_t = 0;
     return;
   }
   e->mode = EM_CORPSE, e->st = CS_AIR;
@@ -1165,7 +1208,7 @@ static Enemy *enemy_spawn(int kind, float x, float y, int hp) {
   e->hp = (int16_t)hp, e->damage = 1, e->sx = 1;
   e->rc_base = 15, e->rc_dur = 0.15f;
   e->body.x = x, e->body.y = y;
-  e->body.friction = 0.2828f, e->body.mask = CF_SOLID;
+  e->body.friction = 0, e->body.mask = CF_SOLID;   /* (the default material, frictionless) */
   return e;
 }
 
@@ -1556,13 +1599,18 @@ static int hitbox_touch(const Enemy *e, float x0, float y0, float x1, float y1) 
         continue;
       }
     }
-    float a0 = e->body.x + (k > 0 ? h->x0 : -h->x1), a1 = e->body.x + (k > 0 ? h->x1 : -h->x0);
-    if (!(x1 > a0 && x0 < a1 && y1 > e->body.y + h->y0 && y0 < e->body.y + h->y1)) continue;
+    /* (a child scaled from its place: the Mosskin's gas) */
+    float gs = 1, gx = 0, gy = 0;
+    const Ent *gv = FSM(e) == EF_SHAKER ? enemy_rec(e, ET_VARS) : NULL;
+    if (gv && gv->p2 > 0) gs = e->qx / gv->p2, gx = gv->p0, gy = gv->p1;
+    float hx0 = gx + (h->x0 - gx) * gs, hx1 = gx + (h->x1 - gx) * gs, hy0 = gy + (h->y0 - gy) * gs, hy1 = gy + (h->y1 - gy) * gs;
+    float a0 = e->body.x + (k > 0 ? hx0 : -hx1), a1 = e->body.x + (k > 0 ? hx1 : -hx0);
+    if (!(x1 > a0 && x0 < a1 && y1 > e->body.y + hy0 && y0 < e->body.y + hy1)) continue;
     float pts[16];
     int np = (int)h->p0;
     for (int j = 0; j < np && j < 8; j++) {
       const float *f = &h[1 + j / 4].x0;
-      pts[2 * j] = e->body.x + f[2 * (j & 3)] * k, pts[2 * j + 1] = e->body.y + f[2 * (j & 3) + 1];
+      pts[2 * j] = e->body.x + (gx + (f[2 * (j & 3)] - gx) * gs) * k, pts[2 * j + 1] = e->body.y + gy + (f[2 * (j & 3) + 1] - gy) * gs;
     }
     if (box_meets_shape(x0, y0, x1, y1, pts, np < 8 ? np : 8)) return (int)h->p1;
   }
@@ -3851,6 +3899,371 @@ static void gfly_corpse_draw(void) {
   }
 }
 
+/* ---------------------------------------------------------------- Mosscreeps: Moss Walker (waits in the moss, wakes as
+ * the Knight comes in sight, walks its floor or wall, buries itself again when the Knight is gone) */
+enum { MW_REST, MW_WAKE_PAUSE, MW_SHAKE, MW_APPEAR, MW_WALK_START, MW_WALKING, MW_CANCEL_FRAME, MW_TURN, MW_HIDE };
+#define MW_SPEED 3.0f
+/* (c0: on a floor 0, a roof 1, a wall 2; c1: bit 0 Edge Range, bit 1 Wall Range, bits 2-3 frames till its rays again;
+ * b0: Encountered Hero; b1: its body kinematic; t0: Hide Timer; wait: a state's; qx, qy: Current Velocity) */
+static bool mw_wake(const Enemy *e) { return e->in_alert && e->can_see; }
+
+/* RayCast2dV2 from a child (its place in ET_VARS: Edge Range 0, Wall Range 1, Ground Range 2) along its own
+ * direction (dx, dy): terrain within dist? */
+static bool mw_ray(const Enemy *e, int child, float dx, float dy, float dist) {
+  const Ent *v = enemy_rec(e, ET_VARS);
+  if (!v) return false;
+  const float *c = child == 0 ? &v->p0 : child == 1 ? &v->p2 : &v->x0;
+  float px, py, wx, wy;
+  enemy_point(e, c[0], c[1], &px, &py);
+  enemy_dir(e, dx, dy, &wx, &wy);
+  return phys_ray(e->body.x + px, e->body.y + py, wx, wy, dist, CF_TERRAIN, NULL);
+}
+
+/* (Walking's two rays, every third frame: Edge Range down, Wall Range ahead) */
+static void mw_rays(Enemy *e) {
+  e->c1 = (uint8_t)((mw_ray(e, 0, 0, -1, 1) ? 1 : 0) | (mw_ray(e, 1, -1, 0, 0.5f) ? 2 : 0) | 3 << 2);
+}
+
+static bool mw_turn(const Enemy *e) { return !(e->c1 & 1) || (e->c1 & 2); }
+
+/* Rest: waiting for the Knight in its Wake Range */
+static void mw_rest(Enemy *e) {
+  e->st = MW_REST;
+  e->b0 = true;   /* (Encountered Hero) */
+  if (mw_wake(e)) e->st = MW_WAKE_PAUSE, e->wait = rand_range(0, 1);
+}
+
+/* Turn Check: the ground under it, else on walking a frame later */
+static void mw_turn_check(Enemy *e) {
+  if (mw_ray(e, 2, 0, -1, 1)) {
+    e->st = MW_TURN;
+    e->body.vx = e->body.vy = 0;
+    anim_play_from_frame(&e->anim, CLIP(e, R_TURN), 0);
+  } else
+    e->st = MW_CANCEL_FRAME;
+}
+
+static void mw_check_hide(Enemy *e);
+static void mw_walking(Enemy *e) {
+  e->st = MW_WALKING;
+  if ((e->t0 -= DT) <= 0) {
+    mw_check_hide(e);
+    return;
+  }
+  e->c1 = 1;
+  mw_rays(e);
+  if (mw_turn(e)) mw_turn_check(e);
+}
+
+/* Set Encountered, Check Hide: hides if it has met the Knight and he is out of sight, else walks on */
+static void mw_check_hide(Enemy *e) {
+  if (!e->b0 && mw_wake(e)) e->b0 = true;
+  e->t0 = 1;
+  if (!e->b0 || mw_wake(e)) {
+    e->body.vx = e->qx, e->body.vy = e->qy;   /* (Restart Velocity) */
+    mw_walking(e);
+    return;
+  }
+  /* Hide: buries itself, harmless and invincible */
+  anim_play_from_frame(&e->anim, CLIP(e, R_A3), 0);
+  e->damage = 0, e->flags |= 4;
+  e->body.vx = e->body.vy = 0;
+  e->st = MW_HIDE;
+}
+
+/* Check Dir (its x scale), Up Right or Left Down, Walk Start */
+static void mw_walk_start(Enemy *e) {
+  float v = e->sx < 0 ? MW_SPEED : -MW_SPEED;
+  e->qx = e->c0 == 2 ? 0 : v, e->qy = e->c0 == 2 ? v : 0;
+  e->st = MW_WALK_START, e->wait = 0.1f;
+  anim_play(&e->anim, CLIP(e, R_WALK));
+  e->body.vx = e->qx, e->body.vy = e->qy;
+  if ((e->t0 -= DT) <= 0) mw_check_hide(e);
+}
+
+/* Activate: harmful and hittable, then on its way */
+static void mw_activate(Enemy *e) {
+  e->damage = 1, e->flags &= (uint8_t)~4;
+  mw_walk_start(e);
+}
+
+static void mosswalker_start(Enemy *e) {
+  /* (as the scene has it: kinematic, its sprite the walk's first frame) */
+  const Ent *c = enemy_rec(e, ET_COLLIDER);
+  e->b1 = c && c->p3 != 0;
+  anim_play(&e->anim, CLIP(e, R_WALK));
+  e->anim.playing = false;
+  /* Check Type: a wall (turned a quarter), a roof (upside down), else a floor */
+  e->c0 = e->rq == 1 ? 2 : e->sy < 0 ? 1 : 0;
+  if (e->c0 == 0) e->body.gravity_scale = 1, e->rc_base = 15, e->rc_flags &= (uint8_t)~2, e->b1 = false;
+  else e->body.gravity_scale = 0, e->rc_base = 0, e->rc_flags |= 2;
+  const Ent *v = enemy_rec(e, ET_VARS);
+  if (v && (v->a & 1)) mw_activate(e);   /* (Roams) */
+  else mw_rest(e);
+}
+
+static void mosswalker_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0;
+  switch (e->st) {
+    case MW_REST:
+      mw_rest(e);
+      break;
+    case MW_WAKE_PAUSE:
+      if ((e->wait -= DT) <= 0) {
+        e->st = MW_SHAKE, e->wait = 1.2f;
+        anim_play_from_frame(&e->anim, CLIP(e, R_A1), 0);
+      }
+      break;
+    case MW_SHAKE:
+      if ((e->wait -= DT) <= 0) {
+        /* Wake: up out of the moss */
+        e->st = MW_APPEAR, e->b1 = false;
+        anim_play_from_frame(&e->anim, CLIP(e, R_A2), 0);
+        e->t0 = rand_range(3, 5);
+      }
+      break;
+    case MW_APPEAR:
+      if (done) mw_activate(e);
+      break;
+    case MW_WALK_START: {
+      bool fin = (e->wait -= DT) <= 0, hide = (e->t0 -= DT) <= 0;
+      if (hide) mw_check_hide(e);   /* (the last event of the frame wins) */
+      else if (fin) mw_walking(e);
+      break;
+    }
+    case MW_WALKING: {
+      bool hide = (e->t0 -= DT) <= 0;
+      uint8_t n = (uint8_t)((e->c1 >> 2) - 1);
+      if (n == 0) mw_rays(e);
+      else e->c1 = (uint8_t)((e->c1 & 3) | n << 2);
+      if (mw_turn(e)) mw_turn_check(e);   /* (TURN, after CHECK HIDE, wins) */
+      else if (hide) mw_check_hide(e);
+      break;
+    }
+    case MW_CANCEL_FRAME:
+      mw_walking(e);
+      break;
+    case MW_TURN:
+      if (done) {
+        /* Flip, then Check Dir */
+        set_scale_x(e, -e->sx);
+        mw_walk_start(e);
+      }
+      break;
+    case MW_HIDE:
+      if (done) mw_rest(e);
+      break;
+  }
+}
+
+static void mosswalker_fixed(Enemy *e) {
+  if (e->b1) e->body.x += e->body.vx * DT, e->body.y += e->body.vy * DT;   /* (kinematic: nothing stops it) */
+}
+
+/* ---------------------------------------------------------------- the birds: Pigeon (idle on a ledge, flies off as the
+ * Knight comes in sight or a spell is cast, or another flies off near it) */
+enum { PG_IDLE, PG_CHECK, PG_FLY };
+/* (ang: its rotation flying, from its velocity; b0: flying left (its sprite turned); b1: its Waker on; t0: flying's
+ * time; ax, ay: its rise and side forces; c0: the range records' order: Hero Range, Enemy Range) */
+static float pg_size(const Enemy *e) { return fabsf(e->sx); }
+
+/* a child range (its record's k-th ET_RANGE) at the bird's size: is the Knight in sight from it? (the range's own FSM:
+ * something in its trigger, then a ray from it to the Knight) */
+static const Ent *pg_range(const Enemy *e, int k) {
+  const Ent *d = ent_at(e->ent);
+  for (int i = 1; i <= d->s0; i++)
+    if (d[i].type == ENT_BOX && d[i].flags == ET_RANGE && k-- == 0) return &d[i];
+  return NULL;
+}
+
+static bool pg_sees_hero(const Enemy *e, float cx, float cy) {
+  float dx = hero_x() - cx, dy = hero_y() - cy, l = sqrtf(dx * dx + dy * dy);
+  return l < 1e-4f || !phys_ray(cx, cy, dx / l, dy / l, l, CF_TERRAIN, NULL);
+}
+
+/* Hero Range: the Knight's box in the circle, and in sight */
+static bool pg_hero_range(const Enemy *e) {
+  const Ent *r = pg_range(e, 0);
+  if (!r || g_hero.hidden) return false;
+  float k = pg_size(e), cx = e->body.x + r->x0 * (e->sx < 0 ? -k : k), cy = e->body.y + r->y0 * k, rad = r->x1 * k;
+  const Body *h = &g_hero.body;
+  float hx = h->x + h->ox, hy = h->y + h->oy;
+  float qx = cx < hx - h->hx ? hx - h->hx : cx > hx + h->hx ? hx + h->hx : cx;
+  float qy = cy < hy - h->hy ? hy - h->hy : cy > hy + h->hy ? hy + h->hy : cy;
+  return (qx - cx) * (qx - cx) + (qy - cy) * (qy - cy) < rad * rad && pg_sees_hero(e, cx, cy);
+}
+
+/* Enemy Range: an enemy's collider (or a flying bird's Waker) in the circle, and the Knight in sight */
+static bool pg_enemy_range(const Enemy *e) {
+  const Ent *r = pg_range(e, 1);
+  if (!r) return false;
+  float k = pg_size(e), cx = e->body.x + r->x0 * (e->sx < 0 ? -k : k), cy = e->body.y + r->y0 * k, rad = r->x1 * k;
+  bool near = false;
+  for (int i = 0; i < MAX_ENEMIES && !near; i++) {
+    const Enemy *q = &en[i];
+    if (q == e || q->mode != EM_ALIVE) continue;
+    if (FSM(q) == EF_PIGEON) {
+      /* (its Waker: a circle on the Enemies layer, as big as its Enemy Range) */
+      if (!q->b1) continue;
+      const Ent *qr = pg_range(q, 1);
+      float qrad = qr ? qr->x1 : 0, dx = q->body.x - cx, dy = q->body.y - cy;   /* (its x scale 1 by then) */
+      near = dx * dx + dy * dy < (rad + qrad) * (rad + qrad);
+      continue;
+    }
+    if (q->flags & 17) continue;
+    float x0, y0, x1, y1;
+    enemy_box(q, &x0, &y0, &x1, &y1);
+    float qx = cx < x0 ? x0 : cx > x1 ? x1 : cx, qy = cy < y0 ? y0 : cy > y1 ? y1 : cy;
+    near = (qx - cx) * (qx - cx) + (qy - cy) * (qy - cy) < rad * rad;
+  }
+  return near && pg_sees_hero(e, cx, cy);
+}
+
+static void pigeon_start(Enemy *e) {
+  /* Set Size (its collider with it), Set Anim (one of three idles), Set Frame (from a random frame; half turned) */
+  float size = rand_range(0.8f, 1), k = size / fabsf(e->sx);
+  set_scale_x(e, size);
+  e->body.ox *= k, e->body.oy *= k, e->body.hx *= k, e->body.hy *= k;
+  int clip = CLIP(e, R_A1 + (int)rand_range(0, 2.999f));
+  anim_play_from_frame(&e->anim, clip, (int)rand_range(0, 41.999f));
+  if (rand_range(0, 2) < 1) set_scale_x(e, -e->sx);
+  e->st = PG_IDLE;
+}
+
+static void pigeon_fly(Enemy *e) {
+  e->st = PG_FLY, e->t0 = 0;
+  e->body.y += 0.5f;
+  e->ax = rand_range(10, 35);
+  anim_play(&e->anim, CLIP(e, R_A4));
+  /* (away from the Knight: Right or Left) */
+  bool left = hero_x() > e->body.x;
+  e->b0 = left;
+  e->ay = left ? rand_range(-75, -35) : rand_range(35, 75);
+  e->sx = 1;   /* (SetScale x: 1; its y as it was: its size, kept in qx) */
+}
+
+/* (a spell cast: HERO CAST SPELL to all) */
+static void pigeon_spell(Enemy *e) {
+  if (e->st != PG_IDLE) return;
+  e->st = PG_CHECK;   /* (Check: near enough, it flies; else it waits there for ever) */
+  float dx = hero_x() - e->body.x, dy = hero_y() - e->body.y;
+  if (dx * dx + dy * dy <= 60 * 60) pigeon_fly(e);
+}
+
+static void pigeon_update(Enemy *e) {
+  if (e->st == PG_IDLE) {
+    e->qx = pg_size(e);
+    if (pg_hero_range(e) || pg_enemy_range(e)) pigeon_fly(e);
+  } else if (e->st == PG_FLY) {
+    e->t0 += DT;
+    e->b1 = e->t0 >= 0.25f;   /* (its Waker: on after its pause, following it) */
+    e->ang = atan2f(e->body.vy, e->body.vx) * 180 / (float)M_PI + (e->b0 ? 180 : 0);   /* (FaceAngle) */
+    if (e->t0 >= 5) e->mode = EM_OFF;   /* (Destroy) */
+  }
+}
+
+static void pigeon_fixed(Enemy *e) {
+  if (e->st == PG_FLY) e->body.vx += e->ay * DT, e->body.vy += e->ax * DT;   /* (AddForce2d, its mass 1) */
+  e->body.x += e->body.vx * DT, e->body.y += e->body.vy * DT;   /* (a trigger: touches nothing) */
+}
+
+/* ---------------------------------------------------------------- Fool Eaters: Plant Trap Control (snaps as the Knight
+ * steps over its Detector; only its frames have colliders) */
+enum { PT_IDLE, PT_READY, PT_SNAP, PT_RETRACT, PT_COOLDOWN };
+static void planttrap_update(Enemy *e) {
+  bool done = (e->anim.events & ANIM_DONE) != 0;
+  switch (e->st) {
+    case PT_IDLE:
+      /* (DETECT: the Knight in its Detector) */
+      if (e->in_alert) e->st = PT_READY, e->wait = 0.75f, anim_play_from_frame(&e->anim, CLIP(e, R_A1), 0);
+      break;
+    case PT_READY:
+      if ((e->wait -= DT) <= 0) e->st = PT_SNAP, e->wait = 1, anim_play_from_frame(&e->anim, CLIP(e, R_A2), 0);
+      break;
+    case PT_SNAP:
+      if ((e->wait -= DT) <= 0) e->st = PT_RETRACT, anim_play_from_frame(&e->anim, CLIP(e, R_A3), 0);
+      break;
+    case PT_RETRACT:
+      if (done) e->st = PT_COOLDOWN, e->wait = 0.5f;
+      break;
+    case PT_COOLDOWN:
+      if ((e->wait -= DT) <= 0) e->st = PT_IDLE;   /* (Init, Idle) */
+      break;
+  }
+}
+
+static void planttrap_start(Enemy *e) {
+  /* (its sprite as the scene has it: Retract's last frame, no collider) */
+  anim_play_from_frame(&e->anim, CLIP(e, R_A3), clip_frames_count(CLIP(e, R_A3)) - 1);
+  e->anim.playing = false;
+  e->st = PT_IDLE;
+}
+
+/* ---------------------------------------------------------------- Volatile Mosskin: Fungus Zombie Attack (a Walker;
+ * stops as the Knight comes in sight in its Attack Range and bursts out a cloud of gas) */
+enum { SK_READY, SK_DELAY, SK_ANTIC, SK_ATTACK, SK_CD, SK_IDLE_PAUSE };
+#define SK_GAS 0   /* (its hitbox: Gas Hit Box) */
+/* (wait: a state's; t0: the gas's time; qx: its scale) */
+static void shaker_start(Enemy *e) {
+  walker_init(e);
+  e->st = SK_READY;
+}
+
+/* its gas's scale: SetScale 0.2, then iTweenScaleTo 1 over 0.4 s (easeOutCirc, after 0.005 s) */
+static void shaker_gas(Enemy *e) {
+  float k = (e->t0 - 0.005f) / 0.4f;
+  k = k < 0 ? 0 : k > 1 ? 1 : k;
+  e->qx = 0.2f + 0.8f * sqrtf(1 - (k - 1) * (k - 1));
+}
+
+static void shaker_update(Enemy *e) {
+  walker_update(e);
+  switch (e->st) {
+    case SK_READY:
+      if (e->can_see && e->in_alert) e->st = SK_DELAY, e->wait = rand_range(0, 0.75f);
+      break;
+    case SK_DELAY:
+      if ((e->wait -= DT) <= 0) {
+        /* Attack Antic: still, the walker stopped */
+        e->st = SK_ANTIC, e->wait = 0.75f;
+        e->body.vx = 0;
+        walker_stop(e, STOP_CONTROLLED);
+        anim_play(&e->anim, CLIP(e, R_A1));
+      }
+      break;
+    case SK_ANTIC:
+      if ((e->wait -= DT) <= 0) {
+        /* Attack: the gas out, the camera shaken */
+        e->st = SK_ATTACK, e->wait = 0.8f, e->t0 = 0;
+        cam_shake(SHAKE_ENEMY_KILL);
+        e->hb_on |= 1 << SK_GAS;
+        shaker_gas(e);
+      }
+      break;
+    case SK_ATTACK:
+      e->t0 += DT;
+      shaker_gas(e);
+      if ((e->wait -= DT) <= 0) e->st = SK_CD, e->wait = 0.5f, e->hb_on &= (uint8_t)~(1 << SK_GAS);
+      break;
+    case SK_CD:
+      if ((e->wait -= DT) <= 0) e->st = SK_IDLE_PAUSE, e->wait = 0.5f, anim_play(&e->anim, CLIP(e, R_IDLE));
+      break;
+    case SK_IDLE_PAUSE:
+      if ((e->wait -= DT) <= 0) {
+        e->st = SK_READY;   /* (Reset: StartWalker) */
+        walker_start(e);
+      }
+      break;
+  }
+}
+
+static void shaker_fixed(Enemy *e) {
+  if (e->wk_state == WK_WALKING) {
+    const Ent *w = walker_rec(e);
+    if (w) e->body.vx = e->wk_facing > 0 ? w->y0 : w->x0;
+  }
+}
+
 /* its FSMs start */
 static void enemy_fsm_start(Enemy *e, const Ent *d) {
   if (FSM(e) == EF_CRAWLER) crawler_start(e, d);
@@ -3869,6 +4282,10 @@ static void enemy_fsm_start(Enemy *e, const Ent *d) {
   else if (FSM(e) == EF_HATCHER) hatcher_start(e, d);
   else if (FSM(e) == EF_HATCHLING) hatchling_start(e);
   else if (FSM(e) == EF_SLUG) slug_start(e);
+  else if (FSM(e) == EF_MOSSWALKER) mosswalker_start(e);
+  else if (FSM(e) == EF_PIGEON) pigeon_start(e);
+  else if (FSM(e) == EF_PLANTTRAP) planttrap_start(e);
+  else if (FSM(e) == EF_SHAKER) shaker_start(e);
 }
 
 /* ActiveRegion (a 50 by 35 box round the camera) meets its collider: FSMActivator turns its FSMs on */
@@ -3980,12 +4397,18 @@ void enemies_enter(void) {
     Body *b = &e->body;
     b->x = d->x0, b->y = d->y0;
     const Ent *box = enemy_rec(e, ET_COLLIDER);
-    if (box) b->ox = box->x0 * (e->sx < 0 ? -1 : 1), b->oy = box->y0, b->hx = box->x1, b->hy = box->y1, b->gravity_scale = box->p0;
-    b->friction = 0.2828f, b->mask = CF_SOLID;   /* (the default material with the terrain's) */
+    e->sy = 1;
+    if (box) {
+      if (FSM(e) != EF_CLIMBER) e->rq = (uint8_t)box->p1, e->sy = box->p2 < 0 ? -1 : 1;   /* (a climber turns itself) */
+      enemy_set_box(e, box->x0, box->y0, box->x1, box->y1);
+      b->gravity_scale = box->p0;
+    }
+    if (d->s1 & EF_INVINCIBLE) e->flags |= 4;
+    b->friction = 0, b->mask = CF_SOLID;   /* (the default material, frictionless) */
     /* its sight: the alert range, else its first other range */
     const Ent *ar = enemy_rec(e, ET_ALERT);
     if (!ar) ar = enemy_rec(e, ET_RANGE);
-    if (ar) e->ar_x = ar->x0 * (e->sx < 0 ? -1 : 1), e->ar_y = ar->y0, e->ar_r = ar->x1, e->ar_hy = ar->y1;
+    if (ar) enemy_range(e, ar, &e->ar_x, &e->ar_y, &e->ar_r, &e->ar_hy);
     const Ent *rc = enemy_rec(e, ET_RECOIL);
     e->rc_base = rc ? rc->x0 : 15, e->rc_dur = rc ? rc->y0 : 0.5f, e->rc_flags = rc ? (uint8_t)rc->a : RF_NONE;
     const Ent *wk = enemy_rec(e, ET_WALKER);
@@ -3995,7 +4418,7 @@ void enemies_enter(void) {
       e->flags |= 128 | 32 | 1;
     } else if (d->s1 & EF_DORMANT) {
       /* (its FSMs off till the active region round the camera meets it: FSMActivator; its sprite still) */
-      int c = CLIP(e, R_IDLE) >= 0 ? CLIP(e, R_IDLE) : CLIP(e, R_A1) >= 0 ? CLIP(e, R_A1) : CLIP(e, R_WALK);
+      int c = FSM(e) == EF_MOSSWALKER ? CLIP(e, R_WALK) : CLIP(e, R_IDLE) >= 0 ? CLIP(e, R_IDLE) : CLIP(e, R_A1) >= 0 ? CLIP(e, R_A1) : CLIP(e, R_WALK);
       if (c >= 0) anim_play(&e->anim, c), e->anim.paused = true;
       e->flags |= 64;
     } else
@@ -4041,6 +4464,13 @@ void enemies_fixed(void) {
       continue;
     }
     if (e->mode == EM_ALIVE && (FSM(e) == EF_FKHEAD || (e->flags & 128))) continue;   /* (the head: its body's; off) */
+    if (e->mode == EM_ALIVE && ((FSM(e) == EF_MOSSWALKER && e->b1) || FSM(e) == EF_PIGEON || FSM(e) == EF_PLANTTRAP)) {
+      /* (a kinematic body, a trigger, frames' colliders: nothing stops them) */
+      recoil_fixed(e);
+      if (FSM(e) == EF_MOSSWALKER) mosswalker_fixed(e);
+      else if (FSM(e) == EF_PIGEON) pigeon_fixed(e);
+      continue;
+    }
     if (e->mode == EM_ALIVE && FSM(e) == EF_CLIMBER) {
       /* (a kinematic body: its velocity, nothing in its way) */
       recoil_fixed(e);
@@ -4061,6 +4491,7 @@ void enemies_fixed(void) {
       else if (FSM(e) == EF_HATCHER) hatcher_fixed(e);
       else if (FSM(e) == EF_HATCHLING) hatchling_fixed(e);
       else if (FSM(e) == EF_SLUG) slug_fixed(e);
+      else if (FSM(e) == EF_SHAKER) shaker_fixed(e);
       recoil_fixed(e);
       body_step(&e->body, DT);
     } else if (FSM(e) != EF_BLOCKER) {
@@ -4141,6 +4572,10 @@ void enemies_update(void) {
       else if (FSM(e) == EF_HATCHER) hatcher_update(e);
       else if (FSM(e) == EF_HATCHLING) hatchling_update(e);
       else if (FSM(e) == EF_SLUG) slug_update(e);
+      else if (FSM(e) == EF_MOSSWALKER) mosswalker_update(e);
+      else if (FSM(e) == EF_PIGEON) pigeon_update(e);
+      else if (FSM(e) == EF_PLANTTRAP) planttrap_update(e);
+      else if (FSM(e) == EF_SHAKER) shaker_update(e);
       if (FSM(e) == EF_FK) {
         /* (its Hitter: on till its FSM turns it off) */
         e->sub.events = 0;
@@ -4166,8 +4601,15 @@ void enemies_draw(void) {
     if (FSM(e) == EF_SHADE && e->st == SH_DISSIPATE) continue;   /* (its renderer off) */
     if ((e->flags & 32) || (FSM(e) == EF_FKHEAD && !fk.head_shown && e->mode == EM_ALIVE)) continue;
     float sy = fabsf(e->sx) > 0 ? fabsf(e->sx) : 1;
-    if (e->ang != 0 && e->mode == EM_ALIVE)
+    if (FSM(e) == EF_PIGEON && e->st == PG_FLY)
+      /* (its x scale 1, its y its size; flying left its sprite turned, a half turn more) */
+      sprite_inst_rot(e->anim.sprite, e->body.x, e->body.y, z, e->b0 ? -1.0f : 1.0f, e->qx, e->ang, flash_tint(e, 2 + i % 5), &in);
+    else if (e->ang != 0 && e->mode == EM_ALIVE)
       sprite_inst_rot(e->anim.sprite, e->body.x, e->body.y, z, e->sx, 1, e->ang, flash_tint(e, 2 + i % 5), &in);
+    else if ((e->rq || e->sy < 0) && (e->mode == EM_ALIVE || FSM(e) == EF_PLANTTRAP))
+      /* (turned: a y scale of -1 is a half turn more with x flipped) */
+      sprite_inst_rot(e->anim.sprite, e->body.x, e->body.y, z, e->sy < 0 ? -e->sx : e->sx, sy,
+                      (float)(e->rq * 90 + (e->sy < 0 ? 180 : 0)), flash_tint(e, 2 + i % 5), &in);
     else
       sprite_inst(e->anim.sprite, e->body.x + e->jx, e->body.y + e->jy, z, e->sx, sy, flash_tint(e, 2 + i % 5), &in);
     gfx_actor(&in, SORT_KEY(0, 0));
@@ -4203,6 +4645,12 @@ void enemies_draw(void) {
 
 /* ---------------------------------------------------------------- what touches them */
 void enemies_swing_start(void) { swing_bits = 0; }
+
+/* HERO CAST SPELL (to all) */
+void enemies_hero_cast_spell(void) {
+  for (int i = 0; i < MAX_ENEMIES; i++)
+    if (en[i].mode == EM_ALIVE && FSM(&en[i]) == EF_PIGEON && !(en[i].flags & 64)) pigeon_spell(&en[i]);
+}
 
 /* the slash's shape: enemies it touches are hit, once a swing -> HB_* */
 int enemies_nail(const float *pts, int npts, float direction, int damage) {

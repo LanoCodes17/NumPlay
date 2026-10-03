@@ -63,6 +63,14 @@ ENEMY_KINDS = [
     ("gfly", "Big Fly Control", ("sharedassets32.assets", 765), "GFLY", {"IDLE": "Sleep"},
      ["Wake", "Fly", "Charge Antic", "Charge", "Charge Recover", "Slam Down", "Slam Up", "Slam End", "Death", "Fall",
       "Wiggle", "Stop", "Gurgle Once", "Gurgle Loop", "Burst"]),
+    # (Greenpath: Mosscreep, the birds, Fool Eater, Volatile Mosskin)
+    ("mosswalker", "Moss Walker", ("sharedassets128.assets", 222), "MOSSWALKER",
+     {"WALK": "Walk", "TURN": "Turn", "A1": "Shake", "A2": "Appear", "A3": "Bury"}),
+    ("pigeon", "Pigeon", ("sharedassets128.assets", 206), "PIGEON", {"A1": "Idle 01", "A2": "Idle 02", "A3": "Idle 03", "A4": "Fly"}),
+    ("planttrap", "Plant Trap Control", ("sharedassets128.assets", 202), "PLANTTRAP",
+     {"IDLE": "Idle", "A1": "Snap Ready", "A2": "Snap", "A3": "Retract", "DEATH_AIR": "Death"}),
+    ("shaker", "Fungus Zombie Attack", ("sharedassets128.assets", 220), "SHAKER",
+     {"IDLE": "Idle", "WALK": "Walk", "TURN": "Turn", "A1": "Attack"}),
 ]
 ENEMY_CORPSE_LIBS = {}   # (name -> its corpse's library, if not its own)
 

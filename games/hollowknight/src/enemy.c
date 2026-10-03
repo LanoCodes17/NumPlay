@@ -16,7 +16,7 @@
 /* (data.h: EK_* each kind, KIND_TABLE: the FSM each runs and the clips its roles play) */
 enum {
   EF_CRAWLER = 1, EF_BUZZER, EF_SHADE, EF_HUSK, EF_CLIMBER, EF_BOUNCER, EF_SPITTER, EF_ROLLER, EF_BLOCKER, EF_LEAPER, EF_GUARD,
-  EF_FK, EF_FKHEAD, EF_GFLY
+  EF_FK, EF_FKHEAD, EF_GFLY, EF_HATCHER, EF_HATCHLING
 };
 enum { R_IDLE, R_TURN, R_WALK, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, R_A7, R_A8, R_DEATH_AIR, R_DEATH_LAND, NUM_ROLES };
 typedef struct {
@@ -317,6 +317,8 @@ static void death_shake(const Enemy *e) {
 static void shade_killed(Enemy *e);
 static void blocker_die(Enemy *e);
 static void gfly_die(Enemy *e);
+static void hatchling_reset(Enemy *e);
+static void hatcher_corpse_smash(const Enemy *e);
 static void enemy_die(Enemy *e, float direction, bool has_direction) {
   if (FSM(e) == EF_SHADE) {
     shade_killed(e);
@@ -337,7 +339,13 @@ static void enemy_die(Enemy *e, float direction, bool has_direction) {
     if (d->s1 & EF_BATTLE) arena_enemy_died();   /* (its battleScene's Battle Enemies) */
   }
   if (FSM(e) == EF_GFLY) gfly_die(e);
-  else corpse_start(e, direction, has_direction);
+  else if (FSM(e) == EF_HATCHLING) {
+    /* (deathReset: back to its cage) */
+    death_shake(e);
+    FREEZE_MOMENT_1();
+    hatchling_reset(e);
+    return;
+  } else corpse_start(e, direction, has_direction);
   death_shake(e);
   FREEZE_MOMENT_1();
 }
@@ -384,18 +392,20 @@ static float hero_x(void) { return g_hero.body.x; }
 static float hero_y(void) { return g_hero.body.y; }
 
 /* FaceDirection (sprite facing left): turns to its velocity, playing a clip, pausing between turns */
-static void face_direction(Enemy *e, float *pause, int clip) {
+static void face_direction_p(Enemy *e, float *pause, int clip, float pause_time) {
   if (*pause > 0) {
     *pause -= DT;
     return;
   }
   float want = e->body.vx > 0 ? -fabsf(e->sx) : fabsf(e->sx);
   if (e->sx != want) {
-    *pause = 0.5f;
+    *pause = pause_time;
     set_scale_x(e, want);
     if (clip >= 0) anim_play_from_frame(&e->anim, clip, 0);
   }
 }
+
+static void face_direction(Enemy *e, float *pause, int clip) { face_direction_p(e, pause, clip, 0.5f); }
 
 /* LineOfSightDetector, AlertRange: the hero in the circle, and no terrain between */
 static void sight_update(Enemy *e) {
@@ -919,15 +929,15 @@ static void bouncer_update(Enemy *e) {
 }
 
 /* DistanceFly: keeps a distance from the hero (targeting its height, or its distance in y too) */
-static void distance_fly(Enemy *e, float dist, float vmax, float accel, bool height) {
+static void distance_fly_at(Enemy *e, float dist, float vmax, float accel, bool height, float hoff) {
   float vx = e->body.vx, vy = e->body.vy;
   float dx = e->body.x - hero_x(), dy = e->body.y - hero_y(), d = sqrtf(dx * dx + dy * dy);
   bool left = e->body.x < hero_x(), below = e->body.y < hero_y();
   vx += (d > dist) == left ? accel : -accel;
   if (!height) vy += (d > dist) == below ? accel : -accel;
   else {
-    if (e->body.y < hero_y()) vy += accel;
-    if (e->body.y > hero_y()) vy -= accel;
+    if (e->body.y < hero_y() + hoff) vy += accel;
+    if (e->body.y > hero_y() + hoff) vy -= accel;
   }
   e->body.vx = vx > vmax ? vmax : vx < -vmax ? -vmax : vx;
   e->body.vy = vy > vmax ? vmax : vy < -vmax ? -vmax : vy;
@@ -959,6 +969,10 @@ static Bullet *bullet_new(float x, float y, float vx, float vy, float gravity) {
 }
 
 /* FireAtTarget: from (x, y) at the hero, at a speed */
+static void distance_fly(Enemy *e, float dist, float vmax, float accel, bool height) {
+  distance_fly_at(e, dist, vmax, accel, height, 0);
+}
+
 static void bullet_fire(float x, float y, float speed) {
   Bullet *b = NULL;
   for (int i = 0; i < MAX_BULLETS && !b; i++)
@@ -3226,6 +3240,137 @@ static void balls_tick(void) {
 }
 
 /* ---------------------------------------------------------------- the room's */
+/* ---------------------------------------------------------------- Aspid Mother (Hatcher) and her young (Hatcher Baby
+ * Spawner), who wait in their cage till she sends them out, and go back to it as they die */
+enum { HT_IDLE, HT_DISTANCE_FLY, HT_FIRE_ANTIC, HT_FIRE };
+enum { HL_INERT, HL_CHASE };
+
+/* (her young in the cage: their count; one of them at random, or NULL) */
+static Enemy *hatchling_caged(int pick, int *count) {
+  int n = 0;
+  Enemy *out = NULL;
+  for (int i = 0; i < MAX_ENEMIES; i++) {
+    Enemy *q = &en[i];
+    if (q->mode != EM_ALIVE || FSM(q) != EF_HATCHLING || q->st != HL_INERT) continue;
+    if (n++ == pick) out = q;
+  }
+  if (count) *count = n;
+  return out;
+}
+
+static void hatchling_spawn(Enemy *q, float x, float y) {
+  /* SPAWN: Chase, from where it is put */
+  q->body.x = x, q->body.y = y;
+  q->st = HL_CHASE, q->t1 = 0, q->tx = 0, q->pause0 = 0;
+}
+
+static void hatcher_distance_fly(Enemy *e) {
+  anim_play_from_frame(&e->anim, CLIP(e, R_A1), 2);
+  e->t0 = rand_range(2, 3);
+  e->st = HT_DISTANCE_FLY;
+}
+
+static void hatcher_start(Enemy *e, const Ent *d) {
+  e->st = HT_IDLE;
+  anim_play_from_frame(&e->anim, CLIP(e, R_A1), 2);
+  e->start_x = e->body.x, e->start_y = e->body.y;
+  e->wait = 0, e->ax = e->ay = 0;
+  if (d->s1 & EF_START) hatcher_distance_fly(e);   /* (startAlert) */
+}
+
+static void hatcher_fixed(Enemy *e) {
+  if (e->st == HT_IDLE) idle_buzz(e);
+  else if (e->st == HT_DISTANCE_FLY) distance_fly_at(e, 6, 3.5f, 0.1f, true, 3.5f);
+}
+
+static void hatcher_update(Enemy *e) {
+  switch (e->st) {
+    case HT_IDLE:
+      /* FaceDirection; ALERT: it sees the Knight in its alert range */
+      if (e->sx != (e->body.vx > 0 ? -fabsf(e->sx) : fabsf(e->sx))) set_scale_x(e, -e->sx);
+      if (e->can_see && e->in_alert) hatcher_distance_fly(e);
+      break;
+    case HT_DISTANCE_FLY: {
+      /* FaceObject: its clip from the start as it turns */
+      float want = hero_x() > e->body.x ? -fabsf(e->sx) : fabsf(e->sx);
+      if (hero_x() != e->body.x && e->sx != want) set_scale_x(e, want), anim_play_from_frame(&e->anim, CLIP(e, R_A1), 0);
+      if ((e->t0 -= DT) <= 0) {
+        /* Hatched Max Check: young left in the cage, or on */
+        int n;
+        hatchling_caged(-1, &n);
+        if (n > 0) {
+          e->body.vx = e->body.vy = 0;
+          anim_play_from_frame(&e->anim, CLIP(e, R_A2), 0);
+          e->st = HT_FIRE_ANTIC, e->t0 = 0.335f;
+        } else
+          hatcher_distance_fly(e);
+      }
+      break;
+    }
+    case HT_FIRE_ANTIC:
+      if ((e->t0 -= DT) <= 0) {
+        /* Fire: one of her young out below her, downwards */
+        int n;
+        hatchling_caged(-1, &n);
+        Enemy *q = n ? hatchling_caged((int)rand_range(0, (float)n - 0.001f), NULL) : NULL;
+        if (!q) {
+          hatcher_distance_fly(e);   /* (CANCEL) */
+          break;
+        }
+        hatchling_spawn(q, e->body.x, e->body.y - 1);
+        q->body.vx = 0, q->body.vy = -5;
+        e->st = HT_FIRE;
+      }
+      break;
+    case HT_FIRE:
+      if ((e->anim.events & ANIM_DONE) || !e->anim.playing) hatcher_distance_fly(e);
+      break;
+  }
+}
+
+/* (her corpse smashes: two of her young out where it lands) */
+static void hatcher_corpse_smash(const Enemy *e) {
+  for (int k = 0; k < 2; k++) {
+    int n;
+    hatchling_caged(-1, &n);
+    Enemy *q = n ? hatchling_caged((int)rand_range(0, (float)n - 0.001f), NULL) : NULL;
+    if (q) hatchling_spawn(q, e->body.x, e->body.y);
+  }
+}
+
+static void hatchling_start(Enemy *e) {
+  e->st = HL_INERT;
+  e->body.vx = e->body.vy = 0;
+  anim_play(&e->anim, CLIP(e, R_A1));
+}
+
+static void hatchling_fixed(Enemy *e) {
+  if (e->st != HL_CHASE) return;
+  /* ChaseObject: at the Knight, off by a spread it picks again every 1 to 2 s */
+  if (e->t1 >= e->tx) {
+    e->qx = rand_range(-1.5f, 1.5f), e->qy = rand_range(-1.5f, 1.5f);
+    e->t1 = 0, e->tx = rand_range(1, 2);
+  } else
+    e->t1 += DT;
+  float vx = e->body.vx + (e->body.x < hero_x() + e->qx ? 0.1f : -0.1f);
+  float vy = e->body.vy + (e->body.y < hero_y() + e->qy ? 0.1f : -0.1f);
+  e->body.vx = vx > 5 ? 5 : vx < -5 ? -5 : vx;
+  e->body.vy = vy > 5 ? 5 : vy < -5 ? -5 : vy;
+}
+
+static void hatchling_update(Enemy *e) {
+  if (e->st == HL_CHASE) face_direction_p(e, &e->pause0, -1, 0.4f);   /* (FaceDirection, pausing between turns) */
+}
+
+/* (its death: back to the cage, whole again: CENTIPEDE DEATH) */
+static void hatchling_reset(Enemy *e) {
+  const Ent *d = ent_at(e->ent);
+  e->hp = 5, e->damage = 1;
+  e->body.x = d->x0, e->body.y = d->y0;
+  e->flashing = false;
+  hatchling_start(e);
+}
+
 /* ---------------------------------------------------------------- Gruz Mother: Big Fly Control (with her bouncer_control);
  * her corpse (corpse) and its burster (burster), which brings out her young */
 enum { GF_INVINCIBLE, GF_SLEEP, GF_WAKE, GF_FLY, GF_BUZZ, GF_CHARGE_ANTIC, GF_CHARGE, GF_CHARGE_RECOVER, GF_SUPER_END,
@@ -3646,6 +3791,8 @@ static void enemy_fsm_start(Enemy *e, const Ent *d) {
   else if (FSM(e) == EF_FK) fk_start(e);
   else if (FSM(e) == EF_FKHEAD) fk_head_start(e);
   else if (FSM(e) == EF_GFLY) gfly_start(e);
+  else if (FSM(e) == EF_HATCHER) hatcher_start(e, d);
+  else if (FSM(e) == EF_HATCHLING) hatchling_start(e);
 }
 
 /* ActiveRegion (a 50 by 35 box round the camera) meets its collider: FSMActivator turns its FSMs on */
@@ -3829,6 +3976,8 @@ void enemies_fixed(void) {
       else if (FSM(e) == EF_LEAPER) leaper_fixed(e);
       else if (FSM(e) == EF_GUARD) guard_fixed(e);
       else if (FSM(e) == EF_GFLY) gfly_fixed(e);
+      else if (FSM(e) == EF_HATCHER) hatcher_fixed(e);
+      else if (FSM(e) == EF_HATCHLING) hatchling_fixed(e);
       recoil_fixed(e);
       body_step(&e->body, DT);
     } else if (FSM(e) != EF_BLOCKER) {
@@ -3847,6 +3996,7 @@ void enemies_fixed(void) {
             anim_play(&e->anim, kinds[e->kind].clip[R_DEATH_LAND]);
             e->body.vx = e->body.vy = 0;
             e->st = CS_DEATH_ANIM;
+            if (FSM(e) == EF_HATCHER) hatcher_corpse_smash(e);
           } else {
             bounce(&e->body, pvx, pvy, had, cbounce);
             anim_play(&e->anim, kinds[e->kind].clip[R_DEATH_LAND]);
@@ -3894,6 +4044,8 @@ void enemies_update(void) {
       else if (FSM(e) == EF_GUARD) guard_update(e);
       else if (FSM(e) == EF_FK) fk_update(e);
       else if (FSM(e) == EF_GFLY) gfly_update(e);
+      else if (FSM(e) == EF_HATCHER) hatcher_update(e);
+      else if (FSM(e) == EF_HATCHLING) hatchling_update(e);
       if (FSM(e) == EF_FK) {
         /* (its Hitter: on till its FSM turns it off) */
         e->sub.events = 0;

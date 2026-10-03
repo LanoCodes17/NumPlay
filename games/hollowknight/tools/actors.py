@@ -54,6 +54,9 @@ ENEMY_KINDS = [
       "Stun Open", "Stun Hit", "Stun Recover", "Rage", "Death Fall", "Death Land", "Death Head 1", "Death Head 2",
       "Death Spaz", "Body", "Stun Opened"]),
     ("fkhead", "Health Check", ("sharedassets47.assets", 9), "FKHEAD", {"IDLE": "Head Idle"}, ["Head Hit", "Head Spaz"]),
+    # (Aspid Mother and her young)
+    ("hatcher", "Hatcher", ("sharedassets57.assets", 79), "HATCHER", {"A1": "Fly", "A2": "Fire"}),
+    ("hatchling", "Control", ("resources.assets", 20637), "HATCHLING", {"A1": "Fly"}),
     # (Gruz Mother; her corpse's and its burster's clips are hers too)
     ("gfly", "Big Fly Control", ("sharedassets32.assets", 765), "GFLY", {"IDLE": "Sleep"},
      ["Wake", "Fly", "Charge Antic", "Charge", "Charge Recover", "Slam Down", "Slam Up", "Slam End", "Death", "Fall",

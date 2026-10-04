@@ -1341,6 +1341,12 @@ __attribute__((always_inline)) static inline void out4(const Acc *A, uint16_t *O
   o[0] = p0 | p1 << 16, o[1] = p2 | p3 << 16;
 }
 
+/* a pixel over the background (bg: 0xRRGGBB) to 16 bits: red and blue in their lanes together */
+__attribute__((always_inline)) static inline uint32_t bg_px(const Acc *a, uint32_t bg) {
+  uint32_t gt = a->gt, t = (T_OF(gt) + 1u) >> 1;
+  return to565(a->rb + (bg & 0xFF00FF) * t, (gt & 0xFFFF) + (bg >> 8 & 255) * t);
+}
+
 /* a row of the strip to 16 bits (its dither in it already), over the background (bl: NULL if none). O is the
  * row's place in the strip's first row (at or before A) */
 static void row_out(const Acc *A, uint16_t *O, const uint32_t *bl) {
@@ -1355,15 +1361,11 @@ static void row_out(const Acc *A, uint16_t *O, const uint32_t *bl) {
     }
     /* screen pixel 4i + j samples the background at i - 0.375 + j / 4: between texels i - 1 and i, then i and
      * i + 1 (bgline is one texel ahead) */
-    uint32_t bgs[4] = {lerp4(bl[0], bl[1], 160), lerp4(bl[0], bl[1], 224), lerp4(bl[1], bl[2], 32), lerp4(bl[1], bl[2], 96)};
-    uint32_t px[4];
-    for (int j = 0; j < 4; j++) {
-      uint32_t gt = A[j].gt, t = (T_OF(gt) + 1u) >> 1, bg = bgs[j];
-      /* red and blue in their lanes together */
-      px[j] = to565(A[j].rb + (bg & 0xFF00FF) * t, (gt & 0xFFFF) + (bg >> 8 & 255) * t);
-    }
+    uint32_t b0 = bl[0], b1 = bl[1], b2 = bl[2];
+    uint32_t p0 = bg_px(A, lerp4(b0, b1, 160)), p1 = bg_px(A + 1, lerp4(b0, b1, 224));
+    uint32_t p2 = bg_px(A + 2, lerp4(b1, b2, 32)), p3 = bg_px(A + 3, lerp4(b1, b2, 96));
     uint32_t *o = (uint32_t *)(void *)O;
-    o[0] = px[0] | px[1] << 16, o[1] = px[2] | px[3] << 16;
+    o[0] = p0 | p1 << 16, o[1] = p2 | p3 << 16;
   }
 }
 

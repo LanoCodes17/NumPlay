@@ -73,6 +73,29 @@ The left thumb looks with the arrows (shift and alpha are just under them), the 
 
 <br clear="right">
 
+## Hollow Knight
+
+<img src="media/hollowknight.gif" width="320" align="right" alt="Hollow Knight: the Knight in King's Pass, against the False Knight and Hornet">
+
+Hollow Knight comes as its own app, `HollowKnight.nwa`: it is too big to share the calculator with NumPlay.
+
+| Key | What it does |
+| --- | --- |
+| **Arrows** | Move, look up and down, aim the nail up or down |
+| **Up** | Talk, read, rest at a bench, go through a door |
+| **OK** | Jump |
+| **Back** | Nail |
+| **shift** | Dash, once you have the Mothwing Cloak |
+| **alpha** | Hold to focus and heal, tap to cast a spell |
+| **var** | Hold for the quick map |
+| **toolbox** | Inventory |
+| **⌫** | Pause |
+| **Home** | Save and quit |
+
+Choose Start Game, then a save. Rest at benches to save and to change charms. In menus, **OK** or **EXE** confirms and **Back** goes back. In the inventory, left and right at the edges change pages; on the map page, **OK** places markers once you have them, and **shift** shows or hides the key and the pins. Home saves and quits, as Quit to Menu does. Your saves are also copied into `hollowknight_saves.py`, so installing the app again doesn't erase them.
+
+<br clear="right">
+
 ## Celeste
 
 <img src="media/celeste.gif" width="320" align="right" alt="Celeste: Madeline dashing through the Forsaken City">

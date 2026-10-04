@@ -145,6 +145,7 @@ APP_numvisuals = games/numvisuals/output/numvisuals.nwa:NumVisuals.nwa
 # too big to share the calculator's app space with NumPlay: only on their own
 APP_celeste = games/celeste/output/celeste.nwa:Celeste.nwa
 APP_championisland = games/championisland/output/championisland.nwa:ChampionIsland.nwa
+APP_hollowknight = games/hollowknight/output/hollowknight.nwa:HollowKnight.nwa
 
 apps: | $(B)
 	$(MAKE) -C games/numdash build NWLINK="node node_modules/nwlink/bin/nwlink"
@@ -157,6 +158,7 @@ apps: | $(B)
 	$(MAKE) -C games/numvisuals build NWLINK="$(NWLINK)"
 	$(MAKE) -C games/celeste build NWLINK="$(NWLINK)"
 	$(MAKE) -C games/championisland build NWLINK="$(NWLINK)"
+	$(MAKE) -C games/hollowknight build NWLINK="$(NWLINK)"
 	cd games/tetris/tetris && NWLINK="$(NWLINK)" $(CARGO) build --release --quiet
 	cp $(word 1,$(subst :, ,$(APP_numdash))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numdash)))
 	cp $(word 1,$(subst :, ,$(APP_crossyroad))) $(B)/apps/$(word 2,$(subst :, ,$(APP_crossyroad)))
@@ -169,6 +171,7 @@ apps: | $(B)
 	cp $(word 1,$(subst :, ,$(APP_numvisuals))) $(B)/apps/$(word 2,$(subst :, ,$(APP_numvisuals)))
 	cp $(word 1,$(subst :, ,$(APP_celeste))) $(B)/apps/$(word 2,$(subst :, ,$(APP_celeste)))
 	cp $(word 1,$(subst :, ,$(APP_championisland))) $(B)/apps/$(word 2,$(subst :, ,$(APP_championisland)))
+	cp $(word 1,$(subst :, ,$(APP_hollowknight))) $(B)/apps/$(word 2,$(subst :, ,$(APP_hollowknight)))
 	arm-none-eabi-strip --strip-unneeded $(B)/apps/Tetris.nwa
 
 STD_APPS = $(foreach g,$(STD_GAMES),$(B)/apps/$(NWA_$(g)))
@@ -222,5 +225,6 @@ clean:
 	-$(MAKE) -C games/chess clean
 	-$(MAKE) -C games/numvisuals clean
 	-$(MAKE) -C games/championisland clean
+	-$(MAKE) -C games/hollowknight clean
 	-cd games/tetris/tetris && $(CARGO) clean
 	-$(foreach g,$(STD_GAMES),$(MAKE) -C games/$(g) clean;)

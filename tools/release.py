@@ -28,6 +28,8 @@ ALONE = {
                 "on its own", "numblocks"),
     "championisland": ("Champion Island", "the Doodle Champion Island Games. Too big to share the calculator with "
                        "NumPlay: install it on its own", None),
+    "hollowknight": ("Hollow Knight", "from King's Pass to Hornet in Greenpath. Too big to share the calculator with "
+                     "NumPlay: install it on its own", "numblocks"),
 }
 VARIANTS = [
     ("NumPlay-Invisible.nwa", "The same app, hidden: a blank icon with no name"),

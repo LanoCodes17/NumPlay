@@ -53,7 +53,12 @@ int main(void) {
   uint32_t last = plat_millis(), acc = 0;
   for (;;) {
     uint32_t keys = plat_keys();
-    if ((keys & K_HOME) || menu_quit()) break;
+    if (keys & K_HOME) {
+      /* (as Quit to Menu: saved, when the pause menu could be opened) */
+      if (menu_in_game() && !g_pd.disable_pause && !game_changing_room()) save_game();
+      break;
+    }
+    if (menu_quit()) break;
     uint32_t now = plat_millis();
     acc += now - last, last = now;
     int ticks = 0;

@@ -70,6 +70,7 @@ static void go(int screen, int sel) {
 
 void menu_start(void) {
   memset(&mn, 0, sizeof mn);
+  save_restore();   /* (the saves the app's install took away: from their copy) */
   go(MS_TITLE, 0);
 }
 

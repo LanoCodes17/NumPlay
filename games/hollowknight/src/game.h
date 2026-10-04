@@ -113,6 +113,7 @@ typedef struct {
 } SaveStats;
 int save_stats(int slot, SaveStats *st);   /* -> 0 no game, 1 a game, -1 a file that does not check out */
 bool save_clear(int slot);
+void save_restore(void);   /* (the saves gone: from their copy, hollowknight_saves.py) */
 void save_set_respawn(const char *marker, bool facing_right);   /* (Bench Control's Rest Burst) */
 void save_set_respawn_kind(const char *marker, bool facing_right, int type);   /* (respawnType: 0 face down) */
 

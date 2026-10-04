@@ -41,6 +41,9 @@ const uint8_t *plat_load(const char *name, uint32_t *len) {
   fclose(f);
   return loaded;
 }
+static uint8_t reserved[65536];
+uint8_t *plat_reserve(const char *name, uint32_t len) { return len <= sizeof reserved ? reserved : NULL; }
+void plat_reserved(const char *name, uint32_t len) { plat_save(name, reserved, len); }
 bool plat_remove(const char *name) {
   char p[512];
   snprintf(p, sizeof p, "%s/%s", save_dir, name);

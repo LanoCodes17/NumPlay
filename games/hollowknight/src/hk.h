@@ -34,6 +34,8 @@ void plat_fill(int x, int y, int w, int h, uint16_t c);
 bool plat_save(const char *name, const void *data, uint32_t len);
 const uint8_t *plat_load(const char *name, uint32_t *len);
 bool plat_remove(const char *name);
+uint8_t *plat_reserve(const char *name, uint32_t len);   /* a file len long to fill in place (NULL: no room) */
+void plat_reserved(const char *name, uint32_t len);      /* (then: it is written) */
 
 /* ---------------------------------------------------------------- data.bin */
 extern const uint8_t *hk_bin;

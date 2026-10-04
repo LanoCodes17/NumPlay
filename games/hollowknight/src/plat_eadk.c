@@ -37,5 +37,10 @@ void plat_fill(int x, int y, int w, int h, uint16_t c) {
 bool plat_save(const char *name, const void *data, uint32_t len) { return ef_write(name, data, len); }
 const uint8_t *plat_load(const char *name, uint32_t *len) { return ef_read(name, len); }
 bool plat_remove(const char *name) { return ef_remove(name); }
+uint8_t *plat_reserve(const char *name, uint32_t len) {
+  uint32_t n;
+  return ef_write(name, NULL, len) ? (uint8_t *)(uintptr_t)ef_read(name, &n) : NULL;   /* (the storage is RAM) */
+}
+void plat_reserved(const char *name, uint32_t len) { (void)name, (void)len; }
 void plat_begin(void) { np_app_begin(); }
 int plat_end(void) { return np_app_end(); }

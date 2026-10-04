@@ -47,6 +47,7 @@ typedef struct {
   uint8_t pal;
   int8_t cty;        /* the tile row whose slots the arena holds */
   uint8_t clip;      /* (HUD: 1 + its clip circle) */
+  uint8_t screen;    /* a light that screens, drawn as the others with its colors so (Pal) */
   uint16_t ar;       /* its tiles (a row of them, or all if turned), in the arena */
 } Item;
 
@@ -73,6 +74,7 @@ typedef struct {
   uint32_t key;
   uint16_t frame;
   uint8_t solid;    /* the tint is opaque: a tile of opaque texels hides what is behind */
+  uint8_t screen;   /* for lights that screen: each color's alpha is its brightest part (screening is blending so) */
   uint32_t c[16];   /* premultiplied 0xAARRGGBB; [0] transparent */
 } Pal;
 static Pal pals[NPAL];
@@ -175,7 +177,16 @@ static int bits_step(Bits *b, int k) {
   return (int)(u >> 1) ^ -(int)(u & 1);
 }
 
-static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
+/* colors for a light that screens: what is behind keeps 1 - the brightest part of the color */
+static void pal_screen(uint32_t *c, int n) {
+  for (int i = 0; i < n; i++) {
+    uint32_t r = c[i] >> 16 & 255, g = c[i] >> 8 & 255, b = c[i] & 255, m = r > g ? r : g;
+    m = m > b ? m : b;
+    c[i] = (c[i] & 0xFFFFFF) | m << 24;
+  }
+}
+
+static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha, bool screen) {
   /* (tex << 17: solid colors' TEX_NONE comes out as 0xFFFE....; black textures' keys below those) */
   uint32_t key = (uint32_t)tex << 17 | alpha << 9 | (uint32_t)tint << 1 | ((flags & F_LIT) ? 1 : 0);
   if (tex != TEX_NONE) {
@@ -184,7 +195,7 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
     if (r->fmt == FMT_ALPHA2) key = 0xFFFC0000u | alpha;   /* black: only the alpha matters */
   }
   for (int i = 0; i < NPAL; i++)
-    if (pals[i].key == key) {
+    if (pals[i].key == key && pals[i].screen == screen) {
       pals[i].frame = pal_frame;
       return i;
     }
@@ -199,10 +210,10 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
   if (s < 0) s = pal_hand;
   pal_hand = (s + 1) % NPAL;
   Pal *p = &pals[s];
-  p->key = key, p->frame = pal_frame;
+  p->key = key, p->frame = pal_frame, p->screen = screen;
   const uint8_t *t = tint_rgba(tint);
   grade_off = tint >= HUD_TINT;
-  p->solid = alpha == 255;
+  p->solid = alpha == 255 && !screen;
   float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f, ta = alpha / 255.0f;
   if (flags & F_LIT) {
     const float *am = g_room.h->ambient;
@@ -211,6 +222,7 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
   p->c[0] = 0;
   if (tex == TEX_NONE) {
     p->c[1] = grade(tr, tg, tb, ta);
+    if (screen) pal_screen(p->c + 1, 1);
     return s;
   }
   const TexRec *r = tex_rec(tex);
@@ -231,6 +243,7 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
       p->c[i + 1] = grade((float)(ro + (g >> 1)) / 31 * tr * (1 - fk) + fr, (float)g / 63 * tg * (1 - fk) + fg,
                           (float)(bo + (g >> 1)) / 31 * tb * (1 - fk) + fb, a / 255.0f * ta);
     }
+    if (screen) pal_screen(p->c + 1, 15);
   }
   return s;
 }
@@ -443,18 +456,24 @@ uint32_t g_kind_px[6];
 #endif
 /* (a strip's rows are whole words of cov: pixel p's bit is bit p of it all) */
 #define COVER_P(p) (((uint32_t *)(void *)cov)[(p) >> 5] |= 1u << ((p) & 31))
-static inline void take_over(int row, int x, int p, uint32_t s) {
-  (void)row, (void)x;
-  Acc *a = acc + p;
-  uint32_t gt = a->gt, t = T_OF(gt), tt = (t + 1) >> 1, g = (gt + ((s >> 8) & 255) * tt) & 0xFFFF;
+static inline void take_over_a(Acc *a, uint32_t s) {
+  uint32_t gt = a->gt, tt = (T_OF(gt) + 1) >> 1;
   a->rb += (s & 0xFF00FF) * tt;
+  gt += ((s >> 8) & 255) * tt;   /* (green in the low half: never more than 16 bits) */
   if (s >= 0xFF000000u) {   /* (opaque: nothing left from behind) */
-    a->gt = g, COVER_P(p);
+    a->gt = gt & 0xFFFF, COVER_P(a - acc);
     return;
   }
-  t = (t * (255 - (s >> 24)) * 257) >> 16;
-  if (t < 2) t = 0, COVER_P(p);
-  a->gt = g | t << 16;
+  uint32_t ia = ~s >> 24, t = (T_OF(gt) * (ia + (ia << 8))) >> 16;
+  if (t < 2) {
+    a->gt = gt & 0xFFFF, COVER_P(a - acc);
+    return;
+  }
+  a->gt = (gt & 0xFFFF) | t << 16;
+}
+static inline void take_over(int row, int x, int p, uint32_t s) {
+  (void)row, (void)x;
+  take_over_a(acc + p, s);
 }
 
 #define ACC_TOP (65535 - 255 * 128 - 1024)   /* lights that add stop here: what is behind, and the dither, still fit */
@@ -778,6 +797,112 @@ __attribute__((noinline)) static int turned_gap(int32_t u, int32_t v, int32_t du
   n = n < m ? n : m;
   return n < left ? n : left;
 }
+/* a rotated item's pixels [A, Ae) on one tile of 4-bit texels, drawn over: tu and tv step by dux and dvx */
+typedef struct {
+  int32_t tv, dux, dvx;
+  const uint8_t *lt;
+  const uint32_t *pal;
+  Acc *acc;
+  uint32_t *cov;
+} T4;
+#if defined(__arm__) && defined(__thumb2__) && !defined(GFX_NO_ASM)
+/* (as the C below, which the computer's build runs: the compiler keeps too few of its values in registers) */
+__attribute__((naked, noinline)) static void turned4_over(Acc *A, Acc *Ae, int32_t tu, const T4 *k) {
+  __asm__ volatile(
+      "push {r3-r11, lr}\n"          /* (k at [sp]) */
+      "ldm r3, {r4-r8}\n"            /* tv, dux, dvx, lt, pal */
+      "cmp r0, r1\n"
+      "bhs 9f\n"
+      "1:\n"
+      "ubfx r3, r4, #16, #4\n"        /* the texel's row */
+      "ubfx r11, r2, #17, #3\n"       /* its byte in it */
+      "add r3, r11, r3, lsl #3\n"
+      "ldrb r3, [r7, r3]\n"
+      "ubfx r11, r2, #16, #1\n"       /* (which half) */
+      "lsl r11, r11, #2\n"
+      "lsr r3, r3, r11\n"
+      "ands r3, r3, #15\n"
+      "bne 3f\n"
+      "2:\n"
+      "add r2, r2, r5\n"
+      "add r4, r4, r6\n"
+      "adds r0, r0, #8\n"
+      "cmp r0, r1\n"
+      "blo 1b\n"
+      "9:\n"
+      "pop {r3-r11, pc}\n"
+      "3:\n"
+      "ldr r3, [r8, r3, lsl #2]\n"    /* s */
+      "ldrd r9, r10, [r0]\n"          /* rb, gt */
+      "add r11, r10, #65536\n"
+      "lsr r11, r11, #17\n"           /* tt = (t + 1) >> 1 */
+      "and r12, r3, #0xFF00FF\n"
+      "mla r9, r12, r11, r9\n"
+      "ubfx r12, r3, #8, #8\n"
+      "mla r10, r12, r11, r10\n"      /* (green in the low half) */
+      "str r9, [r0]\n"
+      "cmp r3, #0xFF000000\n"
+      "bhs 4f\n"
+      "mvn r12, r3\n"
+      "lsr r12, r12, #24\n"
+      "add r12, r12, r12, lsl #8\n"   /* (255 - alpha) * 257 */
+      "lsr r11, r10, #16\n"
+      "mul r11, r11, r12\n"
+      "lsrs r11, r11, #16\n"
+      "cmp r11, #2\n"
+      "blo 4f\n"
+      "bfi r10, r11, #16, #16\n"
+      "str r10, [r0, #4]\n"
+      "b 2b\n"
+      "4:\n"                          /* nothing left from behind: covered */
+      "bfc r10, #16, #16\n"
+      "str r10, [r0, #4]\n"
+      "ldr r12, [sp]\n"
+      "ldr r11, [r12, #20]\n"         /* acc */
+      "ldr r12, [r12, #24]\n"         /* cov */
+      "sub r11, r0, r11\n"
+      "lsr r9, r11, #8\n"             /* its word */
+      "ubfx r11, r11, #3, #5\n"       /* its bit */
+      "movs r10, #1\n"
+      "lsl r10, r10, r11\n"
+      "ldr r11, [r12, r9, lsl #2]\n"
+      "orr r11, r11, r10\n"
+      "str r11, [r12, r9, lsl #2]\n"
+      "b 2b\n");
+}
+#endif
+#if !(defined(__arm__) && defined(__thumb2__) && !defined(GFX_NO_ASM)) || defined(GFX_ASM_CHECK)
+#ifdef GFX_ASM_CHECK
+#define turned4_over turned4_c
+#endif
+__attribute__((noinline)) static void turned4_over(Acc *A, Acc *Ae, int32_t tu, const T4 *k) {
+  int32_t tv = k->tv;
+  for (; A < Ae; A++, tu += k->dux, tv += k->dvx) {
+    int ur = (tu >> 16) & 15, vr = (tv >> 16) & 15, ci = k->lt[vr << 3 | ur >> 1] >> ((ur & 1) * 4) & 15;
+    if (ci) take_over_a(A, k->pal[ci]);
+  }
+}
+#endif
+#ifdef GFX_ASM_CHECK
+#undef turned4_over
+uint32_t g_asm_bad __attribute__((used)), g_asm_calls __attribute__((used));
+/* (both, on copies: the C one's result kept, the differences counted) */
+static void turned4_check(Acc *A, Acc *Ae, int32_t tu, const T4 *k) {
+  /* (copies in g_scratch: free between tile decodes) */
+  int n = (int)(Ae - A);
+  if (n <= 0) return;
+  Acc *a0 = (Acc *)(void *)g_scratch, *a1 = a0 + VIEW_W;
+  uint32_t *c0 = (uint32_t *)(void *)(a1 + VIEW_W), *c1 = c0 + STRIP_H * VIEW_W / 32;
+  memcpy(a0, A, n * sizeof *A), memcpy(c0, cov, sizeof cov);
+  turned4_over(A, Ae, tu, k);
+  memcpy(a1, A, n * sizeof *A), memcpy(c1, cov, sizeof cov);
+  memcpy(A, a0, n * sizeof *A), memcpy(cov, c0, sizeof cov);
+  turned4_c(A, Ae, tu, k);
+  g_asm_calls++;
+  if (memcmp(a1, A, n * sizeof *A) || memcmp(c1, cov, sizeof cov)) g_asm_bad++;
+}
+#define turned4_over turned4_check
+#endif
 typedef struct { uint16_t *rtp; uint16_t tex, tw; } TurnSrc;
 /* the tile a key names (out of the loop below) */
 __attribute__((noinline)) static const uint8_t *turned_key(const TurnSrc *s, int key) {
@@ -828,17 +953,22 @@ static void run_turned(const Ctx *c, int y, int a, int b, int *last_key, const u
         pn = p + k1, p += k0, tu += dux * k0, tv += dvx * k0;                  \
       }                                                                        \
     }                                                                          \
-    for (; p < pn; p++, tu += dux, tv += dvx) {                                \
+    if (SH == 4 && !mode) {                                                    \
+      T4 k4 = {tv, dux, dvx, lt, pal, acc, &cov[0][0]};                        \
+      turned4_over(acc + p, acc + pn, tu, &k4);                                \
+      continue;                                                                \
+    }                                                                          \
+    for (Acc *A = acc + p, *Ae = acc + pn; A < Ae; A++, tu += dux, tv += dvx) { \
       int ur = (tu >> 16) & ((1 << SH) - 1), vr = (tv >> 16) & 15, ci = TEXEL; \
       if (ci) PUT;                                                             \
     }                                                                          \
   }
   if (r->fmt == FMT_ALPHA2) {
-    if (!mode) TURNED(5, lt[vr * 8 + (ur >> 2)] >> ((ur & 3) * 2) & 3, take_over(0, 0, p, pal[ci]))
-    else TURNED(5, lt[vr * 8 + (ur >> 2)] >> ((ur & 3) * 2) & 3, take_mode(0, 0, p, pal[ci], mode))
+    if (!mode) TURNED(5, lt[vr << 3 | ur >> 2] >> ((ur & 3) * 2) & 3, take_over_a(A, pal[ci]))
+    else TURNED(5, lt[vr << 3 | ur >> 2] >> ((ur & 3) * 2) & 3, take_mode(0, 0, (int)(A - acc), pal[ci], mode))
   } else {
-    if (!mode) TURNED(4, lt[vr * 8 + (ur >> 1)] >> ((ur & 1) * 4) & 15, take_over(0, 0, p, pal[ci]))
-    else TURNED(4, lt[vr * 8 + (ur >> 1)] >> ((ur & 1) * 4) & 15, take_mode(0, 0, p, pal[ci], mode))
+    if (!mode) TURNED(4, lt[vr << 3 | ur >> 1] >> ((ur & 1) * 4) & 15, take_over_a(A, pal[ci]))
+    else TURNED(4, lt[vr << 3 | ur >> 1] >> ((ur & 1) * 4) & 15, take_mode(0, 0, (int)(A - acc), pal[ci], mode))
   }
 #undef TURNED
   *last_key = lk, *last_t = lt;
@@ -920,7 +1050,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
   const Inst *in = &it->in;
   int ya = it->y0 > sy0 ? it->y0 : sy0, yb = it->y1 < sy1 ? it->y1 : sy1;
   if (ya >= yb) return;
-  Ctx c = {idx, in->flags & F_BLEND, 0, sy0, in, NULL, NULL, pals[it->pal].c, it};
+  Ctx c = {idx, it->screen ? BL_ALPHA : in->flags & F_BLEND, 0, sy0, in, NULL, NULL, pals[it->pal].c, it};
   Map m;
   int kind = 0;   /* 0 solid, 1 axis, 2 turned, 3 soft, 4 bilinear */
   const uint32_t *soft = NULL;
@@ -1384,8 +1514,12 @@ static bool add_item(const Inst *in, float blur_z) {
   uint32_t alpha = inst_alpha(in);
   if (!alpha) return false;   /* (a hidden group, or a clear tint) */
   if (!item_box(&cur.in, &cur)) return false;
-  cur.pal = (uint8_t)pal_get(cur.in.flags & F_SOLID ? TEX_NONE : cur.in.tex, cur.in.tint, cur.in.flags, alpha);
-  if (cur.in.z * (1.0f / 128) > blur_z) {
+  bool front = !(cur.in.z * (1.0f / 128) > blur_z);
+  /* (screening as blending: texels of a palette, not mixed with their neighbors, in front of the blur plane) */
+  cur.screen = front && (cur.in.flags & F_BLEND) == BL_SCREEN &&
+               ((cur.in.flags & F_SOLID) || (tex_rec(cur.in.tex)->fmt == FMT_PAL4 && !(tex_rec(cur.in.tex)->flags & TEX_SMOOTH)));
+  cur.pal = (uint8_t)pal_get(cur.in.flags & F_SOLID ? TEX_NONE : cur.in.tex, cur.in.tint, cur.in.flags, alpha, cur.screen);
+  if (!front) {
     arena_take(&cur, false);
     if (!bg_on) memset(bgbuf, 0, sizeof bgbuf), bg_on = true;
     draw_bg_item(&cur);

@@ -1,5 +1,7 @@
 /* The title screen, the save profiles and the pause menu (UIManager: Menu_Title's MainMenuScreen, SaveProfileScreen and
- * PauseMenuScreen, their pieces where tools/menu.py found them): what is selected, what the keys do. */
+ * PauseMenuScreen, their pieces where tools/menu.py found them): what is selected, what the keys do. And how to play
+ * on the calculator (its keys, as the Options' Keyboard screen shows them, then the basics): before a new game, and
+ * from the title and the pause menu, where Options is. */
 #pragma GCC optimize("Os")   /* (its code small: not where a frame's time goes) */
 #include "game.h"
 
@@ -19,16 +21,18 @@ typedef struct {
 static const Piece logo = MENU_LOGO, pointer = MENU_POINTER, profiles_fleur = MENU_PROFILES_FLEUR,
                    slot_fleur = MENU_SLOT_FLEUR, slot_selector = MENU_SLOT_SELECTOR, slot_cursor = MENU_SLOT_CURSOR,
                    slot_orb = MENU_SLOT_ORB, slot_geo = MENU_SLOT_GEO, slot_health = MENU_SLOT_HEALTH,
-                   pause_top = MENU_PAUSE_TOP, pause_bot = MENU_PAUSE_BOT;
+                   pause_top = MENU_PAUSE_TOP, pause_bot = MENU_PAUSE_BOT, keys_fleur = MENU_KEYS_FLEUR;
+static const int16_t key_texts[MENU_NKEYS][2] = MENU_KEYS;   /* (what a key does, the key) */
 static const ZonePiece zone_bgs[MENU_SLOT_NZONES] = MENU_SLOT_ZONES;
 static const int16_t zone_texts[MENU_SLOT_NZONES] = TXT_ZONES;
 
-enum { MS_TITLE, MS_PROFILES, MS_GAME, MS_PAUSE };
+enum { MS_TITLE, MS_PROFILES, MS_GAME, MS_PAUSE, MS_HELP };
 /* (the save profiles' rows: the slots, then Back; a slot's Clear Save, its prompt's Yes and No) */
 enum { PS_SLOT, PS_CLEAR, PS_PROMPT_NO, PS_PROMPT_YES };
 
 static struct {
   uint8_t screen, sel, part;
+  uint8_t page, from, slot;   /* (how to play: its page; the screen it was opened from, the new game's slot) */
   uint32_t prev_keys;
   float t;                 /* (time on this screen: its fade in) */
   int8_t state[SAVE_SLOTS];   /* (save_stats: 0 none, 1 a game, -1 corrupted) */
@@ -75,7 +79,9 @@ void menu_start(void) {
 }
 
 bool menu_quit(void) { return mn.quit; }
-bool menu_in_game(void) { return mn.screen == MS_GAME || mn.screen == MS_PAUSE; }
+bool menu_in_game(void) {
+  return mn.screen == MS_GAME || mn.screen == MS_PAUSE || (mn.screen == MS_HELP && mn.from == MS_PAUSE);
+}
 
 /* a new game in a slot: the Knight at King's Pass' respawn point */
 static void new_game(int slot) {
@@ -91,6 +97,15 @@ static void new_game(int slot) {
   game_enter(ROOM_TUTORIAL_01, x, y, right);
 }
 
+static void help_open(int from, int slot) {
+  go(MS_HELP, 0);
+  mn.from = (uint8_t)from, mn.slot = (uint8_t)slot, mn.page = 0;
+}
+static void help_close(void) {   /* (back where it was opened, on its How to Play) */
+  if (mn.from == MS_PROFILES) go(MS_PROFILES, mn.slot);
+  else go(mn.from, 1);
+}
+
 /* (a slot chosen: its game loaded, at its bench; or a new one) */
 static void pick_slot(int slot) {
   if (mn.state[slot] == 1) {
@@ -100,9 +115,10 @@ static void pick_slot(int slot) {
       mn.state[slot] = -1;
       return;
     }
-  } else if (mn.state[slot] == 0)
-    new_game(slot);
-  else
+  } else if (mn.state[slot] == 0) {
+    help_open(MS_PROFILES, slot);   /* (how to play first) */
+    return;
+  } else
     return;   /* (a corrupted save: only cleared) */
   go(MS_GAME, 0);
 }
@@ -116,10 +132,12 @@ bool menu_tick(uint32_t keys) {
   mn.t += DT;
   switch (mn.screen) {
     case MS_TITLE:
-      /* Start Game, Quit Game */
-      if (p & (K_UP | K_DOWN)) mn.sel ^= 1;
+      /* Start Game, How to Play, Quit Game */
+      if (p & K_UP) mn.sel = (uint8_t)((mn.sel + 2) % 3);
+      if (p & K_DOWN) mn.sel = (uint8_t)((mn.sel + 1) % 3);
       if (p & K_OK) {
         if (mn.sel == 0) go(MS_PROFILES, 0);
+        else if (mn.sel == 1) help_open(MS_TITLE, 0);
         else mn.quit = true;
       }
       return true;
@@ -153,11 +171,24 @@ bool menu_tick(uint32_t keys) {
         return true;
       }
       return false;
+    case MS_HELP:
+      /* its two pages; Back goes back, OK past the second starts the new game (or goes back) */
+      if (p & K_BACK) help_close();
+      else if (mn.page == 0 && (p & (K_OK | K_RIGHT))) mn.page = 1;
+      else if (mn.page == 1 && (p & K_LEFT)) mn.page = 0;
+      else if (mn.page == 1 && (p & K_OK)) {
+        if (mn.from == MS_PROFILES) new_game(mn.slot), go(MS_GAME, 0);
+        else help_close();
+      }
+      return true;
     case MS_PAUSE:
-      if (p & (K_UP | K_DOWN)) mn.sel ^= 1;
+      /* Continue, How to Play, Quit to Menu */
+      if (p & K_UP) mn.sel = (uint8_t)((mn.sel + 2) % 3);
+      if (p & K_DOWN) mn.sel = (uint8_t)((mn.sel + 1) % 3);
       if (p & (K_PAUSE | K_BACK)) go(MS_GAME, 0);
       else if (p & K_OK) {
         if (mn.sel == 0) go(MS_GAME, 0);
+        else if (mn.sel == 1) help_open(MS_PAUSE, 0);
         else {
           /* Quit to Menu: the game saved (the Knight at his bench as it loads), the title */
           save_game();
@@ -255,6 +286,34 @@ static void draw_slot(int i, float a) {
   }
 }
 
+/* how to play: the keys (two columns: what a key does, the key), or the basics; under them Next, then Start Game (a
+ * new game) or Back */
+static void draw_help(float a) {
+  float hw = VIEW_W / 2 / HUD_PX - 0.6f;   /* (the columns: from the screen's edges to its middle) */
+  text_id(STYLE_MENU_TITLE, mn.page ? TXT_HELP_TITLE : TXT_SCREEN_KEYBOARD, 0, MENU_KEYS_TITLE_Y, 0, a);
+  piece(&keys_fleur, 0, MENU_KEYS_FLEUR_Y, false, white(0, a));
+  if (mn.page == 0) {
+    for (int i = 0; i < MENU_NKEYS; i++) {
+      int col = i < 6 ? 0 : 1, row = col ? i - 6 : i;
+      float y = MENU_KEYS_ROW_Y + row * MENU_KEYS_DY, x0 = col ? 0.5f : -hw, x1 = col ? hw : -0.5f;
+      text_id(STYLE_MENU_SMALL, key_texts[i][0], x0, y, 1, a);
+      text_id(STYLE_MENU_SMALL, key_texts[i][1], x1, y, 2, a * 0.75f);
+    }
+  } else {
+    /* (the lines, from the first row down) */
+    const uint8_t *s = text_get(TXT_HELP_LINES);
+    float line = font_line(font_style(STYLE_TUTE)) / HUD_PX, y = MENU_KEYS_ROW_Y + 0.2f;
+    while (*s) {
+      int n = 0;
+      while (s[n] && s[n] != TEXT_BR) n++;
+      text_at(STYLE_TUTE, s, n, 0, y, 0, a);
+      s += n + (s[n] == TEXT_BR);
+      y -= line;
+    }
+  }
+  button(mn.page == 0 ? TXT_NEXT : mn.from == MS_PROFILES ? TXT_MAIN_START : TXT_NAV_BACK, 0, MENU_KEYS_BUTTON_Y, true, a);
+}
+
 void menu_draw(void) {
   float a = mn.t / FADE_TIME;
   if (a > 1) a = 1;
@@ -262,7 +321,8 @@ void menu_draw(void) {
     case MS_TITLE:
       piece(&logo, 0, MENU_LOGO_Y, false, white(0, a));
       button(TXT_MAIN_START, 0, MENU_START_Y, mn.sel == 0, a);
-      button(TXT_MAIN_QUIT, 0, MENU_QUIT_Y, mn.sel == 1, a);
+      button(TXT_HELP, 0, MENU_HELP_Y, mn.sel == 1, a);
+      button(TXT_MAIN_QUIT, 0, MENU_QUIT_Y, mn.sel == 2, a);
       break;
     case MS_PROFILES:
       text_id(STYLE_MENU_TITLE, TXT_SCREEN_SAVE_PROFILES, 0, MENU_PROFILES_TITLE_Y, 0, a);
@@ -276,7 +336,12 @@ void menu_draw(void) {
       piece(&pause_top, 0, MENU_PAUSE_TOP_Y, false, white(0, a));
       piece(&pause_bot, 0, MENU_PAUSE_BOT_Y, false, white(0, a));
       button(TXT_PAUSE_CONTINUE, 0, MENU_PAUSE_CONTINUE_Y, mn.sel == 0, a);
-      button(TXT_PAUSE_MAIN, 0, MENU_PAUSE_QUIT_Y, mn.sel == 1, a);
+      button(TXT_HELP, 0, MENU_PAUSE_HELP_Y, mn.sel == 1, a);
+      button(TXT_PAUSE_MAIN, 0, MENU_PAUSE_QUIT_Y, mn.sel == 2, a);
+      break;
+    case MS_HELP:
+      if (mn.from == MS_PAUSE) gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(31, 0, 0, 0, (uint8_t)(0.8f * 255 + 0.5f)));
+      draw_help(a);
       break;
   }
 }

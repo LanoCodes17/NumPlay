@@ -46,7 +46,7 @@
 
 ## How to play
 
-Choose Start Game, then a save. A new game starts with the Knight falling into King's Pass. Walk on to Dirtmouth and down the well into the Forgotten Crossroads.
+Choose Start Game, then a save. A new game first shows how to play: which key does what, then the basics. You can see them again with How to Play, on the title screen and in the pause menu. Then the Knight falls into King's Pass. Walk on to Dirtmouth and down the well into the Forgotten Crossroads.
 
 Hit enemies with the nail to fill your soul, then hold the spell key to focus it into health. Rest at benches to save and to change charms. When you die you lose your geo and leave a shade behind: defeat it to get them back.
 

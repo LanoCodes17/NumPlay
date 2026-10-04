@@ -120,7 +120,8 @@ def build(sprites, texts):
     out["MENU_LOGO_Y"] = U(100 / actors.HUD_K - 0.29 * 200 / actors.HUD_K)
     btn = "MainMenuScreen/MainMenuButtons/%sButton"
     out["MENU_START_Y"] = U(at(btn % "StartGame")[1])
-    out["MENU_QUIT_Y"] = U(at(btn % "Options")[1])   # (the second of the buttons shown)
+    out["MENU_HELP_Y"] = U(at(btn % "Options")[1])   # (How to Play, where Options is)
+    out["MENU_QUIT_Y"] = U(at(btn % "Achievements")[1])   # (the third of the buttons shown)
     cx, cy, cw, ch = at(btn % "StartGame" + "/Text/CursorLeft")
     tx, ty, tw, th = at(btn % "StartGame" + "/Text")
     # (the pointers as big as the text is made)
@@ -178,7 +179,16 @@ def build(sprites, texts):
     out["MENU_PAUSE_BOT"] = obj_piece("PauseMenuScreen/BottomFleur", frame_of="NewPauseMenuScreen/BottomFleur")
     out["MENU_PAUSE_BOT_Y"] = U(at("PauseMenuScreen/BottomFleur")[1])
     yc, yo, yq = (at("PauseMenuScreen/Controls/%sButton" % b)[1] for b in ("Continue", "Options", "Quit"))
-    out["MENU_PAUSE_CONTINUE_Y"], out["MENU_PAUSE_QUIT_Y"] = U((yc + yo) / 2), U((yo + yq) / 2)
+    out["MENU_PAUSE_CONTINUE_Y"], out["MENU_PAUSE_HELP_Y"], out["MENU_PAUSE_QUIT_Y"] = U(yc), U(yo), U(yq)
+    # how to play: the keyboard (the Options' Keyboard screen: its title, its fleur, its rows, its buttons' place), then
+    # the basics, as that screen
+    kb = "KeyboardMenuScreen/"
+    out["MENU_KEYS_TITLE_Y"] = U(at(kb + "Title")[1])
+    out["MENU_KEYS_FLEUR"] = obj_piece(kb + "TopFleur")
+    out["MENU_KEYS_FLEUR_Y"] = U(at(kb + "TopFleur")[1])
+    y0, y1 = at(kb + "Content/MappableKeys/UpButton")[1], at(kb + "Content/MappableKeys/DownButton")[1]
+    out["MENU_KEYS_ROW_Y"], out["MENU_KEYS_DY"] = U(y0), U(y1 - y0)
+    out["MENU_KEYS_BUTTON_Y"] = U(at(kb + "Controls/ApplyButton")[1])
     # the texts
     sh = text.sheets()
     mm = lambda k, st="MENU": texts.add(text.clean(sh["MainMenu"][k]), st)
@@ -186,6 +196,26 @@ def build(sprites, texts):
               "NAV_NO", "NAV_BACK", "PAUSE_CONTINUE", "PAUSE_MAIN", "PROFILE_CORRUPTED"):
         out["TXT_" + k] = mm(k)
     out["TXT_SCREEN_SAVE_PROFILES"] = mm("SCREEN_SAVE_PROFILES", "MENU_TITLE")
+    out["TXT_SCREEN_KEYBOARD"] = mm("SCREEN_KEYBOARD", "MENU_TITLE")
+    # how to play: the game's names for what the keys do, then the calculator's keys
+    keys = [(mm("BUTTON_MOVE", "MENU_SMALL"), "left, right"), (mm("BUTTON_LOOK", "MENU_SMALL"), "up, down"),
+            (mm("BUTTON_JUMP", "MENU_SMALL"), "OK"), (mm("BUTTON_ATTACK", "MENU_SMALL"), "back"),
+            (mm("BUTTON_DASH", "MENU_SMALL"), "shift"), (mm("BUTTON_CAST", "MENU_SMALL"), "alpha"),
+            (texts.add("Listen / Rest / Enter", "MENU_SMALL"), "up"), (mm("BUTTON_MAP", "MENU_SMALL"), "var"),
+            (mm("BUTTON_INVENTORY", "MENU_SMALL"), "toolbox"), (mm("BUTTON_PAUSE", "MENU_SMALL"), "backspace"),
+            (texts.add("Save and Quit", "MENU_SMALL"), "home")]
+    out["MENU_KEYS"] = "{%s}" % ", ".join("{%d, %d}" % (t, texts.add(k, "MENU_SMALL")) for t, k in keys)
+    out["MENU_NKEYS"] = len(keys)
+    out["TXT_HELP"] = texts.add("How to Play", "MENU")
+    out["TXT_HELP_TITLE"] = texts.add("How to Play", "MENU_TITLE")
+    out["TXT_NEXT"] = texts.add("Next", "MENU")
+    out["TXT_HELP_LINES"] = texts.add("Strike enemies with your nail to gather Soul.\n"
+                                      "Hold alpha to focus Soul and heal your masks.\n"
+                                      "Rest at a bench to heal and to save your game.\n"
+                                      "If you fall, your shade keeps your geo:\n"
+                                      "strike it down to win them back.\n"
+                                      "Spend geo in Dirtmouth's shops, and find\n"
+                                      "Cornifer in the Crossroads for a map.", "TUTE")
     out["TXT_ZONES"] = "{%s}" % ", ".join("%d" % texts.add(text.clean(sh["Map Zones"][ZONES[z]]), "MENU_SMALL")
                                           for z in sorted(ZONES))
     # (the characters the numbers need: slots, geo, play time)

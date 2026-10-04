@@ -594,7 +594,7 @@ static void clip_lin(int32_t u0, int32_t du, int32_t U, int n, int *i0, int *i1)
     int k = u0 < 0 ? 0 : u0 / -du + 1;   /* first i with u < 0 */
     if (k < b) b = k;
   }
-  (void)n;
+  if (a > n) a = n;   /* (none in it: not past its end, where the steps from u0 would overflow) */
   *i0 = a, *i1 = b > a ? b : a;
 }
 
@@ -986,6 +986,7 @@ static void run_turned(const Ctx *c, int y, int a, int b, int *last_key, const u
         int k0 = 0, k1 = n;                                                    \
         clip_in(lu, dux, ux0, ux1, &k0, &k1);                                  \
         clip_in(lv, dvx, vy0, vy1, &k0, &k1);                                  \
+        if (k0 > n) k0 = n;   /* (none in it: as clip_lin) */                  \
         if (k1 < k0) k1 = k0;                                                  \
         pn = p + k1, p += k0, tu += dux * k0, tv += dvx * k0;                  \
       }                                                                        \

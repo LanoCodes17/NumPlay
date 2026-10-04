@@ -36,7 +36,7 @@ bool pal_opaque(uint16_t pal) {
 /* ---------------------------------------------------------------- LZMA streams */
 #define DICT_SIZE 9600   /* (tools/pack.py DICT: the strip, all of it) */
 extern uint16_t g_strip[];          /* gfx.c: the ring buffer borrows the strip */
-static CLzmaProb probs[1984 + 768];   /* NUM_BASE_PROBS + LZMA_LIT_SIZE << (lc + lp) */
+#define NPROBS (1984 + 768)         /* NUM_BASE_PROBS + LZMA_LIT_SIZE << (lc + lp) */
 
 static void pack_info(uint16_t p, const uint8_t **data, uint32_t *comp, uint32_t *raw) {
   const uint8_t *s = section(SEC_PACKS) + 4 + 12 * p;
@@ -51,12 +51,14 @@ static void lz_run(uint16_t p, uint32_t from, uint32_t to, Sink sink, void *ctx,
   uint32_t comp, raw;
   pack_info(p, &src, &comp, &raw);
   if (to > raw) to = raw;
+  /* (its probabilities on the stack, 5.5 KB of the calculator's 32: older calculator software gives apps less RAM) */
+  CLzmaProb probs[NPROBS];
   CLzmaDec dec;
   memset(&dec, 0, sizeof dec);
   dec.prop.lc = 0, dec.prop.lp = 0, dec.prop.pb = 0, dec.prop.dicSize = DICT_SIZE;
   dec.probs = probs;
   dec.probs_1664 = probs + 1664;
-  dec.numProbs = 1984 + 768;
+  dec.numProbs = NPROBS;
   dec.dic = (Byte *)(void *)g_strip;
   dec.dicBufSize = DICT_SIZE;
   LzmaDec_Init(&dec);

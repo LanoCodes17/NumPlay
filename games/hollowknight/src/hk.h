@@ -70,6 +70,8 @@ const uint8_t *tex_tile(uint16_t t, int tx, int ty);
 /* the same, as a cache slot (-1: an empty tile): it holds until the cache runs out of room in a frame */
 int tex_slot(uint16_t t, int tx, int ty);
 const uint8_t *tex_slot_px(int s);
+/* where a cached tile's texels that are not clear are, 4 bits each: x0, x1 - 1, y0, y1 - 1 (at 2 bits, x in twos) */
+uint32_t tex_slot_box(const uint8_t *px);
 extern bool g_tex_overload;
 /* a tile row's codes: 0 empty, 1 a tile, 3 an opaque tile (2 bits each) */
 const uint8_t *tex_row_codes(uint16_t t, int ty);

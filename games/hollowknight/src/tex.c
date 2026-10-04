@@ -5,11 +5,12 @@
 #ifndef NSLOTS
 #define NSLOTS 400
 #endif
-#define NHASH 512
+#define NHASH 256
 #define NO 0xFFFF
 #define BLOCK_TILES 16
 
 static uint8_t slot_px[NSLOTS][128];
+static uint16_t slot_box[NSLOTS];   /* where each tile's texels that are not clear are (tile_box) */
 static uint32_t slot_key[NSLOTS];
 static uint16_t slot_next[NSLOTS], slot_frame[NSLOTS];
 static uint16_t head[NHASH];
@@ -196,7 +197,7 @@ static void init(void) {
   inited = true;
 }
 
-static unsigned hash(uint32_t k) { return (k * 2654435761u) >> 23 & (NHASH - 1); }
+static unsigned hash(uint32_t k) { return (k * 2654435761u) >> 24 & (NHASH - 1); }
 
 static int find(uint32_t key) {
   for (int s = head[hash(key)]; s != NO; s = slot_next[s])
@@ -229,6 +230,27 @@ static int victim(void) {
   return s;
 }
 
+/* where a tile's texels that are not clear are, 4 bits each: x0, x1 - 1, y0, y1 - 1 (x1, y1 past them; at 2 bits, x
+ * in twos); all the tile if none */
+static uint16_t tile_box(const uint8_t *px) {
+  uint32_t c0 = 0, c1 = 0;
+  int y0 = 16, y1 = 0;
+  for (int y = 0; y < 16; y++) {
+    uint32_t w[2];
+    memcpy(w, px + y * 8, 8);
+    if (w[0] | w[1]) {
+      if (y0 > y) y0 = y;
+      y1 = y + 1, c0 |= w[0], c1 |= w[1];
+    }
+  }
+  if (!y1) return 0xF0F0;
+  /* (texel k: bits 4k (2k at 2 bits) and up of the row) */
+  int lb = c0 ? __builtin_ctz(c0) : 32 + __builtin_ctz(c1), hb = c1 ? 63 - __builtin_clz(c1) : 31 - __builtin_clz(c0);
+  /* (4 bits: a texel, or two at 2 bits) */
+  return (uint16_t)((lb >> 2) | (hb >> 2) << 4 | y0 << 8 | (y1 - 1) << 12);
+}
+uint32_t tex_slot_box(const uint8_t *px) { return slot_box[(px - slot_px[0]) >> 7]; }
+
 static int insert(uint32_t key, const uint8_t *px, int bytes) {
   int s = victim();
   unlink_slot(s);
@@ -237,6 +259,7 @@ static int insert(uint32_t key, const uint8_t *px, int bytes) {
   slot_next[s] = head[h];
   head[h] = (uint16_t)s;
   memcpy(slot_px[s], px, (size_t)bytes);
+  slot_box[s] = tile_box(px);
   return s;
 }
 
@@ -314,6 +337,7 @@ int tex_slot(uint16_t t, int tx, int ty) {
     slot_next[ns] = head[hh];
     head[hh] = (uint16_t)ns;
     memcpy(slot_px[ns], block_buf + i * bytes, (size_t)bytes);
+    slot_box[ns] = tile_box(block_buf + i * bytes);
     slot_frame[ns] = (uint16_t)(frame - 2);   /* not drawn yet: the first to go */
   }
   return want;

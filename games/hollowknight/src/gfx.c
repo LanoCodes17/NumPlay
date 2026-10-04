@@ -25,11 +25,17 @@ uint32_t g_gfx_items, g_gfx_pixels, g_gfx_dropped;
 uint32_t g_peak_pals, g_peak_arena, g_peak_soft;
 #endif
 
-/* the strip: light gathered (x 128, room above for lights that add): red << 16 | blue, green; and the light still
- * getting through (255 .. 0) */
-static uint32_t arb[NPX];
-static uint16_t ag[NPX];
-static uint8_t trans[NPX] __attribute__((aligned(4)));
+/* a strip's pixels as they take light, front to back: red and blue (16 bits each), then green (16 bits) and the light
+ * left from behind (8 bits, 255: all of it) together; then, finished, the 16-bit pixels in place */
+typedef struct { uint32_t rb, gt; } Acc;
+static Acc acc[NPX] __attribute__((aligned(8)));
+/* a pixel cleared: no light yet but its dither (the screen's 4 x 4 pattern: a strip's rows are its rows), all
+ * light left */
+#define CL(d) {((d) >> 1) * 0x800080u, 255u << 16 | ((d) >> 2) << 7}
+static const Acc acc_clear[STRIP_H][4] = {
+    {CL(0), CL(8), CL(2), CL(10)}, {CL(12), CL(4), CL(14), CL(6)}, {CL(3), CL(11), CL(1), CL(9)}, {CL(15), CL(7), CL(13), CL(5)}};
+#undef CL
+#define T_OF(gt) ((gt) >> 16)
 static uint32_t cov[STRIP_H][VIEW_W / 32];   /* pixels with no light left from behind */
 static bool strip_ready;   /* the strip buffers are clear (finish_strip leaves them so) */
 
@@ -439,23 +445,24 @@ uint32_t g_kind_px[6];
 #define COVER_P(p) (((uint32_t *)(void *)cov)[(p) >> 5] |= 1u << ((p) & 31))
 static inline void take_over(int row, int x, int p, uint32_t s) {
   (void)row, (void)x;
-  uint32_t t = trans[p], tt = (t + 1) >> 1;
-  arb[p] += (s & 0xFF00FF) * tt;
-  ag[p] = (uint16_t)(ag[p] + ((s >> 8) & 255) * tt);
+  Acc *a = acc + p;
+  uint32_t gt = a->gt, t = T_OF(gt), tt = (t + 1) >> 1, g = (gt + ((s >> 8) & 255) * tt) & 0xFFFF;
+  a->rb += (s & 0xFF00FF) * tt;
   if (s >= 0xFF000000u) {   /* (opaque: nothing left from behind) */
-    trans[p] = 0, COVER_P(p);
+    a->gt = g, COVER_P(p);
     return;
   }
   t = (t * (255 - (s >> 24)) * 257) >> 16;
   if (t < 2) t = 0, COVER_P(p);
-  trans[p] = (uint8_t)t;
+  a->gt = g | t << 16;
 }
 
 #define ACC_TOP (65535 - 255 * 128 - 1024)   /* lights that add stop here: what is behind, and the dither, still fit */
 static void take_mode(int row, int x, int p, uint32_t s, int mode) {
-  int32_t t = trans[p], tt = (t + 1) >> 1;
+  Acc *ac = acc + p;
+  int32_t t = (int32_t)T_OF(ac->gt), tt = (t + 1) >> 1;
   int32_t sr = s >> 16 & 255, sg = s >> 8 & 255, sb = s & 255, sa = s >> 24;
-  int32_t r = arb[p] >> 16, g = ag[p], b = arb[p] & 0xFFFF;
+  int32_t r = ac->rb >> 16, g = ac->gt & 0xFFFF, b = ac->rb & 0xFFFF;
   switch (mode) {
     case BL_ADD: r += sr * tt, g += sg * tt, b += sb * tt; break;
     case BL_SCREEN: {
@@ -465,7 +472,14 @@ static void take_mode(int row, int x, int p, uint32_t s, int mode) {
       t = (t * (255 - m) * 257) >> 16;
       break;
     }
-    case BL_LINEARLIGHT: r += (2 * sr - sa) * tt, g += (2 * sg - sa) * tt, b += (2 * sb - sa) * tt; break;
+    case BL_LINEARLIGHT: {
+      r += (2 * sr - sa) * tt, g += (2 * sg - sa) * tt, b += (2 * sb - sa) * tt;
+      /* (it takes light away too: never below the dither the pixel started with) */
+      const Acc *d = &acc_clear[p / VIEW_W][p & 3];
+      int32_t dr = (int32_t)(d->rb >> 16), dg = (int32_t)(d->gt & 0xFFFF), db = (int32_t)(d->rb & 0xFFFF);
+      r = r < dr ? dr : r, g = g < dg ? dg : g, b = b < db ? db : b;
+      break;
+    }
     case BL_MULTIPLY: t = (t * (255 - sa + (sr + sg + sb) / 3) * 257) >> 16; break;
     default:
       r += sr * tt, g += sg * tt, b += sb * tt;
@@ -475,10 +489,9 @@ static void take_mode(int row, int x, int p, uint32_t s, int mode) {
   r = r < 0 ? 0 : r > ACC_TOP ? ACC_TOP : r;
   g = g < 0 ? 0 : g > ACC_TOP ? ACC_TOP : g;
   b = b < 0 ? 0 : b > ACC_TOP ? ACC_TOP : b;
-  arb[p] = (uint32_t)r << 16 | (uint32_t)b;
-  ag[p] = (uint16_t)g;
   if (t < 2) t = 0, COVER_P(p);
-  trans[p] = (uint8_t)t;
+  ac->rb = (uint32_t)r << 16 | (uint32_t)b;
+  ac->gt = (uint32_t)g | (uint32_t)t << 16;
   (void)row, (void)x;
 }
 
@@ -546,9 +559,15 @@ typedef struct {
   const TexRec *r;
   uint16_t *slots;   /* tw * th, or NULL */
   const uint32_t *pal;
+  int lk;             /* (the last tile found, without slots: its key, ty << 8 | tx; -1 none) */
+  const uint8_t *lt;
+  int sc, sr;         /* (the last four texels sampled: their top left texel, their colors, all one) */
+  uint32_t st[4];
+  bool same;
 } BiTex;
+#define BITEX(tex, tw, r, slots, pal) ((BiTex){tex, tw, r, slots, pal, -1, NULL, -(1 << 30), 0, {0, 0, 0, 0}, false})
 
-static inline const uint8_t *bi_tile(const BiTex *b, int tx, int ty) {
+static inline const uint8_t *bi_tile(BiTex *b, int tx, int ty) {
   if (b->slots && !g_tex_overload) {
     uint16_t *e = b->slots + ty * b->tw + tx;
     if (*e == UNRES_SLOT) {
@@ -557,10 +576,13 @@ static inline const uint8_t *bi_tile(const BiTex *b, int tx, int ty) {
     }
     return *e == EMPTY_SLOT ? NULL : tex_slot_px(*e);
   }
-  return tex_tile(b->tex, tx, ty);
+  /* (samples near each other: mostly the same tile; the last one found stays in the cache until another is asked) */
+  int key = ty << 8 | tx;
+  if (key != b->lk) b->lk = key, b->lt = tex_tile(b->tex, tx, ty);
+  return b->lt;
 }
 
-static inline uint32_t bi_texel(const BiTex *b, int u, int v) {
+static inline uint32_t bi_texel(BiTex *b, int u, int v) {
   if ((unsigned)u >= b->r->w || (unsigned)v >= b->r->h) return 0;
   const uint8_t *t = bi_tile(b, u >> 4, v >> 4);
   if (!t) return 0;
@@ -568,25 +590,34 @@ static inline uint32_t bi_texel(const BiTex *b, int u, int v) {
   return b->pal[t[vr * 8 + (ur >> 1)] >> ((ur & 1) * 4) & 15];
 }
 
-/* the four texels around (u, v) (16.16), mixed */
-static inline uint32_t bi_sample(const BiTex *b, int32_t u, int32_t v) {
+/* the four texels around (u, v) (16.16), mixed (the same four as the last sample's: not read again) */
+static inline uint32_t bi_sample(BiTex *b, int32_t u, int32_t v) {
   int c = u >> 16, rr = v >> 16;
   uint32_t fu = (uint32_t)(u >> 8) & 255, fv = (uint32_t)(v >> 8) & 255;
-  uint32_t t00, t10, t01, t11;
-  if ((c & 15) != 15 && (rr & 15) != 15 && (unsigned)c < (unsigned)(b->r->w - 1) && (unsigned)rr < (unsigned)(b->r->h - 1)) {
-    const uint8_t *t = bi_tile(b, c >> 4, rr >> 4);
-    if (!t) return 0;
-    int ur = c & 15, vr = rr & 15;
-    const uint8_t *row = t + vr * 8;
-    int i0 = row[ur >> 1] >> ((ur & 1) * 4) & 15, i1 = row[(ur + 1) >> 1] >> (((ur + 1) & 1) * 4) & 15;
-    row += 8;
-    int i2 = row[ur >> 1] >> ((ur & 1) * 4) & 15, i3 = row[(ur + 1) >> 1] >> (((ur + 1) & 1) * 4) & 15;
-    if (i0 == i1 && i0 == i2 && i0 == i3) return b->pal[i0];   /* (the same four: as mixed; clear ones, 0) */
-    t00 = b->pal[i0], t10 = b->pal[i1], t01 = b->pal[i2], t11 = b->pal[i3];
-  } else {
-    t00 = bi_texel(b, c, rr), t10 = bi_texel(b, c + 1, rr), t01 = bi_texel(b, c, rr + 1), t11 = bi_texel(b, c + 1, rr + 1);
+  if (c != b->sc || rr != b->sr) {
+    b->sc = c, b->sr = rr;
+    uint32_t *t = b->st;
+    if ((c & 15) != 15 && (rr & 15) != 15 && (unsigned)c < (unsigned)(b->r->w - 1) && (unsigned)rr < (unsigned)(b->r->h - 1)) {
+      const uint8_t *tl = bi_tile(b, c >> 4, rr >> 4);
+      if (!tl) {
+        t[0] = t[1] = t[2] = t[3] = 0, b->same = true;
+        return 0;
+      }
+      int ur = c & 15, vr = rr & 15;
+      const uint8_t *row = tl + vr * 8;
+      int i0 = row[ur >> 1] >> ((ur & 1) * 4) & 15, i1 = row[(ur + 1) >> 1] >> (((ur + 1) & 1) * 4) & 15;
+      row += 8;
+      int i2 = row[ur >> 1] >> ((ur & 1) * 4) & 15, i3 = row[(ur + 1) >> 1] >> (((ur + 1) & 1) * 4) & 15;
+      b->same = i0 == i1 && i0 == i2 && i0 == i3;   /* (the same four: as mixed; clear ones, 0) */
+      t[0] = b->pal[i0], t[1] = b->pal[i1], t[2] = b->pal[i2], t[3] = b->pal[i3];
+    } else {
+      t[0] = bi_texel(b, c, rr), t[1] = bi_texel(b, c + 1, rr), t[2] = bi_texel(b, c, rr + 1), t[3] = bi_texel(b, c + 1, rr + 1);
+      b->same = t[0] == t[1] && t[0] == t[2] && t[0] == t[3];
+    }
   }
-  return lerp4(lerp4(t00, t10, fu), lerp4(t01, t11, fu), fv);
+  const uint32_t *t = b->st;
+  if (b->same) return t[0];
+  return lerp4(lerp4(t[0], t[1], fu), lerp4(t[2], t[3], fu), fv);
 }
 
 /* ---------------------------------------------------------------- one item in a strip, on the pixels with light left */
@@ -644,20 +675,43 @@ static void run_axis(const Ctx *c, int y, int a, int b, uint16_t *tp, int ty, in
       if (a2) {
         uint32_t s = c->pal[3];
         for (; x < e; x++, p++) {
-          uint32_t tt = (trans[p] + 1u) >> 1;
-          arb[p] += (s & 0xFF00FF) * tt, ag[p] = (uint16_t)(ag[p] + ((s >> 8) & 255) * tt), trans[p] = 0;
+          Acc *ac = acc + p;
+          uint32_t tt = (T_OF(ac->gt) + 1u) >> 1;
+          ac->rb += (s & 0xFF00FF) * tt, ac->gt = (ac->gt + ((s >> 8) & 255) * tt) & 0xFFFF;
         }
         u += du * (e - x0);
       } else {
         const uint8_t *rw = t + vr * 8;
         for (; x < e; x++, p++, u += du) {
           int ur = (u >> 16) & 15;
-          uint32_t s = c->pal[rw[ur >> 1] >> ((ur & 1) << 2) & 15], tt = (trans[p] + 1u) >> 1;
-          arb[p] += (s & 0xFF00FF) * tt, ag[p] = (uint16_t)(ag[p] + ((s >> 8) & 255) * tt), trans[p] = 0;
+          Acc *ac = acc + p;
+          uint32_t s = c->pal[rw[ur >> 1] >> ((ur & 1) << 2) & 15], tt = (T_OF(ac->gt) + 1u) >> 1;
+          ac->rb += (s & 0xFF00FF) * tt, ac->gt = (ac->gt + ((s >> 8) & 255) * tt) & 0xFFFF;
         }
       }
       cover_run(row, x0, e);
       continue;
+    }
+    uint32_t w2[2];
+    memcpy(w2, t + vr * 8, 8);
+    if (!(w2[0] | w2[1])) {   /* (this row of the tile is clear) */
+      x = e, p += n, u += du * n;
+      continue;
+    }
+    /* only the pixels on its texels from the first to the last that are not clear, then on to the next tile */
+    int xn = e, pn = p + n;
+    int32_t un = u + du * n;
+    {
+      int lb = w2[0] ? __builtin_ctz(w2[0]) : 32 + __builtin_ctz(w2[1]);
+      int hb = w2[1] ? 63 - __builtin_clz(w2[1]) : 31 - __builtin_clz(w2[0]);
+      int bs = a2 ? 1 : 2;
+      int32_t L = ((tx << sh) + (lb >> bs)) << 16, H = ((tx << sh) + (hb >> bs) + 1) << 16;
+      int k0, k1;
+      if (du > 0) k0 = u >= L ? 0 : (L - 1 - u) / du + 1, k1 = u >= H ? 0 : (H - 1 - u) / du + 1;
+      else k0 = u < H ? 0 : (u - H) / -du + 1, k1 = u < L ? 0 : (u - L) / -du + 1;
+      if (k1 > n) k1 = n;
+      if (k0 > k1) k0 = k1;
+      e = x + k1, x += k0, p += k0, u += du * k0;
     }
     if (a2) {
       const uint8_t *rw = t + vr * 8;
@@ -678,6 +732,7 @@ static void run_axis(const Ctx *c, int y, int a, int b, uint16_t *tp, int ty, in
         if (ci) take_mode(row, x, p, c->pal[ci], mode);
       }
     }
+    x = xn, p = pn, u = un;
   }
 }
 
@@ -693,6 +748,36 @@ static inline const uint8_t *turned_tile(uint16_t *rtp, uint16_t tex, int tw, in
   return tex_tile(tex, tx, ty);
 }
 
+/* steps from u (by du) until it leaves [lo, hi) (u in it), at least 1 */
+static inline int steps_in(int32_t u, int32_t du, int32_t lo, int32_t hi) {
+  return du > 0 ? (hi - 1 - u) / du + 1 : du < 0 ? (u - lo) / -du + 1 : 1 << 30;
+}
+/* the steps i in [k0, k1) where lo <= u + i du < hi */
+__attribute__((always_inline)) static inline void clip_in(int32_t u, int32_t du, int32_t lo, int32_t hi, int *k0, int *k1) {
+  if (du > 0) {
+    if (u < lo) {
+      int k = (lo - u - 1) / du + 1;
+      if (k > *k0) *k0 = k;
+    }
+    int k = u >= hi ? 0 : (hi - 1 - u) / du + 1;
+    if (k < *k1) *k1 = k;
+  } else if (du < 0) {
+    if (u >= hi) {
+      int k = (u - hi) / -du + 1;
+      if (k > *k0) *k0 = k;
+    }
+    int k = u < lo ? 0 : (u - lo) / -du + 1;
+    if (k < *k1) *k1 = k;
+  } else if (u < lo || u >= hi)
+    *k1 = 0;
+}
+/* the pixels from (u, v) on in the same tile (at most left) */
+__attribute__((noinline)) static int turned_gap(int32_t u, int32_t v, int32_t du, int32_t dv, int sh, int left) {
+  int32_t ul = (u >> (16 + sh)) << (16 + sh), vl = (v >> 20) << 20;
+  int n = steps_in(u, du, ul, ul + (1 << (16 + sh))), m = steps_in(v, dv, vl, vl + (1 << 20));
+  n = n < m ? n : m;
+  return n < left ? n : left;
+}
 typedef struct { uint16_t *rtp; uint16_t tex, tw; } TurnSrc;
 /* the tile a key names (out of the loop below) */
 __attribute__((noinline)) static const uint8_t *turned_key(const TurnSrc *s, int key) {
@@ -720,12 +805,33 @@ static void run_turned(const Ctx *c, int y, int a, int b, int *last_key, const u
   (void)sh, (void)um;
   /* (few values live in the loop: the pixel's index, its texel's place, the tile) */
 #define TURNED(SH, TEXEL, PUT)                                                     \
-  for (int p = row * VIEW_W + a + i0, pe = p + i1 - i0; p < pe; p++, u += dux, v += dvx) { \
-    int ui = u >> 16, vi = v >> 16, tkey = (vi >> 4) << 8 | (ui >> SH);          \
+  for (int q = row * VIEW_W + a + i0, qe = q + i1 - i0; q < qe;) {               \
+    int tkey = (v >> 20) << 8 | (u >> (16 + SH));                              \
     if (tkey != lk) lk = tkey, lt = turned_key(&src, tkey);                    \
+    int n = turned_gap(u, v, dux, dvx, SH, qe - q), p = q, pn = q + n;          \
+    int32_t tu = u, tv = v;                                                    \
+    q = pn, u += dux * n, v += dvx * n;                                        \
     if (!lt) continue;                                                         \
-    int ur = ui & ((1 << SH) - 1), vr = vi & 15, ci = TEXEL;                   \
-    if (ci) PUT;                                                               \
+    uint32_t bx = tex_slot_box(lt);                                            \
+    if (bx != 0xF0F0) {                                                        \
+      /* (only the pixels on the tile's texels that are not clear, as a box: worked out unless the first and the \
+       * last are in it) */                                                    \
+      int32_t lu = tu & ((1 << (16 + SH)) - 1), lv = tv & ((1 << 20) - 1);     \
+      int32_t ux0 = (int32_t)(bx & 15) << (12 + SH), ux1 = (int32_t)((bx >> 4 & 15) + 1) << (12 + SH); \
+      int32_t vy0 = (int32_t)(bx >> 8 & 15) << 16, vy1 = (int32_t)((bx >> 12) + 1) << 16; \
+      int32_t eu = lu + dux * (n - 1), ev = lv + dvx * (n - 1);                \
+      if (lu < ux0 || lu >= ux1 || eu < ux0 || eu >= ux1 || lv < vy0 || lv >= vy1 || ev < vy0 || ev >= vy1) { \
+        int k0 = 0, k1 = n;                                                    \
+        clip_in(lu, dux, ux0, ux1, &k0, &k1);                                  \
+        clip_in(lv, dvx, vy0, vy1, &k0, &k1);                                  \
+        if (k1 < k0) k1 = k0;                                                  \
+        pn = p + k1, p += k0, tu += dux * k0, tv += dvx * k0;                  \
+      }                                                                        \
+    }                                                                          \
+    for (; p < pn; p++, tu += dux, tv += dvx) {                                \
+      int ur = (tu >> 16) & ((1 << SH) - 1), vr = (tv >> 16) & 15, ci = TEXEL; \
+      if (ci) PUT;                                                             \
+    }                                                                          \
   }
   if (r->fmt == FMT_ALPHA2) {
     if (!mode) TURNED(5, lt[vr * 8 + (ur >> 2)] >> ((ur & 3) * 2) & 3, take_over(0, 0, p, pal[ci]))
@@ -839,7 +945,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
       }
     } else if ((c.r->flags & TEX_SMOOTH) && c.r->fmt == FMT_PAL4) {
       kind = 4;
-      bt = (BiTex){in->tex, c.r->tw, c.r, NULL, c.pal};
+      bt = BITEX(in->tex, c.r->tw, c.r, NULL, c.pal);
       if (it->ar != 0xFFFF && (in->flags & F_ROT)) bt.slots = arena + it->ar;
     } else
       kind = m.rot ? 2 : 1;
@@ -850,7 +956,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
     sscanf(getenv("PROBE"), "%d,%d", &px, &py);
     if (py >= ya && py < yb && px >= it->x0 && px < it->x1)
       fprintf(stderr, "item %d kind %d tex %u fmt %d blend %d z %.2f trans-before %u\n", idx, kind, in->tex,
-              c.r ? c.r->fmt : -1, c.mode, in->z / 128.0, trans[(py - sy0) * VIEW_W + px]);
+              c.r ? c.r->fmt : -1, c.mode, in->z / 128.0, T_OF(acc[(py - sy0) * VIEW_W + px].gt));
   }
 #endif
   uint16_t local[64], *tp = NULL;
@@ -955,7 +1061,7 @@ static void draw_bg_item(Item *it) {
       crb = c & 0xFF00FF, cg = c & 0xFF00, ta = inst_alpha(in) + 1u;
     }
   }
-  BiTex bt = {in->tex, r->tw, r, NULL, pal};
+  BiTex bt = BITEX(in->tex, r->tw, r, NULL, pal);
   if (it->ar != 0xFFFF && (in->flags & F_ROT)) bt.slots = arena + it->ar;
   int W = r->w, H = r->h;
   /* texel coordinates (16.16) less half a texel: where bilinear samples are centered */
@@ -983,6 +1089,23 @@ static void draw_bg_item(Item *it) {
       clip_lin(u + 65536, du, (W + 1) << 16, i1, &i0, &i1);
       clip_lin(v + 65536, dv, (H + 1) << 16, i1, &i0, &i1);
       u += du * i0, v += dv * i0;
+      if (dv == 0) {
+        /* upright: the row's two texel rows mixed once per texel column, then the columns (most of these textures are
+         * much bigger than the background's pixels: a column serves several) */
+        int rr = v >> 16, lc = -2;
+        uint32_t fv = (uint32_t)(v >> 8) & 255, L0 = 0, L1 = 0;
+        for (int bx = bx0 + i0; bx < bx0 + i1; bx++, u += du) {
+          int c = u >> 16;
+          if (c != lc) {
+            L0 = c == lc + 1 ? L1 : lerp4(bi_texel(&bt, c, rr), bi_texel(&bt, c, rr + 1), fv);
+            L1 = lerp4(bi_texel(&bt, c + 1, rr), bi_texel(&bt, c + 1, rr + 1), fv);
+            lc = c;
+          }
+          uint32_t s = lerp4(L0, L1, (uint32_t)(u >> 8) & 255);
+          if (s >> 24) bg_put(d16 + bx, s, mode);
+        }
+        continue;
+      }
       for (int bx = bx0 + i0; bx < bx0 + i1; bx++, u += du, v += dv) {
         uint32_t s = bi_sample(&bt, u, v);
         if (s >> 24) bg_put(d16 + bx, s, mode);
@@ -1012,7 +1135,6 @@ static void draw_bg_item(Item *it) {
 
 /* the background shows where light is left; then the strip goes to the screen, dithered. The strip's buffers are
  * left cleared for the next one. */
-static const uint8_t bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
 static uint32_t bgline[BG_W + 2];   /* a row of the background (0xRRGGBB), its edges repeated */
 
 
@@ -1028,10 +1150,63 @@ static inline uint32_t to6(uint32_t v) {
   __asm__("usat %0, #6, %1, asr #9" : "=r"(r) : "r"(v));
   return r;
 }
+/* red and blue (16 bits each) and green to a 16-bit pixel: red and blue doubled at once, each at most 65535, their
+ * top 5 bits are the colors */
+static inline uint32_t to565(uint32_t rb, uint32_t g) {
+  uint32_t w;
+  __asm__("uqadd16 %0, %1, %1" : "=r"(w) : "r"(rb));
+  return (w >> 16 & 0xF800) | (w >> 11 & 31) | to6(g) << 5;
+}
 #else
 static inline uint32_t to5(uint32_t v) { return v >= (32u << 10) ? 31u : v >> 10; }
 static inline uint32_t to6(uint32_t v) { return v >= (64u << 9) ? 63u : v >> 9; }
+static inline uint32_t to565(uint32_t rb, uint32_t g) { return to5(rb >> 16) << 11 | to6(g) << 5 | to5(rb & 0xFFFF); }
 #endif
+
+/* 4 pixels with no light left from behind to 16 bits (green: gt's low half, gm 0xFFFF; or all of it, gm ~0, if
+ * nothing is left anyway), two to a word */
+__attribute__((always_inline)) static inline void out4(const Acc *A, uint16_t *O, uint32_t gm) {
+  uint32_t p0 = to565(A[0].rb, A[0].gt & gm), p1 = to565(A[1].rb, A[1].gt & gm);
+  uint32_t p2 = to565(A[2].rb, A[2].gt & gm), p3 = to565(A[3].rb, A[3].gt & gm);
+  uint32_t *o = (uint32_t *)(void *)O;
+  o[0] = p0 | p1 << 16, o[1] = p2 | p3 << 16;
+}
+
+/* a row of the strip to 16 bits (its dither in it already), over the background (bl: NULL if none). O is the
+ * row's place in the strip's first row (at or before A) */
+static void row_out(const Acc *A, uint16_t *O, const uint32_t *bl) {
+  if (!bl) {
+    for (int x = 0; x < VIEW_W; x += 4, A += 4, O += 4) out4(A, O, 0xFFFF);
+    return;
+  }
+  for (int x = 0; x < VIEW_W; x += 4, A += 4, O += 4, bl++) {
+    if (!((A[0].gt | A[1].gt | A[2].gt | A[3].gt) >> 16)) {
+      out4(A, O, ~0u);
+      continue;
+    }
+    /* screen pixel 4i + j samples the background at i - 0.375 + j / 4: between texels i - 1 and i, then i and
+     * i + 1 (bgline is one texel ahead) */
+    uint32_t bgs[4] = {lerp4(bl[0], bl[1], 160), lerp4(bl[0], bl[1], 224), lerp4(bl[1], bl[2], 32), lerp4(bl[1], bl[2], 96)};
+    uint32_t px[4];
+    for (int j = 0; j < 4; j++) {
+      uint32_t gt = A[j].gt, t = (T_OF(gt) + 1u) >> 1, bg = bgs[j];
+      /* red and blue in their lanes together */
+      px[j] = to565(A[j].rb + (bg & 0xFF00FF) * t, (gt & 0xFFFF) + (bg >> 8 & 255) * t);
+    }
+    uint32_t *o = (uint32_t *)(void *)O;
+    o[0] = px[0] | px[1] << 16, o[1] = px[2] | px[3] << 16;
+  }
+}
+
+/* the strip cleared for the next one */
+static void strip_clear(void) {
+  for (int y = 0; y < STRIP_H; y++) {
+    const Acc *c = acc_clear[y];
+    uint32_t a0 = c[0].rb, a1 = c[0].gt, a2 = c[1].rb, a3 = c[1].gt, a4 = c[2].rb, a5 = c[2].gt, a6 = c[3].rb, a7 = c[3].gt;
+    uint32_t *d = (uint32_t *)(void *)(acc + y * VIEW_W);
+    for (int i = 0; i < VIEW_W / 4; i++, d += 8) d[0] = a0, d[1] = a1, d[2] = a2, d[3] = a3, d[4] = a4, d[5] = a5, d[6] = a6, d[7] = a7;
+  }
+}
 
 __attribute__((noinline)) static void finish_strip(int sy0, int rows) {
 #ifdef HOST
@@ -1040,15 +1215,22 @@ __attribute__((noinline)) static void finish_strip(int sy0, int rows) {
     sscanf(getenv("PROBE"), "%d,%d", &px, &py);
     if (py >= sy0 && py < sy0 + rows) {
       int p = (py - sy0) * VIEW_W + px;
-      fprintf(stderr, "probe %d,%d: trans %u acc r %u g %u b %u bg_on %d bg565 %04x\n", px, py, trans[p], arb[p] >> 16, ag[p], arb[p] & 0xFFFF, bg_on,
+      fprintf(stderr, "probe %d,%d: trans %u acc r %u g %u b %u bg_on %d bg565 %04x\n", px, py, T_OF(acc[p].gt), acc[p].rb >> 16,
+              acc[p].gt & 0xFFFF, acc[p].rb & 0xFFFF, bg_on,
               bgbuf[(py / BG_S) * BG_W + px / BG_S]);
     }
   }
 #endif
-  uint16_t *out = (uint16_t *)(void *)arb;   /* in place: each 16-bit pixel goes where its 32-bit one was read */
+  uint16_t *out = (uint16_t *)(void *)acc;   /* in place: each 16-bit pixel goes where its 8 bytes were read */
   for (int y = 0; y < rows; y++) {
     int sy = sy0 + y;
-    if (bg_on) {
+    bool bg = bg_on;
+    if (bg) {   /* (not if no light is left anywhere on the row) */
+      uint32_t all = ~0u;
+      for (int i = 0; i < VIEW_W / 32; i++) all &= cov[y][i];
+      bg = all != ~0u;
+    }
+    if (bg) {
       /* the background's row, between two of its own rows */
       float fy = (sy + 0.5f) / BG_S - 0.5f;
       int r0 = (int)(fy + 4096.0f) - 4096;
@@ -1058,52 +1240,10 @@ __attribute__((noinline)) static void finish_strip(int sy0, int rows) {
       for (int i = 0; i < BG_W; i++) bgline[i + 1] = lerp4(rgb_of565(a16[i]), rgb_of565(b16[i]), wv);
       bgline[0] = bgline[1], bgline[BG_W + 1] = bgline[BG_W];
     }
-    /* the dither of each of 4 columns: red and blue in the high and low halves (both lanes of arb), green */
-    const uint8_t *by = bayer[sy & 3];
-    uint32_t drb[4], dg[4];
-    for (int i = 0; i < 4; i++) drb[i] = (uint32_t)(by[i] >> 1) * 0x800080u, dg[i] = (uint32_t)(by[i] >> 2) << 7;
-    int p = y * VIEW_W;
-    uint32_t *A = arb + p;
-    uint16_t *G16 = ag + p, *O = out + p;
-    uint8_t *T = trans + p;
-    if (!bg_on) {
-      for (int x = 0; x < VIEW_W; x += 4, A += 4, G16 += 4, O += 4, T += 4) {
-        for (int j = 0; j < 4; j++) {
-          uint32_t rb = A[j] + drb[j], g = G16[j] + dg[j];
-          O[j] = (uint16_t)(to5(rb >> 16) << 11 | to6(g) << 5 | to5(rb & 0xFFFF));
-        }
-        G16[0] = G16[1] = G16[2] = G16[3] = 0;
-        *(uint32_t *)(void *)T = 0xFFFFFFFFu;
-      }
-      continue;
-    }
-    /* screen pixel 4i + j samples the background at i - 0.375 + j / 4: between texels i - 1 and i, then i and i + 1
-     * (bgline is one texel ahead) */
-    const uint32_t *bl = bgline;
-    for (int x = 0; x < VIEW_W; x += 4, A += 4, G16 += 4, O += 4, T += 4, bl++) {
-      uint32_t t4 = *(const uint32_t *)(const void *)T;
-      if (!t4) {
-        for (int j = 0; j < 4; j++) {
-          uint32_t rb = A[j] + drb[j], g = G16[j] + dg[j];
-          O[j] = (uint16_t)(to5(rb >> 16) << 11 | to6(g) << 5 | to5(rb & 0xFFFF));
-        }
-      } else {
-        uint32_t bgs[4] = {lerp4(bl[0], bl[1], 160), lerp4(bl[0], bl[1], 224), lerp4(bl[1], bl[2], 32), lerp4(bl[1], bl[2], 96)};
-        for (int j = 0; j < 4; j++) {
-          uint32_t t = (T[j] + 1u) >> 1, bg = bgs[j];
-          /* red and blue in their lanes together */
-          uint32_t rb = A[j] + (bg & 0xFF00FF) * t + drb[j], g = G16[j] + (bg >> 8 & 255) * t + dg[j];
-          O[j] = (uint16_t)(to5(rb >> 16) << 11 | to6(g) << 5 | to5(rb & 0xFFFF));
-        }
-      }
-      G16[0] = G16[1] = G16[2] = G16[3] = 0;
-      *(uint32_t *)(void *)T = 0xFFFFFFFFu;
-    }
+    row_out(acc + y * VIEW_W, out + y * VIEW_W, bg ? bgline : NULL);
   }
   plat_push(0, VIEW_Y + sy0, VIEW_W, rows, out);
-  /* (arb held the strip's 16-bit pixels) */
-  uint32_t *w = arb;
-  for (int i = 0; i < NPX; i += 4) w[i] = w[i + 1] = w[i + 2] = w[i + 3] = 0;
+  strip_clear();
 }
 
 /* a rotated item's slots (all its tiles) or an upright one's (a row), in the arena: false if it is full */
@@ -1318,7 +1458,7 @@ void gfx_frame(void) {
   if (g_gfx_overlay) overlay_on = true, g_gfx_overlay(), overlay_on = false;
   g_gfx_items = (uint32_t)nitems;
   if (!strip_ready) {
-    memset(arb, 0, sizeof arb), memset(ag, 0, sizeof ag), memset(trans, 255, sizeof trans);
+    strip_clear();
     strip_ready = true;
   }
 #ifdef HOST
@@ -1344,9 +1484,9 @@ void gfx_frame(void) {
       /* (the camera fading to black: a black layer between the HUD and the room) */
       uint32_t k = 255u - g_screen_fade;
       for (int p = 0; p < NPX; p++) {
-        uint32_t t = trans[p] * k / 255;
-        if (t < 2 && trans[p] >= 2) t = 0, cover(p / VIEW_W, p % VIEW_W);
-        trans[p] = (uint8_t)t;
+        uint32_t t0 = T_OF(acc[p].gt), t = t0 * k / 255;
+        if (t < 2 && t0 >= 2) t = 0, cover(p / VIEW_W, p % VIEW_W);
+        acc[p].gt = (acc[p].gt & 0xFFFF) | t << 16;
       }
     }
     if (g_screen_fade < 255 && nruns) draw_runs(1, sy0, sy1);

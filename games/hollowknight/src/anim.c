@@ -165,14 +165,14 @@ uint16_t to_f16(float f) {
 /* the sprite drawn at (x, y, z), scaled (sx < 0: mirrored), tinted */
 void sprite_inst(int sprite, float x, float y, float z, float sx, float sy, uint8_t tint, Inst *out) {
   const SpriteRec *s = sprite_rec(sprite);
-  out->ax = (int16_t)lrintf((x + sx * s->lx) * 64);
-  out->ay = (int16_t)lrintf((y + sy * s->ty) * 64);
+  out->ax = (int16_t)lrintf(x * 64 + sx * s->lx);
+  out->ay = (int16_t)lrintf(y * 64 + sy * s->ty);
   out->z = (int16_t)lrintf(z * 128);
   out->tex = s->tex;
   out->tint = tint;
   out->flags = 0;
-  out->a = to_f16(sx * s->tu);
-  out->b = to_f16(-sy * s->tv);
+  out->a = to_f16(sx * f16(s->tu));
+  out->b = to_f16(-sy * f16(s->tv));
   out->rot = 0;
   out->group = 0;
 }
@@ -182,7 +182,7 @@ void sprite_inst_rot(int sprite, float x, float y, float z, float sx, float sy, 
   sprite_inst(sprite, x, y, z, sx, sy, tint, out);
   float r = degrees * (float)M_PI / 180, c = cosf(r), s = sinf(r);
   const SpriteRec *sp = sprite_rec(sprite);
-  float lx = sx * sp->lx, ty = sy * sp->ty;
+  float lx = sx * sp->lx / 64.0f, ty = sy * sp->ty / 64.0f;
   out->ax = (int16_t)lrintf((x + c * lx - s * ty) * 64);
   out->ay = (int16_t)lrintf((y + s * lx + c * ty) * 64);
   int32_t rot = (int32_t)lrintf(degrees / 360.0f * 65536.0f);

@@ -242,7 +242,8 @@ DRAWN_SCALE = {"Arrow Up": 1.3, "Arrow Down": 1.3, "Stop Up": 1.3, "Stop Down": 
 K0 = scene.FOCAL / (0.004 - scene.CAMZ)   # screen pixels a unit, where actors are (z near 0)
 HUD_K = (scene.VIEW_H / 2) / 8.7107        # the HUD's (its orthographic camera)
 # (actor, clip): drawn bigger or smaller than their sprites
-ACTOR_RES = float(os.environ.get("HK_ACTOR_RES", "1"))
+ACTOR_RES = float(os.environ.get("HK_ACTOR_RES", "0.7"))   # (to fit the flash)
+PIECE_RES = float(os.environ.get("HK_PIECE_RES", "0.7"))   # (the scripts' and debris's sprites: a little less fine, to fit)
 ACTOR_SCALE = {"hud": HUD_K / K0, "shopui": HUD_K / K0, "stagui": HUD_K / K0, "mapui": HUD_K / K0, "journalmsg": 0.7 * HUD_K / K0, "liquid": 1.4 * HUD_K / K0, "dialogue": text.TEXT_K * HUD_K / K0}
 HUD_MASK = 0.7135
 
@@ -287,6 +288,7 @@ def build():
     """-> (sprites, clips). sprites: [{key, job, lx, ty, tu, tv}] (texture top-left in local units, units a texel);
     clips: [{id, fps, wrap, loop, frames: [(sprite, trigger)]}]."""
     sprites, index, clips = [], {}, []
+    same = {}   # (a frame the same as one before, where it is drawn from: that one)
     for actor, (path, pid, names) in ACTORS.items():
         lib = tk2d.animation(path, pid)
         byname = {unity.S(c["name"]): c for c in lib["clips"]}
@@ -300,7 +302,8 @@ def build():
                     col = tk2d.collection(cpath, cpid)
                     img, lx, ty, upp, (wu, hu) = tk2d.sprite_image(cpath, col, f["spriteId"])
                     k = K0 * DRAWN_SCALE.get(name, 1.0) * ACTOR_SCALE.get(actor, 1.0)
-                    if actor not in ("knight", "hud", "dialogue", "liquid", "shopui", "stagui"):
+                    if actor not in ("knight", "hud", "dialogue", "liquid", "shopui", "stagui", "mapui", "journalmsg",
+                                     "heartui", "vesselui", "prompt"):
                         k *= ACTOR_RES   # (the others' frames: a little less fine, to fit)
                     if actor == "hud" and (name.startswith("Health") or name.startswith("Blue")):
                         k *= HUD_MASK
@@ -308,10 +311,14 @@ def build():
                     h = max(1, round(img.height * upp * k))
                     small = img.resize((w, h), Image.BOX)
                     arr = np.asarray(small).copy()
-                    index[key] = len(sprites)
-                    sprites.append({"key": key, "job": art.ImageJob(arr, "%s/%s" % (actor, name)),
-                                    "lx": lx, "ty": ty, "tu": wu / w, "tv": hu / h,
-                                    "col": _collider(col["spriteDefinitions"][f["spriteId"]])})
+                    cl = _collider(col["spriteDefinitions"][f["spriteId"]])
+                    sk = (arr.tobytes(), arr.shape, lx, ty, wu / w, hu / h, repr(cl))
+                    if sk in same:
+                        index[key] = same[sk]
+                    else:
+                        index[key] = same[sk] = len(sprites)
+                        sprites.append({"key": key, "job": art.ImageJob(arr, "%s/%s" % (actor, name)),
+                                        "lx": lx, "ty": ty, "tu": wu / w, "tv": hu / h, "col": cl})
                 frames.append((index[key], bool(f.get("triggerEvent"))))
             clips.append({"id": clip_id(actor, name), "fps": float(c["fps"]), "wrap": int(c["wrapMode"]),
                           "loop": int(c.get("loopStart", 0)), "frames": frames})
@@ -368,6 +375,7 @@ def unity_sprites(keys):
     object's scale."""
     out = []
     for level, exts, fid, pid, scale, res in keys:
+        res *= PIECE_RES
         if level == "tk2d":
             path, col, name = exts, fid, pid
             c = tk2d.collection(path, col)

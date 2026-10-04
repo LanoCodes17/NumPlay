@@ -134,8 +134,8 @@ const char *room_name(int id);
 /* ---------------------------------------------------------------- sprites and animations (anim.c) */
 typedef struct {
   uint16_t tex, col;   /* (col: its collider, sprite_collider) */
-  float lx, ty;   /* the texture's top-left corner, from the sprite's origin (units) */
-  float tu, tv;   /* units a texel */
+  int16_t lx, ty;      /* the texture's top-left corner, from the sprite's origin (1/64 unit) */
+  uint16_t tu, tv;     /* units a texel (half floats) */
 } SpriteRec;
 const SpriteRec *sprite_rec(int id);
 /* the collider 2D Toolkit sets as a frame shows: SC_UNSET (left as it was), SC_NONE (off), SC_BOX (*data: center x y,

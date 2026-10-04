@@ -676,7 +676,11 @@ def main():
                 col_ids[b] = len(col_entries)
                 col_entries.append(b)
             cid = 2 + col_ids[b]
-        secs["SPR"].b += struct.pack("<HHffff", first_actor + i, cid, sp["lx"], sp["ty"], sp["tu"], sp["tv"])
+        # (src/hk.h: SpriteRec; its corner in 1/64 units, its texel's size a half float)
+        lx, ty = round(sp["lx"] * 64), round(sp["ty"] * 64)
+        assert -32768 <= lx < 32768 and -32768 <= ty < 32768, sp["job"].name
+        f16 = lambda v: int(np.array(v, np.float16).view(np.uint16))
+        secs["SPR"].b += struct.pack("<HHhhHH", first_actor + i, cid, lx, ty, f16(sp["tu"]), f16(sp["tv"]))
     at = 4 + 4 * len(col_entries)
     secs["SCOL"].b += struct.pack("<I", len(col_entries))
     for b in col_entries:

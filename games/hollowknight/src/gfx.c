@@ -352,11 +352,31 @@ typedef struct {
 
 static float inst_k(const Inst *in) { return FOCAL / (in->z * (1.0f / 128) - CAM_Z); }
 
+/* the cosine and sine of a turn in 1/65536 (as cosf and sinf, to a float's precision): its octant, then the series on
+ * [0, pi / 4] */
+static void cos_sin_turn(int rot, float *c, float *s) {
+  uint32_t a = (uint16_t)rot, oct = a >> 13, r = a & 0x1FFF;
+  float x = (float)((oct & 1) ? 0x2000 - r : r) * (6.2831853f / 65536.0f), x2 = x * x;
+  float sn = x * (1 + x2 * (-1.0f / 6 + x2 * (1.0f / 120 + x2 * (-1.0f / 5040 + x2 * (1.0f / 362880)))));
+  float cs = 1 + x2 * (-0.5f + x2 * (1.0f / 24 + x2 * (-1.0f / 720 + x2 * (1.0f / 40320 + x2 * (-1.0f / 3628800)))));
+  switch (oct) {
+    case 0: *c = cs, *s = sn; break;
+    case 1: *c = sn, *s = cs; break;
+    case 2: *c = -sn, *s = cs; break;
+    case 3: *c = -cs, *s = sn; break;
+    case 4: *c = -cs, *s = -sn; break;
+    case 5: *c = -sn, *s = -cs; break;
+    case 6: *c = sn, *s = -cs; break;
+    default: *c = cs, *s = -sn; break;
+  }
+}
+
 /* the instance's u and v steps on screen (pixels a texel) */
 static void inst_axes(const Inst *in, float k, float *ux, float *uy, float *vx, float *vy) {
   float a = f16(in->a) * k, b = f16(in->b) * k;
   if (in->flags & F_ROT) {
-    float t = in->rot * (6.2831853f / 65536.0f), c = cosf(t), s = sinf(t);
+    float c, s;
+    cos_sin_turn(in->rot, &c, &s);
     /* world u = a (c, s), v = b (-s, c); screen y is down */
     *ux = a * c, *uy = -a * s, *vx = -b * s, *vy = -b * c;
   } else
@@ -764,6 +784,13 @@ static void run_axis(const Ctx *c, int y, int a, int b, uint16_t *tp, int ty, in
     }
     if (a2 && !mode) {
       const uint8_t *rw = t + vr * 8;
+      if ((w2[0] & w2[1]) == 0xFFFFFFFFu && c->pal[3] >= 0xFF000000u) {
+        /* (a row of opaque black texels: nothing left from behind) */
+        cover_run(row, x, e);
+        for (; x < e; x++, p++) acc[p].gt &= 0xFFFF;
+        u = un, x = xn, p = pn;
+        continue;
+      }
       for (; x < e; x++, p++, u += du) {
         int ur = (u >> 16) & 31, ci = rw[ur >> 2] >> ((ur & 3) * 2) & 3;
         if (ci) take_black(acc + p, c->pal[ci]);
@@ -1087,6 +1114,8 @@ static void run_bilinear(const Ctx *c, int y, int a, int b, BiTex *bt) {
 __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int sy1) {
   const Inst *in = &it->in;
   int ya = it->y0 > sy0 ? it->y0 : sy0, yb = it->y1 < sy1 ? it->y1 : sy1;
+  /* (its rows from the first with light left in its box: none, nothing to make ready) */
+  while (ya < yb && open_from(cov[ya - sy0], it->x0, it->x1) >= it->x1) ya++;
   if (ya >= yb) return;
   /* (its palette, unless another took its place: more than NPAL this frame, it is made again) */
   const Pal *pp = &pals[it->pal];
@@ -1425,6 +1454,12 @@ __attribute__((noinline)) static void finish_strip(int sy0, int rows) {
   strip_clear();
 }
 
+/* the items that kept a slot for this frame look for their tile again */
+void gfx_slot_reused(int s) {
+  for (int i = 0; i < arena_top; i++)
+    if (arena[i] == s) arena[i] = UNRES_SLOT;
+}
+
 /* a rotated item's slots (all its tiles) or an upright one's (a row), in the arena: false if it is full */
 static bool arena_take(Item *it, bool keep) {
   const Inst *in = &it->in;
@@ -1692,6 +1727,7 @@ void gfx_frame(void) {
 #endif
   for (int sy0 = 0; sy0 < VIEW_H; sy0 += STRIP_H) {
     int sy1 = sy0 + STRIP_H;
+    tex_strip(sy0 / STRIP_H + 1);
     memset(cov, 0, sizeof cov);
     if (nruns) draw_runs(0, sy0, sy1);
     for (int i = nitems - 1; i >= nscene; i--)

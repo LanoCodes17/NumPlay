@@ -69,7 +69,9 @@ const TexRec *tex_rec(uint16_t t);
 const uint8_t *tex_tile(uint16_t t, int tx, int ty);
 /* the same, as a cache slot (-1: an empty tile): it holds until the cache runs out of room in a frame */
 int tex_slot(uint16_t t, int tx, int ty);
-const uint8_t *tex_slot_px(int s);
+const uint8_t *tex_slot_px(int s);   /* (its tile's texels, the slot drawn in this strip) */
+void tex_strip(int s);                /* the strip drawn from now on */
+void gfx_slot_reused(int s);          /* (gfx.c: a slot drawn earlier this frame now holds another tile) */
 /* where a cached tile's texels that are not clear are, 4 bits each: x0, x1 - 1, y0, y1 - 1 (at 2 bits, x in twos) */
 uint32_t tex_slot_box(const uint8_t *px);
 extern bool g_tex_overload;

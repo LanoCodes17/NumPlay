@@ -18,7 +18,65 @@ uint32_t perf_updates __attribute__((used));
 #define TICK_MS 20      /* the game's step (Unity's fixed step) */
 #define MAX_TICKS 4     /* steps caught up before a frame is drawn */
 
-#ifdef PERF_ROOM
+#ifdef PERF_BENCH
+/* timing: a few views (rooms by number), panning a little: each one's ms per frame x 100 (read by the emulator; the
+ * last view there only so that it reads the one before) */
+static const struct { int room; float x, y; } bench[] = {{0, 30, 14.11f}, {0, 186, 68}, {0, 60, 30}, {5, 52, 10}, {35, 14, 104},
+                                                        {10, 22, 25}, {32, 18, 66}, {20, 25, 22}, {1, 82, 10}, {0, 30, 14}};
+uint32_t perf_bench[sizeof bench / sizeof bench[0]] __attribute__((used));
+int main(void) {
+  plat_begin();
+  hk_bin = hk_data;
+  for (unsigned i = 0; i < sizeof bench / sizeof bench[0]; i++) {
+    room_load(bench[i].room);
+    g_cam_x = bench[i].x, g_cam_y = bench[i].y;
+    for (int f = 0; f < 3; f++) gfx_frame();
+    uint32_t t0 = plat_millis();
+    for (int f = 0; f < 12; f++) {
+      g_cam_x += 0.1f;
+      gfx_frame();
+      perf_frames++;
+    }
+    perf_bench[i] = (plat_millis() - t0) * 100 / 12;
+  }
+  return plat_end();
+}
+#elif defined(PERF_SURVEY)
+/* timing: every room, the view at each of its gates and its middle, panning a little; per room: frames, ms, the
+ * slowest spot's ms per frame (x10) and where (read by the emulator) */
+uint32_t perf_survey[NUM_ROOMS][5] __attribute__((used));
+int main(void) {
+  plat_begin();
+  hk_bin = hk_data;
+  for (int r = 0; r < NUM_ROOMS; r++) {
+    if (!room_load(r)) continue;
+    float w = g_room.h->w, h = g_room.h->h;
+    float spots[33][2];
+    int ns = 0, n;
+    const Ent *es = room_ents(&n);
+    spots[ns][0] = w / 2, spots[ns][1] = h / 2, ns++;
+    for (int i = 0; i < n && ns < 33; i++)
+      if (es[i].type == ENT_GATE) spots[ns][0] = (es[i].x0 + es[i].x1) / 2, spots[ns][1] = (es[i].y0 + es[i].y1) / 2, ns++;
+    for (int k = 0; k < ns; k++) {
+      float cx = spots[k][0], cy = spots[k][1];
+      cx = cx < 14.6f ? 14.6f : cx > w - 14.6f ? w - 14.6f : cx;
+      cy = cy < 8.3f ? 8.3f : cy > h - 8.3f ? h - 8.3f : cy;
+      g_cam_x = cx, g_cam_y = cy;
+      gfx_frame();   /* (the tiles in) */
+      uint32_t t0 = plat_millis();
+      for (int f = 0; f < 8; f++) {
+        g_cam_x = cx + 0.15f * f;
+        gfx_frame();
+        perf_frames++;
+      }
+      uint32_t ms = plat_millis() - t0;
+      perf_survey[r][0] += 8, perf_survey[r][1] += ms;
+      if (ms * 10 / 8 > perf_survey[r][2]) perf_survey[r][2] = ms * 10 / 8, perf_survey[r][3] = (uint32_t)cx, perf_survey[r][4] = (uint32_t)cy;
+    }
+  }
+  return plat_end();
+}
+#elif defined(PERF_ROOM)
 /* timing: the camera panning across a room */
 #ifndef PERF_X
 #define PERF_X 30

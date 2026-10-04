@@ -13,9 +13,13 @@ static uint8_t slot_px[NSLOTS][128];
 static uint16_t slot_box[NSLOTS];   /* where each tile's texels that are not clear are (tile_box) */
 static uint32_t slot_key[NSLOTS];
 static uint16_t slot_next[NSLOTS], slot_frame[NSLOTS];
+static uint8_t slot_strip[NSLOTS];   /* the strip of the frame it was drawn in last */
+static uint8_t cur_strip;
+static bool full;   /* the last frame needed all the slots */
 static uint16_t head[NHASH];
 static uint16_t frame = 1, hand;
 static uint8_t block_buf[BLOCK_TILES * 128];
+static int block_tex = -1, block_first;   /* (whose tiles block_buf holds) */
 #define tcp g_scratch   /* TC_N4 */
 _Static_assert(TC_N4 <= sizeof g_scratch / 2, "the tile decoder's probabilities: in g_scratch");
 #define NONE_T 255
@@ -213,17 +217,26 @@ static void unlink_slot(int s) {
   slot_key[s] = 0xFFFFFFFF;
 }
 
-/* a slot to reuse: one unused for a while, else one not drawn this frame, else any */
+/* a slot to reuse: one unused for a while; else one not drawn yet this frame (drawn last frame, maybe out of the view
+ * now), but when the view needs more tiles than there are slots, first one drawn this frame above the strip and the
+ * one before it (done with, until the next frame); else any */
 static int victim(void) {
-  int last = -1;
+  int ahead = -1, done = -1;
   for (int n = 0; n < NSLOTS; n++) {
     int s = hand;
     hand = (uint16_t)((hand + 1) % NSLOTS);
     uint16_t age = (uint16_t)(frame - slot_frame[s]);
     if (age > 1) return s;
-    if (age == 1 && last < 0) last = s;
+    if (!age && slot_strip[s] + 1 < cur_strip) {
+      if (done < 0) done = s;
+    } else if (age == 1 && ahead < 0)
+      ahead = s;
   }
-  if (last >= 0) return last;
+  if (done >= 0 && (full || ahead < 0)) {
+    gfx_slot_reused(done);   /* (the frame's items that kept it: they look again) */
+    return done;
+  }
+  if (ahead >= 0) return ahead;
   g_tex_overload = true;
   int s = hand;   /* the view needs more tiles than the cache holds */
   hand = (uint16_t)((hand + 1) % NSLOTS);
@@ -273,7 +286,11 @@ static int stale_slot(void) {
   return -1;
 }
 
-const uint8_t *tex_slot_px(int s) { return slot_px[s]; }
+const uint8_t *tex_slot_px(int s) {
+  slot_strip[s] = cur_strip;
+  return slot_px[s];
+}
+void tex_strip(int s) { cur_strip = (uint8_t)s; }
 
 
 /* where a block's tiles are (by rank: row by row), and so which of them is each one's left and upper neighbor */
@@ -307,7 +324,7 @@ int tex_slot(uint16_t t, int tx, int ty) {
   uint32_t key = (uint32_t)t << 16 | (uint32_t)rank;
   int s = find(key);
   if (s >= 0) {
-    slot_frame[s] = frame;
+    slot_frame[s] = frame, slot_strip[s] = cur_strip;
     return s;
   }
   g_tex_misses++;
@@ -319,12 +336,15 @@ int tex_slot(uint16_t t, int tx, int ty) {
   /* (the first block after the map and where the others start) */
   const uint8_t *d = sec_tdat + r->off, *starts = d + ((r->flags & TEX_FULL) ? 0 : r->th * row_stride(r));
   const uint8_t *src = blk ? d + rd16(starts + 2 * (blk - 1)) : starts + 2 * ((all - 1) / BLOCK_TILES);
-  uint8_t left[BLOCK_TILES], up[BLOCK_TILES];
-  block_geometry(r, first, ntiles, left, up);
-  decode_block(src, ntiles, r->fmt == FMT_ALPHA2, left, up, block_buf);
-  g_tex_decodes++;
+  if (block_tex != t || block_first != first) {   /* (the block decoded last: its tiles still there) */
+    uint8_t left[BLOCK_TILES], up[BLOCK_TILES];
+    block_geometry(r, first, ntiles, left, up);
+    decode_block(src, ntiles, r->fmt == FMT_ALPHA2, left, up, block_buf);
+    block_tex = t, block_first = first;
+    g_tex_decodes++;
+  }
   int want = insert((uint32_t)t << 16 | (uint32_t)rank, block_buf + (rank - first) * bytes, bytes);
-  slot_frame[want] = frame;
+  slot_frame[want] = frame, slot_strip[want] = cur_strip;
   /* the block's other tiles, where they push out nothing in use */
   for (int i = 0; i < ntiles; i++) {
     uint32_t k = (uint32_t)t << 16 | (uint32_t)(first + i);
@@ -349,6 +369,8 @@ void tex_frame(void) {
   g_tex_overload = false;
   g_tex_used = 0;
   for (int i = 0; i < NSLOTS; i++) g_tex_used += slot_frame[i] == frame;
+  full = g_tex_used >= NSLOTS - 16;
+  cur_strip = 0;
   frame++;
   if (!frame) frame = 1;
 }

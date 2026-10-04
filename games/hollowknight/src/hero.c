@@ -830,7 +830,12 @@ void hero_draw(void) {
   uint8_t tint = 0;
   if (h->pulsing) tint = gfx_dyn_tint(0, 255, 255, 255, (uint8_t)(255 - 255 * 0.5f * h->pulse_t / 0.1f));
   sprite_inst(h->anim.sprite, h->body.x, h->body.y, 0.004f, h->cs.facing_right ? -1.0f : 1.0f, 1, tint, &in);
-  gfx_actor(&in, SORT_KEY(0, 0));
+  if (!gfx_actor(&in, SORT_KEY(0, 0))) {
+#ifdef HOST
+    extern uint32_t g_hero_undrawn;   /* (never: checked by tests) */
+    g_hero_undrawn++;
+#endif
+  }
   slash_draw();
 }
 

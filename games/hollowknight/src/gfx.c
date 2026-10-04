@@ -383,7 +383,8 @@ static void inst_map(const Inst *in, Map *m) {
   }
 }
 
-__attribute__((noinline)) static bool item_box(const Inst *in, Item *it) {
+/* an instance's box on screen (pixels, not clipped): false if it is not in front of the camera */
+static bool inst_screen_box(const Inst *in, float *x0, float *y0, float *x1, float *y1) {
   float k = inst_k(in);
   if (!(k > 0) || k > 400) return false;
   float bx0, by0, bx1, by1;
@@ -412,6 +413,12 @@ __attribute__((noinline)) static bool item_box(const Inst *in, Item *it) {
       by0 = m.oy < ey ? m.oy : ey, by1 = m.oy < ey ? ey : m.oy;
     }
   }
+  *x0 = bx0, *y0 = by0, *x1 = bx1, *y1 = by1;
+  return true;
+}
+__attribute__((noinline)) static bool item_box(const Inst *in, Item *it) {
+  float bx0, by0, bx1, by1;
+  if (!inst_screen_box(in, &bx0, &by0, &bx1, &by1)) return false;
   if (bx1 <= 0 || by1 <= 0 || bx0 >= VIEW_W || by0 >= VIEW_H) return false;
   int a = (int)(bx0 + 0.5f), b = (int)(by0 + 0.5f), c = (int)(bx1 + 0.5f), d = (int)(by1 + 0.5f);
   if (a < 0) a = 0;
@@ -1435,6 +1442,7 @@ static bool arena_take(Item *it, bool keep) {
 /* ---------------------------------------------------------------- the frame */
 typedef struct {
   Inst in;
+  uint8_t minor;   /* (geo, debris, specks: what gives way to the others when there is no room left) */
   uint32_t group;
 } Actor;
 #define MAX_ACTORS 64
@@ -1537,17 +1545,40 @@ static void draw_runs(int layer, int sy0, int sy1) {
   }
 }
 
-bool gfx_actor(const Inst *in, uint32_t group) {
-  if (nactors >= MAX_ACTORS) return false;
-  /* kept in draw order: sorting layer and order, then far first */
+#ifdef HOST
+uint32_t g_actors_dropped, g_actors_peak, g_items_dropped_total, g_items_peak, g_hero_undrawn;
+#endif
+/* (kept in draw order: sorting layer and order, then far first; those well off the screen not kept, they take no
+ * room; when there is none left, an actor that matters takes a minor one's) */
+static bool actor_add(const Inst *in, uint32_t group, bool minor) {
+  float x0, y0, x1, y1;
+  if (!inst_screen_box(in, &x0, &y0, &x1, &y1) || x1 < -32 || y1 < -32 || x0 > VIEW_W + 32 || y0 > VIEW_H + 32) return true;
+#ifdef HOST
+  if ((uint32_t)nactors + 1 > g_actors_peak) g_actors_peak = (uint32_t)nactors + 1;
+#endif
+  if (nactors >= MAX_ACTORS) {
+    int m = nactors - 1;
+    if (!minor)
+      while (m >= 0 && !actors[m].minor) m--;
+    if (minor || m < 0) {
+#ifdef HOST
+      g_actors_dropped++;
+#endif
+      return false;
+    }
+    for (nactors--; m < nactors; m++) actors[m] = actors[m + 1];
+  }
   int i = nactors++;
   while (i > 0 && (actors[i - 1].group > group || (actors[i - 1].group == group && actors[i - 1].in.z < in->z)))
     actors[i] = actors[i - 1], i--;
-  actors[i].in = *in, actors[i].group = group;
+  actors[i].in = *in, actors[i].group = group, actors[i].minor = minor;
   return true;
 }
+bool gfx_actor(const Inst *in, uint32_t group) { return actor_add(in, group, false); }
+bool gfx_actor_minor(const Inst *in, uint32_t group) { return actor_add(in, group, true); }
 
 static bool overlay_on;   /* (the overlay's instances: the room kept back to leave them room, g_gfx_reserve) */
+static int items_keep;    /* (the actors and the HUD still to come: the room's own instances leave them room) */
 static bool add_item(const Inst *in, float blur_z) {
   Item cur;
   cur.in = *in;
@@ -1566,8 +1597,11 @@ static bool add_item(const Inst *in, float blur_z) {
     draw_bg_item(&cur);
     return false;
   }
-  if (nitems >= MAX_ITEMS - (overlay_on ? 0 : g_gfx_reserve)) {
+  if (nitems >= MAX_ITEMS - (overlay_on ? 0 : g_gfx_reserve) - items_keep) {
     g_gfx_dropped++;   /* (never in the game's rooms: checked by tests) */
+#ifdef HOST
+    g_items_dropped_total++;
+#endif
     return false;
   }
   arena_take(&cur, true);
@@ -1618,7 +1652,9 @@ void gfx_frame(void) {
   while (!roomless && room_next(&cur.in, &group)) {
     while (na < nactors && (actors[na].group < group || (actors[na].group == group && actors[na].in.z > cur.in.z)))
       add_item(&actors[na++].in, nitems ? 1e9f : blur_z);
+    items_keep = nactors - na + nhud;
     add_item(&cur.in, blur_z);
+    items_keep = 0;
   }
   while (na < nactors) add_item(&actors[na++].in, nitems ? 1e9f : blur_z);
   nactors = 0;
@@ -1633,6 +1669,9 @@ void gfx_frame(void) {
   nhud = 0;
   if (g_gfx_overlay) overlay_on = true, g_gfx_overlay(), overlay_on = false;
   g_gfx_items = (uint32_t)nitems;
+#ifdef HOST
+  if ((uint32_t)nitems > g_items_peak) g_items_peak = (uint32_t)nitems;
+#endif
   if (!strip_ready) {
     strip_clear();
     strip_ready = true;

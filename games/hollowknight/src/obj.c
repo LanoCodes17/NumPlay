@@ -23,7 +23,7 @@ typedef struct {
 } Obj;
 static Obj objs[MAX_OBJS];
 static int nobjs;
-static uint32_t swing_hit[MAX_OBJS / 32];   /* (LimitSendEvents: an object is hit once a swing) */
+static uint32_t swing_hit[(MAX_OBJS + 31) / 32];   /* (LimitSendEvents: an object is hit once a swing) */
 
 enum { BR_WHOLE, BR_BROKEN };
 
@@ -172,7 +172,7 @@ static void pieces_draw(void) {
                       atan2f(q->vy, q->vx) * 57.29578f, 0, &in);
     } else
       sprite_inst_rot(q->sprite, q->x, q->y, q->z, q->mirror, 1, q->ang, 0, &in);
-    gfx_actor(&in, SORT_KEY(q->layer, (int)q->order - 32768));
+    gfx_actor_minor(&in, SORT_KEY(q->layer, (int)q->order - 32768));
   }
 }
 
@@ -629,7 +629,7 @@ static void drip_tick(Obj *o, const Ent *e) {
 static void drip_draw(const Obj *o, const Ent *e) {
   Inst in;
   sprite_inst(o->anim.sprite, e->x0, e->y0 + o->jy, e->x1, 1, 1, 0, &in);
-  gfx_actor(&in, SORT_KEY(e->group, (int)e->a - 32768));
+  gfx_actor_minor(&in, SORT_KEY(e->group, (int)e->a - 32768));
 }
 
 /* ---------------------------------------------------------------- lifeblood cocoons (HealthCocoon) and their scuttlers

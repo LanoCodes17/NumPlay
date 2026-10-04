@@ -1821,7 +1821,7 @@ static void spurts_draw(void) {
     if (!s->on || s->anim.sprite < 0) continue;
     Inst in;
     sprite_inst(s->anim.sprite, s->x, s->y, -0.12f, s->scale * s->dir, s->scale, 0, &in);
-    gfx_actor(&in, SORT_KEY(0, 0));
+    gfx_actor_minor(&in, SORT_KEY(0, 0));
   }
 }
 
@@ -6761,7 +6761,7 @@ void enemies_draw(void) {
     if (!g->on) continue;
     Inst in;
     sprite_inst(g->anim.sprite, g->x, g->y, 0.0015f, GEO_SCALE, GEO_SCALE, 0, &in);
-    gfx_actor(&in, SORT_KEY(0, 0));
+    gfx_actor_minor(&in, SORT_KEY(0, 0));
     /* (Gathering Swarm: its bug, eased in from above it to its place, then carrying it; Lamp_Bug_idle from its
      * start) */
     float t = g->getter ? g->age - getter_wait(g) : -1;
@@ -6772,7 +6772,7 @@ void enemies_draw(void) {
     int n = clip_frames_count(CLIP_GEOBUG_LAMP_BUG_IDLE);
     sprite_inst(clip_frame_sprite(CLIP_GEOBUG_LAMP_BUG_IDLE, (int)(t * 12) % n), g->x + bx * GEO_SCALE,
                 g->y + by * GEO_SCALE, 0.0005f, GEO_SCALE * 1.4838f, GEO_SCALE * 1.4838f, 0, &in);
-    gfx_actor(&in, SORT_KEY(0, 0));
+    gfx_actor_minor(&in, SORT_KEY(0, 0));
   }
 }
 

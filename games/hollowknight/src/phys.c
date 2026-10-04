@@ -277,7 +277,8 @@ void body_step(Body *b, float dt) {
       b->vx -= d * -ny, b->vy -= d * nx;
     }
   }
-  float left = 1;
+  float left = 1, pnx = 0, pny = 0;
+  int pcol = -1;   /* (the last way out, and of what) */
   for (int it = 0; it < 4 && left > 0; it++) {
     float dx = b->vx * dt * left, dy = b->vy * dt * left;
     float cx, cy;
@@ -285,6 +286,8 @@ void body_step(Body *b, float dt) {
     float hx = b->hx + SKIN, hy = b->hy + SKIN;
     float bx0 = fminf(cx, cx + dx) - hx, bx1 = fmaxf(cx, cx + dx) + hx, by0 = fminf(cy, cy + dy) - hy, by1 = fmaxf(cy, cy + dy) + hy;
     float best = 2, bnx = 0, bny = 0, deep = 0, dnx = 0, dny = 0;
+    int dcol = -1;
+    bool caught = false;   /* (inside a collider whose sides push opposite ways: out of it whole) */
     Cand cand[MAX_CAND];
     int nc = gather(bx0, by0, bx1, by1, b->mask, cand);
     for (int k = 0; k < nc; k++) {
@@ -295,7 +298,7 @@ void body_step(Body *b, float dt) {
 #ifdef HOST
         if (getenv("PHYSDBG")) fprintf(stderr, "  deep seg %.3f,%.3f-%.3f,%.3f col %d depth %.3f n %.2f,%.2f box c %.3f,%.3f h %.3f,%.3f\n", s->ax, s->ay, s->bx, s->by, s->col, depth, nx, ny, cx, cy, hx, hy);
 #endif
-        if (depth > deep) deep = depth, dnx = nx, dny = ny;
+        if (depth > deep) deep = depth, dnx = nx, dny = ny, dcol = s->col;
         continue;
       }
       if (nx * dx + ny * dy >= 0) continue;   /* moving away from it */
@@ -304,6 +307,29 @@ void body_step(Body *b, float dt) {
 #ifdef HOST
     if (getenv("PHYSDBG")) fprintf(stderr, "it %d d %.4f,%.4f best %.3f n %.2f,%.2f deep %.4f dn %.2f,%.2f nc %d\n", it, dx, dy, best, bnx, bny, deep, dnx, dny, nc);
 #endif
+    /* (pushed back the way it was just pushed out, by the same collider: it is wider than the collider's gap) */
+    caught = deep > 0 && dcol > 0 && dcol == pcol && dnx * pnx + dny * pny < -0.5f;
+    if (deep > 0) pnx = dnx, pny = dny, pcol = dcol;
+    if (caught) {
+      /* (a collider closed or moved onto it, narrower than it: its segments' box, and out of that the shortest way,
+       * as the physics separates them) */
+      float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+      for (int k = 0; k < nc; k++)
+        if (cand[k].col == dcol) {
+          x0 = fminf(x0, fminf(cand[k].ax, cand[k].bx)), x1 = fmaxf(x1, fmaxf(cand[k].ax, cand[k].bx));
+          y0 = fminf(y0, fminf(cand[k].ay, cand[k].by)), y1 = fmaxf(y1, fmaxf(cand[k].ay, cand[k].by));
+        }
+      float ml = x0 - hx - cx, mr = x1 + hx - cx, md = y0 - hy - cy, mu = y1 + hy - cy;
+      float ax = -ml < mr ? ml : mr, ay = -md < mu ? md : mu;
+      if (fabsf(ax) <= fabsf(ay)) {
+        b->x += ax;
+        if (b->vx * ax < 0) b->vx = 0;
+      } else {
+        b->y += ay;
+        if (b->vy * ay < 0) b->vy = 0;
+      }
+      continue;
+    }
     if (deep > 0) {
       /* inside the ground (it moved, or the body was put there): out the shortest way */
       b->x += dnx * deep, b->y += dny * deep;

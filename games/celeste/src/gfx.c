@@ -261,7 +261,8 @@ static inline void span_lit(uint16_t *d, int n, int step, const uint8_t *s) {
 
 /* ---------------------------------------------------------------- blits */
 /* an RLE texture's row r: its ops [*begin, *end). TF_ROW8 rows are found by adding the lengths
- * up, from the last row asked for when it is the same texture */
+ * up, from the last row asked for when it is the same texture; a length from ROW8_MAX up is a row met before
+ * (in flash: tools/pack.py direct_rows), three bytes: its length and where it is in DIRECT */
 static const uint8_t *row_ops(const Tex *t, int r, const uint8_t **end) {
   if (!(t->fmt & TF_ROW8)) {
     const uint16_t *offs = (const uint16_t *)(const void *)t->px;
@@ -276,8 +277,13 @@ static const uint8_t *row_ops(const Tex *t, int r, const uint8_t **end) {
   int i;
   if (last_px == t->px && last_r <= r && last_gen == g_res_gen) p = last_p, i = last_r;
   else p = t->px + t->h, i = 0;
-  for (; i < r; i++) p += lens[i];
+  for (; i < r; i++) p += lens[i] >= ROW8_MAX ? 3 : lens[i];
   last_px = t->px, last_r = r, last_p = p, last_gen = g_res_gen;
+  if (lens[r] >= ROW8_MAX) {
+    const uint8_t *o = section(SEC_DIRECT) + ((uint32_t)(lens[r] - ROW8_MAX) << 16 | p[1] | p[2] << 8);
+    *end = o + p[0];
+    return o;
+  }
   *end = p + lens[r];
   return p;
 }

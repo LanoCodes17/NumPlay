@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>17 free games for your NumWorks calculator, in one app.</b><br>
-  Plus <b>Celeste</b> and <b>Champion Island</b>, two big games that come as apps of their own.
+  Plus <b>Hollow Knight</b>, <b>Celeste</b> and <b>Champion Island</b>, three big games that come as apps of their own.
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <b>New: <a href="#new-numblocks">NumBlocks</a></b>, a world like Minecraft 1.8. &nbsp;<b>And <a href="#new-celeste">Celeste</a></b>, the whole climb up Celeste Mountain.
+  <b>New: <a href="#new-hollow-knight">Hollow Knight</a></b>, from King's Pass to Hornet in Greenpath. &nbsp;<b>And <a href="#new-numblocks">NumBlocks</a></b>, a world like Minecraft 1.8.
 </p>
 
 <p align="center">
@@ -60,6 +60,29 @@ Mine, craft and survive in a world like Minecraft 1.8, right on your calculator.
 
 <p align="center">
   It's in NumPlay too. &nbsp;<a href="games/numblocks/README.md"><b>More about NumBlocks</b></a> &nbsp;·&nbsp; <a href="docs/play.md#numblocks"><b>How to play</b></a>
+</p>
+
+
+
+## New: Hollow Knight
+
+<p align="center">
+  <img src="docs/media/hollowknight.gif" width="640" alt="Hollow Knight: the Knight in King's Pass, against the False Knight and Hornet">
+</p>
+
+Explore Hallownest as the Knight, right on your calculator.
+
+- **The start of the journey:** King's Pass, Dirtmouth, the Forgotten Crossroads and Greenpath, up to Hornet.
+- **The Knight moves like in the game:** the same jumps, nail slashes, pogos, dash, focus and Vengeful Spirit.
+- **Its bosses and people:** the False Knight, Gruz Mother and Hornet; Elderbug, Sly, Iselda, Cornifer and more.
+- **Everything to find:** geo, charms, mask shards, vessel fragments, grubs, the map and the stag stations.
+
+<p align="center">
+  <a href="https://github.com/Mason363/NumPlay/releases/latest/download/HollowKnight.nwa"><img src="https://img.shields.io/badge/Download-HollowKnight.nwa-4A5A7A?style=for-the-badge" alt="Download HollowKnight.nwa"></a>
+</p>
+
+<p align="center">
+  It fills the calculator's app space, so it comes on its own. &nbsp;<a href="games/hollowknight/README.md"><b>More about Hollow Knight</b></a> &nbsp;·&nbsp; <a href="docs/play.md#hollow-knight"><b>How to play</b></a>
 </p>
 
 
@@ -149,6 +172,10 @@ Click a file to download it. Not sure which one? Take the first.
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_celeste.png" width="112" alt="Celeste"></td>
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/Celeste.nwa">Celeste.nwa</a><br>Celeste: the whole climb up Celeste Mountain. It fills the calculator's app space, so it comes on its own, not inside NumPlay (<a href="games/celeste/README.md">more</a>)</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/thumb_hollowknight.png" width="112" alt="Hollow Knight"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/HollowKnight.nwa">HollowKnight.nwa</a><br>Hollow Knight: from King's Pass to Hornet in Greenpath. It fills the calculator's app space, so it comes on its own, not inside NumPlay (<a href="games/hollowknight/README.md">more</a>)</td>
   </tr>
   <tr>
     <td width="120" align="center"><img src="docs/media/thumb_numdrive.png" width="112" alt="NumDrive"></td>
@@ -252,6 +279,10 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
     <td><img src="games/celeste/docs/reflection.png" width="100%" alt="Celeste: Badeline fights back in Reflection"></td>
   </tr>
   <tr>
+    <td><img src="docs/media/hollowknight.gif" alt="Hollow Knight: the Knight in King's Pass, against the False Knight and Hornet"></td>
+    <td><img src="games/hollowknight/docs/greenpath.png" width="100%" alt="Hollow Knight: Greenpath"></td>
+  </tr>
+  <tr>
     <td><img src="docs/media/numdrive.gif" alt="NumDrive gameplay"></td>
     <td><img src="docs/media/balatro.gif" alt="Balatro: a Four of a Kind scoring with five Jokers"></td>
   </tr>
@@ -298,6 +329,7 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
 - **Balatro** by LocalThunk inspired NumPlay's Balatro, which uses art adapted from the game and the **m6x11** font by Daniel Linssen.
 - **Minecraft** by Mojang inspired NumBlocks, which uses Minecraft 1.8.8's textures, font and screens and makes its worlds the way Minecraft 1.8.8 does.
 - **Celeste** inspired NumPlay's Celeste, which uses the game's own pictures, maps, texts and fonts. Not affiliated with Maddy Makes Games.
+- **Hollow Knight** inspired NumPlay's Hollow Knight, which uses the game's own pictures, animations, maps, texts and fonts. Not affiliated with Team Cherry.
 - **Buckshot Roulette** by Mike Klubnika inspired NumPlay's Buckshot Roulette, whose scenes are rendered from the game through the Open Buckshot Roulette project (1503Dev). Fonts: Fake Receipt by Ray Larabie and Dot Matrix by Dionaea.
 - The **Doodle Champion Island Games** (2021) inspired Champion Island, which uses the doodle's own pictures, maps and texts from the [Google-Doodle-Champion-Island](https://github.com/potherca-blog/Google-Doodle-Champion-Island) archive by potherca-blog, and the **PixelMplus** font by Itou Hiroki ([license](LICENSES/PixelMplus.txt)).
 - **[Portal Returns](https://www.cemetech.net/downloads/files/1313/x1313)** by MateoConLechuga for the TI-84 Plus CE, with sprites by CKH4 and Portal Prelude chambers ported by Unicorn from BuilderBoy's original.
@@ -310,4 +342,4 @@ NumPlay is licensed under the [GNU General Public License v3.0](LICENSE). Copyri
 
 Code and fonts from others keep their own licenses: the `UNLICENSE` files in the games' folders and the [LICENSES](LICENSES) folder. The names, artwork and music of the games NumPlay is inspired by belong to their makers and are not covered by it.
 
-<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, LocalThunk or Playstack (Balatro), Mike Klubnika or Critical Reflex (Buckshot Roulette), Mojang or Microsoft (Minecraft), Maddy Makes Games (Celeste), MateoConLechuga (Portal Returns), Valve (Portal), .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Google (Snake, Solitaire, Block Breaker, Doodle Champion Island Games), STUDIO4°C or Microsoft (Minesweeper). Tetris is a trademark of The Tetris Company, Minecraft of Mojang Synergies AB, Pac-Man of Bandai Namco and Connect Four of Hasbro.</sub>
+<sub>Unofficial fan games, not affiliated with NumWorks, RobTop Games (Geometry Dash), Hipster Whale (Crossy Road), the makers of Drive Mad, LocalThunk or Playstack (Balatro), Mike Klubnika or Critical Reflex (Buckshot Roulette), Mojang or Microsoft (Minecraft), Maddy Makes Games (Celeste), Team Cherry (Hollow Knight), MateoConLechuga (Portal Returns), Valve (Portal), .GEARS (Flappy Bird), Bandai Namco (Pac-Man), Hasbro (Connect Four), Google (Snake, Solitaire, Block Breaker, Doodle Champion Island Games), STUDIO4°C or Microsoft (Minesweeper). Tetris is a trademark of The Tetris Company, Minecraft of Mojang Synergies AB, Pac-Man of Bandai Namco and Connect Four of Hasbro.</sub>

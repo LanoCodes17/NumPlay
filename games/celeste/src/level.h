@@ -254,6 +254,7 @@ void hud_update(void);   /* TotalStrawberriesDisplay */
 void hud_reset(void);
 extern bool g_in_level;
 void game_play(int chapter, int checkpoint);   /* game.c: a chapter from a checkpoint (-1: start), or the saved session (chapter -1) */
+void game_credits(void);                       /* game.c: the Summit's credits, after its AreaComplete */
 
 void level_start(int intro);                  /* the session's chapter, at its level */
 void level_update(void);

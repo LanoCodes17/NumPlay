@@ -16,9 +16,12 @@ static struct {
   int16_t room;              /* the panel's room picker (cheat mode): the room chosen, -1 when closed */
   uint8_t hold, last_dir;    /* the arrows' repeat */
   uint8_t advance;           /* after a first completion: 1 the panel waits, 2 and 3 the chapter select moves on */
+  uint8_t leaving;           /* the chapter's end: wiping out to the overworld */
   float t, wig, repeat;
 } M;
 uint8_t g_menu;              /* the screen on (S_NONE while playing) */
+/* the big picture behind the screen (pic.c): the one in the cache (with g_res_tops then), how far it faded in */
+static struct { int8_t id; uint8_t tops; float fade; PicLayer l; } P = {.id = -1};
 
 /* ---------------------------------------------------------------- drawing: pictures, then words */
 static int pass;             /* 0: pictures and boxes (commands), 1: words (into the strip) */
@@ -44,18 +47,24 @@ static uint16_t highlight(void) {   /* TextMenu.HighlightColor: A and B in turn 
 
 /* HiresSnow's overlay over black: Overworld "overlay" added at White * 0.45 (x 0.2025, stored so, opaque),
  * scrolling 32 and 20 pixels a second of 1920 x 1080, wrapping */
-static void snow_overlay(float time) {
+static void snow_overlay(float time, uint8_t flags) {
   Tex t;
   if (!tex_get(T__overlay, &t)) return;
   int w = t.fw * t.scale, h = t.fh * t.scale;
   int ox = (int)(time * 32 / 6) % w, oy = (int)(time * 20 / 6) % h;
   for (int j = 0; j < 2; j++)
-    for (int i = 0; i < 2; i++) gfx_tex(T__overlay, (float)(ox - i * w), (float)(oy - j * h), 0, WHITE, 255);
+    for (int i = 0; i < 2; i++) gfx_tex(T__overlay, (float)(ox - i * w), (float)(oy - j * h), flags, WHITE, 255);
 }
-/* the overworld behind the menus: HiresSnow (its overlay and 50 flakes blown left) */
+/* the overworld behind the menus: the mountain, then HiresSnow (its overlay, added, and 50 flakes blown left) */
+static bool picture(void) {
+  if (P.id < 0 || P.tops != g_res_tops) return false;
+  if (!pass) gfx_custom(pic_strip, &P.l, 0, VIEW_H);
+  return true;
+}
 static void backdrop(void) {
+  bool mountain = picture();
   if (pass) return;
-  snow_overlay(M.t + 100);
+  snow_overlay(M.t + 100, mountain ? GF_ADD : 0);
   hires_snow(M.t + 100, 1);
 }
 /* HiresSnow's flakes at `time`, faded by alpha (screen coordinates) */
@@ -94,7 +103,7 @@ static void inputs_end(void) {
   if (!g_in.move_x && !g_in.move_y) M.last_dir = 0;
 }
 static void go(int screen, int sel) {
-  M.screen = (uint8_t)screen, M.sel = (int8_t)sel, M.t = 0, M.wig = 0, M.room = -1;
+  M.screen = (uint8_t)screen, M.sel = (int8_t)sel, M.t = 0, M.wig = 0, M.room = -1, M.leaving = 0;
   g_menu = (uint8_t)screen;
   btn_consume(&g_in.confirm);
   btn_consume(&g_in.back);
@@ -277,7 +286,7 @@ static void reflection(float a, float sc) {
 }
 static void title_draw(void) {
   float a = M.sel ? ease_cube_inout(clampf((M.t - 0.4f) / 0.6f, 0, 1)) : 1, sc = 0.5f + 0.5f * sinf(a * PI_F / 2);
-  if (!pass) snow_overlay(M.t + 100);
+  if (!pass) snow_overlay(M.t + 100, 0);
   pic(T__logo, 960, 540, 0.5f, 0.5f, sc, WHITE, a8(a));
   if (!pass && a > 0) reflection(a, sc);
   if (!pass) hires_snow(M.t + 100, 1);
@@ -578,34 +587,65 @@ static void credits_update(void) {
 }
 
 /* ---------------------------------------------------------------- the chapter's end (AreaComplete) */
+static int complete_pic(int a) { return PIC_COMPLETE + (a == 9 ? 7 : a - 1); }   /* (pictures.py COMPLETE_AREAS) */
+static void leave_complete(void) {   /* the FadeWipe's end: the overworld (its panel) */
+  go(S_PANEL, 0);
+  wipe_start(WIPE_FADE, true, NULL);
+}
 static void complete_draw(void) {
-  int a = M.area;
-  box(0, 0, 1920, 1080, rgb(TITLE_BASE[a]), 255);
-  box(0, 760, 1920, 320, rgb(TITLE_ACCENT[a]), 255);
-  pic(area_icon(a), 960, 300, 0.5f, 0.5f, 1.5f, WHITE, 255);
-  ModeStats *ms = &g_save.modes[a][M.mode];
-  const char *head = M.mode == M_B ? "AREACOMPLETE_BSIDE" : M.mode == M_C ? "AREACOMPLETE_CSIDE"
-                     : (ms->flags & MS_FULLCLEAR) ? "AREACOMPLETE_NORMAL_FULLCLEAR" : "AREACOMPLETE_NORMAL";
-  say(ui_str(head), 960, 560, 0.5f, 0.5f, 2, a == 7 ? 0 : WHITE, 255);
-  char b[32], *p = b;
-  int ch = chapter_index(a, M.mode);
-  p += uitoa(popcount64(ms->berries), p);
-  *p++ = '/';
-  uitoa(ch >= 0 ? chapter_at(ch)[CH_DETECTED] : 0, p);
-  if (!interlude(a)) {
-    pic(T__collectables_strawberry, 640, 900, 0.5f, 0.5f, 0.8f, WHITE, 255);
-    say(b, 700, 900, 0, 0.5f, 1, WHITE, 255);
-    p = b;
-    uitoa((int)g_session.deaths, p);
-    pic(T__collectables_skullBlue, 1060, 900, 0.5f, 0.5f, 0.8f, WHITE, 255);
-    say(b, 1110, 900, 0, 0.5f, 1, WHITE, 255);
+  int a = M.area, k = complete_pic(a) - PIC_COMPLETE;
+  /* CompleteRenderer: a second, then 1.5 to slide in (SineOut) out of black; its layers move as one here (as the
+   * nearer ones do, a tenth of the scroll) */
+  float p = clampf((M.t - 1) / 1.5f, 0, 1), e = ease_sine_out(p), shown = fminf(p * 2, 1);   /* (words: under the fade) */
+  P.l.x = (int16_t)roundf(-PIC_SLIDE[k][0] * (1 - e) / 60), P.l.y = (int16_t)roundf(-PIC_SLIDE[k][1] * (1 - e) / 60);
+  if (!picture()) box(0, 0, 1920, 1080, rgb(TITLE_BASE[a]), 255);
+  if (a != 7) {   /* AreaCompleteTitle (the Summit has none) */
+    ModeStats *ms = &g_save.modes[a][M.mode];
+    const char *head = ui_str(M.mode == M_B ? "AREACOMPLETE_BSIDE" : M.mode == M_C ? "AREACOMPLETE_CSIDE"
+                              : (ms->flags & MS_FULLCLEAR) ? "AREACOMPLETE_NORMAL_FULLCLEAR" : "AREACOMPLETE_NORMAL");
+    float rect = ease_sine_out(clampf((M.t - 2.6f) / 0.5f, 0, 1));   /* DrawLineUI, after 2.6 */
+    if (rect > 0) box(0, 160, 1920 * rect, 80, 0, 166);
+    float sc = fminf(1600 / text_measure(head), 3), x = 960 - text_width(head, sc) / 2, y = 200 + 80 * sc / 2;
+    char c[2] = {0, 0};
+    for (int i = 0; head[i]; i++) {   /* each letter in its turn along its curve, from 60 below to 100 above */
+      c[0] = head[i];
+      float w = text_width(c, sc), t = clampf((M.t - 0.2f - i * 0.02f) * 4, 0, 1);
+      if (head[i] != ' ' && t > 0) {
+        float ly = (1 - t) * (1 - t) * (y + 60) + 2 * (1 - t) * t * y + t * t * (y - 100);
+        uint8_t al = a8(clampf(t * 3, 0, 1) * shown);
+        if (t >= 1) say(c, x + w / 2, ly + 3.5f * sc, 0.5f, 1, sc, 0, a8(shown));   /* its shadow */
+        say(c, x + w / 2, ly, 0.5f, 1, sc, WHITE, al);
+      }
+      x += w;
+    }
   }
-  time_text(g_session.time, b);
-  say(b, 960, 1000, 0.5f, 0.5f, 0.8f, WHITE, 255);
-  if (M.t > 1 && fmodf(M.t, 1) < 0.75f) pic(T__textboxbutton, 1824, 984, 0.5f, 0.5f, 1, WHITE, 255);
+  int clock = g_save.options >> 2 & 3;
+  if (clock && M.t > 1.1f) {   /* AreaComplete.Info: the speedrun clock, in from the left */
+    char b[24];
+    float x = 80 - 300 * (1 - ease_cube_out(clampf((M.t - 1.1f) * 2, 0, 1)));
+    time_text(clock == 2 ? g_save.time : g_session.time, b);
+    uint8_t al = a8(shown);
+    say(b, x, clock == 2 ? 984 : 1000, 0, 1, 1, WHITE, al);
+    if (clock == 2) {
+      const char *ch = ui_str("OPTIONS_SPEEDRUN_CHAPTER");
+      say(ch, x, 1024, 0, 1, 0.6f, WHITE, al);
+      say(":", x + text_width(ch, 0.6f), 1024, 0, 1, 0.6f, WHITE, al);
+      time_text(g_session.time, b);
+      say(b, x + text_width(ch, 0.6f) + text_width(":", 0.6f) + 8, 1024, 0, 1, 0.6f, WHITE, al);
+    }
+  }
+  if (p < 0.5f) box(0, 0, 1920, 1080, 0, a8(1 - p * 2));   /* fadeAlpha */
+  if (M.t < 2) hires_snow(M.t + 100, 1 - M.t / 2);         /* the level's snow, going */
+}
+static void to_credits(void) {   /* the Summit's A-side: its credits */
+  g_menu = M.screen = S_NONE;
+  game_credits();
 }
 static void complete_update(void) {
-  if (M.t > 1 && (confirm() || cancel())) go(S_PANEL, 0);
+  if (M.t > 2.7f && !M.leaving && confirm()) {   /* once slid in (and 0.2 more) */
+    M.leaving = 1;
+    wipe_start(WIPE_FADE, false, M.area == 7 && M.mode == M_A ? to_credits : leave_complete);
+  }
 }
 
 /* ---------------------------------------------------------------- the pause menu (Level.Pause) */
@@ -761,6 +801,36 @@ static void hud_draw(void) {
 }
 
 /* ---------------------------------------------------------------- the frame */
+/* the picture behind the screen: the chapter's end, the mountain from the chapter chosen, or the main menu's */
+static int wanted_picture(void) {
+  switch (M.screen) {
+    case S_COMPLETE: return complete_pic(M.area);
+    case S_CHAPTERS:
+    case S_PANEL: return PIC_MOUNTAIN + M.area;
+    case S_OPTIONS: return M.back == S_MAIN ? PIC_MAIN : -1;
+    case S_MAIN:
+    case S_KEYS:
+    case S_CREDITS: return PIC_MAIN;
+  }
+  return -1;
+}
+static void picture_update(void) {
+  int id = wanted_picture();
+  if (g_in_level || id < 0) return;   /* (the cache's top is the chapter's while it is played) */
+  if (id != P.id || P.tops != g_res_tops) {
+    int w, h;
+    P.l.px = res_picture_ram(160 * 90 * 2);
+    if (!pic_decode(id, (uint16_t *)P.l.px, &w, &h) || w > 160 || h > 90) {
+      P.id = -1;
+      return;
+    }
+    P.id = (int8_t)id, P.tops = g_res_tops;
+    P.l.w = (int16_t)w, P.l.h = (int16_t)h, P.l.x = P.l.y = 0;
+    P.fade = M.screen == S_COMPLETE ? 1 : 0;   /* (the mountain eases in, as its camera would move) */
+  }
+  P.fade = approach(P.fade, 1, RAW_DT * 2.5f);
+  P.l.alpha = a8(P.fade);
+}
 void menu_update(void) {
   M.t += RAW_DT, M.wig += RAW_DT;
   switch (M.screen) {
@@ -776,6 +846,7 @@ void menu_update(void) {
     case S_PAUSE: pause_update(); break;
     case S_CONFIRM: confirm_update(); break;
   }
+  picture_update();
   inputs_end();
 }
 static void draw_screen(void) {

@@ -151,6 +151,7 @@ typedef struct {
   const uint8_t *map; /* TF_NIB: its colors (count, then their palette indices) */
 } Tex;
 enum { TF_RLE = 0, TF_RAW4 = 2, TF_ROW8 = 4, TF_NIB = 8, TF_SHARED = 16 };   /* ROW8, NIB, SHARED: drawn from flash only */
+#define ROW8_MAX 240   /* TF_ROW8 rows are shorter (lengths from it up: tools/pack.py direct_rows) */
 void tex_row(const Tex *t, int r, uint8_t *out);   /* row r's palette indices (0: transparent) */
 bool tex_get(uint16_t id, Tex *t);         /* false if not loaded (packed and not cached) */
 const uint16_t *pal_colors(uint16_t pal, int *n);
@@ -173,6 +174,8 @@ bool res_cached(uint16_t id);
 extern uint8_t *g_chapter_ram;           /* the chapter files' own tables, while it is played */
 extern uint8_t *g_chram[16];             /* each chapter file's (src/chN.c) part of it */
 void res_chapter_ram(uint32_t bytes);
+uint16_t *res_picture_ram(uint32_t bytes);   /* the menus' big picture, at the same place */
+extern uint8_t g_res_tops;                  /* changes when they take it (or a chapter does) */
 void res_flush(void);
 int tex_half_extent(uint16_t id);   /* half the bigger side of its frame, known without loading it */
 extern uint16_t g_res_frame;
@@ -212,6 +215,11 @@ void gfx_circle(float x, float y, float r, uint16_t c, uint8_t alpha, int resolu
 /* layers drawn by callbacks, once per strip: y0 and y1 are view rows */
 typedef void (*StripFn)(uint16_t *strip, int y0, int y1, void *ctx);
 void gfx_custom(StripFn fn, void *ctx, int y0, int y1);
+/* the menus' big pictures (pic.c): decoded half size, drawn twice as big at view (x, y) by pic_strip (a gfx_custom) */
+typedef struct { const uint16_t *px; int16_t w, h, x, y; uint8_t alpha; } PicLayer;
+int pic_count(void);
+bool pic_decode(int id, uint16_t *out, int *w, int *h);
+void pic_strip(uint16_t *strip, int sy0, int sy1, void *ctx);
 void gfx_keep(bool on);    /* the layers that must be drawn (tiles, stylegrounds in front): commands kept for them */
 void blit_line(uint16_t *strip, int sy0, int sy1, float x0, float y0, float x1, float y1, uint16_t col, uint8_t alpha);
 void blit_rect(uint16_t *strip, int sy0, int sy1, float x, float y, float w, float h, uint16_t col, uint8_t alpha);

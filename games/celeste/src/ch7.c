@@ -763,7 +763,6 @@ static void new_ascendm(const EData *d) {
 }
 
 /* ---------------------------------------------------------------- CS07_Ending (the summit) */
-static void credits_begin(void);
 typedef struct {
   Cutscene cs;
   Ent *badeline, *tb;
@@ -856,10 +855,7 @@ static void ending7_tick(Ent *e) {
   if (s->cam2_on == 2) s->cam2_on = 1;
   else if (s->cam2_on && !camera_to(&s->cam2, s->cam2_to, 6, ease_cube_inout)) s->cam2_on = 0;
 }
-static void ending7_wiped(void) {
-  if (g_session.mode == M_A) credits_begin();   /* AreaComplete, then the credits (in this chapter's credits rooms) */
-  else level_complete_area(false, true);
-}
+static void ending7_wiped(void) { level_complete_area(false, true); }   /* AreaComplete (then the credits: menu.c) */
 static void ending7_end(Ent *e, bool skipped) {   /* Level.CompleteArea(spotlightWipe: false), Duration 2, EndTimer 1 */
   (void)e, (void)skipped;
   g_level.pause_lock = true;
@@ -992,13 +988,6 @@ enum { OFF_credits = ((END_streaks + 7) & ~7), END_credits = OFF_credits + (int)
 #define cr (*(Credits *)(void *)(g_chram[7] + OFF_credits))
 static bool have_ch7(void) { return g_level.ch && (rd16(g_level.ch + CH_FILES) >> 7 & 1); }
 
-static void credits_begin(void) {   /* AreaComplete: the session goes on in credits-summit, with CS07_Credits */
-  memset(&cr, 0, sizeof cr);
-  cr.active = 1;
-  cr.fade = 1;
-  g_session.has_respawn = 0;
-  level_goto("credits-summit");
-}
 /* the Fill backdrop: black over the background */
 static void fill_render(Ent *e) {
   (void)e;
@@ -1736,7 +1725,14 @@ static void credits_render(Ent *e) {
 static const EntClass CREDITS = {.name = "CS07_Credits", .update = credits_update, .render = credits_render};
 static const EntClass CREDITSPOST = {.name = "CS07_CreditsPostUpdate", .update = credits_post};
 /* a room of the credits loads: the cutscene, its backdrop fill and its post update are in it */
+uint8_t g_credits_next;   /* the session goes on in credits-summit, with CS07_Credits (after AreaComplete: game_credits) */
 static void credits_room(void) {
+  if (g_credits_next && have_ch7()) {
+    g_credits_next = 0;
+    memset(&cr, 0, sizeof cr);
+    cr.active = 1;
+    cr.fade = 1;
+  }
   if (!have_ch7() || !cr.active || !g_level.room) return;
   for (int i = 0; i < g_nents; i++)   /* (one per load) */
     if (g_ents[i].cls == &CREDITS) return;

@@ -21,13 +21,14 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 REPO = "https://github.com/Mason363/NumPlay"
 # in games.json, but not games
 EXTRAS = {"numvisuals"}
-# games too big to fit next to NumPlay on the calculator: only on their own (after: listed after that game, else
-# in a section of their own)
+# games too big to fit next to NumPlay on the calculator: only on their own, in a section of their own
 ALONE = {
     "celeste": ("Celeste", "the whole climb up Celeste Mountain. Too big to share the calculator with NumPlay: install it "
-                "on its own", "numblocks"),
+                "on its own"),
+    "hollowknight": ("Hollow Knight", "from King's Pass to Hornet in Greenpath. Too big to share the calculator with "
+                     "NumPlay: install it on its own"),
     "championisland": ("Champion Island", "the Doodle Champion Island Games. Too big to share the calculator with "
-                       "NumPlay: install it on its own", None),
+                       "NumPlay: install it on its own"),
 }
 VARIANTS = [
     ("NumPlay-Invisible.nwa", "The same app, hidden: a blank icon with no name"),
@@ -69,7 +70,7 @@ def main():
         notes.append(f"| {link(name)} | {what} |")
     notes += ["", "### Each one on its own", "", "In the launcher's order.", "", "| File | |", "| --- | --- |"]
     def alone_entry(gid):
-        title, what, _ = ALONE[gid]
+        title, what = ALONE[gid]
         name, what = apps[gid], f"{title}: {what}"
         files.append((os.path.join(a.build, "apps", name), f"{name} · {what}"))
         notes.append(f"| {link(name)} | {what} |")
@@ -82,10 +83,7 @@ def main():
         what = f"Only {g['title']}: {tagline}"
         files.append((os.path.join(a.build, "apps", name), f"{name} · {what}"))
         notes.append(f"| {link(name)} | {what} |")
-        for gid in ALONE:
-            if ALONE[gid][2] == g["id"] and gid in apps:
-                alone_entry(gid)
-    alone = [gid for gid in ALONE if gid in apps and not ALONE[gid][2]]
+    alone = [gid for gid in ALONE if gid in apps]
     if alone:
         notes += ["", "### Too big for NumPlay", "", "| File | |", "| --- | --- |"]
         for gid in alone:

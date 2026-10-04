@@ -79,6 +79,7 @@ typedef struct {
 } Pal;
 static Pal pals[NPAL];
 static uint16_t pal_frame = 1;
+static bool pal_over;   /* more than NPAL this frame: some items' palettes were taken (draw_item makes them again) */
 static int pal_hand;
 
 static void soft_reset(void);
@@ -186,14 +187,22 @@ static void pal_screen(uint32_t *c, int n) {
   }
 }
 
-static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha, bool screen) {
+/* a palette's key (0: none, soft textures' colors are soft_get's) */
+static uint32_t pal_key(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha) {
   /* (tex << 17: solid colors' TEX_NONE comes out as 0xFFFE....; black textures' keys below those) */
   uint32_t key = (uint32_t)tex << 17 | alpha << 9 | (uint32_t)tint << 1 | ((flags & F_LIT) ? 1 : 0);
   if (tex != TEX_NONE) {
     const TexRec *r = tex_rec(tex);
-    if (r->fmt >= FMT_SOFT) return 0;   /* (no colors: soft_get) */
+    if (r->fmt >= FMT_SOFT) return 0;
     if (r->fmt == FMT_ALPHA2) key = 0xFFFC0000u | alpha;   /* black: only the alpha matters */
   }
+  return key;
+}
+static void pal_fill(Pal *p, uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha, bool screen);
+
+static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha, bool screen) {
+  uint32_t key = pal_key(tex, tint, flags, alpha);
+  if (!key) return 0;   /* (no colors) */
   for (int i = 0; i < NPAL; i++)
     if (pals[i].key == key && pals[i].screen == screen) {
       pals[i].frame = pal_frame;
@@ -207,10 +216,15 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha, bo
       break;
     }
   }
-  if (s < 0) s = pal_hand;
+  if (s < 0) s = pal_hand, pal_over = true;
   pal_hand = (s + 1) % NPAL;
   Pal *p = &pals[s];
-  p->key = key, p->frame = pal_frame, p->screen = screen;
+  p->key = key, p->frame = pal_frame;
+  pal_fill(p, tex, tint, flags, alpha, screen);
+  return s;
+}
+static void pal_fill(Pal *p, uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha, bool screen) {
+  p->screen = screen;
   const uint8_t *t = tint_rgba(tint);
   grade_off = tint >= HUD_TINT;
   p->solid = alpha == 255 && !screen;
@@ -223,10 +237,10 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha, bo
   if (tex == TEX_NONE) {
     p->c[1] = grade(tr, tg, tb, ta);
     if (screen) pal_screen(p->c + 1, 1);
-    return s;
+    return;
   }
   const TexRec *r = tex_rec(tex);
-  if (r->fmt >= FMT_SOFT) return s;
+  if (r->fmt >= FMT_SOFT) return;
   if (r->fmt == FMT_ALPHA2) {   /* (drawn black whatever the tint) */
     for (int i = 1; i < 4; i++) p->c[i] = (uint32_t)(ta * i / 3.0f * 255 + 0.5f) << 24;
   } else {
@@ -245,7 +259,6 @@ static int pal_get(uint16_t tex, uint8_t tint, uint8_t flags, uint32_t alpha, bo
     }
     if (screen) pal_screen(p->c + 1, 15);
   }
-  return s;
 }
 
 
@@ -475,6 +488,20 @@ static inline void take_over(int row, int x, int p, uint32_t s) {
   (void)row, (void)x;
   take_over_a(acc + p, s);
 }
+/* a black texel (2-bit textures are drawn black): only the light left from behind changes */
+static inline void take_black(Acc *a, uint32_t s) {
+  uint32_t gt = a->gt;
+  if (s >= 0xFF000000u) {
+    a->gt = gt & 0xFFFF, COVER_P(a - acc);
+    return;
+  }
+  uint32_t ia = ~s >> 24, t = (T_OF(gt) * (ia + (ia << 8))) >> 16;
+  if (t < 2) {
+    a->gt = gt & 0xFFFF, COVER_P(a - acc);
+    return;
+  }
+  a->gt = (gt & 0xFFFF) | t << 16;
+}
 
 #define ACC_TOP (65535 - 255 * 128 - 1024)   /* lights that add stop here: what is behind, and the dither, still fit */
 static void take_mode(int row, int x, int p, uint32_t s, int mode) {
@@ -647,6 +674,7 @@ typedef struct {
   const Map *m;
   const uint32_t *pal;
   Item *it;
+  bool solid;   /* (its palette's) */
 } Ctx;
 
 /* a run [a, b) of row y (all pixels with light left), by kind */
@@ -660,7 +688,7 @@ static void run_axis(const Ctx *c, int y, int a, int b, uint16_t *tp, int ty, in
   const Map *m = c->m;
   const TexRec *r = c->r;
   int mode = c->mode, row = c->row, W = r->w;
-  bool a2 = r->fmt == FMT_ALPHA2, solid = pals[c->it->pal].solid;
+  bool a2 = r->fmt == FMT_ALPHA2, solid = c->solid;
   const uint8_t *codes = tex_row_codes(c->in->tex, ty);
   int sh = TILE_SHIFT(r->fmt), um = (1 << sh) - 1;
   int32_t du = (int32_t)(65536.0f / m->pu);
@@ -691,13 +719,8 @@ static void run_axis(const Ctx *c, int y, int a, int b, uint16_t *tp, int ty, in
     if (solid && !mode && code_of(codes, tx) == 3) {
       /* a tile of opaque texels over everything behind it: nothing is left from behind */
       int x0 = x;
-      if (a2) {
-        uint32_t s = c->pal[3];
-        for (; x < e; x++, p++) {
-          Acc *ac = acc + p;
-          uint32_t tt = (T_OF(ac->gt) + 1u) >> 1;
-          ac->rb += (s & 0xFF00FF) * tt, ac->gt = (ac->gt + ((s >> 8) & 255) * tt) & 0xFFFF;
-        }
+      if (a2) {   /* (black) */
+        for (; x < e; x++, p++) acc[p].gt &= 0xFFFF;
         u += du * (e - x0);
       } else {
         const uint8_t *rw = t + vr * 8;
@@ -732,11 +755,17 @@ static void run_axis(const Ctx *c, int y, int a, int b, uint16_t *tp, int ty, in
       if (k0 > k1) k0 = k1;
       e = x + k1, x += k0, p += k0, u += du * k0;
     }
-    if (a2) {
+    if (a2 && !mode) {
+      const uint8_t *rw = t + vr * 8;
+      for (; x < e; x++, p++, u += du) {
+        int ur = (u >> 16) & 31, ci = rw[ur >> 2] >> ((ur & 3) * 2) & 3;
+        if (ci) take_black(acc + p, c->pal[ci]);
+      }
+    } else if (a2) {
       const uint8_t *rw = t + vr * 8;
       for (; x < e; x++, p++, u += du) {
         int ur = (u >> 16) & um, ci = rw[ur >> 2] >> ((ur & 3) * 2) & 3;
-        if (ci) TAKE(row, x, p, c->pal[ci]);
+        if (ci) take_mode(row, x, p, c->pal[ci], mode);
       }
     } else if (!mode) {
       const uint8_t *rw = t + vr * 8;
@@ -791,7 +820,7 @@ __attribute__((always_inline)) static inline void clip_in(int32_t u, int32_t du,
     *k1 = 0;
 }
 /* the pixels from (u, v) on in the same tile (at most left) */
-__attribute__((noinline)) static int turned_gap(int32_t u, int32_t v, int32_t du, int32_t dv, int sh, int left) {
+__attribute__((always_inline)) static inline int turned_gap(int32_t u, int32_t v, int32_t du, int32_t dv, int sh, int left) {
   int32_t ul = (u >> (16 + sh)) << (16 + sh), vl = (v >> 20) << 20;
   int n = steps_in(u, du, ul, ul + (1 << (16 + sh))), m = steps_in(v, dv, vl, vl + (1 << 20));
   n = n < m ? n : m;
@@ -927,6 +956,7 @@ static void run_turned(const Ctx *c, int y, int a, int b, int *last_key, const u
   int lk = *last_key;
   const uint8_t *lt = *last_t;
   TurnSrc src = {rtp, tex, (uint16_t)tw};
+  T4 k4 = {0, dux, dvx, NULL, pal, acc, &cov[0][0]};   /* (for turned4_over: the tile's row and texels set each time) */
   (void)sh, (void)um;
   /* (few values live in the loop: the pixel's index, its texel's place, the tile) */
 #define TURNED(SH, TEXEL, PUT)                                                     \
@@ -954,7 +984,7 @@ static void run_turned(const Ctx *c, int y, int a, int b, int *last_key, const u
       }                                                                        \
     }                                                                          \
     if (SH == 4 && !mode) {                                                    \
-      T4 k4 = {tv, dux, dvx, lt, pal, acc, &cov[0][0]};                        \
+      k4.tv = tv, k4.lt = lt;                                                  \
       turned4_over(acc + p, acc + pn, tu, &k4);                                \
       continue;                                                                \
     }                                                                          \
@@ -964,7 +994,7 @@ static void run_turned(const Ctx *c, int y, int a, int b, int *last_key, const u
     }                                                                          \
   }
   if (r->fmt == FMT_ALPHA2) {
-    if (!mode) TURNED(5, lt[vr << 3 | ur >> 2] >> ((ur & 3) * 2) & 3, take_over_a(A, pal[ci]))
+    if (!mode) TURNED(5, lt[vr << 3 | ur >> 2] >> ((ur & 3) * 2) & 3, take_black(A, pal[ci]))
     else TURNED(5, lt[vr << 3 | ur >> 2] >> ((ur & 3) * 2) & 3, take_mode(0, 0, (int)(A - acc), pal[ci], mode))
   } else {
     if (!mode) TURNED(4, lt[vr << 3 | ur >> 1] >> ((ur & 1) * 4) & 15, take_over_a(A, pal[ci]))
@@ -1050,7 +1080,16 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
   const Inst *in = &it->in;
   int ya = it->y0 > sy0 ? it->y0 : sy0, yb = it->y1 < sy1 ? it->y1 : sy1;
   if (ya >= yb) return;
-  Ctx c = {idx, it->screen ? BL_ALPHA : in->flags & F_BLEND, 0, sy0, in, NULL, NULL, pals[it->pal].c, it};
+  /* (its palette, unless another took its place: more than NPAL this frame, it is made again) */
+  const Pal *pp = &pals[it->pal];
+  Pal again;
+  if (pal_over) {
+    uint16_t ptex = (in->flags & F_SOLID) ? TEX_NONE : in->tex;
+    uint32_t pkey = pal_key(ptex, in->tint, in->flags, inst_alpha(in));
+    if (pkey && (pp->key != pkey || pp->screen != it->screen))
+      pal_fill(&again, ptex, in->tint, in->flags, inst_alpha(in), it->screen), pp = &again;
+  }
+  Ctx c = {idx, it->screen ? BL_ALPHA : in->flags & F_BLEND, 0, sy0, in, NULL, NULL, pp->c, it, pp->solid};
   Map m;
   int kind = 0;   /* 0 solid, 1 axis, 2 turned, 3 soft, 4 bilinear */
   const uint32_t *soft = NULL;
@@ -1085,8 +1124,8 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
     int px, py;
     sscanf(getenv("PROBE"), "%d,%d", &px, &py);
     if (py >= ya && py < yb && px >= it->x0 && px < it->x1)
-      fprintf(stderr, "item %d kind %d tex %u fmt %d blend %d z %.2f trans-before %u\n", idx, kind, in->tex,
-              c.r ? c.r->fmt : -1, c.mode, in->z / 128.0, T_OF(acc[(py - sy0) * VIEW_W + px].gt));
+      fprintf(stderr, "item %d kind %d tex %u fmt %d blend %d z %.2f rb %08x g %04x trans-before %u\n", idx, kind, in->tex,
+              c.r ? c.r->fmt : -1, c.mode, in->z / 128.0, acc[(py - sy0) * VIEW_W + px].rb, acc[(py - sy0) * VIEW_W + px].gt & 0xFFFF, T_OF(acc[(py - sy0) * VIEW_W + px].gt));
   }
 #endif
   uint16_t local[64], *tp = NULL;
@@ -1561,6 +1600,7 @@ void gfx_frame(void) {
   tex_frame();
   pal_frame++;
   if (!pal_frame) pal_frame = 1;
+  pal_over = false;
   nitems = 0;
   arena_top = 0;
   bg_on = false;

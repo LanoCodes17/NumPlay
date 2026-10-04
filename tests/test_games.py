@@ -111,11 +111,11 @@ GAMES = {
     "celeste": ("Celeste.nwa", "celeste.sav",
                 presses((2500, "ok"), (4000, "ok"), (5500, "ok"), (7000, "ok"), (8500, "ok"), (11000, "right", 2500)), 15000,
                 presses((2500, "ok"), (4000, "ok"), (5500, "ok"), (7500, "right", 1500)), 11000),
-    # Start Game, the first profile (a new game: past how to play's two pages, the Knight falls into King's Pass), then
-    # Home, which saves as Quit to Menu; then the same profile, loaded
+    # Start Game, the first profile (a new game: past how to play's two pages, the Knight falls into King's Pass and
+    # lies there a while), then Home, which saves as Quit to Menu; then the same profile, loaded
     "hollowknight": ("HollowKnight.nwa", "hk1.sav",
-                     presses((2500, "ok"), (4500, "ok"), (5500, "ok"), (6500, "ok")) + every(12000, 16000, 600, "right", 400),
-                     20000,
+                     presses((2500, "ok"), (4500, "ok"), (5500, "ok"), (6500, "ok")) + every(18000, 22000, 600, "right", 400),
+                     25000,
                      presses((2500, "ok"), (4500, "ok")) + every(9000, 11000, 600, "left", 400), 14000),
     # a level, its message, then play; then back to the level select
     "portal": ("PortalReturns.nwa", "portal.sav",

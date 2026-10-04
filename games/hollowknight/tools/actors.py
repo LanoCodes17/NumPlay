@@ -20,7 +20,7 @@ KNIGHT = ("resources.assets", 20600, [
     "Prostrate", "Prostrate Rise", "Wake Up Ground", "Collect Normal 1", "Collect Normal 2", "Collect Normal 3",
     "Collect Magical 1", "Collect Magical 2", "Collect Magical 3", "Collect Magical Fall", "Collect Magical Land",
     "Collect Heart Piece", "Collect Heart Piece End", "Collect StandToIdle", "GetUpToIdle", "Death Head Cracked",
-    "Dreamer Land",
+    "Dreamer Land", "Super Hard Land",
 ])
 
 # enemy kinds: name, the FSM (or component) that runs them, their library, the C code for that FSM, and the clips each

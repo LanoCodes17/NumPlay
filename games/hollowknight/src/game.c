@@ -70,6 +70,23 @@ bool game_enter(int room, float x, float y, bool facing_right) {
   return true;
 }
 
+/* a new game (GameManager.StartNewGame): the room's gate the Knight comes in at, as through it (King's Pass: falling in
+ * from its top) */
+static void scene_load(void);
+bool game_enter_gate(int room, const char *gate) {
+  if (!room_load(room)) return false;
+  int n;
+  const Ent *es = room_ents(&n);
+  for (int i = 0; i < n; i++)
+    if (es[i].type == ENT_GATE && !strcmp(str_at(es[i].s0), gate)) {
+      hero_init(es[i].x0, es[i].y0, true);
+      g_game.next_room = (int16_t)room, g_game.next_entry = es[i].s0, g_game.next_delay = 0;
+      scene_load();
+      return g_room.id == room;
+    }
+  return false;
+}
+
 /* HeroController.Respawn, as GameManager starts it: the respawn scene, the Knight at its marker (on the ground below),
  * health back, soul gone; on a bench he wakes on it, else on the ground */
 bool game_respawn(void) {
@@ -97,6 +114,7 @@ bool game_respawn(void) {
   if (g_pd.respawn_type == 1) {
     /* (FinishedEnteringScene, then the bench's RESPAWN) */
     hero_finished_entering_scene(true);
+    g_pd.disable_pause = false;
     if (!bench_respawn(g_pd.respawn_marker)) hero_wake_up_ground();
   } else
     hero_wake_up_ground();
@@ -307,8 +325,21 @@ static void triggers_tick(void) {
     const Ent *e = &es[i];
     if (e->type != ENT_CAMLOCK && e->type != ENT_GATE && e->type != ENT_HAZARD_TRIGGER && e->type != ENT_MASK) continue;
     bool in = false, off = ent_off[i >> 3] >> (i & 7) & 1;
-    for (int j = i; j < n && (j == i || es[j].type == ENT_BOX); j++)
-      if (j == i || es[j].flags == 0) in |= x1 > es[j].x0 && x0 < es[j].x1 && y1 > es[j].y0 && y0 < es[j].y1;
+    int j = i + 1;
+    for (; j < n && es[j].type == ENT_BOX; j++)
+      if (es[j].flags == 0) in |= x1 > es[j].x0 && x0 < es[j].x1 && y1 > es[j].y0 && y0 < es[j].y1;
+    if (x1 > e->x0 && x0 < e->x1 && y1 > e->y0 && y0 < e->y1 && !in) {
+      /* (its own collider a polygon, not a box: its outline after, 4 points a record) */
+      float pts[32];
+      int np = 0;
+      for (; j < n && es[j].type == ENT_SHAPE && np < 16; j++) {
+        const Ent *q = &es[j];
+        float v[8] = {q->x0, q->y0, q->x1, q->y1, q->p0, q->p1, q->p2, q->p3};
+        memcpy(pts + 2 * np, v, sizeof v);
+        np += 4;
+      }
+      in = !np || box_meets_polygon(x0, y0, x1, y1, pts, np);
+    }
     bool was = inside[i >> 3] >> (i & 7) & 1;
     if (off) in = false;
     if (in) inside[i >> 3] |= (uint8_t)(1 << (i & 7));

@@ -922,6 +922,26 @@ static const float slash_poly[4][12] = {
      -0.7312644f, -1.3820535f, 0.6370943f},
 };
 
+/* the hazards a slash touches that a down slash bounces off (spikes: on the Hero Attack layer), as HB_BOUNCE */
+static int hazards_nail(const float *pts, int npts) {
+  int n;
+  const Ent *es = room_ents(&n);
+  for (int i = 0; i < n; i++) {
+    const Ent *e = &es[i];
+    if (e->type != ENT_DAMAGE || !((int)e->p3 & HB_BOUNCE) || !box_meets_shape(e->x0, e->y0, e->x1, e->y1, pts, npts)) continue;
+    if (!e->a) return HB_BOUNCE;
+    /* (its outline: 4 points a record after it) */
+    float q[16];
+    int nq = (int)e->p2 < 8 ? (int)e->p2 : 8;
+    for (int k = 0; k < nq; k++) {
+      const float *f = &es[i + 1 + k / 4].x0;
+      q[2 * k] = f[2 * (k & 3)], q[2 * k + 1] = f[2 * (k & 3) + 1];
+    }
+    if (shapes_meet(q, nq, pts, npts)) return HB_BOUNCE;
+  }
+  return 0;
+}
+
 /* the slash's trigger: what it touches is hit (the damages_enemy FSM), and the Knight recoils or bounces off (NailSlash) */
 static void slash_hits(void) {
   if (!sl.poly) return;
@@ -935,6 +955,7 @@ static void slash_hits(void) {
   }
   float direction = sl.kind == SLASH_UP ? 90 : sl.kind == SLASH_DOWN ? 270 : h->cs.facing_right ? 0 : 180;
   int fl = obj_nail(pts, 6, direction);
+  if (direction == 270 && !(fl & HB_BOUNCE)) fl |= hazards_nail(pts, 6);
   if (direction == 0 && (fl & HB_RECOIL)) hero_recoil_left();
   else if (direction == 180 && (fl & HB_RECOIL)) hero_recoil_right();
   else if (direction == 90 && (fl & HB_RECOIL)) hero_recoil_down();
@@ -1347,6 +1368,9 @@ void hero_hazard_respawn(void) {
 /* HeroController.Respawn's end, the Knight not on a bench: he wakes up on the ground (Wake Up Ground), then has control */
 void hero_wake_up_ground(void) {
   Hero *h = &g_hero;
+  g_pd.disable_pause = true;
+  reset_input();   /* (IgnoreInput) */
+  h->accepting_input = false;
   anim_play_from_frame(&h->anim, CLIP_KNIGHT_WAKE_UP_GROUND, 0);
   h->anim_control = false;
   h->control_relinquished = true;
@@ -1383,6 +1407,7 @@ static void respawn_tick(void) {
     h->anim_state = h->state;
     h->control_relinquished = false;
     hero_finished_entering_scene(true);
+    g_pd.disable_pause = false;
   }
   if (!h->respawning) return;
   h->respawn_timer -= DT;
@@ -1490,6 +1515,13 @@ void hero_charm_update(void) { hero_max_health(); }
 
 void hero_regain_control(void) {
   Hero *h = &g_hero;
+  /* (not while he dies or comes back from a hazard, as King's Pass's tablets would have it on any hit: those give
+   * control back themselves) */
+  if (h->cs.dead || h->wake_timer > 0) return;
+  if (h->cs.hazard_death || h->cs.hazard_respawning) {
+    h->control_relinquished = false;
+    return;
+  }
   h->accepting_input = true;
   h->state = HS_IDLE;
   if (!h->control_relinquished || h->cs.dead) return;
@@ -1506,6 +1538,7 @@ void hero_stop_anim_control(void) { g_hero.anim_control = false; }
 
 void hero_start_anim_control(void) {
   Hero *h = &g_hero;
+  if (h->cs.dead || h->cs.hazard_death || h->cs.hazard_respawning || h->wake_timer > 0) return;   /* (as above) */
   h->anim_state = h->state;
   if (!h->anim_control) {
     h->anim_control = true;

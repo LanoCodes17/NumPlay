@@ -229,6 +229,21 @@ def _more_boxes(o):
     return [rec(ENT_BOX, box=b) for b in _triggers(o)[1:]]
 
 
+def _outline(o):
+    """After a trigger's record and the boxes that follow it: its own collider's outline when that is a polygon, not a
+    box (ENT_SHAPE: 4 points a record, the last repeated; src/game.c: triggers_tick)."""
+    c = next((c for c in o["c"] if c["type"] in ("BoxCollider2D", "PolygonCollider2D", "CircleCollider2D") and
+              c.get("v") and c["v"].get("m_IsTrigger") and c["v"].get("m_Enabled", 1)), None)
+    pts = _shape(o, c) if c is not None and c["type"] == "PolygonCollider2D" else None
+    out = []
+    if pts and not _is_axis_box(pts):
+        assert len(pts) <= 16, o["path"]
+        for i in range(0, len(pts), 4):
+            q = pts[i:i + 4] + [pts[-1]] * (4 - len(pts[i:i + 4]))
+            out.append(rec(ENT_SHAPE, box=(q[0][0], q[0][1], q[1][0], q[1][1]), p=(q[2][0], q[2][1], q[3][0], q[3][1])))
+    return out
+
+
 def rec(type_, flags=0, box=(0, 0, 0, 0), p=(0, 0, 0, 0), a=0, group=0, group2=0, persist=NO_PERSIST, s0=0, s1=0):
     return struct.pack(REC, type_, flags, group, group2, a, persist, *box, *p, s0, s1)
 
@@ -865,7 +880,7 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                 import vm
                 recs.append(rec(ENT_MASK, kind, box, (fade, pause, p2, p3), group=g, group2=g2,
                                 persist=persist.id(name, o["path"]) if persistent else NO_PERSIST, s1=vm.STR.id(o["name"])))
-                recs += _more_boxes(o)
+                recs += _more_boxes(o) + _outline(o)
         classes = {c.get("class") for c in o["c"]}
         f = _fsm(o, ("Bench Control",))
         if f:
@@ -1112,9 +1127,13 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                 recs += [rec(ENT_BOX, fl, box=b) for b, fl in hits]
                 recs += pieces
         dh = [c for c in o["c"] if c.get("class") == "DamageHero"]
-        if dh and not classes & {"HealthManager", "StalactiteControl"}:
-            # a hazard (spikes, acid): its colliders' outlines, as boxes or as shapes after it
+        # (its own classes: o may be an enemy found under its ActivateChildrenOnContact parent, whose touch is its own)
+        if dh and not {c.get("class") for c in o["c"]} & {"HealthManager", "StalactiteControl"}:
+            # a hazard (spikes, acid): its colliders' outlines, as boxes or as shapes after it; p3: a down slash bounces
+            # off it (NailSlash: the layers it bounces off, no NonBouncer on)
             v = dh[0].get("v") or {}
+            nb = any(c.get("class") == "NonBouncer" and (c.get("v") or {}).get("active", True) for c in o["c"])
+            bounce = HB_BOUNCE if o["layer"] in (11, 17, 19) and not nb else 0
             for c in o["c"]:
                 if c["type"] not in ("BoxCollider2D", "PolygonCollider2D") or not c.get("v") or not c["v"].get("m_Enabled", 1):
                     continue
@@ -1124,11 +1143,12 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                 xs, ys = [q[0] for q in pts], [q[1] for q in pts]
                 box = (min(xs), min(ys), max(xs), max(ys))
                 if _is_axis_box(pts):
-                    recs.append(rec(ENT_DAMAGE, box=box, p=(v.get("hazardType", 1), v.get("damageDealt", 1), 0, 0)))
+                    recs.append(rec(ENT_DAMAGE, box=box, p=(v.get("hazardType", 1), v.get("damageDealt", 1), 0, bounce)))
                 else:
                     pts = pts[:8]
                     nrec = (len(pts) + 3) // 4
-                    recs.append(rec(ENT_DAMAGE, box=box, p=(v.get("hazardType", 1), v.get("damageDealt", 1), len(pts), 0), a=nrec))
+                    recs.append(rec(ENT_DAMAGE, box=box, p=(v.get("hazardType", 1), v.get("damageDealt", 1), len(pts), bounce),
+                                    a=nrec))
                     for i in range(nrec):
                         q = pts[4 * i:4 * i + 4] + [pts[-1]] * (4 - len(pts[4 * i:4 * i + 4]))
                         recs.append(rec(ENT_SHAPE, box=(q[0][0], q[0][1], q[1][0], q[1][1]), p=(q[2][0], q[2][1], q[3][0], q[3][1])))
@@ -1150,7 +1170,7 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                 vo = vo if vo is not None and rmv.objs[vo]["path"] == o["path"] and rmv.objs[vo].get("_scene") == name else None
                 recs.append(rec(ENT_CAMLOCK, fl, box, (v["cameraXMin"], v["cameraYMin"], v["cameraXMax"], v["cameraYMax"]),
                                 a=vo + 1 if vo is not None else 0, s1=nm))
-                recs += _more_boxes(o)
+                recs += _more_boxes(o) + _outline(o)
             elif cls == "TransitionPoint":
                 box, entry_only = _trigger(o), 0
                 if box is None:
@@ -1190,6 +1210,7 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                                                  1 if fv("Over Hero") else 0),
                                     (float(fv("Entry Pause", 0) or 0), DOOR_PROMPTS.index(fv("Prompt Name", "Enter")), 0, 0),
                                     a=rooms.index(to) if to in rooms else 0xFFFF, s1=strings.id(fv("Entry Gate") or "")))
+                recs += _outline(o)
             elif cls == "HazardRespawnTrigger":
                 box = _trigger(o)
                 ref = v.get("respawnMarker")
@@ -1203,7 +1224,7 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                 if box is None or target not in marker_index:
                     continue
                 recs.append(rec(ENT_HAZARD_TRIGGER, box=box, a=marker_index[target] + rec_base))
-                recs += _more_boxes(o)
+                recs += _more_boxes(o) + _outline(o)
     # (arenas: their camera locks' records)
     for i, c1, c2 in battles:
         b = bytearray(recs[i])

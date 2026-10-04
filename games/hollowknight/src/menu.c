@@ -26,7 +26,7 @@ static const int16_t key_texts[MENU_NKEYS][2] = MENU_KEYS;   /* (what a key does
 static const ZonePiece zone_bgs[MENU_SLOT_NZONES] = MENU_SLOT_ZONES;
 static const int16_t zone_texts[MENU_SLOT_NZONES] = TXT_ZONES;
 
-enum { MS_TITLE, MS_PROFILES, MS_GAME, MS_PAUSE, MS_HELP };
+enum { MS_TITLE, MS_PROFILES, MS_GAME, MS_PAUSE, MS_HELP, MS_LOADING };
 /* (the save profiles' rows: the slots, then Back; a slot's Clear Save, its prompt's Yes and No) */
 enum { PS_SLOT, PS_CLEAR, PS_PROMPT_NO, PS_PROMPT_YES };
 
@@ -38,7 +38,7 @@ static struct {
   int8_t state[SAVE_SLOTS];   /* (save_stats: 0 none, 1 a game, -1 corrupted) */
   SaveStats stats[SAVE_SLOTS];
   char num[SAVE_SLOTS][3], geo[SAVE_SLOTS][12], time[SAVE_SLOTS][16];
-  bool quit;
+  bool quit, fresh;           /* (loading: a new game) */
 } mn;
 
 /* a number's digits at p (at least `width`, zero padded) -> past them */
@@ -83,10 +83,16 @@ bool menu_in_game(void) {
   return mn.screen == MS_GAME || mn.screen == MS_PAUSE || (mn.screen == MS_HELP && mn.from == MS_PAUSE);
 }
 
-/* a new game in a slot: the Knight at King's Pass' respawn point */
+/* a new game in a slot: the Knight falling into King's Pass from its top (the opening's entry gate, top1); else at its
+ * respawn point */
 static void new_game(int slot) {
   game_new();
   save_select(slot);
+  if (game_enter_gate(ROOM_TUTORIAL_01, "top1")) {
+    g_game.fade = 1, g_screen_fade = 255;   /* (from black) */
+    game_fade_scene_in();
+    return;
+  }
   room_load(ROOM_TUTORIAL_01);
   int n;
   const Ent *e = room_ents(&n);
@@ -109,17 +115,28 @@ static void help_close(void) {   /* (back where it was opened, on its How to Pla
 /* (a slot chosen: its game loaded, at its bench; or a new one) */
 static void pick_slot(int slot) {
   if (mn.state[slot] == 1) {
-    game_new();
-    if (!save_load(slot) || !game_respawn()) {
-      /* (a file that does not load after all: shown as corrupted) */
-      mn.state[slot] = -1;
-      return;
-    }
-  } else if (mn.state[slot] == 0) {
+    /* (the slot says Loading..., the screen fades out, then the game loads) */
+    mn.screen = MS_LOADING, mn.fresh = false, mn.slot = (uint8_t)slot, mn.t = 0;
+  } else if (mn.state[slot] == 0)
     help_open(MS_PROFILES, slot);   /* (how to play first) */
+  /* (a corrupted save: only cleared) */
+}
+
+/* the screen faded out: the game loads (a new one from how to play, or the slot's) */
+static void load_game(void) {
+  int slot = mn.slot;
+  if (mn.fresh) {
+    new_game(slot);
+    go(MS_GAME, 0);
     return;
-  } else
-    return;   /* (a corrupted save: only cleared) */
+  }
+  game_new();
+  if (!save_load(slot) || !game_respawn()) {
+    /* (a file that does not load after all: shown as corrupted) */
+    go(MS_PROFILES, slot);
+    mn.state[slot] = -1;
+    return;
+  }
   go(MS_GAME, 0);
 }
 
@@ -177,9 +194,13 @@ bool menu_tick(uint32_t keys) {
       else if (mn.page == 0 && (p & (K_OK | K_RIGHT))) mn.page = 1;
       else if (mn.page == 1 && (p & K_LEFT)) mn.page = 0;
       else if (mn.page == 1 && (p & K_OK)) {
-        if (mn.from == MS_PROFILES) new_game(mn.slot), go(MS_GAME, 0);
+        if (mn.from == MS_PROFILES) mn.screen = MS_LOADING, mn.fresh = true, mn.t = 0;
         else help_close();
       }
+      return true;
+    case MS_LOADING:
+      /* (drawn once faded: then the load, the screen as it was meanwhile) */
+      if (mn.t > FADE_TIME + DT) load_game();
       return true;
     case MS_PAUSE:
       /* Continue, How to Play, Quit to Menu */
@@ -288,7 +309,7 @@ static void draw_slot(int i, float a) {
 
 /* how to play: the keys (two columns: what a key does, the key), or the basics; under them Next, then Start Game (a
  * new game) or Back */
-static void draw_help(float a) {
+static void draw_help(float a, bool loading) {
   float hw = VIEW_W / 2 / HUD_PX - 0.6f;   /* (the columns: from the screen's edges to its middle) */
   text_id(STYLE_MENU_TITLE, mn.page ? TXT_HELP_TITLE : TXT_SCREEN_KEYBOARD, 0, MENU_KEYS_TITLE_Y, 0, a);
   piece(&keys_fleur, 0, MENU_KEYS_FLEUR_Y, false, white(0, a));
@@ -311,7 +332,10 @@ static void draw_help(float a) {
       y -= line;
     }
   }
-  button(mn.page == 0 ? TXT_NEXT : mn.from == MS_PROFILES ? TXT_MAIN_START : TXT_NAV_BACK, 0, MENU_KEYS_BUTTON_Y, true, a);
+  if (loading)
+    text_id(STYLE_MENU, TXT_PROFILE_LOADING, 0, MENU_KEYS_BUTTON_Y, 0, 1);   /* (in its button's place) */
+  else
+    button(mn.page == 0 ? TXT_NEXT : mn.from == MS_PROFILES ? TXT_MAIN_START : TXT_NAV_BACK, 0, MENU_KEYS_BUTTON_Y, true, a);
 }
 
 void menu_draw(void) {
@@ -341,7 +365,24 @@ void menu_draw(void) {
       break;
     case MS_HELP:
       if (mn.from == MS_PAUSE) gfx_hud_fill(-15, -9, 15, 9, gfx_dyn_tint(31, 0, 0, 0, (uint8_t)(0.8f * 255 + 0.5f)));
-      draw_help(a);
+      draw_help(a, false);
       break;
+    case MS_LOADING: {
+      /* what was there fading out, Loading... where it was chosen (LoadingGameText) */
+      float out = 1 - a;
+      if (mn.fresh) {
+        draw_help(out, true);
+        break;
+      }
+      text_id(STYLE_MENU_TITLE, TXT_SCREEN_SAVE_PROFILES, 0, MENU_PROFILES_TITLE_Y, 0, out);
+      piece(&profiles_fleur, 0, MENU_PROFILES_FLEUR_Y, false, white(0, out));
+      for (int i = 0; i < SAVE_SLOTS; i++)
+        if (i == mn.slot)
+          text_id(STYLE_MENU, TXT_PROFILE_LOADING, MENU_SLOT_X + MENU_SLOT_NEW_X, MENU_SLOT_Y + i * MENU_SLOT_DY, 1, 1);
+        else
+          draw_slot(i, out);
+      button(TXT_NAV_BACK, 0, MENU_BACK_Y, false, out);
+      break;
+    }
   }
 }

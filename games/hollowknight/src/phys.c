@@ -365,6 +365,29 @@ void body_step(Body *b, float dt) {
   for (int j = 0; j < n; j++) b->ccol[j] = cols[j], b->cnx[j] = nxs[j], b->cny[j] = nys[j];
 }
 
+/* two convex polygons (na, nb points): do they overlap (separating axes)? */
+static bool apart_on_edges(const float *a, int na, const float *b, int nb) {
+  for (int i = 0; i < na; i++) {
+    float nx = -(a[2 * ((i + 1) % na) + 1] - a[2 * i + 1]), ny = a[2 * ((i + 1) % na)] - a[2 * i];
+    if (nx == 0 && ny == 0) continue;
+    float amin = 1e30f, amax = -1e30f, bmin = 1e30f, bmax = -1e30f;
+    for (int j = 0; j < na; j++) {
+      float d = a[2 * j] * nx + a[2 * j + 1] * ny;
+      amin = fminf(amin, d), amax = fmaxf(amax, d);
+    }
+    for (int j = 0; j < nb; j++) {
+      float d = b[2 * j] * nx + b[2 * j + 1] * ny;
+      bmin = fminf(bmin, d), bmax = fmaxf(bmax, d);
+    }
+    if (bmax < amin || bmin > amax) return true;
+  }
+  return false;
+}
+bool shapes_meet(const float *a, int na, const float *b, int nb) {
+  if (na < 3 || nb < 3) return true;
+  return !apart_on_edges(a, na, b, nb) && !apart_on_edges(b, nb, a, na);
+}
+
 /* a box (x0, y0, x1, y1) and a convex polygon of n points: do they overlap (separating axes)? */
 bool box_meets_shape(float x0, float y0, float x1, float y1, const float *pts, int n) {
   if (n < 3) return true;
@@ -389,4 +412,31 @@ bool box_meets_shape(float x0, float y0, float x1, float y1, const float *pts, i
     px0 = fminf(px0, pts[2 * j]), px1 = fmaxf(px1, pts[2 * j]), py0 = fminf(py0, pts[2 * j + 1]), py1 = fmaxf(py1, pts[2 * j + 1]);
   }
   return !(px1 < x0 || px0 > x1 || py1 < y0 || py0 > y1);
+}
+
+/* a box and any polygon of n points (a trigger's, concave or not): an edge across the box, or the box inside */
+bool box_meets_polygon(float x0, float y0, float x1, float y1, const float *pts, int n) {
+  if (n < 3) return true;
+  float cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  bool in = false;
+  for (int i = 0, k = n - 1; i < n; k = i++) {
+    float ax = pts[2 * k], ay = pts[2 * k + 1], bx = pts[2 * i], by = pts[2 * i + 1];
+    if ((ay > cy) != (by > cy) && cx < ax + (cy - ay) * (bx - ax) / (by - ay)) in = !in;
+    /* (the edge against the box: clipped to it, Liang-Barsky) */
+    float t0 = 0, t1 = 1, dx = bx - ax, dy = by - ay;
+    float q[4] = {ax - x0, x1 - ax, ay - y0, y1 - ay}, pp[4] = {-dx, dx, -dy, dy};
+    bool cut = true;
+    for (int e = 0; e < 4 && cut; e++) {
+      if (pp[e] == 0) {
+        if (q[e] < 0) cut = false;
+      } else {
+        float t = q[e] / pp[e];
+        if (pp[e] < 0) t0 = t > t0 ? t : t0;
+        else t1 = t < t1 ? t : t1;
+        if (t0 > t1) cut = false;
+      }
+    }
+    if (cut) return true;
+  }
+  return in;
 }

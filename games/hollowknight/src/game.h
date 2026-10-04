@@ -428,6 +428,7 @@ void fx_dash_burst(float x, float y, bool facing_right, bool on_ground);
 
 void game_new(void);
 bool game_enter(int room, float x, float y, bool facing_right);
+bool game_enter_gate(int room, const char *gate);   /* (a new game: through its entry gate) */
 bool game_respawn(void);   /* the Knight at the save's respawn point (a loaded game, after dying) */
 void game_tick(uint32_t keys);   /* 1/50 s */
 void game_draw(void);

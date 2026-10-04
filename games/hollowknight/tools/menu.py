@@ -193,7 +193,7 @@ def build(sprites, texts):
     sh = text.sheets()
     mm = lambda k, st="MENU": texts.add(text.clean(sh["MainMenu"][k]), st)
     for k in ("MAIN_START", "MAIN_QUIT", "PROFILE_NEW_GAME", "PROFILE_CLEAR_BUTTON", "PROFILE_CLEAR_PROMPT", "NAV_YES",
-              "NAV_NO", "NAV_BACK", "PAUSE_CONTINUE", "PAUSE_MAIN", "PROFILE_CORRUPTED"):
+              "NAV_NO", "NAV_BACK", "PAUSE_CONTINUE", "PAUSE_MAIN", "PROFILE_CORRUPTED", "PROFILE_LOADING"):
         out["TXT_" + k] = mm(k)
     out["TXT_SCREEN_SAVE_PROFILES"] = mm("SCREEN_SAVE_PROFILES", "MENU_TITLE")
     out["TXT_SCREEN_KEYBOARD"] = mm("SCREEN_KEYBOARD", "MENU_TITLE")

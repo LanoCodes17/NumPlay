@@ -198,6 +198,8 @@ void phys_collider_shift(int col, float dx, float dy);   /* (moved with its obje
 void phys_colliders_reset(void);               /* all on (a room starts) */
 /* a box and a convex polygon (n points, x y pairs): do they overlap? */
 bool box_meets_shape(float x0, float y0, float x1, float y1, const float *pts, int n);
+bool shapes_meet(const float *a, int na, const float *b, int nb);   /* (two convex polygons) */
+bool box_meets_polygon(float x0, float y0, float x1, float y1, const float *pts, int n);   /* (concave too) */
 
 enum { EV_ENTER, EV_STAY, EV_EXIT };
 typedef struct {

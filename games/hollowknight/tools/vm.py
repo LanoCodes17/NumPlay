@@ -30,7 +30,7 @@ ROOMS = {
     "Crossroads_01": ["Shiny Item", "Force Hard Landing", "_Scenery/sign_post_03/Crossroads Sign Post"],
     "Tutorial_01": ["_Props/Chest/Item", "_Props/Collapser Tute 01", "_Scenery/Break Floor 1", "Interact Reminder",
                     "_Props/Tute Door 5/Active/Jump Reminder", "_Props/Tut_tablet_top", "_Props/Tut_tablet_top (1)",
-                    "_Props/Tut_tablet_top (2)"],   # (its chest: src/obj.c, which turns on what is in it)
+                    "_Props/Tut_tablet_top (2)", "Initial Fall Impact"],   # (its chest: src/obj.c, which turns on what is in it)
     "Fungus1_22": ["Shiny Item", "Gate Switch", "Metal Gate", "Breakable Wall"],
     # (Fk Break Wall's Escape Checker finds no False Knight: its scene loads after it looks, as SceneLoad's LoadBoss)
     "Crossroads_10": ["Key Giver", "Breakable Wall", "Fk Break Wall"],
@@ -556,6 +556,11 @@ class Room:
             return False
         sr = next(c.get("v") for c in q["c"])
         if not sr or not sr.get("m_Sprite") or not sr.get("m_Enabled", 1):
+            return False
+        # (its parent's own script destroying its children, as a collapsing floor does: each its own object, to go)
+        p = self.by_id.get(q.get("parent"))
+        if p is not None and any(a["name"] == "DestroyAllChildren" for c in p["c"] if c.get("fsm")
+                                 for st in c["fsm"]["states"] for a in st["actions"]):
             return False
         names, ids = self.referenced()
         return q["name"] not in names and q.get("_raw", q["id"]) not in ids and not any(c.get("pid") in ids for c in q["c"])

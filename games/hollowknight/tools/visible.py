@@ -83,12 +83,25 @@ def view(args):
     return seen
 
 
+VERSION = 2   # (bumped when what a view sees changes, beyond the instances themselves)
+
+
+def signature(inst):
+    """the instances the results are for, in order (the cells are each one's): stale results are made again"""
+    import zlib
+    return np.array([zlib.crc32(repr((VERSION, it.obj["id"], it.sprite.key, round(it.sprite.w), round(it.sprite.h),
+                                     getattr(it.sprite, "tight", None), round(it.color[3], 4))).encode())
+                     for it in inst], np.uint32)
+
+
 def compute(name):
     p = os.path.join(unity.CACHE, name + ".vis.npz")
+    inst = scene.instances(name)
+    sig = signature(inst)
     if os.path.exists(p):
         z = np.load(p, allow_pickle=True)
-        return z["weight"], z["cells"].item()
-    inst = scene.instances(name)
+        if "sig" in z.files and np.array_equal(z["sig"], sig):
+            return z["weight"], z["cells"].item()
     st = scene.settings(unity.scene(name))
     if st["size"] is None:
         n = len(inst)
@@ -107,7 +120,7 @@ def compute(name):
                 weight[i] = max(weight[i], wsum)
                 cells.setdefault(i, set()).update(c.tolist())
     cells = {i: np.array(sorted(c), np.int32) for i, c in cells.items()}
-    np.savez_compressed(p, weight=weight, cells=np.array(cells, dtype=object))
+    np.savez_compressed(p, weight=weight, cells=np.array(cells, dtype=object), sig=sig)
     print("visible", name, len(jobs), "views:", int((weight >= 0.5).sum()), "of", len(inst), "instances show", flush=True)
     return weight, cells
 

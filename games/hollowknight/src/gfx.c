@@ -435,12 +435,19 @@ uint32_t g_kind_px[6];
 #else
 #define COUNT_PX(k, n) ((void)0)
 #endif
+/* (a strip's rows are whole words of cov: pixel p's bit is bit p of it all) */
+#define COVER_P(p) (((uint32_t *)(void *)cov)[(p) >> 5] |= 1u << ((p) & 31))
 static inline void take_over(int row, int x, int p, uint32_t s) {
+  (void)row, (void)x;
   uint32_t t = trans[p], tt = (t + 1) >> 1;
   arb[p] += (s & 0xFF00FF) * tt;
   ag[p] = (uint16_t)(ag[p] + ((s >> 8) & 255) * tt);
+  if (s >= 0xFF000000u) {   /* (opaque: nothing left from behind) */
+    trans[p] = 0, COVER_P(p);
+    return;
+  }
   t = (t * (255 - (s >> 24)) * 257) >> 16;
-  if (t < 2) t = 0, cover(row, x);
+  if (t < 2) t = 0, COVER_P(p);
   trans[p] = (uint8_t)t;
 }
 
@@ -470,8 +477,9 @@ static void take_mode(int row, int x, int p, uint32_t s, int mode) {
   b = b < 0 ? 0 : b > ACC_TOP ? ACC_TOP : b;
   arb[p] = (uint32_t)r << 16 | (uint32_t)b;
   ag[p] = (uint16_t)g;
-  if (t < 2) t = 0, cover(row, x);
+  if (t < 2) t = 0, COVER_P(p);
   trans[p] = (uint8_t)t;
+  (void)row, (void)x;
 }
 
 #define TAKE(row, x, p, s) (mode ? take_mode(row, x, p, s, mode) : take_over(row, x, p, s))
@@ -573,6 +581,7 @@ static inline uint32_t bi_sample(const BiTex *b, int32_t u, int32_t v) {
     int i0 = row[ur >> 1] >> ((ur & 1) * 4) & 15, i1 = row[(ur + 1) >> 1] >> (((ur + 1) & 1) * 4) & 15;
     row += 8;
     int i2 = row[ur >> 1] >> ((ur & 1) * 4) & 15, i3 = row[(ur + 1) >> 1] >> (((ur + 1) & 1) * 4) & 15;
+    if (i0 == i1 && i0 == i2 && i0 == i3) return b->pal[i0];   /* (the same four: as mixed; clear ones, 0) */
     t00 = b->pal[i0], t10 = b->pal[i1], t01 = b->pal[i2], t11 = b->pal[i3];
   } else {
     t00 = bi_texel(b, c, rr), t10 = bi_texel(b, c + 1, rr), t01 = bi_texel(b, c, rr + 1), t11 = bi_texel(b, c + 1, rr + 1);
@@ -684,6 +693,11 @@ static inline const uint8_t *turned_tile(uint16_t *rtp, uint16_t tex, int tw, in
   return tex_tile(tex, tx, ty);
 }
 
+typedef struct { uint16_t *rtp; uint16_t tex, tw; } TurnSrc;
+/* the tile a key names (out of the loop below) */
+__attribute__((noinline)) static const uint8_t *turned_key(const TurnSrc *s, int key) {
+  return turned_tile(s->rtp, s->tex, s->tw, key & 255, key >> 8);
+}
 static void run_turned(const Ctx *c, int y, int a, int b, int *last_key, const uint8_t **last_t) {
   const Map *m = c->m;
   const TexRec *r = c->r;
@@ -702,20 +716,23 @@ static void run_turned(const Ctx *c, int y, int a, int b, int *last_key, const u
   u += dux * i0, v += dvx * i0;
   int lk = *last_key;
   const uint8_t *lt = *last_t;
-#define TURNED(TEXEL, PUT)                                                     \
-  for (int x = a + i0, e = a + i1, p = row * VIEW_W + a + i0; x < e; x++, p++, u += dux, v += dvx) { \
-    int ui = u >> 16, vi = v >> 16, tkey = (vi >> 4) << 8 | (ui >> sh);          \
-    if (tkey != lk) lk = tkey, lt = turned_tile(rtp, tex, tw, ui >> sh, vi >> 4); \
+  TurnSrc src = {rtp, tex, (uint16_t)tw};
+  (void)sh, (void)um;
+  /* (few values live in the loop: the pixel's index, its texel's place, the tile) */
+#define TURNED(SH, TEXEL, PUT)                                                     \
+  for (int p = row * VIEW_W + a + i0, pe = p + i1 - i0; p < pe; p++, u += dux, v += dvx) { \
+    int ui = u >> 16, vi = v >> 16, tkey = (vi >> 4) << 8 | (ui >> SH);          \
+    if (tkey != lk) lk = tkey, lt = turned_key(&src, tkey);                    \
     if (!lt) continue;                                                         \
-    int ur = ui & um, vr = vi & 15, ci = TEXEL;                                \
+    int ur = ui & ((1 << SH) - 1), vr = vi & 15, ci = TEXEL;                   \
     if (ci) PUT;                                                               \
   }
   if (r->fmt == FMT_ALPHA2) {
-    if (!mode) TURNED(lt[vr * 8 + (ur >> 2)] >> ((ur & 3) * 2) & 3, take_over(row, x, p, pal[ci]))
-    else TURNED(lt[vr * 8 + (ur >> 2)] >> ((ur & 3) * 2) & 3, take_mode(row, x, p, pal[ci], mode))
+    if (!mode) TURNED(5, lt[vr * 8 + (ur >> 2)] >> ((ur & 3) * 2) & 3, take_over(0, 0, p, pal[ci]))
+    else TURNED(5, lt[vr * 8 + (ur >> 2)] >> ((ur & 3) * 2) & 3, take_mode(0, 0, p, pal[ci], mode))
   } else {
-    if (!mode) TURNED(lt[vr * 8 + (ur >> 1)] >> ((ur & 1) * 4) & 15, take_over(row, x, p, pal[ci]))
-    else TURNED(lt[vr * 8 + (ur >> 1)] >> ((ur & 1) * 4) & 15, take_mode(row, x, p, pal[ci], mode))
+    if (!mode) TURNED(4, lt[vr * 8 + (ur >> 1)] >> ((ur & 1) * 4) & 15, take_over(0, 0, p, pal[ci]))
+    else TURNED(4, lt[vr * 8 + (ur >> 1)] >> ((ur & 1) * 4) & 15, take_mode(0, 0, p, pal[ci], mode))
   }
 #undef TURNED
   *last_key = lk, *last_t = lt;

@@ -23,11 +23,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 from cel import CELESTE, Atlas, Element, read_map  # noqa: E402
 import tiles as T  # noqa: E402
 import entities as E  # noqa: E402
+import pictures  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_BIN = os.path.join(HERE, "..", "src", "data.bin")
 OUT_H = os.path.join(HERE, "..", "src", "data.h")
 TORCH_BITS = 448   # Session.torches (src/level.h)
+PIC_HEADER = []
 
 MAP_AREA = {"0-Intro": 0, "1-ForsakenCity": 1, "1H-ForsakenCity": 1, "1X-ForsakenCity": 1, "2-OldSite": 2,
             "2H-OldSite": 2, "2X-OldSite": 2, "3-CelestialResort": 3, "3H-CelestialResort": 3,
@@ -49,7 +51,7 @@ CUTSCENE_ANIMS = {"tentacle_grab", "tentacle_grabbed", "tentacle_pull", "tentacl
                   "bigFallRecover", "roll", "rollGetUp", "downed", "faint", "fainted", "hug", "spawn", "angry",
                   "laugh", "pretendDead"}
 LAZY_ANIMS = []
-DICT = 8 * 1024           # LZMA dictionary: the engine decodes through a ring buffer this big
+DICT = 9600               # LZMA dictionary: the engine decodes through a ring buffer this big (its strip)
 MARGIN = 2                # tiles kept around each room for the autotiler
 
 # ------------------------------------------------------------------ writers
@@ -310,8 +312,47 @@ def rle_direct_parts(idx):
     """(format flags, local palette, pixels). With 15 colors or fewer (flag 8), a local palette (count,
     then the colors' indices, in the order the pixels first have them: textures alike but for their
     colors get the same pixels) and the literals two pixels a byte (low nibble first), runs' values
-    local too; rows whose ops all fit in a byte (flag 4) get a byte each (their lengths) instead of
-    u16 offsets (kept even, from the table's start)."""
+    local too; rows whose ops all take fewer than ROW8_MAX bytes (flag 4) get a byte each (their lengths)
+    instead of u16 offsets (kept even, from the table's start)."""
+    flags, colors, rows = rle_direct_rows(idx)
+    out = bytearray()
+    if flags & 4:
+        out += bytes(len(r) for r in rows)
+    else:
+        off = 2 * (len(rows) + 1)
+        for r in rows:
+            out += struct.pack("<H", off)
+            off += len(r)
+        out += struct.pack("<H", off)
+    for r in rows:
+        out += r
+    return flags, colors, bytes(out)
+
+
+ROW8_MAX = 240   # a flag-4 row's length byte from ROW8_MAX up: the row is another's (direct_rows)
+
+
+def direct_rows(rows, at, pool):
+    """A flag-4 texture's rows written at `at` in DIRECT, the rows met before only pointing at them: length byte
+    ROW8_MAX + (offset >> 16), then the row's length and the offset's low 16 bits (the engine: gfx.c row_ops)."""
+    lens, ops = bytearray(), bytearray()
+    base = at + len(rows)
+    for r in rows:
+        o = pool.get(r)
+        if o is not None:
+            assert o >> 16 < 256 - ROW8_MAX
+            lens.append(ROW8_MAX + (o >> 16))
+            ops += bytes((len(r), o & 255, o >> 8 & 255))
+        else:
+            if len(r) > 3:
+                pool[r] = base + len(ops)
+            lens.append(len(r))
+            ops += r
+    return bytes(lens + ops)
+
+
+def rle_direct_rows(idx):
+    """rle_direct_parts' (format flags, local palette, ops of each row)."""
     flat = idx.ravel()
     _, first = np.unique(flat, return_index=True)
     uniq = [int(flat[i]) for i in sorted(first) if flat[i] != 0]
@@ -368,22 +409,12 @@ def rle_direct_parts(idx):
         rows.append(bytes(body))
     flags = 0
     colors = b""
-    out = bytearray()
     if nib:
         flags |= 8
         colors = bytes([len(uniq)] + uniq)
-    if all(len(r) < 256 for r in rows):
+    if all(len(r) < ROW8_MAX for r in rows):
         flags |= 4
-        out += bytes(len(r) for r in rows)
-    else:
-        off = 2 * (h + 1)
-        for r in rows:
-            out += struct.pack("<H", off)
-            off += len(r)
-        out += struct.pack("<H", off)
-    for r in rows:
-        out += r
-    return flags, colors, bytes(out)
+    return flags, colors, rows
 
 
 # ------------------------------------------------------------------ maps
@@ -1571,7 +1602,7 @@ def room_matches(pattern, room):
 # ------------------------------------------------------------------ main
 
 SECTIONS = ["TEX", "PAL", "PACKS", "DIRECT", "BANKS", "PMETA", "TILESETS", "CHAPTERS", "STRINGS", "BLOBS", "ANIMTILES",
-            "DECALANIM", "TEXNAMES", "FONTS", "DIALOG", "TEXDIM", "UISTR"]
+            "DECALANIM", "TEXNAMES", "FONTS", "DIALOG", "TEXDIM", "UISTR", "PICS"]
 
 
 def fnv24(s, basis=2166136261):
@@ -1906,6 +1937,7 @@ def main():
     direct = W()
     same = {}
     bodies = {}
+    pool = {}   # rows written, for the textures after them (direct_rows)
     for t in TEX.list:
         if t.kind == 1:
             hw = W()
@@ -1929,7 +1961,7 @@ def main():
             if colors and not flags & 4 and len(colors) & 1:
                 direct.u8(0)
             bodies[(flags, body)] = len(direct)
-            direct.raw(body)
+            direct.raw(direct_rows(rle_direct_rows(t.idx)[2], len(direct), pool) if flags & 4 else body)
     byfam = collections.Counter()
     for t in TEX.list:
         if t.kind == 1:
@@ -2420,6 +2452,12 @@ def main():
     w.raw(data)
     sec["STRINGS"] = w
 
+    # ---- PICS: the end screens and the mountain (tools/pictures.py)
+    w = W()
+    pics, PIC_HEADER[:] = pictures.build()
+    w.raw(pics)
+    sec["PICS"] = w
+
     # ---- write
     out = W()
     out.raw(b"CLST")
@@ -2473,6 +2511,7 @@ def write_header(bank_names):
     L.append("#define ROOM_POOL_BYTES %d   /* %s */" % ((ROOM_POOL[0] + 64 + 3) & ~3, ROOM_POOL[1]))
     for i, s in enumerate(STYLE_EFFECTS):
         L.append("#define SG_%s %d" % (s, i))
+    L += PIC_HEADER
     L.append("")
     L.append("#endif")
     open(OUT_H, "w").write("\n".join(L) + "\n")

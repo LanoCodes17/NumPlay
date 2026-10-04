@@ -34,7 +34,7 @@ bool pal_opaque(uint16_t pal) {
 }
 
 /* ---------------------------------------------------------------- LZMA streams */
-#define DICT_SIZE 8192
+#define DICT_SIZE 9600   /* (tools/pack.py DICT: the strip, all of it) */
 extern uint16_t g_strip[];          /* gfx.c: the ring buffer borrows the strip */
 static CLzmaProb probs[1984 + 768];   /* NUM_BASE_PROBS + LZMA_LIT_SIZE << (lc + lp) */
 
@@ -359,9 +359,9 @@ static void finish_tex(Reader *r) {
       uint16_t *rows = (uint16_t *)(void *)(data + ms);
       rows[e->h] = (uint16_t)(r->out - (uint8_t *)rows);
       e->bytes = (uint16_t)(r->out - data);
-      /* rows all shorter than 256 bytes: a byte each for their lengths (TF_ROW8) */
+      /* rows all shorter than ROW8_MAX bytes: a byte each for their lengths (TF_ROW8) */
       bool small = true;
-      for (int y = 0; y < e->h && small; y++) small = rows[y + 1] - rows[y] < 256;
+      for (int y = 0; y < e->h && small; y++) small = rows[y + 1] - rows[y] < ROW8_MAX;
       if (small) {
         uint8_t *lens = (uint8_t *)rows;
         uint32_t ops = 2u * (e->h + 1), n = rows[e->h] - ops;
@@ -591,15 +591,24 @@ uint8_t *res_scratch(uint32_t need, uint32_t *size) {
 /* a chapter's own tables (its pools of torches, clutter...) take the top of the cache while it is played:
  * `bytes` of zeroes, everything loaded before forgotten */
 uint8_t *g_chapter_ram;
-void res_chapter_ram(uint32_t bytes) {
-  bytes = (bytes + 7) & ~7u;
-  if (bytes > CACHE_BYTES / 2) bytes = CACHE_BYTES / 2;
+uint8_t g_res_tops;   /* counts the times the top changed hands */
+static void top_ram(uint32_t bytes) {
   cache_top = 0;
-  g_res_gen++;
+  g_res_gen++, g_res_tops++;
   hash_rebuild();
   cache_limit = CACHE_BYTES - bytes;
   g_chapter_ram = cache + cache_limit;
+}
+void res_chapter_ram(uint32_t bytes) {
+  bytes = (bytes + 7) & ~7u;
+  if (bytes > CACHE_BYTES / 2) bytes = CACHE_BYTES / 2;
+  top_ram(bytes);
   memset(g_chapter_ram, 0, bytes);
+}
+/* the menus' big picture (pic.c) the same way, while no chapter is played */
+uint16_t *res_picture_ram(uint32_t bytes) {
+  top_ram((bytes + 7) & ~7u);
+  return (uint16_t *)(void *)g_chapter_ram;
 }
 
 /* every loaded texture forgotten (the chapter's memory stays) */

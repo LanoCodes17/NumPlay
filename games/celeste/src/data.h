@@ -19,6 +19,7 @@
 #define SEC_DIALOG 14
 #define SEC_TEXDIM 15
 #define SEC_UISTR 16
+#define SEC_PICS 17
 
 #define SB_flutterBird 0
 #define A_flutterBird_idle 0
@@ -7421,5 +7422,9 @@ static const uint8_t TRIG_ATTR_SIZE[] = {12,14,4,8,4,4,10,14,14,6,6,4,12,4,4,6,6
 #define SG_tentacles 16
 #define SG_blackhole 17
 #define SG_starfield 18
+#define PIC_COMPLETE 0   /* the end screens, in COMPLETE_AREAS' order */
+#define PIC_MOUNTAIN 8   /* the mountain from each chapter's Idle camera */
+#define PIC_MAIN 18   /* and from the main menu's */
+static const int16_t PIC_SLIDE[8][2] = {{0, 800}, {0, 800}, {0, 800}, {0, 800}, {0, 800}, {0, 800}, {0, 800}, {0, 200}};   /* StartScroll - CenterScroll */
 
 #endif

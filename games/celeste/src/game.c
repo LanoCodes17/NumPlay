@@ -25,6 +25,20 @@ void game_play(int chapter, int checkpoint) {
   level_start(resume ? INTRO_RESPAWN : session_intro(true));
 }
 
+/* AreaComplete after the Summit's A-side: the session goes on in credits-summit, the credits on (ch7.c) */
+void game_credits(void) {
+  extern uint8_t g_credits_next;
+  int r = chapter_find_room(g_session.chapter, "credits-summit");
+  if (r < 0) return;
+  g_session.level = (uint8_t)r, g_session.has_respawn = 0;
+  g_credits_next = 1;
+  g_save.has_session = 1;
+  g_in_level = true;
+  g_menu = 0;
+  hud_reset();
+  level_start(INTRO_NONE);
+}
+
 void game_init(void) {
   res_init();
   rnd_seed(&g_rnd, 0);
@@ -58,7 +72,7 @@ void game_level_exit(int mode) {
   g_in_level = false;
   wipe_start(WIPE_FADE, true, NULL);
   if (mode == LEXIT_SAVEQUIT) menu_open_main();
-  else menu_open_overworld(mode == LEXIT_COMPLETED, mode == LEXIT_COMPLETED && g_should_advance);
+  else menu_open_overworld(mode == LEXIT_COMPLETED && !g_level.in_credits, mode == LEXIT_COMPLETED && g_should_advance);
 }
 
 /* Home: the run is kept (Save & Quit) */

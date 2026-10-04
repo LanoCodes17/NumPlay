@@ -10,7 +10,7 @@ NWLINK ?= npx --yes -- nwlink@1.0.0
 STRIP ?= arm-none-eabi-strip --strip-unneeded
 BUILD_DIR = output
 GAME = src/res.c src/gfx.c src/util.c src/ent.c src/level.c src/tiles.c src/style.c src/player.c src/entities.c \
-  src/fx.c src/ptypes.c src/font.c src/light.c src/spinner.c src/berry.c src/save.c src/text.c src/wipe.c src/cutscene.c src/npc.c src/talk.c src/heart.c src/cassette.c src/dust.c src/breath.c src/menu.c $(wildcard src/ch*.c) src/game.c \
+  src/fx.c src/ptypes.c src/font.c src/light.c src/spinner.c src/berry.c src/save.c src/text.c src/wipe.c src/cutscene.c src/npc.c src/talk.c src/heart.c src/cassette.c src/dust.c src/breath.c src/pic.c src/menu.c $(wildcard src/ch*.c) src/game.c \
   src/lzma/LzmaDec.c
 SRC = $(GAME) src/plat_eadk.c src/main.c
 HEADERS = $(wildcard src/*.h) ../common/epsilon_app.h ../common/epsilon_files.h

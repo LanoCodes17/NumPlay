@@ -26,7 +26,7 @@
 * **Madeline moves like in the game:** the same jumps, dashes, climbing and wall jumps, down to the frame.
 * **The story:** every conversation with Theo, Granny, Oshiro and Badeline, with their portraits, and the scenes between, from the campfires to the hug in Reflection.
 * **Everything to find:** strawberries, golden strawberries, crystal hearts with their poems, cassettes that unlock the B-sides, the Summit's gems.
-* **The game's look:** its rooms, decorations and backgrounds, from dust bunnies and dream blocks to the Summit's wind.
+* **The game's look:** its rooms, decorations and backgrounds, from dust bunnies and dream blocks to the Summit's wind, the mountain behind the chapter select and the picture at the end of each chapter.
 * **Saved as you go:** Home saves and quits, and Climb then offers Continue. Your progress is also copied into `celeste_saves.py`, so installing the app again doesn't erase it.
 
 <table>
@@ -71,7 +71,7 @@ In menus, OK or EXE confirms and Back goes back. You can change the keys in Opti
 
 * **One app at a time:** Celeste takes all the room the calculator has for apps. Installing it from the NumWorks website swaps out NumPlay and the other apps, and installing NumPlay again swaps it back out. Your progress in each one is kept.
 * **No music:** the calculator has no speaker.
-* **A few effects are simpler:** some glows, color filters and screen distortions are left out, and the Epilogue's last picture is shown at half size.
+* **A few effects are simpler:** some glows, color filters and screen distortions are left out, the Epilogue's last picture and the chapters' end pictures are shown at half size, and the mountain doesn't turn: it fades from one view to the next.
 * **Farewell isn't here:** the free chapter added after the game's release doesn't fit.
 * **Reporting a bug:** turn on Options, then Room Code, and the corner of the screen shows which room you are in.
 * **The game's cheat code works:** in the Prologue, walk left from the start into the hidden room, then press left, right, var, toolbox, up, up, down, left, toolbox and OK (toolbox is the grab key: use yours if you changed it). Every chapter opens with all its checkpoints, B-sides and C-sides, and the chapter panel gets a Room list to start anywhere.

@@ -243,7 +243,6 @@ K0 = scene.FOCAL / (0.004 - scene.CAMZ)   # screen pixels a unit, where actors a
 HUD_K = (scene.VIEW_H / 2) / 8.7107        # the HUD's (its orthographic camera)
 # (actor, clip): drawn bigger or smaller than their sprites
 ACTOR_RES = float(os.environ.get("HK_ACTOR_RES", "0.7"))   # (to fit the flash)
-PIECE_RES = float(os.environ.get("HK_PIECE_RES", "0.7"))   # (the scripts' and debris's sprites: a little less fine, to fit)
 ACTOR_SCALE = {"hud": HUD_K / K0, "shopui": HUD_K / K0, "stagui": HUD_K / K0, "mapui": HUD_K / K0, "journalmsg": 0.7 * HUD_K / K0, "liquid": 1.4 * HUD_K / K0, "dialogue": text.TEXT_K * HUD_K / K0}
 HUD_MASK = 0.7135
 
@@ -375,7 +374,6 @@ def unity_sprites(keys):
     object's scale."""
     out = []
     for level, exts, fid, pid, scale, res in keys:
-        res *= PIECE_RES
         if level == "tk2d":
             path, col, name = exts, fid, pid
             c = tk2d.collection(path, col)

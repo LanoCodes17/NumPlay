@@ -3,6 +3,7 @@
  * its rooms as Cornifer drew them, rough until the quill maps them, their pins, the arrows to the areas next to them,
  * the compass (Wayward Compass: where the Knight is), the shade's mark. The rooms visited, mapped, where a cocoon was
  * broken: PlayerData's (scenesVisited, scenesMapped, scenesEncounteredCocoon). */
+#pragma GCC optimize("Os")   /* (its code small: not where a frame's time goes) */
 #include <math.h>
 #include "game.h"
 

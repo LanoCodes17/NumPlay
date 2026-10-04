@@ -245,7 +245,8 @@ static void line(int text, int style, float x, float y, uint32_t a) {
 void titles_draw(void) {
   if (at.st == T_OFF) return;
   const int16_t *row = table[at.title];
-  uint32_t a = (uint32_t)(at.alpha * 255 + 0.5f);
+  /* (behind the inventory, darkened as the world is: its text drawn over what is drawn after) */
+  uint32_t a = (uint32_t)(at.alpha * inv_behind() * 255 + 0.5f);
   bool shown = at.alpha > 0 || at.fade > 0;
   if (at.large && shown) {
     float y = TITLE_Y + at.folder_y;

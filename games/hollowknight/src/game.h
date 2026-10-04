@@ -467,6 +467,7 @@ void inv_reset(void);
 uint32_t inv_tick(uint32_t keys);   /* -> the keys the game has (none while it is open) */
 void inv_damage(void);          /* (HERO DAMAGED: it closes) */
 bool inv_open(void);
+float inv_behind(void);   /* (what of the world behind it shows: 1 closed) */
 void inv_open_map(void);      /* (OPEN INVENTORY MAP: the map tapped twice) */
 void inv_cursor_arrow(int which);   /* (the map pane's: on the left arrow -1, the right -2; else not shown) */
 float ui_key(int name, float x, float y, uint8_t white, float a);   /* an action's key, by name -> its half width */

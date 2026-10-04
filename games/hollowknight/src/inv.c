@@ -114,6 +114,12 @@ typedef struct {
 
 bool inv_open(void) { return iv.st != IV_CLOSED; }
 
+/* (how much of what is behind it shows: its darkening) */
+float inv_behind(void) {
+  float ba = iv.st == IV_CLOSED && iv.border_a <= 0 ? 0 : iv.border_a < 0 ? 0 : iv.border_a;
+  return 1 - ba * DIM;
+}
+
 static bool has_pane(int p) {
   return p == P_INV || (p == P_CHARMS && pd_flag(PDF_HAS_CHARM)) || (p == P_MAP && pd_flag(PDF_HAS_MAP));
 }

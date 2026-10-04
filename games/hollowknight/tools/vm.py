@@ -81,7 +81,7 @@ def _piece(doc, q, rigid=True):
         ss = {"spinFactor": sf["vars"]["Spin Factor"][1], "randomStartRotation": sf["vars"]["Random Start Rotation"][1]}
     # (SpinSelf: a push of its speed times its factor, turned at random first; SpinSelfSimple: against its speed)
     spin, flags = (sp.get("spinFactor", -7.5), 3) if sp is not None else (-ss.get("spinFactor", 0), 1 | (2 if ss.get("randomStartRotation") else 0)) if ss is not None else (0, 0)
-    return {"sprite": PIECE_SPRITES(doc, sr["m_Sprite"], max(sx, sy)), "layer": scene.layer_index(sr.get("m_SortingLayerID", 0)),
+    return {"sprite": PIECE_SPRITES(doc, sr["m_Sprite"], max(sx, sy), world=True), "layer": scene.layer_index(sr.get("m_SortingLayerID", 0)),
             "order": (sr.get("m_SortingOrder", 0) + 32768) & 0xFFFF, "flags": flags, "z": q["pos"][2], "rot": rot,
             "gravity": (rb or {}).get("m_GravityScale", 1), "bounce": ob.get("bounceFactor", 0) if ob else -1,
             "spin": spin, "mirror": mirror}
@@ -1771,7 +1771,7 @@ def room_blob(name, clip_index, sprites, owners=(), persist=None):
             sr = next((c.get("v") for c in o["c"] if c["type"] == "SpriteRenderer" and c.get("v")), None)
             if sr and sr.get("m_Sprite"):
                 # (its own size, drawn at its scale: its texture as fine as it is drawn)
-                sprite = sprites.id(o.get("_doc") or rm.d, sr["m_Sprite"], 1.0, max(abs(sx), abs(sy)))
+                sprite = sprites.id(o.get("_doc") or rm.d, sr["m_Sprite"], 1.0, max(abs(sx), abs(sy)), world=True)
         # (DeactivateIfPlayerdataTrue, False: two at most)
         conds = [pdf[bn] | (0x8000 if off_if else 0) for bn, off_if in state.conditions(o) if bn in pdf]
         conds = sorted(set(conds), key=conds.index)
@@ -1817,7 +1817,7 @@ def room_blob(name, clip_index, sprites, owners=(), persist=None):
         sx = float(np.hypot(m[0, 0], m[1, 0])) * (1 if m[0, 0] >= 0 else -1)
         sy = float(np.hypot(m[0, 1], m[1, 1])) * (1 if m[1, 1] >= 0 else -1)
         sr = next(c["v"] for c in q["c"])
-        spr = sprites.id(q.get("_doc") or rm.d, sr["m_Sprite"], 1.0, max(abs(sx), abs(sy)))
+        spr = sprites.id(q.get("_doc") or rm.d, sr["m_Sprite"], 1.0, max(abs(sx), abs(sy)), world=True)
         layer, order = ents._sorting(q)
         import scene
         blend = 0

@@ -12,10 +12,10 @@ WIDE = 32   # alpha-only tiles are 32 texels wide (2 bits each: 128 bytes too)
 BLOCK_TILES = int(os.environ.get("HK_BLOCK_TILES", "16"))
 LEVEL_RATIO = 0.6       # an instance this much smaller than its texture gets a smaller copy
 BLUR_SIGMA = 1.2        # background blur, calculator pixels (LightBlurredBackground)
-BLUR_SCALE = float(os.environ.get("HK_BLUR_SCALE", "0.25"))   # texels a screen pixel behind the blur plane
-FG_SCALE = float(os.environ.get("HK_FG_SCALE", "0.6"))       # ... in front of the gameplay plane (z < FG_Z)
+BLUR_SCALE = float(os.environ.get("HK_BLUR_SCALE", "0.2"))   # texels a screen pixel behind the blur plane
+FG_SCALE = float(os.environ.get("HK_FG_SCALE", "0.5"))       # ... in front of the gameplay plane (z < FG_Z)
 FG_Z = -2.5
-FIT_K = float(os.environ.get("HK_FIT_K", "0.8"))   # (all the rooms' scenery a little less fine, to fit the flash)
+FIT_K = float(os.environ.get("HK_FIT_K", "0.77"))   # (all the rooms' scenery a little less fine, to fit the flash)
 BLUR_PRE = False   # (the game blurs the background as a whole: the calculator does too)
 LZMA_FILTERS = [{"id": lzma.FILTER_LZMA1, "lc": 0, "lp": 0, "pb": 0, "dict_size": 1 << 12, "preset": 9 | lzma.PRESET_EXTREME}]
 

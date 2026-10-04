@@ -2,6 +2,7 @@
 that set them. Each becomes a record (src/game.h: Ent) with its trigger box (world units) and its own values; names go to
 a shared string table."""
 import math
+import os
 import struct
 import numpy as np
 
@@ -116,14 +117,19 @@ class Strings:
         return struct.pack("<I", len(self.list)) + b"".join(struct.pack("<I", o) for o in offs) + bytes(body)
 
 
+# (the world's sprites: debris, props, the scripts' objects; a little less fine, to fit the flash)
+PIECE_RES = float(os.environ.get("HK_PIECE_RES", "0.7"))
+
+
 class Sprites:
     """Unity sprites objects show as actors (debris...): pack.py makes them like the actors' frames, after those."""
     def __init__(self):
         self.list, self.index, self.base = [], {}, 0
 
-    def id(self, d, ref, scale, res=1.0):
-        """(res: its texture's resolution, as a part of the screen's: smooth sprites can be stretched)"""
-        return self._add((d["level"], tuple(d["externals"]), ref[0], ref[1], round(scale, 3), res))
+    def id(self, d, ref, scale, res=1.0, world=False):
+        """(res: its texture's resolution, as a part of the screen's: smooth sprites can be stretched; world: one of
+        the world's, PIECE_RES)"""
+        return self._add((d["level"], tuple(d["externals"]), ref[0], ref[1], round(scale, 3), res * (PIECE_RES if world else 1)))
 
     def tk2d(self, path, col, name, scale=1.0, res=1.0):
         """A 2D Toolkit sprite of a collection (file, path id), by name."""
@@ -371,7 +377,7 @@ def _pieces(d, o, ids, by_id, sprites):
         rb = next((c.get("v") or {} for c in q["c"] if c["type"] == "Rigidbody2D"), {})
         ob = next((c.get("v") or {} for c in q["c"] if c.get("class") == "ObjectBounce"), None)
         sp = next((c.get("v") or {} for c in q["c"] if c.get("class") == "SpinSelf"), None)
-        sid = sprites.id(d, v["m_Sprite"], max(sx, sy))
+        sid = sprites.id(d, v["m_Sprite"], max(sx, sy), world=True)
         dx, dy = q["pos"][0] - o["pos"][0], q["pos"][1] - o["pos"][1]
         layer = scene.layer_index(v.get("m_SortingLayerID", 0))
         out.append(rec(ENT_PIECE, 1 if sp is not None else 0, (dx, dy, rot, q["pos"][2]),
@@ -1036,7 +1042,7 @@ def room(d, rooms, strings, persist, name, sprites=None, owners=None, rec_base=0
                     continue
                 import scene
                 m = np.array(q["m3"]).reshape(3, 3)
-                sid = sprites.id(d, sr["m_Sprite"], float(np.hypot(m[0, 0], m[1, 0])))
+                sid = sprites.id(d, sr["m_Sprite"], float(np.hypot(m[0, 0], m[1, 0])), world=True)
                 vx, vy = flings.get(nm, (0, 0))
                 extra.append(rec(ENT_BOX, k, (q["pos"][0], q["pos"][1], q["pos"][2], 0), (vx, vy, 0, 0),
                                  a=sr.get("m_SortingOrder", 0) + 32768, group=scene.layer_index(sr.get("m_SortingLayerID", 0)),

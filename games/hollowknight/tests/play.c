@@ -291,6 +291,7 @@ int main(int argc, char **argv) {
   if (fread(data, 1, (size_t)n, f) != (size_t)n) return 1;
   fclose(f);
   hk_bin = data;
+  g_gfx_fast = getenv("HKFAST") != NULL;   /* (as the calculator draws when it is slow) */
   const char *room = "Tutorial_01", *shot = NULL;
   float cx = 40, cy = 14;
   int repeat = 1, pan = 0, sweep = 0;

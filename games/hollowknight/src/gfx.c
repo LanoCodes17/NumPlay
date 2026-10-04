@@ -18,6 +18,11 @@
 #define NPAL 104
 #endif
 #define NPX (STRIP_H * VIEW_W)
+bool g_gfx_fast;
+/* the strip's rows: each one of the screen's, or (fast) each two of them, where no HUD, text or menu is: the room's
+ * drawn at half the height, its pixels' rows sampled between the two */
+static int vsf = 1;
+#define SY(y) ((y) * (float)vsf + vsf * 0.5f)   /* (a row's middle, in the screen's rows) */
 
 float g_cam_x, g_cam_y;
 uint32_t g_gfx_items, g_gfx_pixels, g_gfx_dropped;
@@ -981,7 +986,7 @@ static void run_turned(const Ctx *c, int y, int a, int b, int *last_key, const u
   uint16_t *rtp = c->it->ar != 0xFFFF ? arena + c->it->ar : NULL;
   int32_t dux = (int32_t)(m->iux * 65536), dvx = (int32_t)(m->ivx * 65536);
   int32_t W16 = (int32_t)r->w << 16, H16 = (int32_t)r->h << 16;
-  float fx = a + 0.5f - m->ox, fy = y + 0.5f - m->oy;
+  float fx = a + 0.5f - m->ox, fy = SY(y) - m->oy;
   int32_t u = (int32_t)((m->iux * fx + m->iuy * fy) * 65536), v = (int32_t)((m->ivx * fx + m->ivy * fy) * 65536);
   int i0 = 0, i1 = b - a;
   clip_lin(u, dux, W16, b - a, &i0, &i1);
@@ -1046,7 +1051,7 @@ static void run_soft(const Ctx *c, int y, int a, int b, const uint32_t *tx, uint
   int mode = c->mode, row = c->row, W = r->w, H = r->h;
   bool mono = r->fmt == FMT_SOFTA;
   const uint8_t *al = (const uint8_t *)tx;
-  float fx = a + 0.5f - m->ox, fy = y + 0.5f - m->oy;
+  float fx = a + 0.5f - m->ox, fy = SY(y) - m->oy;
   int32_t u0 = (int32_t)((m->iux * fx + m->iuy * fy - 0.5f) * 65536), v0 = (int32_t)((m->ivx * fx + m->ivy * fy - 0.5f) * 65536);
   int32_t dux = (int32_t)(m->iux * 65536), dvx = (int32_t)(m->ivx * 65536);
   /* where all four texels are inside (the edges of these textures are clear) */
@@ -1098,7 +1103,7 @@ static void run_soft(const Ctx *c, int y, int a, int b, const uint32_t *tx, uint
 static void run_bilinear(const Ctx *c, int y, int a, int b, BiTex *bt) {
   const Map *m = c->m;
   int mode = c->mode, row = c->row;
-  float fx = a + 0.5f - m->ox, fy = y + 0.5f - m->oy;
+  float fx = a + 0.5f - m->ox, fy = SY(y) - m->oy;
   int32_t u = (int32_t)((m->iux * fx + m->iuy * fy - 0.5f) * 65536) + 65536, v = (int32_t)((m->ivx * fx + m->ivy * fy - 0.5f) * 65536) + 65536;
   int32_t dux = (int32_t)(m->iux * 65536), dvx = (int32_t)(m->ivx * 65536);
   int i0 = 0, i1 = b - a;
@@ -1113,7 +1118,8 @@ static void run_bilinear(const Ctx *c, int y, int a, int b, BiTex *bt) {
 
 __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int sy1) {
   const Inst *in = &it->in;
-  int ya = it->y0 > sy0 ? it->y0 : sy0, yb = it->y1 < sy1 ? it->y1 : sy1;
+  int iy0 = it->y0 / vsf, iy1 = (it->y1 + vsf - 1) / vsf;   /* (its rows, in the strip's) */
+  int ya = iy0 > sy0 ? iy0 : sy0, yb = iy1 < sy1 ? iy1 : sy1;
   /* (its rows from the first with light left in its box: none, nothing to make ready) */
   while (ya < yb && open_from(cov[ya - sy0], it->x0, it->x1) >= it->x1) ya++;
   if (ya >= yb) return;
@@ -1179,7 +1185,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
     if (x >= it->x1) continue;
     int ty = 0, vr = 0;
     if (kind == 1) {
-      int v = (int)((y + 0.5f - m.oy) * m.ivy);
+      int v = (int)((SY(y) - m.oy) * m.ivy);
       if (v < 0 || v >= c.r->h) continue;
       ty = v / TILE, vr = v & (TILE - 1);
       if (ty != it->cty || g_tex_overload) {
@@ -1193,10 +1199,10 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
       const HudClip *k = &hud_clips[it->clip - 1];
       int ca, cb;
       if (k->box) {
-        if (y + 0.5f < k->y0 || y + 0.5f >= k->y1) continue;
+        if (SY(y) < k->y0 || SY(y) >= k->y1) continue;
         ca = (int)(k->x0 + 0.5f), cb = (int)(k->x1 + 0.5f);
       } else {
-        float dy = y + 0.5f - k->cy, w2 = k->r * k->r - dy * dy;
+        float dy = SY(y) - k->cy, w2 = k->r * k->r - dy * dy;
         if (w2 <= 0) continue;
         float w = sqrtf(w2);
         ca = (int)(k->cx - w + 0.5f), cb = (int)(k->cx + w + 0.5f);
@@ -1227,7 +1233,8 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
 #define BG_S 4
 #define BG_W (VIEW_W / BG_S)
 #define BG_H (VIEW_H / BG_S)
-static uint16_t bgbuf[BG_W * BG_H];   /* RGB565 */
+static uint16_t bgbuf[BG_W * BG_H] __attribute__((aligned(4)));   /* RGB565 */
+static int bg_step = 1;   /* (its rows drawn: all, or every other one when the room is drawn fast) */
 static bool bg_on;
 
 static inline void bg_put(uint16_t *d, uint32_t s, int mode) {
@@ -1245,7 +1252,7 @@ static void draw_bg_item(Item *it) {
   if (in->flags & F_SOLID) {
     /* the pixels whose centers are in the box */
     int a = (it->x0 + BG_S / 2) / BG_S, b = (it->x1 + BG_S / 2) / BG_S, c = (it->y0 + BG_S / 2) / BG_S, d = (it->y1 + BG_S / 2) / BG_S;
-    for (int by = c; by < d; by++)
+    for (int by = (c + bg_step - 1) / bg_step * bg_step; by < d; by += bg_step)
       for (int bx = a; bx < b; bx++) bg_put(bgbuf + by * BG_W + bx, pal[1], mode);
     return;
   }
@@ -1272,7 +1279,7 @@ static void draw_bg_item(Item *it) {
   int W = r->w, H = r->h;
   /* texel coordinates (16.16) less half a texel: where bilinear samples are centered */
   int32_t du = (int32_t)(m.iux * BG_S * 65536), dv = (int32_t)(m.ivx * BG_S * 65536);
-  for (int by = by0; by < by1; by++) {
+  for (int by = (by0 + bg_step - 1) / bg_step * bg_step; by < by1; by += bg_step) {
     uint16_t *d16 = bgbuf + by * BG_W;
     float fx = bx0 * BG_S + BG_S * 0.5f - m.ox, fy = by * BG_S + BG_S * 0.5f - m.oy;
     int32_t u = (int32_t)((m.iux * fx + m.iuy * fy - 0.5f) * 65536), v = (int32_t)((m.ivx * fx + m.ivy * fy - 0.5f) * 65536);
@@ -1431,7 +1438,7 @@ __attribute__((noinline)) static void finish_strip(int sy0, int rows) {
 #endif
   uint16_t *out = (uint16_t *)(void *)acc;   /* in place: each 16-bit pixel goes where its 8 bytes were read */
   for (int y = 0; y < rows; y++) {
-    int sy = sy0 + y;
+    float sy = sy0 + y * vsf + (vsf - 1) * 0.5f;   /* (the screen's row, or between two) */
     bool bg = bg_on;
     if (bg) {   /* (not if no light is left anywhere on the row) */
       uint32_t all = ~0u;
@@ -1440,17 +1447,21 @@ __attribute__((noinline)) static void finish_strip(int sy0, int rows) {
     }
     if (bg) {
       /* the background's row, between two of its own rows */
-      float fy = (sy + 0.5f) / BG_S - 0.5f;
-      int r0 = (int)(fy + 4096.0f) - 4096;
+      float fy = ((sy + 0.5f) / BG_S - 0.5f) / bg_step;
+      int r0 = (int)(fy + 4096.0f) - 4096, last = BG_H - bg_step;
       uint32_t wv = (uint32_t)((fy - r0) * 256);
-      const uint16_t *a16 = bgbuf + (r0 < 0 ? 0 : r0 >= BG_H ? BG_H - 1 : r0) * BG_W;
-      const uint16_t *b16 = bgbuf + (r0 + 1 < 0 ? 0 : r0 + 1 >= BG_H ? BG_H - 1 : r0 + 1) * BG_W;
+      r0 *= bg_step;
+      int r1 = r0 + bg_step;
+      const uint16_t *a16 = bgbuf + (r0 < 0 ? 0 : r0 > last ? last : r0) * BG_W;
+      const uint16_t *b16 = bgbuf + (r1 < 0 ? 0 : r1 > last ? last : r1) * BG_W;
       for (int i = 0; i < BG_W; i++) bgline[i + 1] = lerp4(rgb_of565(a16[i]), rgb_of565(b16[i]), wv);
       bgline[0] = bgline[1], bgline[BG_W + 1] = bgline[BG_W];
     }
-    row_out(acc + y * VIEW_W, out + y * VIEW_W, bg ? bgline : NULL);
+    /* (two rows each: the second where the first's 8 bytes were read) */
+    row_out(acc + y * VIEW_W, out + y * vsf * VIEW_W, bg ? bgline : NULL);
+    if (vsf == 2) copy_words(out + (2 * y + 1) * VIEW_W, out + 2 * y * VIEW_W, VIEW_W * 2);
   }
-  plat_push(0, VIEW_Y + sy0, VIEW_W, rows, out);
+  plat_push(0, VIEW_Y + sy0, VIEW_W, rows * vsf, out);
   strip_clear();
 }
 
@@ -1629,7 +1640,7 @@ static bool add_item(const Inst *in, float blur_z) {
   cur.pal = (uint8_t)pal_get(cur.in.flags & F_SOLID ? TEX_NONE : cur.in.tex, cur.in.tint, cur.in.flags, alpha, cur.screen);
   if (!front) {
     arena_take(&cur, false);
-    if (!bg_on) memset(bgbuf, 0, sizeof bgbuf), bg_on = true;
+    if (!bg_on) zero_words(bgbuf, sizeof bgbuf), bg_on = true;
     draw_bg_item(&cur);
     return false;
   }
@@ -1678,6 +1689,7 @@ void gfx_frame(void) {
   bg_on = false;
   g_gfx_dropped = 0;
   float blur_z = roomless ? 1e9f : g_room.h->blur_z;
+  bg_step = g_gfx_fast && !roomless ? 2 : 1;
   /* the instances near the camera, back to front, and the actors among them: what is behind the blur plane is drawn
    * now (small), the rest kept */
   Item cur;
@@ -1725,13 +1737,27 @@ void gfx_frame(void) {
     if ((uint32_t)arena_top > g_peak_arena) g_peak_arena = (uint32_t)arena_top;
   }
 #endif
-  for (int sy0 = 0; sy0 < VIEW_H; sy0 += STRIP_H) {
-    int sy1 = sy0 + STRIP_H;
-    tex_strip(sy0 / STRIP_H + 1);
-    memset(cov, 0, sizeof cov);
+  /* (the rows where the HUD, text or a menu are: drawn whole) */
+  uint8_t busy[VIEW_H / STRIP_H];
+  memset(busy, 0, sizeof busy);
+  if (g_gfx_fast && !roomless) {
+    for (int i = nscene; i < nitems; i++)
+      for (int b = items[i].y0 / STRIP_H; b < (items[i].y1 + STRIP_H - 1) / STRIP_H; b++) busy[b] = 1;
+    for (int k = 0; k < nruns; k++)
+      for (int b = runs[k].y0 / STRIP_H; b < (runs[k].y1 + STRIP_H - 1) / STRIP_H; b++)
+        if (b >= 0 && b < VIEW_H / STRIP_H) busy[b] = 1;
+  }
+  int nstrip = 0;
+  for (int sy0 = 0, sy1; sy0 < VIEW_H; sy0 = sy1) {
+    int b = sy0 / STRIP_H;
+    vsf = g_gfx_fast && !roomless && sy0 + 2 * STRIP_H <= VIEW_H && !busy[b] && !busy[b + 1] ? 2 : 1;
+    sy1 = sy0 + STRIP_H * vsf;
+    int r0 = sy0 / vsf, r1 = r0 + STRIP_H;   /* (the strip's rows) */
+    tex_strip(++nstrip);
+    zero_words(cov, sizeof cov);
     if (nruns) draw_runs(0, sy0, sy1);
     for (int i = nitems - 1; i >= nscene; i--)
-      if (items[i].y0 < sy1 && items[i].y1 > sy0) draw_item(i, &items[i], sy0, sy1);
+      if (items[i].y0 < sy1 && items[i].y1 > sy0) draw_item(i, &items[i], r0, r1);
     if (g_screen_fade) {
       /* (the camera fading to black: a black layer between the HUD and the room) */
       uint32_t k = 255u - g_screen_fade;
@@ -1744,9 +1770,10 @@ void gfx_frame(void) {
     if (g_screen_fade < 255 && nruns) draw_runs(1, sy0, sy1);
     if (g_screen_fade < 255)
       for (int i = nscene - 1; i >= 0; i--)
-        if (items[i].y0 < sy1 && items[i].y1 > sy0) draw_item(i, &items[i], sy0, sy1);
+        if (items[i].y0 < sy1 && items[i].y1 > sy0) draw_item(i, &items[i], r0, r1);
     finish_strip(sy0, STRIP_H);
   }
+  vsf = 1;
   nruns = 0;
 #ifdef HOST
   {

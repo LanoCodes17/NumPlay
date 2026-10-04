@@ -7,7 +7,7 @@ const uint8_t *hk_bin;
 const uint8_t *section(int id) { return hk_bin + rd32(hk_bin + 8 + 8 * id); }
 uint32_t section_size(int id) { return rd32(hk_bin + 12 + 8 * id); }
 
-uint16_t g_scratch[4096];
+uint16_t g_scratch[4096] __attribute__((aligned(4)));
 #define LZ_PROBS ((CLzmaProb *)g_scratch)   /* NUM_BASE_PROBS + LZMA_LIT_SIZE << (lc + lp) = 2752, lc = lp = 0 */
 
 /* a raw LZMA stream (lc = lp = pb = 0) decoded whole: the output is its own dictionary */

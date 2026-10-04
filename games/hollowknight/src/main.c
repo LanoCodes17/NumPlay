@@ -17,6 +17,8 @@ uint32_t perf_updates __attribute__((used));
 
 #define TICK_MS 20      /* the game's step (Unity's fixed step) */
 #define MAX_TICKS 4     /* steps caught up before a frame is drawn */
+#define SLOW_MS 45      /* a frame's work (on average) over which the room is drawn fast (g_gfx_fast)... */
+#define QUICK_MS 20     /* ...and under which, fast, it is drawn whole again (whole, about 36) */
 
 #ifdef PERF_BENCH
 /* timing: a few views (rooms by number), panning a little: each one's ms per frame x 100 (read by the emulator; the
@@ -27,6 +29,9 @@ uint32_t perf_bench[sizeof bench / sizeof bench[0]] __attribute__((used));
 int main(void) {
   plat_begin();
   hk_bin = hk_data;
+#ifdef PERF_FAST
+  g_gfx_fast = true;
+#endif
   for (unsigned i = 0; i < sizeof bench / sizeof bench[0]; i++) {
     room_load(bench[i].room);
     g_cam_x = bench[i].x, g_cam_y = bench[i].y;
@@ -108,7 +113,7 @@ int main(void) {
   hk_bin = hk_data;
   plat_fill(0, 0, SCREEN_W, SCREEN_H, 0);
   menu_start();
-  uint32_t last = plat_millis(), acc = 0;
+  uint32_t last = plat_millis(), acc = 0, avg8 = 0;   /* (the frames' work: ms x 8, an average of the last few) */
   for (;;) {
     uint32_t keys = plat_keys();
     if (keys & K_HOME) {
@@ -135,6 +140,11 @@ int main(void) {
     menu_draw();
     gfx_frame();
     perf_frames++;
+    if (menu_in_game()) {
+      avg8 = avg8 - avg8 / 8 + (plat_millis() - now);
+      if (!g_gfx_fast && avg8 > SLOW_MS * 8) g_gfx_fast = true;
+      else if (g_gfx_fast && avg8 < QUICK_MS * 8) g_gfx_fast = false;
+    }
   }
   return plat_end();
 }

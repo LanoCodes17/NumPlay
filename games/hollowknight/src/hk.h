@@ -43,9 +43,22 @@ const uint8_t *section(int id);
 uint32_t section_size(int id);
 static inline uint16_t rd16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
 static inline uint32_t rd32(const uint8_t *p) { return (uint32_t)(p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24); }
+/* (the calculator's C library copies and clears a byte at a time: these go by words, for n a multiple of 4, d aligned) */
+typedef uint32_t __attribute__((may_alias, aligned(1))) u32_any;
+static inline void copy_words(void *d, const void *s, size_t n) {
+  uint32_t *dw = (uint32_t *)d;
+  const u32_any *sw = (const u32_any *)s;
+  for (; n >= 16; n -= 16, dw += 4, sw += 4) dw[0] = sw[0], dw[1] = sw[1], dw[2] = sw[2], dw[3] = sw[3];
+  for (; n; n -= 4) *dw++ = *sw++;
+}
+static inline void zero_words(void *d, size_t n) {
+  uint32_t *dw = (uint32_t *)d;
+  for (; n >= 16; n -= 16, dw += 4) dw[0] = dw[1] = dw[2] = dw[3] = 0;
+  for (; n; n -= 4) *dw++ = 0;
+}
 void lz_decode(const uint8_t *src, uint32_t comp, uint8_t *dst, uint32_t raw);
 /* decoders' working memory (LZMA probabilities or the tile coder's), one at a time */
-extern uint16_t g_scratch[4096];
+extern uint16_t g_scratch[4096] __attribute__((aligned(4)));
 float f16(uint16_t h);
 const char *str_at(int id);   /* the shared string table (SEC_STR) */
 
@@ -224,6 +237,7 @@ uint8_t gfx_dyn_tint(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a);   /*
 uint8_t gfx_dyn_flash(int slot, uint8_t r, uint8_t g, uint8_t b, uint8_t a, uint8_t fr, uint8_t fg, uint8_t fb, uint8_t amount);
 extern uint8_t g_screen_fade;   /* 0 .. 255: the screen faded to black */
 extern bool g_gfx_no_room;      /* (the room not drawn: the menus') */
+extern bool g_gfx_fast;         /* the room drawn at half the height where no HUD, text or menu is (main.c: when slow) */
 /* an overlay over the HUD (the inventory): drawn by g_gfx_overlay as the frame is made, its instances (HUD units)
  * straight into the frame's; g_gfx_reserve of them kept from the room's */
 extern void (*g_gfx_overlay)(void);

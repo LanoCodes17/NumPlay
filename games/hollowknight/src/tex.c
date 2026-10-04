@@ -9,7 +9,7 @@
 #define NO 0xFFFF
 #define BLOCK_TILES 16
 
-static uint8_t slot_px[NSLOTS][128];
+static uint8_t slot_px[NSLOTS][128] __attribute__((aligned(4)));
 static uint16_t slot_box[NSLOTS];   /* where each tile's texels that are not clear are (tile_box) */
 static uint32_t slot_key[NSLOTS];
 static uint16_t slot_next[NSLOTS], slot_frame[NSLOTS];
@@ -18,7 +18,7 @@ static uint8_t cur_strip;
 static bool full;   /* the last frame needed all the slots */
 static uint16_t head[NHASH];
 static uint16_t frame = 1, hand;
-static uint8_t block_buf[BLOCK_TILES * 128];
+static uint8_t block_buf[BLOCK_TILES * 128] __attribute__((aligned(4)));
 static int block_tex = -1, block_first;   /* (whose tiles block_buf holds) */
 #define tcp g_scratch   /* TC_N4 */
 _Static_assert(TC_N4 <= sizeof g_scratch / 2, "the tile decoder's probabilities: in g_scratch");
@@ -63,8 +63,8 @@ static int texel_at(const uint8_t *t, int x, int y, bool two) {
 static void decode_block(const uint8_t *src, int n, bool two, const uint8_t *left, const uint8_t *up, uint8_t *out) {
   /* the trained probabilities, ready to use (pack.py) */
   const uint8_t *prior = section(SEC_PRIOR);
-  if (two) memcpy(tcp, prior + TC_N4 * 2, TC_N2 * 2);
-  else memcpy(tcp, prior, TC_N4 * 2);
+  if (two) copy_words(tcp, prior + TC_N4 * 2, TC_N2 * 2);
+  else copy_words(tcp, prior, TC_N4 * 2);
   uint32_t rng = 0xFFFFFFFFu, code = 0;
   for (int i = 0; i < 4; i++) code = code << 8 | *src++;
   int w = two ? 32 : 16, s = TC_STRIDE(w);
@@ -271,7 +271,7 @@ static int insert(uint32_t key, const uint8_t *px, int bytes) {
   unsigned h = hash(key);
   slot_next[s] = head[h];
   head[h] = (uint16_t)s;
-  memcpy(slot_px[s], px, (size_t)bytes);
+  copy_words(slot_px[s], px, (size_t)bytes);
   slot_box[s] = tile_box(px);
   return s;
 }
@@ -356,7 +356,7 @@ int tex_slot(uint16_t t, int tx, int ty) {
     unsigned hh = hash(k);
     slot_next[ns] = head[hh];
     head[hh] = (uint16_t)ns;
-    memcpy(slot_px[ns], block_buf + i * bytes, (size_t)bytes);
+    copy_words(slot_px[ns], block_buf + i * bytes, (size_t)bytes);
     slot_box[ns] = tile_box(block_buf + i * bytes);
     slot_frame[ns] = (uint16_t)(frame - 2);   /* not drawn yet: the first to go */
   }

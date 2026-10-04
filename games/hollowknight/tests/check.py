@@ -5,7 +5,8 @@
   back to a good place
 - a long walk of made up keys from every room: the Knight never out of the room, without control, wedged, undrawn or
   out of the view
-- every room played with its enemies hit, in a new game and after the bosses: the sanitizers stop on any fault
+- every room played with its enemies hit, in a new game and after the bosses, drawn whole and fast (as a slow
+  calculator draws it): the sanitizers stop on any fault
 """
 import os
 import subprocess
@@ -44,19 +45,20 @@ def main():
     rc, out = play("--gates", "all")
     results.append(report("gates", rc, out, ("FAIL",)))
     with ThreadPoolExecutor(JOBS) as pool:
-        walks = list(pool.map(lambda w: play("--gates", "wander:all:%d:%d" % w), WALKS))
+        walks = list(pool.map(lambda w: play("--gates", "wander:all:%d:%d" % w, env={"HKFAST": "1"} if w[0] % 2 else None), WALKS))
     for (seed, ticks), (rc, out) in zip(WALKS, walks):
-        results.append(report("walk %d (%d s from every room)" % (seed, ticks // 50), rc, out, ("FAIL",)))
+        results.append(report("walk %d (%d s from every room%s)" % (seed, ticks // 50, ", drawn fast" if seed % 2 else ""), rc, out, ("FAIL",)))
     rc, out = play("--list")
     rooms = out.split()
-    runs = [(r, w) for r in rooms for w in WORLDS]
+    runs = [(r, w, f) for r in rooms for w in WORLDS for f in ("", "1")]
     env = {"HKGOD": "1", "HKHIT": "50", "HKHITN": "20", "HKHITD": "10"}
     with ThreadPoolExecutor(JOBS) as pool:
-        played = list(pool.map(lambda rw: play("--room", rw[0], "--play", SWEEP_KEYS, env=dict(env, HKFLAGS=rw[1])), runs))
-    bad = [(r, w, rc, out) for (r, w), (rc, out) in zip(runs, played) if rc != 0 or faults(out)]
+        played = list(pool.map(lambda rwf: play("--room", rwf[0], "--play", SWEEP_KEYS, "--shot", os.devnull,
+                                                env=dict(env, HKFLAGS=rwf[1], **({"HKFAST": "1"} if rwf[2] else {}))), runs))
+    bad = [(r, w, f, rc, out) for (r, w, f), (rc, out) in zip(runs, played) if rc != 0 or faults(out)]
     print("%s every room played (%d runs)" % ("FAIL" if bad else "ok  ", len(runs)))
-    for r, w, rc, out in bad:
-        print("     %s [%s] exit %d" % (r, w, rc))
+    for r, w, f, rc, out in bad:
+        print("     %s [%s]%s exit %d" % (r, w, " fast" if f else "", rc))
         for l in faults(out)[:3]:
             print("       " + l)
     results.append(not bad)

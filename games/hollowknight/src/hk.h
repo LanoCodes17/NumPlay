@@ -57,8 +57,10 @@ static inline void zero_words(void *d, size_t n) {
   for (; n; n -= 4) *dw++ = 0;
 }
 void lz_decode(const uint8_t *src, uint32_t comp, uint8_t *dst, uint32_t raw);
-/* decoders' working memory (LZMA probabilities or the tile coder's), one at a time */
-extern uint16_t g_scratch[4096] __attribute__((aligned(4)));
+/* decoders' working memory (LZMA probabilities or the tile coder's), one at a time; on the calculator, on main's
+ * stack (main.c) */
+#define SCRATCH_N 4096
+extern uint16_t *g_scratch;
 float f16(uint16_t h);
 const char *str_at(int id);   /* the shared string table (SEC_STR) */
 

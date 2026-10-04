@@ -1044,8 +1044,46 @@ static void run_turned(const Ctx *c, int y, int a, int b, int *last_key, const u
   *last_key = lk, *last_t = lt;
 }
 
-/* smooth textures: a few texels, interpolated */
-static void run_soft(const Ctx *c, int y, int a, int b, const uint32_t *tx, uint32_t crb, uint32_t cg, uint32_t ta) {
+/* a smooth texture's texel at (u, v) (16.16, less half a texel), its edges repeated beyond them, as a color */
+static uint32_t soft_edge_at(const TexRec *r, const uint32_t *tx, int32_t u, int32_t v, uint32_t crb, uint32_t cg, uint32_t ta) {
+  int W = r->w, H = r->h, cx = u >> 16, rr = v >> 16;
+  uint32_t fu = (uint32_t)(u >> 8) & 255, fv = (uint32_t)(v >> 8) & 255;
+  int c0 = cx < 0 ? 0 : cx >= W ? W - 1 : cx, c1 = cx + 1 < 0 ? 0 : cx + 1 >= W ? W - 1 : cx + 1;
+  int r0 = rr < 0 ? 0 : rr >= H ? H - 1 : rr, r1 = rr + 1 < 0 ? 0 : rr + 1 >= H ? H - 1 : rr + 1;
+  if (r->fmt == FMT_SOFT)
+    return lerp4(lerp4(tx[r0 * W + c0], tx[r0 * W + c1], fu), lerp4(tx[r1 * W + c0], tx[r1 * W + c1], fu), fv);
+  const uint8_t *al = (const uint8_t *)tx;
+  uint32_t top = al[r0 * W + c0] * (256 - fu) + al[r0 * W + c1] * fu, bot = al[r1 * W + c0] * (256 - fu) + al[r1 * W + c1] * fu;
+  uint32_t aa = ((top * (256 - fv) + bot * fv) >> 16) * ta >> 8;
+  return aa << 24 | ((crb * aa >> 8) & 0xFF00FF) | ((cg * aa >> 8) & 0xFF00);
+}
+
+/* a smooth texture's outer texels not all clear (SOFT_EDGED; most are: then nothing is drawn beyond the centers of
+ * its outer texels), all its texels the same (SOFT_FLAT: the light that fills a room, a black square): a few textures
+ * remembered */
+#define SOFT_EDGED 1
+#define SOFT_FLAT 2
+static uint16_t soft_kind_tex[32];   /* (texture + 1) */
+static uint8_t soft_kind_of[32];
+static int soft_kind(uint16_t tex, const TexRec *r, const uint32_t *tx) {
+  unsigned k = tex & 31;
+  if (soft_kind_tex[k] == tex + 1u) return soft_kind_of[k];
+  int W = r->w, H = r->h, n = W * H, kind = 0;
+  const uint8_t *al = (const uint8_t *)tx;
+  bool mono = r->fmt == FMT_SOFTA, flat = true;
+#define CLEAR(i) (mono ? !al[i] : !(tx[i] >> 24))
+  for (int x = 0; x < W && !kind; x++) kind = !CLEAR(x) || !CLEAR((H - 1) * W + x);
+  for (int y = 0; y < H && !kind; y++) kind = !CLEAR(y * W) || !CLEAR(y * W + W - 1);
+#undef CLEAR
+  for (int i = 1; i < n && flat; i++) flat = mono ? al[i] == al[0] : tx[i] == tx[0];
+  if (flat) kind |= SOFT_FLAT;
+  soft_kind_tex[k] = (uint16_t)(tex + 1u), soft_kind_of[k] = (uint8_t)kind;
+  return kind;
+}
+
+/* smooth textures: a few texels, interpolated; at the pixels whose centers are in the sprite (as the game's quad), its
+ * edges repeated beyond the outer texels' centers (a big black square of 3 x 3 texels is a square, its corners sharp) */
+static void run_soft(const Ctx *c, int y, int a, int b, const uint32_t *tx, uint32_t crb, uint32_t cg, uint32_t ta, int sk) {
   const Map *m = c->m;
   const TexRec *r = c->r;
   int mode = c->mode, row = c->row, W = r->w, H = r->h;
@@ -1054,10 +1092,30 @@ static void run_soft(const Ctx *c, int y, int a, int b, const uint32_t *tx, uint
   float fx = a + 0.5f - m->ox, fy = SY(y) - m->oy;
   int32_t u0 = (int32_t)((m->iux * fx + m->iuy * fy - 0.5f) * 65536), v0 = (int32_t)((m->ivx * fx + m->ivy * fy - 0.5f) * 65536);
   int32_t dux = (int32_t)(m->iux * 65536), dvx = (int32_t)(m->ivx * 65536);
-  /* where all four texels are inside (the edges of these textures are clear) */
-  int i0 = 0, i1 = b - a;
+  int o0 = 0, o1 = b - a;
+  bool edged = sk & SOFT_EDGED;
+  if (edged) {
+    clip_lin(u0 + 32768, dux, W << 16, b - a, &o0, &o1);
+    clip_lin(v0 + 32768, dvx, H << 16, b - a, &o0, &o1);
+    if (o0 >= o1) return;
+    if (sk & SOFT_FLAT) {
+      /* (one color throughout: no texel to mix) */
+      uint32_t s = soft_edge_at(r, tx, 0, 0, crb, cg, ta);
+      for (int x = a + o0, p = row * VIEW_W + x; x < a + o1; x++, p++) TAKE(row, x, p, s);
+      return;
+    }
+  }
+  /* where all four texels are inside: most of it, read without the edges' checks; the rest (within half a texel of
+   * the edge, clear in most of these textures) with them */
+  int i0 = o0, i1 = o1;
   clip_lin(u0, dux, (W - 1) << 16, b - a, &i0, &i1);
   clip_lin(v0, dvx, (H - 1) << 16, b - a, &i0, &i1);
+  if (i0 >= i1) i0 = i1 = o1;
+  for (int k = 0; k < 2 && edged; k++)
+    for (int j = k ? i1 : o0, je = k ? o1 : i0; j < je; j++) {
+      uint32_t s = soft_edge_at(r, tx, u0 + dux * j, v0 + dvx * j, crb, cg, ta);
+      if (s >> 24) TAKE(row, a + j, row * VIEW_W + a + j, s);
+    }
   if (i0 >= i1) return;
   u0 += dux * i0, v0 += dvx * i0;
   int x = a + i0, e = a + i1, p = row * VIEW_W + a + i0;
@@ -1137,6 +1195,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
   int kind = 0;   /* 0 solid, 1 axis, 2 turned, 3 soft, 4 bilinear */
   const uint32_t *soft = NULL;
   uint32_t crb = 0, cg = 0, ta = 256;
+  int sk = 0;
   BiTex bt;
   if (!(in->flags & F_SOLID)) {
     c.r = tex_rec(in->tex);
@@ -1146,6 +1205,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
       kind = 3;
       soft = soft_get(in->tex, in->tint, in->flags, inst_alpha(in));
       if (!soft) return;
+      sk = soft_kind(in->tex, c.r, soft);
       if (c.r->fmt == FMT_SOFTA) {
         const uint8_t *t = tint_rgba(in->tint);
         float tr = t[0] / 255.0f, tg = t[1] / 255.0f, tb = t[2] / 255.0f;
@@ -1220,7 +1280,7 @@ __attribute__((noinline)) static void draw_item(int idx, Item *it, int sy0, int 
         case 0: run_solid(&c, y, x, e); break;
         case 1: run_axis(&c, y, x, e, tp, ty, vr); break;
         case 2: run_turned(&c, y, x, e, &last_key, &last_t); break;
-        case 3: run_soft(&c, y, x, e, soft, crb, cg, ta); break;
+        case 3: run_soft(&c, y, x, e, soft, crb, cg, ta, sk); break;
         default: run_bilinear(&c, y, x, e, &bt); break;
       }
       x = open_from(cv, e, xe);
@@ -1324,7 +1384,9 @@ static void draw_bg_item(Item *it) {
         if (s >> 24) bg_put(d16 + bx, s, mode);
       }
     } else {
-      /* smooth: bilinear, the edges repeated */
+      /* smooth: bilinear, the edges repeated, at the pixels whose centers are in the sprite */
+      clip_lin(u + 32768, du, W << 16, i1, &i0, &i1);
+      clip_lin(v + 32768, dv, H << 16, i1, &i0, &i1);
       u += du * i0, v += dv * i0;
       for (int bx = bx0 + i0; bx < bx0 + i1; bx++, u += du, v += dv) {
         int c = u >> 16, rr = v >> 16;

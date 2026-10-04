@@ -24,8 +24,10 @@ LDFLAGS += -Wl,--gc-sections -flinker-output=nolto-rel
 .PHONY: build check clean host data test
 build: $(BUILD_DIR)/hollowknight.nwa
 
+# the RAM the calculator gives apps (data + bss) depends on its software: 153676 bytes on 25.2, 149500 on 24.10,
+# 148928 on 23.2; checked against the least
 check: $(BUILD_DIR)/hollowknight.nwa
-	$(Q) $(NWLINK) nwa-bin --ram-length 153676 $< $(BUILD_DIR)/hollowknight.bin
+	$(Q) $(NWLINK) nwa-bin --ram-length 148928 $< $(BUILD_DIR)/hollowknight.bin
 	@echo "BIN     $(BUILD_DIR)/hollowknight.bin: $$(wc -c < $(BUILD_DIR)/hollowknight.bin) bytes"
 
 $(BUILD_DIR)/data.o: src/data.S src/data.bin | $(BUILD_DIR)

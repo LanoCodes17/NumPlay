@@ -75,6 +75,7 @@ In menus, OK or EXE confirms and Back goes back. In the inventory, left and righ
 * **Only the start of the game:** it ends with Hornet in Greenpath. The ways on to places further in stay shut, like Jiji's door, the lift down to the mines and the Dream Nail's paths.
 * **No music or sound:** the calculator has no speaker.
 * **A few things are simpler:** dust, sparks and other particles are left out, and characters and scenery are drawn a little less finely so the whole game fits.
+* **Busy rooms stay smooth:** when the calculator falls behind, the room is drawn at half the height, each line shown twice. The HUD, text and menus stay sharp.
 
 ## Credits
 

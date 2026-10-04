@@ -17,8 +17,8 @@ uint32_t perf_updates __attribute__((used));
 
 #define TICK_MS 20      /* the game's step (Unity's fixed step) */
 #define MAX_TICKS 4     /* steps caught up before a frame is drawn */
-#define SLOW_MS 45      /* a frame's work (on average) over which the room is drawn fast (g_gfx_fast)... */
-#define QUICK_MS 20     /* ...and under which, fast, it is drawn whole again (whole, about 36) */
+#define SLOW_MS 34      /* a frame's work (on average) over which the room is drawn fast (g_gfx_fast): under 29 fps... */
+#define QUICK_MS 18     /* ...and under which, fast, it is drawn whole again (whole, under 34: not back and forth) */
 
 #ifdef PERF_BENCH
 /* timing: a few views (rooms by number), panning a little: each one's ms per frame x 100 (read by the emulator; the
@@ -26,7 +26,7 @@ uint32_t perf_updates __attribute__((used));
 static const struct { int room; float x, y; } bench[] = {{0, 30, 14.11f}, {0, 186, 68}, {0, 60, 30}, {5, 52, 10}, {35, 14, 104},
                                                         {10, 22, 25}, {32, 18, 66}, {20, 25, 22}, {1, 82, 10}, {0, 30, 14}};
 uint32_t perf_bench[sizeof bench / sizeof bench[0]] __attribute__((used));
-int main(void) {
+static int run(void) {
   plat_begin();
   hk_bin = hk_data;
 #ifdef PERF_FAST
@@ -50,7 +50,7 @@ int main(void) {
 /* timing: every room, the view at each of its gates and its middle, panning a little; per room: frames, ms, the
  * slowest spot's ms per frame (x10) and where (read by the emulator) */
 uint32_t perf_survey[NUM_ROOMS][5] __attribute__((used));
-int main(void) {
+static int run(void) {
   plat_begin();
   hk_bin = hk_data;
   for (int r = 0; r < NUM_ROOMS; r++) {
@@ -92,7 +92,7 @@ int main(void) {
 #ifndef PERF_DX
 #define PERF_DX 0.15f
 #endif
-int main(void) {
+static int run(void) {
   plat_begin();
   hk_bin = hk_data;
   plat_fill(0, 0, SCREEN_W, SCREEN_H, 0);
@@ -108,7 +108,7 @@ int main(void) {
   return plat_end();
 }
 #else
-int main(void) {
+static int run(void) {
   plat_begin();
   hk_bin = hk_data;
   plat_fill(0, 0, SCREEN_W, SCREEN_H, 0);
@@ -149,4 +149,13 @@ int main(void) {
   return plat_end();
 }
 #endif
+
+/* The decoders' scratch memory on the stack: the calculator gives apps 32 KB of it, of which the game uses under 5 KB,
+ * while the RAM it gives them is what its software's own variables leave (153676 bytes on 25.2, 148928 on 23.2), and
+ * the installer refuses an app that needs more. */
+int main(void) {
+  uint16_t scratch[SCRATCH_N] __attribute__((aligned(4)));
+  g_scratch = scratch;
+  return run();
+}
 #endif

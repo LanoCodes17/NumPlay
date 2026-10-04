@@ -40,7 +40,7 @@ static void save_copy(void);
 bool save_game(void) {
   /* (built in the decoders' scratch memory: no decoding goes on meanwhile) */
   uint8_t *buf = (uint8_t *)g_scratch;
-  uint32_t cap = sizeof g_scratch;
+  uint32_t cap = SCRATCH_N * 2;
   SaveHead h = {SAVE_MAGIC, SAVE_VERSION, 0, 0};
   uint32_t at = sizeof h;
   memcpy(buf + at, &g_pd, PD_SAVED);
@@ -157,7 +157,7 @@ void save_restore(void) {
     if (!len || len % 4) continue;
     uint32_t size = len / 4 * 3 - (l[len - 1] == '=') - (l[len - 2] == '=');
     uint8_t *out = (uint8_t *)g_scratch;
-    if (size > sizeof g_scratch) continue;
+    if (size > SCRATCH_N * 2) continue;
     bool ok = true;
     for (uint32_t i = 0; i < len && ok; i += 4) {
       int v0 = l[i] == '=' ? 0 : b64_value(l[i]), v1 = l[i + 1] == '=' ? 0 : b64_value(l[i + 1]);

@@ -21,7 +21,7 @@ static uint16_t frame = 1, hand;
 static uint8_t block_buf[BLOCK_TILES * 128] __attribute__((aligned(4)));
 static int block_tex = -1, block_first;   /* (whose tiles block_buf holds) */
 #define tcp g_scratch   /* TC_N4 */
-_Static_assert(TC_N4 <= sizeof g_scratch / 2, "the tile decoder's probabilities: in g_scratch");
+_Static_assert(TC_N4 <= SCRATCH_N, "the tile decoder's probabilities: in g_scratch");
 #define NONE_T 255
 
 /* ---------------------------------------------------------------- the tile decoder (tilecode.h) */

@@ -16,4 +16,6 @@ typedef struct {
 } np_font_t;
 
 extern const np_font_t np_font_title, np_font_body, np_font_small;
+/* Latin-1 code points of the glyphs after the 95 ASCII ones (count - 95 of them). */
+extern const unsigned char np_font_extra[];
 #endif

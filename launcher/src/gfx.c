@@ -272,16 +272,27 @@ void gfx_corners(int x, int y, int w, int h, int r, color_t c) {
 
 void gfx_icon(const np_icon_t *icon, int x, int y, color_t c, int a) { gfx_mask(icon->data, icon->w, icon->h, x, y, c, a); }
 
-static const np_glyph_t *glyph(const np_font_t *f, char ch) {
-  unsigned i = (unsigned char)ch - f->first;
-  return i < f->count ? &f->glyphs[i] : &f->glyphs['?' - f->first];
+/* Text is UTF-8; only the Latin-1 letters of np_font_extra (two bytes each) are drawn besides ASCII. */
+static unsigned next_cp(const char **ps) {
+  const unsigned char *p = (const unsigned char *)*ps;
+  unsigned c = *p++;
+  if (c >= 0xC2 && c <= 0xC3 && (*p & 0xC0) == 0x80) c = (c & 0x1F) << 6 | (*p++ & 0x3F);
+  *ps = (const char *)p;
+  return c;
+}
+
+static const np_glyph_t *glyph_cp(const np_font_t *f, unsigned cp) {
+  if (cp >= f->first && cp < f->first + 95u) return &f->glyphs[cp - f->first];
+  for (unsigned k = 0; k + 95 < f->count; k++)
+    if (np_font_extra[k] == cp) return &f->glyphs[95 + k];
+  return &f->glyphs['?' - f->first];
 }
 
 int gfx_text(const np_font_t *f, int x, int baseline, const char *s, color_t c, int a) {
   int top = baseline - f->ascent, bottom = baseline + f->descent;
   bool visible = bottom > gfx_y0 && top < gfx_y1;
-  for (; *s; s++) {
-    const np_glyph_t *g = glyph(f, *s);
+  while (*s) {
+    const np_glyph_t *g = glyph_cp(f, next_cp(&s));
     if (visible && g->w) gfx_mask(f->data + g->offset, g->w, g->h, x + g->x, baseline + g->y, c, a);
     x += g->advance;
   }
@@ -290,7 +301,7 @@ int gfx_text(const np_font_t *f, int x, int baseline, const char *s, color_t c, 
 
 int gfx_text_width(const np_font_t *f, const char *s) {
   int w = 0;
-  for (; *s; s++) w += glyph(f, *s)->advance;
+  while (*s) w += glyph_cp(f, next_cp(&s))->advance;
   return w;
 }
 
@@ -303,18 +314,20 @@ void gfx_text_right(const np_font_t *f, int rx, int baseline, const char *s, col
 }
 
 int gfx_paragraph(const np_font_t *f, int cx, int baseline, int width, int line, const char *s, color_t c, int a) {
-  char buf[96];
+  char buf[160];
   while (*s) {
     /* take as many words as fit */
     int n = 0, last_space = -1, wpx = 0;
-    while (s[n] && s[n] != '\n' && n < (int)sizeof(buf) - 1) {
-      wpx += glyph(f, s[n])->advance;
-      if (s[n] == ' ') last_space = n;
+    while (s[n] && s[n] != '\n' && n < (int)sizeof(buf) - 4) {
+      const char *q = s + n;
+      unsigned cp = next_cp(&q);
+      wpx += glyph_cp(f, cp)->advance;
+      if (cp == ' ') last_space = n;
       if (wpx > width && last_space > 0) {
         n = last_space;
         break;
       }
-      n++;
+      n += (int)(q - (s + n));
     }
     memcpy(buf, s, (size_t)n);
     buf[n] = 0;

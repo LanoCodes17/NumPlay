@@ -5,7 +5,7 @@ NWLINK = node node_modules/nwlink/bin/nwlink
 WARN = -Wall -Wextra -Werror -Wno-misleading-indentation
 # Like the calculator's build: no fused multiply-add, so replays play out the same.
 HOST_FP = -ffp-contract=off
-CORE = src/game.c src/trig.c src/level.c src/inflate.c src/leveldata.c src/objdefs.c src/assets.c src/assets_lv.c src/gfx.c src/scene.c src/fx.c src/save.c
+CORE = src/game.c src/trig.c src/level.c src/inflate.c src/leveldata.c src/objdefs.c src/assets.c src/assets_lv.c src/gfx.c src/scene.c src/fx.c src/save.c src/tr.c
 COMMON = $(CORE) src/ui.c src/app.c src/menu.c src/play.c src/editor.c
 DEVICE_SOURCES = $(COMMON) src/platform_eadk.c src/main.c
 DEVICE_OBJECTS = $(patsubst src/%.c,build/arm/%.o,$(DEVICE_SOURCES))

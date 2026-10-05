@@ -1,7 +1,9 @@
 /* The home screen: a carousel of game cards. The selected card is large,
  * its neighbours peek in from the sides, and the card cycles through the
  * game's screenshots. The last card opens the settings. */
+#include <string.h>
 #include "ui.h"
+#include "live.h"
 
 #define CARD_W 200
 #define CARD_H 152
@@ -31,14 +33,93 @@ typedef struct {
 
 static bool first_open = true;
 
+/* ---- live background and clock. The calculator has no clock to read: the
+ * time is set by hand (Up on the home screen) and then follows the
+ * millisecond counter, so it is lost when the calculator is switched off. */
+static uint32_t clock0;          /* seconds of the day when the millisecond counter was 0 */
+static bool clock_set, clock_loaded;
+
+static uint32_t clock_secs(uint32_t now_ms) { return (clock0 + now_ms / 1000) % 86400; }
+static char *two(char *o, unsigned v) {
+  *o++ = (char)('0' + v / 10 % 10);
+  *o++ = (char)('0' + v % 10);
+  return o;
+}
+static void clock_str(char *out) {
+  if (!clock_set) {
+    strcpy(out, "--:--");
+    return;
+  }
+  uint32_t t = clock_secs(np_millis());
+  char *o = two(out, t / 3600);
+  *o++ = ':';
+  o = two(o, t / 60 % 60);
+  *o = 0;
+}
+
+typedef struct {
+  int hh, mm, field;
+} edit_t;
+
+static void edit_scene(void *ctx) {
+  edit_t *e = ctx;
+  if (live_active()) live_strip();
+  else gfx_vgrad(0, 0, SCREEN_W, SCREEN_H, 0x3B4252, 0x171A21);
+  gfx_rrect(36, 48, 248, 144, 14, 0, 150);
+  gfx_text_center(&np_font_title, 160, 78, np_t("Set the time"), 0xFFFF, 256);
+  char h[3], m[3];
+  two(h, (unsigned)e->hh), h[2] = 0;
+  two(m, (unsigned)e->mm), m[2] = 0;
+  int wh = gfx_text_width(&np_font_title, "00"), wc = gfx_text_width(&np_font_title, ":");
+  int x0 = 160 - (2 * wh + wc + 16) / 2, xm = x0 + wh + wc + 16;
+  gfx_text(&np_font_title, x0, 124, h, 0xFFFF, e->field == 0 ? 256 : 150);
+  gfx_text(&np_font_title, x0 + wh + 8, 124, ":", 0xFFFF, 200);
+  gfx_text(&np_font_title, xm, 124, m, 0xFFFF, e->field == 1 ? 256 : 150);
+  gfx_rrect(e->field == 0 ? x0 : xm, 132, wh, 3, 1, 0xFFFF, 256);
+  gfx_text_center(&np_font_small, 160, 160, np_t("Left/Right: hour or minutes   Up/Down: change"), 0xFFFF, 190);
+  gfx_text_center(&np_font_small, 160, 178, np_t("OK: save   Back: cancel"), 0xFFFF, 190);
+}
+
+static void clock_edit(void) {
+  edit_t e = {12, 0, 0};
+  if (clock_set) {
+    uint32_t t = clock_secs(np_millis());
+    e.hh = (int)(t / 3600);
+    e.mm = (int)(t / 60 % 60);
+  }
+  ui_keys_t keys = {np_keys(), 0, 0}; /* ignore the key that opened this */
+  for (;;) {
+    uint32_t pressed = ui_poll(&keys);
+    if (pressed & (K_BACK | K_HOME)) return;
+    if (pressed & (K_LEFT | K_RIGHT)) e.field ^= 1;
+    if (pressed & K_UP) {
+      if (e.field == 0) e.hh = (e.hh + 1) % 24;
+      else e.mm = (e.mm + 1) % 60;
+    }
+    if (pressed & K_DOWN) {
+      if (e.field == 0) e.hh = (e.hh + 23) % 24;
+      else e.mm = (e.mm + 59) % 60;
+    }
+    if (pressed & K_OK) {
+      uint32_t now = np_millis();
+      clock0 = ((uint32_t)(e.hh * 3600 + e.mm * 60) + 86400 - now / 1000 % 86400) % 86400;
+      clock_set = true;
+      np_clock_save(clock0);
+      return;
+    }
+    live_frame(np_millis());
+    ui_frame(edit_scene, &e);
+  }
+}
+
 static uint32_t item_color(int game, int which) {
   if (game < 0) return which == 0 ? SETTINGS_TOP : which == 1 ? SETTINGS_BOTTOM : SETTINGS_ACCENT;
   const np_game_t *g = &np_games[game];
   return which == 0 ? g->top : which == 1 ? g->bottom : g->accent;
 }
 
-static const char *item_title(int game) { return game < 0 ? "Settings" : np_games[game].title; }
-static const char *item_tagline(int game) { return game < 0 ? "Reset, uninstall, more" : np_games[game].tagline; }
+static const char *item_title(int game) { return game < 0 ? np_t("Settings") : np_games[game].title; }
+static const char *item_tagline(int game) { return game < 0 ? np_t("Reset, uninstall, more") : np_t(np_games[game].tagline); }
 
 static float absf(float v) { return v < 0 ? -v : v; }
 
@@ -119,11 +200,15 @@ static void scene(void *ctx) {
   t = NP_CLAMP(t, 0, 256);
   uint32_t top = gfx_lerp888(item_color(h->item[a], 0), item_color(h->item[b], 0), t);
   uint32_t bottom = gfx_lerp888(item_color(h->item[a], 1), item_color(h->item[b], 1), t);
-  gfx_vgrad(0, 0, SCREEN_W, SCREEN_H, top, bottom);
-  /* a faint dot grid gives the background some texture */
-  for (int y = (gfx_y0 + 15) / 16 * 16 + 8 - 16; y < gfx_y1; y += 16) {
-    if (y < gfx_y0) continue;
-    for (int x = 8; x < SCREEN_W; x += 16) gfx_fill_alpha(x, y, 2, 1, 0xFFFF, 22);
+  if (live_active()) {
+    live_strip();
+  } else {
+    gfx_vgrad(0, 0, SCREEN_W, SCREEN_H, top, bottom);
+    /* a faint dot grid gives the background some texture */
+    for (int y = (gfx_y0 + 15) / 16 * 16 + 8 - 16; y < gfx_y1; y += 16) {
+      if (y < gfx_y0) continue;
+      for (int x = 8; x < SCREEN_W; x += 16) gfx_fill_alpha(x, y, 2, 1, 0xFFFF, 22);
+    }
   }
 
   float z = ui_ease_in_out(h->zoom);
@@ -132,8 +217,18 @@ static void scene(void *ctx) {
   if (gfx_y0 < 26 && ui_alpha > 0) {
     gfx_icon(&np_icon_logo, 12, 6, 0xFFFF, ui_alpha);
     gfx_text(&np_font_body, 40, 18, "NumPlay", 0xFFFF, ui_alpha);
+    char clk[8];
+    clock_str(clk);
+    int cx = 40 + gfx_text_width(&np_font_body, "NumPlay") + 14;
+    cx = gfx_text(&np_font_body, cx, 18, clk, 0xFFFF, ui_alpha * (clock_set ? 210 : 110) / 256);
+    if (clock_set) { /* the seconds, small, so that it is visible that the clock is running */
+      char sec[4] = ":";
+      two(sec + 1, clock_secs(np_millis()) % 60);
+      sec[3] = 0;
+      gfx_text(&np_font_small, cx + 1, 18, sec, 0xFFFF, ui_alpha * 140 / 256);
+    }
     /* where we are in the carousel; with many cards the dots get closer */
-    int pitch = NP_MIN(10, 190 / (h->n + 1));
+    int pitch = NP_MIN(10, (SCREEN_W - 10 - 172) / (h->n + 1));
     int dx = SCREEN_W - 10 - (h->n + 1) * pitch;
     for (int i = 0; i < h->n; i++) {
       float near = 1 - NP_MIN(absf(i - h->pos), 1.f);
@@ -188,6 +283,12 @@ static int build_items(home_t *h) {
 
 int np_home(int *selected, bool returning) {
   ui_init();
+  if (!clock_loaded) { /* once per run: the time set the last time, if the counter is still running */
+    clock_loaded = true;
+    if (np_clock_load(&clock0)) clock_set = true;
+    int m;
+    if (np_bg_load(&m)) live_set(m);
+  }
   home_t h = {0};
   build_items(&h);
   /* the game played last, or else the first game there is: never Settings,
@@ -205,7 +306,7 @@ int np_home(int *selected, bool returning) {
   bool unzooming = returning && h.item[h.sel] == *selected && *selected >= 0;
   if (unzooming) h.zoom = 1;
   ui_keys_t keys = {np_keys(), 0, 0};  /* ignore keys still held from before */
-  uint32_t last = np_millis();
+  uint32_t last = np_millis(), shown_min = 0xFFFFFFFF;
   bool dirty = true, bar_dirty = false;
   int result = -3;
   for (;;) {
@@ -225,6 +326,17 @@ int np_home(int *selected, bool returning) {
         h.badge = 0;
       }
       if (pressed & K_OK) result = h.item[h.sel];
+      if (pressed & K_BACKSPACE) { /* next background, then none */
+        live_next();
+        np_bg_save(live_mode());
+        dirty = true;
+      }
+      if (pressed & K_UP) {
+        clock_edit();
+        keys = (ui_keys_t){np_keys(), 0, 0};
+        last = np_millis();
+        dirty = true;
+      }
       if (pressed & (K_HOME | K_BACK)) return -2;
     }
     /* motion */
@@ -277,7 +389,10 @@ int np_home(int *selected, bool returning) {
         }
       }
     }
+    if (live_active()) dirty = true; /* the background moves: every frame */
+    if (clock_set && clock_secs(now) != shown_min) shown_min = clock_secs(now), dirty = true;
     if (dirty) {
+      live_frame(now);
       ui_frame(scene, &h);
       dirty = bar_dirty = false;
     } else if (bar_dirty) {

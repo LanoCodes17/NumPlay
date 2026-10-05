@@ -550,6 +550,7 @@ static int glyph_of(int font, int ch) {
   return g == 255 ? -1 : (int)g;
 }
 int gfx_text_width(int font, const char *s) {
+  s = gfx_tr(s);
   const Font *f = &fonts[font];
   int w = 0;
   for (; *s && *s != '\n'; s++) {
@@ -670,6 +671,7 @@ static void draw_glyph(const Font *f, int spr, int x, int baseline, color_t top,
 void gfx_text(int font, int x, int baseline, const char *s, color_t top, color_t bottom, unsigned alpha) {
   const Font *f = &fonts[font];
   if (baseline + f->cap < gfx_y0 - 8 || baseline - 2 * f->cap > gfx_y1 + 8 || !alpha) return;
+  s = gfx_tr(s);
   x += f->outline;
   for (; *s && *s != '\n'; s++) {
     int g = glyph_of(font, (unsigned char)*s);
@@ -717,6 +719,7 @@ void gfx_layer_line_color(int line, color_t top, color_t bottom) {
 }
 
 void gfx_layer_build(int font, const char *s) {
+  s = gfx_tr(s);
   const Font *f = &fonts[font];
   int r = f->outline, line_h = f->cap + f->cap / 2 + 2 * r + 2;
   int lines = 1, maxw = 0;

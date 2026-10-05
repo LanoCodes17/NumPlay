@@ -153,7 +153,7 @@ static bool inverse(float m[MAXN][MAXN], int n, float out[MAXN][MAXN]) {
 static void status_bar(void) {
   fill(0, 0, SCREEN_W, 18, C_BAR);
   text("rad", 4, 2, false, C_WHITE, C_BAR);
-  ctext("MATRICES", 160, 2, false, C_WHITE, C_BAR);
+  ctext(np_t("MATRICES"), 160, 2, false, C_WHITE, C_BAR);
   /* battery */
   int level = np_battery_level();
   fill(296, 5, 15, 8, C_WHITE);
@@ -168,7 +168,7 @@ static void tabs(void) {
   for (int t = 0; t < 2; t++) {
     color_t bg = t == M.tab ? C_WHITE : C_TAB, fg = t == M.tab ? C_TAB : C_WHITE;
     fill(t * 160, 18, 160, 22, bg);
-    ctext(names[t], t * 160 + 80, 22, false, fg, bg);
+    ctext(np_t(names[t]), t * 160 + 80, 22, false, fg, bg);
   }
 }
 
@@ -181,7 +181,7 @@ static int grid_x(void) { return (SCREEN_W - (24 + M.n * cell_w())) / 2 + 24; }
 static void dimension_line(void) {
   color_t bg = M.row < 0 ? C_SEL : C_WHITE;
   fill(0, 46, SCREEN_W, 30, bg);
-  text("Dimension", 10, 53, true, C_TEXT, bg);
+  text(np_t("Dimension"), 10, 53, true, C_TEXT, bg);
   char s[8] = "0\xC3\x97" "0"; /* n×n */
   s[0] = (char)('0' + M.n), s[3] = (char)('0' + M.n);
   text(s, SCREEN_W - 12 - width(s, true), 53, true, C_TEXT, bg);
@@ -252,7 +252,7 @@ static void results_tab(void) {
   char s[16];
   int y = 46;
   fill(0, y, SCREEN_W, 28, C_WHITE);
-  text("Determinant", 10, y + 7, false, C_GRAY, C_WHITE);
+  text(np_t("Determinant"), 10, y + 7, false, C_GRAY, C_WHITE);
   fmt(det(M.a, M.n), s);
   text(s, SCREEN_W - 12 - width(s, true), y + 5, true, C_TEXT, C_WHITE);
   y += 29;
@@ -265,13 +265,13 @@ static void results_tab(void) {
   y += 29;
   int h = M.n * 16 + 12;
   fill(0, y, SCREEN_W, SCREEN_H - y, C_WHITE);
-  text("Inverse", 10, y + 6, false, C_GRAY, C_WHITE);
+  text(np_t("Inverse"), 10, y + 6, false, C_GRAY, C_WHITE);
   float inv[MAXN][MAXN];
   if (inverse(M.a, M.n, inv)) small_matrix(inv, SCREEN_W - 20 - (8 + M.n * 46), y + 6);
-  else text("Not invertible", SCREEN_W - 12 - width("Not invertible", false), y + 6, false, C_TEXT, C_WHITE);
+  else text(np_t("Not invertible"), SCREEN_W - 12 - width(np_t("Not invertible"), false), y + 6, false, C_TEXT, C_WHITE);
   y += h;
   fill(0, y, SCREEN_W, 1, C_LINE);
-  text("Transpose", 10, y + 6, false, C_GRAY, C_WHITE);
+  text(np_t("Transpose"), 10, y + 6, false, C_GRAY, C_WHITE);
   float t[MAXN][MAXN];
   for (int r = 0; r < M.n; r++)
     for (int c = 0; c < M.n; c++) t[r][c] = M.a[c][r];
@@ -285,11 +285,11 @@ static void menu_draw(void) {
   int x = 150, y = 60, w = 162;
   fill(x - 1, y - 1, w + 2, 1 + 22 + 3 * 30 + 1, C_LINE);
   fill(x, y, w, 22, C_TAB);
-  text("Matrices", x + 8, y + 4, false, C_WHITE, C_TAB);
+  text(np_t("Matrices"), x + 8, y + 4, false, C_WHITE, C_TAB);
   for (int i = 0; i < 3; i++) {
     color_t bg = i == M.menu ? C_SEL : C_WHITE;
     fill(x, y + 22 + i * 30, w, 29, bg);
-    text(menu_items[i], x + 8, y + 22 + i * 30 + 7, false, C_TEXT, bg);
+    text(np_t(menu_items[i]), x + 8, y + 22 + i * 30 + 7, false, C_TEXT, bg);
     fill(x, y + 22 + i * 30 + 29, w, 1, C_LINE);
   }
 }
@@ -319,7 +319,7 @@ bool np_matrices(const np_config_t *cfg) {
   M.n = 3;
   M.menu = -1;
   for (int i = 0; i < MAXN; i++) M.a[i][i] = 1;
-  hint = cfg->hint ? secret_hints[cfg->secret] : NULL;
+  hint = cfg->hint ? np_t(secret_hints[cfg->secret]) : NULL;
   status_bar();
   redraw();
   uint64_t prev = eadk_keyboard_scan();

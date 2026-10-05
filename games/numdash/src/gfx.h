@@ -73,6 +73,8 @@ static inline const Sprite *sprite_def(int spr) { return spr < SPR_COUNT ? &spri
 void gfx_rectf(float x0, float y0, float x1, float y1, color_t c, unsigned alpha256, int mode);
 int gfx_sprite_h(int spr, int xform);
 
+extern bool gfx_french;            /* tr.c: the player chose French in NumPlay */
+const char *gfx_tr(const char *s);  /* the text in the chosen language */
 int gfx_text_width(int font, const char *s);
 /* Draws outlined text with its pen at (x, baseline). top/bottom tint a
  * vertical gradient over the cap height. */

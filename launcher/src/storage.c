@@ -63,17 +63,59 @@ void np_config_load(np_config_t *c) {
   c->disguise = false;
   c->secret = NP_SECRET_XNT;
   c->hint = true;
+  c->french = false;
   uint32_t len = 0;
   const uint8_t *d = ef_read(CONFIG_NAME, &len);
-  if (!d || len != 4 || d[0] != CONFIG_MAGIC || d[1] != 1) return;
-  c->disguise = d[2] & 1;
-  c->hint = !(d[2] & 2); /* a flag for "no hint": older files keep the hint on */
-  if (d[3] < NP_SECRET_COUNT) c->secret = d[3];
+  if (d && len == 4 && d[0] == CONFIG_MAGIC && d[1] == 1) {
+    c->disguise = d[2] & 1;
+    c->hint = !(d[2] & 2); /* a flag for "no hint": older files keep the hint on */
+    c->french = (d[2] & 4) != 0; /* older files: English */
+    if (d[3] < NP_SECRET_COUNT) c->secret = d[3];
+  }
+  np_french = c->french;
 }
 
 bool np_config_save(const np_config_t *c) {
-  uint8_t d[4] = {CONFIG_MAGIC, 1, (uint8_t)(c->disguise | (c->hint ? 0 : 2)), c->secret};
+  np_french = c->french;
+  uint8_t d[4] = {CONFIG_MAGIC, 1, (uint8_t)(c->disguise | (c->hint ? 0 : 2) | (c->french ? 4 : 0)), c->secret};
   return ef_write(CONFIG_NAME, d, sizeof d);
+}
+
+/* The home-screen clock: the seconds of the day at millisecond 0, and the millisecond counter when
+ * it was saved. After a restart the counter starts again from 0, so a saved time is only kept when
+ * the counter has not gone back. */
+#define CLOCK_NAME "npclock.set"
+bool np_clock_load(uint32_t *clock0) {
+  uint32_t len = 0, now = np_millis();
+  const uint8_t *d = ef_read(CLOCK_NAME, &len);
+  if (!d || len != 10 || d[0] != 'C' || d[1] != 1) return false;
+  uint32_t c = (uint32_t)d[2] | (uint32_t)d[3] << 8 | (uint32_t)d[4] << 16 | (uint32_t)d[5] << 24;
+  uint32_t ms = (uint32_t)d[6] | (uint32_t)d[7] << 8 | (uint32_t)d[8] << 16 | (uint32_t)d[9] << 24;
+  if (c >= 86400 || now < ms) return false;
+  *clock0 = c;
+  return true;
+}
+
+bool np_clock_save(uint32_t clock0) {
+  uint32_t now = np_millis();
+  uint8_t d[10] = {'C', 1, (uint8_t)clock0, (uint8_t)(clock0 >> 8), (uint8_t)(clock0 >> 16), (uint8_t)(clock0 >> 24),
+                   (uint8_t)now, (uint8_t)(now >> 8), (uint8_t)(now >> 16), (uint8_t)(now >> 24)};
+  return ef_write(CLOCK_NAME, d, sizeof d);
+}
+
+/* Which live background of the home screen was chosen last. */
+#define BG_NAME "npbg.set"
+bool np_bg_load(int *mode) {
+  uint32_t len = 0;
+  const uint8_t *d = ef_read(BG_NAME, &len);
+  if (!d || len != 3 || d[0] != 'B' || d[1] != 1) return false;
+  *mode = d[2];
+  return true;
+}
+
+bool np_bg_save(int mode) {
+  uint8_t d[3] = {'B', 1, (uint8_t)mode};
+  return ef_write(BG_NAME, d, sizeof d);
 }
 
 /* ---------------------------------------------------------------- progress copy
@@ -110,6 +152,7 @@ static int b64_value(uint8_t c) {
  * starts with the rest, like NumBlocks' regions); false when i is past the end */
 static bool save_name(int i, char out[64]) {
   if (i-- == 0) return strcpy(out, CONFIG_NAME), true;
+  if (i-- == 0) return strcpy(out, BG_NAME), true; /* the home-screen background chosen */
   for (int g = 0; g < np_game_count; g++)
     for (const char *const *r = np_games[g].records; r && *r; r++) {
       bool seen = false;

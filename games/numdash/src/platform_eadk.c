@@ -1,7 +1,9 @@
 #include "platform.h"
+#include "gfx.h"
 #include <eadk.h>
 #include <string.h>
 #include "../../common/epsilon_app.h"
+#include "../../common/np_lang.h"
 
 bool platform_begin(void) {
   np_app_begin();
@@ -9,7 +11,12 @@ bool platform_begin(void) {
 }
 int platform_end(void) { return np_app_end(); }
 
-bool platform_init(void) { return true; }
+bool platform_init(void) {
+  uint32_t n = 0;
+  const uint8_t *b = epsilon_storage(&n);
+  gfx_french = np_lang_french(b, n); /* NumPlay > Settings > Language */
+  return true;
+}
 void platform_close(void) {}
 uint32_t platform_millis(void) { return (uint32_t)eadk_timing_millis(); }
 void platform_sleep(unsigned ms) { eadk_timing_msleep(ms); }

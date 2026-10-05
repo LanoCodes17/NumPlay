@@ -82,9 +82,17 @@ typedef struct {
   bool disguise;  /* start as Matrices, a calculator app; NumPlay opens through the secret */
   uint8_t secret; /* NP_SECRET_* */
   bool hint;      /* Matrices names the secret in light gray, bottom left */
+  bool french;    /* the interface is in French (tr.c) */
 } np_config_t;
+extern bool np_french;
+const char *np_t(const char *en);                                       /* tr.c: the text in the chosen language */
+char *np_fmt(char *out, unsigned n, const char *en, const char *arg);   /* the same, with %s replaced by arg */
 void np_config_load(np_config_t *c);
 bool np_config_save(const np_config_t *c);
+bool np_clock_load(uint32_t *clock0);  /* false when no valid saved time */
+bool np_clock_save(uint32_t clock0);
+bool np_bg_load(int *mode);   /* false when none was saved */
+bool np_bg_save(int mode);
 /* A copy of every save in numplay_saves.py, a Python script: the only kind of
    file the NumWorks installer keeps when NumPlay is updated. */
 void np_progress_backup(void);

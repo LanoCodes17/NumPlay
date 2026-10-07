@@ -2,6 +2,7 @@
 #define GFX_H
 #include <stdint.h>
 #include "font.h"
+#include "../../common/np_text.h"
 
 /* Drawing happens into horizontal strips of the screen (rows [y0, y1), full width). */
 typedef struct {
@@ -32,5 +33,17 @@ void g_text_c(const Font *f, int cx, int y, const char *s, uint16_t c, int a);
 void g_icon(const Icon *ic, int x, int y, uint16_t c, int a);
 int glyph_alpha(const Font *f, const Glyph *g, int x, int y); /* 0..3 */
 const Glyph *font_glyph(const Font *f, int ch);
+#if NP_TEXT_EXTRA
+/* Other languages: a letter is the font's own (an accented one with its accent drawn over it, a
+   ligature two of them), or one from the 12-pixel font (Chinese). */
+typedef struct {
+  const Glyph *g, *g2;
+  const np_xglyph_t *x;
+  uint32_t cp, bit; /* the letter; where the 12-pixel font's starts */
+  int acc, adv, xs; /* the accent (np_latin), the advance, the 12-pixel font's scale */
+} Letter;
+Letter g_letter(const Font *f, const char **s);
+int g_letter_alpha(const Font *f, const Letter *l, int x, int y); /* 0..3, (x, y) from the pen on the line's top */
+#endif
 
 #endif

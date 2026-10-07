@@ -340,7 +340,7 @@
     "shots": [
       "docs/shot.png"
     ],
-    "colors": 64,
+    "colors": 48,
     "repo": "https://github.com/Mason363/NumPlay/tree/main/games/numvisuals"
   }
 ]

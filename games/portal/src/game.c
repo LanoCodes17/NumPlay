@@ -1704,8 +1704,14 @@ static bool type_lines(const u8 **pp, int n) {
   for (int i = 0; i < n; i++) {
     int x = 6, y = 0x12 + 0x12 * i;
     while (*p) {
+#if NP_TEXT_EXTRA /* (a letter can be a few bytes) */
+      const char *q = (const char *)p;
+      x = letter(&q, x, y, true);
+      p = (const u8 *)q;
+#else
       glyph(*p++, x, y);
       x += 5;
+#endif
       if (!fast) {
         uint64_t until = eadk_timing_millis() + 22;
         while (eadk_timing_millis() < until) {
@@ -1768,8 +1774,9 @@ static void redraw_level(void) { /* after the pause menu */
 }
 
 static const char *const ENDING[] = {
-  "HELLO?", "ARE YOU STILL THERE?", "WHERE DID YOU GO?", "", "I GUESS YOU MADE IT THROUGH.",
-  "FINE, IF YOU WANT TO LEAVE,", "I GUESS I GET ALL THIS", "CAKE TO MYSELF.", "", "GOODBYE.", "PRESS SHIFT TO FLY"};
+  T("HELLO?"), T("ARE YOU STILL THERE?"), T("WHERE DID YOU GO?"), "", T("I GUESS YOU MADE IT THROUGH."),
+  T("FINE, IF YOU WANT TO LEAVE,"), T("I GUESS I GET ALL THIS"), T("CAKE TO MYSELF."), "", T("GOODBYE."),
+  T("PRESS SHIFT TO FLY")};
 
 static void ending(void) { /* D876 */
   clear_top();

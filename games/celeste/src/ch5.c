@@ -512,8 +512,7 @@ static bool gate_theo_nearby(Ent *e) {
   if (!t || t->x > e->x + 10) return true;
   return dist2(g->hold_from, theo_center(t)) < (g->open ? 6400 : 4096);
 }
-/* Switch.Check: the touch switches (another chapter's file) say whether they are all on */
-__attribute__((weak)) bool level_switch_check(void) { return false; }
+bool level_switch_check(void);   /* Switch.Check: the touch switches (ch2.c) are all on */
 static void gate_update(Ent *e) {
   Gate *g = ST(e, Gate);
   plat_update(e);

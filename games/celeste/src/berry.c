@@ -406,6 +406,11 @@ typedef struct {
 } Seed;
 static const EntClass SEED;
 
+bool leader_has_seed(void) {
+  for (int i = 0; i < nfol; i++)
+    if (fol[i].e->cls == &SEED) return true;
+  return false;
+}
 static void seed_lose_leader(Ent *e) {
   Seed *s = ST(e, Seed);
   if (!s->finished) s->step = 1;   /* the ReturnRoutine coroutine */

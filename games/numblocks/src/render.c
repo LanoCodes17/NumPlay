@@ -13,7 +13,10 @@
 #include "nb.h"
 
 #define SR 4                       /* picture rows per strip (8 screen rows) */
-static uint16_t strip[SCREEN_W * SR * 2] __attribute__((aligned(4)));
+#define STRIP_N (SCREEN_W * SR * 2)
+/* the strip sent to the screen: on render_frame's stack (the calculator gives apps 32 KB of it, the
+ * game uses a few), not in the RAM that calculator software since 23.2 gives apps (148928 bytes) */
+static uint16_t *strip;
 static uint16_t cbuf[SR][RW];      /* a strip of the picture */
 static float zbuf[SR][RW];         /* and how far each pixel's ray went (entities are hidden behind) */
 
@@ -1893,7 +1896,7 @@ static bool shown_ok;
 static uint32_t strip_hash(void) {
   const uint32_t *w = (const uint32_t *)strip;
   uint32_t h = 2166136261u;
-  for (unsigned k = 0; k < sizeof strip / 4; k++) h = (h ^ w[k]) * 16777619u;
+  for (unsigned k = 0; k < STRIP_N / 2; k++) h = (h ^ w[k]) * 16777619u;
   return h;
 }
 static bool still_screen(void) {
@@ -1911,6 +1914,8 @@ static void send_strip(int py, bool still) {
 static void strips_sent(bool still) { shown_ok = still; }
 
 void render_frame(const Camera *c, uint32_t tod) {
+  uint16_t buf[STRIP_N] __attribute__((aligned(4)));
+  strip = buf;
   bool still = still_screen();
   static int last_gui;
   bool opening_pause = gui == GUI_PAUSE && last_gui == GUI_NONE && c;
@@ -1939,7 +1944,7 @@ void render_frame(const Camera *c, uint32_t tod) {
   if (!c) {
     /* no world: only what the screens draw */
     for (int py = 0; py < RH; py += SR) {
-      memset(strip, 0, sizeof strip);
+      memset(strip, 0, STRIP_N * sizeof *strip);
       hud_strip(strip, py * 2, SR * 2);
       send_strip(py, still);
     }

@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
+#include "../../common/np_text.h"
 
 #ifdef __ELF__ /* app name and API level, for the calculator's installer */
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "Connect 4";
@@ -115,7 +116,7 @@ static int glow;
 static int msel, psel, nitems, qsel;
 static uint8_t items[4];
 enum { I_RESUME, I_UNDO, I_RESTART, I_QUIT };
-static const char *const ITEM[] = {"Resume", "Undo move", "Restart", "Quit game"};
+static const char *const ITEM[] = {T("Resume"), T("Undo move"), T("Restart"), T("Quit game")};
 
 static int ccx2(int c) { return 2 * (BX + c * C) + C; }        /* a column's centre, in half pixels */
 static int cy2(int r) { return 2 * (BY + (5 - r) * C) + C; } /* a row's */
@@ -311,7 +312,11 @@ static void disc_at(int cx2, int cy2, int r, int p, int lit) {
 
 /* The characters the game writes, and their 5 columns of 8 bits (top row
    first, row 7 for descenders). Add any new one to both. */
-static const char GLYPHS[] = " !'0123456789:<>?ABCDEFGIKLNOPQRSTUWYabdeghiklmnoprstuvxy";
+static const char GLYPHS[] = " !'0123456789:<>?ABCDEFGIKLNOPQRSTUWYabdeghiklmnoprstuvxy"
+#if NP_TEXT_EXTRA /* letters the translations need too (any other comes from the 12-pixel font) */
+                             "HJMVcj"
+#endif
+    ;
 static const uint8_t font[][5] = {
   {0x00,0x00,0x00,0x00,0x00},{0x00,0x00,0x5F,0x00,0x00},{0x00,0x05,0x03,0x00,0x00},{0x3E,0x41,0x41,0x41,0x3E},{0x00,0x42,0x7F,0x40,0x00},
   {0x42,0x61,0x51,0x49,0x46},{0x21,0x41,0x45,0x4B,0x31},{0x18,0x14,0x12,0x7F,0x10},{0x27,0x45,0x45,0x45,0x39},
@@ -327,7 +332,60 @@ static const uint8_t font[][5] = {
   {0x7C,0x04,0x18,0x04,0x78},{0x7C,0x08,0x04,0x04,0x78},{0x38,0x44,0x44,0x44,0x38},{0xFC,0x24,0x24,0x24,0x18},
   {0x7C,0x08,0x04,0x04,0x08},{0x48,0x54,0x54,0x54,0x20},{0x04,0x3F,0x44,0x40,0x20},{0x3C,0x40,0x40,0x20,0x7C},
   {0x1C,0x20,0x40,0x20,0x1C},{0x44,0x28,0x10,0x28,0x44},{0x0C,0x90,0x90,0x90,0x7C},
+#if NP_TEXT_EXTRA
+  {0x7F,0x08,0x08,0x08,0x7F},{0x20,0x40,0x41,0x3F,0x01},{0x7F,0x02,0x0C,0x02,0x7F},{0x1F,0x20,0x40,0x20,0x1F},
+  {0x38,0x44,0x44,0x44,0x20},{0x40,0x80,0x84,0x7D,0x00},
+#endif
 };
+#if NP_TEXT_EXTRA
+/* Other languages: an accented letter is the font's own with np_accent() over it (a cedilla under it);
+   a Chinese one, or one the font lacks, comes from the 12-pixel font at a whole scale near the text's
+   size. dot() draws a font pixel: a square pen_k wide from (pen_x, pen_y), grown by pen_g, in pen_c at
+   opacity pen_a. */
+static int pen_x, pen_y, pen_k, pen_g, pen_a;
+static color pen_c;
+static void dot(int i, int j, void *ctx) {
+  fill(pen_x + i * pen_k - pen_g, pen_y + j * pen_k - pen_g, pen_k + 2 * pen_g, pen_k + 2 * pen_g, pen_c, pen_a);
+}
+static int glyph_at(char b) {
+  int ch = 0;
+  while (GLYPHS[ch] && GLYPHS[ch] != b) ch++;
+  return b && GLYPHS[ch] ? ch : -1;
+}
+/* draws (or only measures) the next letter of *s at x; returns its advance */
+static int letter(const char **s, int x, int y, int k, bool draw) {
+  uint32_t cp = np_utf8(s);
+  char b = (char)cp, b2 = 0;
+  int acc = cp >= 0x80 ? np_latin(cp, &b, &b2) : 0, ch = glyph_at(b), xs = (7 * k + 6) / 12;
+  if (ch < 0) { /* from the 12-pixel font, in the middle of the capitals' height (an outline round its
+                   thin strokes would fill them in: a shadow under them instead) */
+    int g = pen_g, o = xs == 1 ? g : 0;
+    if (draw) pen_x = x + o, pen_y = y + (7 * k - 12 * xs) / 2 + o, pen_k = xs, pen_g -= o, np_xdraw(cp, 0, 0, 1, dot, 0);
+    pen_g = g;
+    return np_xadvance(cp, xs);
+  }
+  if (draw) {
+    pen_x = x, pen_y = y, pen_k = k;
+    for (int n = 0; n < 2; n++, pen_x += 6 * k, ch = glyph_at(b2))
+      for (int i = 0; i < 5 && ch >= 0; i++)
+        for (int j = 0, f = font[ch][i]; f; j++, f >>= 1)
+          if (f & 1) dot(i, j, 0);
+    /* over a capital, over a small letter (its top is row 2), or the cedilla under it */
+    pen_x = x, np_accent(acc, 0, acc == NP_ACC_CEDIL ? 7 : b < 'a' ? -3 : -1, 1, dot, 0);
+  }
+  return (b2 ? 12 : 6) * k;
+}
+static int tw(const char *s, int k) {
+  int w = -k;
+  while (*s) w += letter(&s, 0, 0, k, false);
+  return w;
+}
+static void text(const char *s, int x, int y, int k, int g, color c, int a) {
+  if (y - 3 * k - 3 - g >= cy1 || y + 8 * k + 4 + g <= cy0) return;
+  pen_g = g, pen_c = c, pen_a = a;
+  while (*s) x += letter(&s, x, y, k, true);
+}
+#else
 static int slen(const char *s) {
   int n = 0;
   while (s[n]) n++;
@@ -345,6 +403,7 @@ static void text(const char *s, int x, int y, int k, int g, color c, int a) {
         if (b & 1) fill(x + i * k - g, y + j * k - g, k + 2 * g, k + 2 * g, c, a);
   }
 }
+#endif
 static void ctext(const char *s, int cx, int y, int k, color c, int a) { text(s, cx - tw(s, k) / 2, y, k, 0, c, a); }
 /* white (or c) with a dark outline */
 static void otext(const char *s, int cx, int y, int k, color c) {
@@ -365,8 +424,8 @@ static char *num(char *o, unsigned v) {
 /* ------------------------------------------------------------------ what goes on top */
 /* the players' names, and what their wins are called */
 static const char *const NAME[2][8] = {
-  {"P1", "P2", "P3", "", "RED WINS!", "YELLOW WINS!", "GREEN WINS!", "DRAW!"},
-  {"YOU", "CPU 1", "CPU 2", "CPU", "YOU WIN!", "CPU 1 WINS", "CPU 2 WINS", "CPU WINS"},
+  {T("P1"), T("P2"), T("P3"), "", T("RED WINS!"), T("YELLOW WINS!"), T("GREEN WINS!"), T("DRAW!")},
+  {T("YOU"), T("CPU 1"), T("CPU 2"), T("CPU"), T("YOU WIN!"), T("CPU 1 WINS"), T("CPU 2 WINS"), T("CPU WINS")},
 };
 static const char *name(int p) { return NAME[V.cpu][p == 1 && np == 2 && V.cpu ? 3 : p]; }
 static int panel_w(void) { return BX - F - 6; }
@@ -394,7 +453,7 @@ static void top_message(void) {
   const char *m = winner < 0 ? NAME[0][7] : NAME[V.cpu][winner == 1 && np == 2 && V.cpu ? 7 : 4 + winner];
   int y = np == 2 ? 3 : 8;
   otext(m, 160, y, 2, winner < 0 ? WHITE : DISC[winner][0]);
-  ctext("OK: next round", 160, y + 20, 1, t[3], 32);
+  ctext(T("OK: next round"), 160, y + 20, 1, t[3], 32);
 }
 
 static void card(int h, const char *title) {
@@ -408,31 +467,39 @@ static void overlay(void) {
   for (color *p = buf, *e = buf + bw * (cy1 - cy0); p < e; p++) *p = mix(0, *p, 13);
   if (st == S_PAUSE) {
     int h = 40 + nitems * 24, y = (240 - h) / 2 + 34;
-    card(h, "PAUSED");
+    card(h, T("PAUSED"));
     for (int i = 0; i < nitems; i++) {
       if (i == psel) rrect(96, y + i * 24 - 5, 128, 22, 8, DISC[1][0], 32);
       ctext(ITEM[items[i]], 160, y + i * 24, 2, i == psel ? NAVY : WHITE, 32);
     }
   } else {
-    card(76, "Quit game?");
+    card(76, T("Quit game?"));
     for (int i = 0; i < 2; i++) {
       bool on = i == qsel;
       rrect(98 + i * 66, 128, 58, 24, 8, on ? DISC[1][0] : WHITE, on ? 32 : 6);
-      ctext(i ? "Yes" : "No", 127 + i * 66, 133, 2, on ? NAVY : WHITE, 32);
+      ctext(i ? T("Yes") : T("No"), 127 + i * 66, 133, 2, on ? NAVY : WHITE, 32);
     }
   }
 }
 
-static const char *const OPT_NAME[] = {"Opponent", "Players", "Level", "Theme"};
-static const char *const OPT_VAL[] = {"Friend", "Computer", "2", "3", "Weak", "Normal", "Strong", "Light", "Dark"};
+static const char *const OPT_NAME[] = {T("Opponent"), T("Players"), T("Level"), T("Theme")};
+static const char *const OPT_VAL[] = {T("Friend"), T("Computer"), "2", "3", T("Weak"), T("Normal"), T("Strong"), T("Light"), T("Dark")};
 static int opt(int i) { return i == 0 ? V.cpu : i == 1 ? V.players : i == 2 ? 4 + V.level : 7 + V.dark; }
 
 static void title_ui(void) {
   /* CONNECT and a red disc with a 4 */
   if (cy0 < 80) {
+#if NP_TEXT_EXTRA /* (another language's name: smaller if it would reach the disc) */
+    const char *nm = T("CONNECT");
+    int k = tw(nm, 5) > 210 ? 4 : 5, y = 25 + (5 - k) * 7 / 2;
+    text(nm, 22, y + 4, k, 3, 0, 12);
+    text(nm, 20, y, k, 2, NAVY, 32);
+    text(nm, 20, y, k, 0, WHITE, 32);
+#else
     text("CONNECT", 22, 29, 5, 3, 0, 12);
     text("CONNECT", 20, 25, 5, 2, NAVY, 32);
     text("CONNECT", 20, 25, 5, 0, WHITE, 32);
+#endif
     disc_at(2 * 268, 2 * 42, 62, 0, 0);
     text("4", 256, 26, 5, 2, NAVY, 32);
     text("4", 256, 26, 5, 0, WHITE, 32);
@@ -441,7 +508,7 @@ static void title_ui(void) {
   rrect(32, 88, 256, 124, 14, NAVY, 32);
   bool on = msel == 0;
   rrect(100, 98, 120, 26, 10, on ? DISC[1][0] : WHITE, on ? 32 : 5);
-  ctext("PLAY", 160, 104, 2, on ? NAVY : WHITE, 32);
+  ctext(T("PLAY"), 160, 104, 2, on ? NAVY : WHITE, 32);
   for (int i = 0; i < 4; i++) {
     int y = 132 + i * 19, a = i == 2 && !V.cpu ? 12 : 32;
     on = msel == i + 1;
@@ -453,7 +520,7 @@ static void title_ui(void) {
       text(">", 278, y, 2, 0, DISC[1][0], 32);
     }
   }
-  ctext("Based on Tatone26's version", 160, 226, 1, WHITE, 26);
+  ctext(T("Based on Tatone26's version"), 160, 226, 1, WHITE, 26);
 }
 
 /* ------------------------------------------------------------------ to the screen */

@@ -99,3 +99,8 @@ NumBlocks	NumBlocks
 NumDrive	NumDrive
 2048	2048
 NumVisuals	NumVisuals
+# the games' credits
+Inspired by Minecraft, not affiliated with Mojang	Inspiré de Minecraft, sans lien avec Mojang
+By Tatone26, from All the Apps	Par Tatone26, tiré d'All the Apps
+Inspired by Tatone26's All the Apps	Inspiré d'All the Apps de Tatone26
+Based on 2048 by Gabriele Cirulli	D'après 2048 de Gabriele Cirulli

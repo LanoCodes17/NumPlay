@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
+#include "../../common/np_text.h"
 
 #ifdef __ELF__ /* app name and API level, for the calculator's installer */
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "2048";
@@ -156,7 +157,11 @@ static void rbox(float x, float y, float w, float h, float r, color c, int a) {
 #define Z (3 << 11)
 #define G (1 << 13 | E)
 #define BOWL P(6, 6), C(12, 6), P(12, 15), C(12, 24), P(6, 24), C(0, 24), P(0, 15), C(0, 6) | Z
-static const char font_chars[] = "0123456789BCEGJKMNOPQRSTUYabdeghilmnoprstuvwy!?+-'*<>\x7f~";
+static const char font_chars[] = "0123456789BCEGJKMNOPQRSTUYabdeghilmnoprstuvwy!?+-'*<>\x7f~"
+#if NP_TEXT_EXTRA /* letters other languages need too, then the accents (np_latin's order) and a dotless i */
+                                 "ADFHILVWXZcfjkqxz.,:\1\2\3\4\5\6"
+#endif
+    ;
 static const uint16_t font[] = {
   /* 0 */ P(7, 0), C(14, 0), P(14, 8), P(14, 16), C(14, 24), P(7, 24), C(0, 24), P(0, 16), P(0, 8), C(0, 0) | Z | G,
   /* 1 */ P(3, 5), P(9, 0), P(9, 24) | G,
@@ -228,6 +233,35 @@ static const uint16_t font[] = {
   P(11, 16) | G,
   /* the Back key */ P(10, 4), C(17, 4), P(17, 9), C(17, 14), P(10, 14), P(1, 14) | E, P(5, 10), P(1, 14),
   P(5, 18) | G,
+#if NP_TEXT_EXTRA
+  /* A */ P(0, 24), P(7, 0), P(14, 24) | E, P(2, 17), P(12, 17) | G,
+  /* D */ P(0, 0), P(0, 24), P(7, 24), C(15, 24), P(15, 16), P(15, 8), C(15, 0), P(7, 0) | Z | G,
+  /* F */ P(13, 0), P(0, 0), P(0, 24) | E, P(0, 12), P(11, 12) | G,
+  /* H */ P(0, 0), P(0, 24) | E, P(14, 0), P(14, 24) | E, P(0, 12), P(14, 12) | G,
+  /* I */ P(0, 0), P(0, 24) | G,
+  /* L */ P(0, 0), P(0, 24), P(12, 24) | G,
+  /* V */ P(0, 0), P(7, 24), P(14, 0) | G,
+  /* W */ P(0, 0), P(5, 24), P(10, 5), P(15, 24), P(20, 0) | G,
+  /* X */ P(0, 0), P(14, 24) | E, P(14, 0), P(0, 24) | G,
+  /* Z */ P(0, 0), P(14, 0), P(0, 24), P(14, 24) | G,
+  /* c */ P(12, 9), C(10, 6), P(6, 6), C(0, 6), P(0, 15), C(0, 24), P(6, 24), C(10, 24), P(12, 21) | G,
+  /* f */ P(10, 1), C(9, 0), P(7, 0), C(3, 0), P(3, 5), P(3, 24) | E, P(0, 6), P(9, 6) | G,
+  /* j */ P(4, 0), P(4, 0) | E, P(4, 7), P(4, 27), C(4, 30), P(1, 30) | G,
+  /* k */ P(0, 0), P(0, 24) | E, P(11, 6), P(1, 17) | E, P(5, 13), P(12, 24) | G,
+  /* q */ BOWL, P(12, 6), P(12, 30) | G,
+  /* x */ P(0, 6), P(12, 24) | E, P(12, 6), P(0, 24) | G,
+  /* z */ P(0, 6), P(12, 6), P(0, 24), P(12, 24) | G,
+  /* . */ P(0, 24), P(0, 24) | G,
+  /* , */ P(1, 24), P(0, 28) | G,
+  /* : */ P(0, 10), P(0, 10) | E, P(0, 24), P(0, 24) | G,
+  /* the accents, over a letter 12 wide (raised over it), and the cedilla under it */
+  /* acute */ P(8, 0), P(4, 4) | G,
+  /* grave */ P(4, 0), P(8, 4) | G,
+  /* circumflex */ P(2, 4), P(6, 0), P(10, 4) | G,
+  /* diaeresis */ P(3, 2), P(3, 2) | E, P(9, 2), P(9, 2) | G,
+  /* cedilla */ P(6, 24), P(7, 27), C(8, 30), P(4, 30) | G,
+  /* dotless i */ P(0, 7), P(0, 24) | G,
+#endif
 };
 #define NCH (int)(sizeof font_chars - 1)
 static uint16_t font_at[NCH];
@@ -246,6 +280,42 @@ static float tw(const char *s, float wt) {
   for (; *s; s++) w += advance(*s, wt);
   return w;
 }
+
+#if NP_TEXT_EXTRA
+/* Other languages: a letter beyond ASCII is one of the font's with an accent (g, acc; a ligature's
+   second letter g2), or a Chinese one (cp) from the 12-pixel font, at a whole scale near the text's size. */
+typedef struct {
+  int g, g2, acc, cap;
+  uint32_t cp;
+} letter_t;
+static letter_t next_letter(const char **s) {
+  letter_t l = {-1, -1, 0, 0, np_utf8(s)};
+  char b = (char)l.cp, b2 = 0;
+  if (l.cp >= 0x80) {
+    l.acc = np_latin(l.cp, &b, &b2);
+    if (!b) return l;
+  }
+  l.g = gi(b), l.g2 = b2 ? gi(b2) : -1, l.cap = b >= 'A' && b <= 'Z', l.cp = (uint8_t)b;
+  if (b == 'i' && l.acc) l.g = NCH - 1; /* no dot under the accent */
+  return l;
+}
+static int xscale(float u, float wt) {
+  int k = (int)((12 + wt) * u / 12 + 0.5f);
+  return k < 1 ? 1 : k;
+}
+static float l_adv(letter_t l, float u, float wt) {
+  if (l.cp >= 0x80) return np_xadvance(l.cp, xscale(u, wt)) / u;
+  float a = l.g < 0 ? 3.6f : font_w[l.g] * 0.5f + wt + TRACK;
+  return l.g2 < 0 ? a : a + font_w[l.g2] * 0.5f + wt + TRACK;
+}
+static float tw_u(const char *s, float u, float wt) {
+  float w = -TRACK;
+  while (*s) w += l_adv(next_letter(&s), u, wt);
+  return w;
+}
+#else
+#define tw_u(s, u, wt) tw(s, wt)
+#endif
 
 static void font_init(void) {
   for (int i = 0, k = 0; i < NCH; i++) { /* where each letter starts, and its width */
@@ -266,9 +336,14 @@ static void font_init(void) {
 /* The pen draws into a coverage mask (0..32), mw x mh pixels at (mx0, my0);
    each round-ended segment keeps the higher coverage, which is exactly the
    coverage of the whole stroke. */
-static uint8_t gm[4096], *mk;
+static uint8_t gm[NP_TEXT_EXTRA ? BUF : 4096], *mk;
 static int mx0, my0, mw, mh, nseg;
 static float pen;
+#if NP_TEXT_EXTRA
+static void mplot(int x, int y, void *ctx) { /* a pixel of a Chinese letter */
+  if (x >= mx0 && x < mx0 + mw && y >= my0 && y < my0 + mh) mk[(y - my0) * mw + x - mx0] = 32;
+}
+#endif
 
 static void seg(float ax, float ay, float bx, float by) {
   float ro = pen + 0.5f, ri = pen - 0.5f, ro2 = ro * ro, ri2 = ri > 0 ? ri * ri : -1;
@@ -333,11 +408,28 @@ static void raster(const char *s, float x, float y, float u, float wt) {
   pen = wt * u * 0.5f;
   nseg = 2 + (int)(u * 1.5f);
   if (nseg > 8) nseg = 8;
+#if NP_TEXT_EXTRA
+  for (float h = u * 0.5f; *s;) {
+    letter_t l = next_letter(&s);
+    if (l.cp >= 0x80) { /* Chinese, in the middle of the capitals' height */
+      int k = xscale(u, wt);
+      np_xdraw(l.cp, fl(x + 0.5f), fl(y + ((12 + wt) * u - 12 * k) * 0.5f + 0.5f), k, mplot, 0);
+    } else if (l.g >= 0) {
+      strokes(font + font_at[l.g], x + pen, y + pen, h);
+      if (l.acc >= NP_ACC_ACUTE && l.acc <= NP_ACC_CEDIL) /* over a lowercase letter, higher over a capital */
+        strokes(font + font_at[NCH - 7 + l.acc], x + pen + (font_w[l.g] - 12) * 0.5f * h,
+                y + pen - (l.acc == NP_ACC_CEDIL ? 0 : l.cap ? 10 : 6) * h, h);
+      if (l.g2 >= 0) strokes(font + font_at[l.g2], x + pen + (font_w[l.g] * 0.5f + wt + TRACK) * u, y + pen, h);
+    }
+    x += l_adv(l, u, wt) * u;
+  }
+#else
   for (; *s; s++) {
     int i = gi(*s);
     if (i >= 0) strokes(font + font_at[i], x + pen, y + pen, u * 0.5f);
     x += advance(*s, wt) * u;
   }
+#endif
 }
 
 /* a w x h mask with its corner at (x, y), in colour c, opacity a (0..32) */
@@ -352,9 +444,10 @@ static void blit(const uint8_t *m, int x, int y, int w, int h, color c, int a) {
 
 /* s drawn as for raster, in colour c, opacity a (0..32) */
 static void text(const char *s, float x, float y, float u, float wt, color c, int a) {
-  float w = tw(s, wt) * u, h = (15 + wt) * u;
-  if (a <= 0 || !hits(x, y, w, h)) return;
-  mx0 = fl(x), my0 = fl(y), mw = fl(x + w) + 1, mh = fl(y + h) + 1;
+  float w = tw_u(s, u, wt) * u, h = (15 + wt) * u, t = y;
+  if (NP_TEXT_EXTRA) t -= 7 * u + 2, h += 7 * u + 4; /* accents over capitals, Chinese letters */
+  if (a <= 0 || !hits(x, t, w, h)) return;
+  mx0 = fl(x), my0 = fl(t), mw = fl(x + w) + 1, mh = fl(t + h) + 1;
   if (mx0 < bx0) mx0 = bx0;
   if (my0 < by0) my0 = by0;
   if (mw > bx1) mw = bx1;
@@ -367,7 +460,7 @@ static void text(const char *s, float x, float y, float u, float wt, color c, in
 }
 /* centred on (cx, cy), the middle of the capitals */
 static void ctext(const char *s, float cx, float cy, float u, float wt, color c, int a) {
-  text(s, cx - tw(s, wt) * u * 0.5f, cy - (12 + wt) * u * 0.5f, u, wt, c, a);
+  text(s, cx - tw_u(s, u, wt) * u * 0.5f, cy - (12 + wt) * u * 0.5f, u, wt, c, a);
 }
 
 /* ------------------------------------------------------------ the game */
@@ -642,9 +735,9 @@ static int nbuttons(void) { return ov == O_PAUSE ? 3 : ov == O_OVER && !can_undo
 static float gap_y(int k) { return gb.y + (n / 2 + k) * (gb.cell + gb.gap) + gb.gap * 0.5f; }
 
 static void message(void) {
-  static const char *const titles[] = {"", "You win!", "Game over!", "Paused", "Quit game?"};
-  static const char *const labels[][3] = {{0}, {"Keep going", "Try again"}, {"Try again", "Undo"},
-                                          {"Resume", "New game", "Quit game"}, {"No", "Yes"}};
+  static const char *const titles[] = {"", T("You win!"), T("Game over!"), T("Paused"), T("Quit game?")};
+  static const char *const labels[][3] = {{0}, {T("Keep going"), T("Try again")}, {T("Try again"), T("Undo")},
+                                          {T("Resume"), T("New game"), T("Quit game")}, {T("No"), T("Yes")}};
   int f = fade(), nb = nbuttons();
   if (!ov || !f) return;
   float x = (float)gb.x, y = (float)gb.y, b = (float)gb.size, cx = x + b * 0.5f;
@@ -662,11 +755,11 @@ static bool nbest;     /* "New best!" is up */
 static void game_screen(void) {
   char s[12];
   text("2048", PX0 + 3, 8, 1.72f, WT, INK, 32);
-  score_box(PX0, SCORE_Y, PW, 40, "SCORE", score);
-  score_box(PX0, BEST_Y, PW, 40, "BEST", sv.best[n - 3]);
-  if (nbest) ctext("New best!", PX0 + PW * 0.5f, BEST_Y + 52, 0.62f, 2.6f, RGB(0xF65E3B), 32);
-  button(PX0 + PW * 0.5f, UNDO_Y, PW, 26, "\x7f Undo", can_undo, 32);
-  button(PX0 + PW * 0.5f, MENU_Y, PW, 26, "~ Menu", true, 32);
+  score_box(PX0, SCORE_Y, PW, 40, T("SCORE"), score);
+  score_box(PX0, BEST_Y, PW, 40, T("BEST"), sv.best[n - 3]);
+  if (nbest) ctext(T("New best!"), PX0 + PW * 0.5f, BEST_Y + 52, 0.62f, 2.6f, RGB(0xF65E3B), 32);
+  button(PX0 + PW * 0.5f, UNDO_Y, PW, 26, T("\x7f Undo"), can_undo, 32);
+  button(PX0 + PW * 0.5f, MENU_Y, PW, 26, T("~ Menu"), true, 32);
   board(&gb, cell, true);
   uint32_t dt = now - t_add;
   if (added && dt < RISE) { /* the points of the last move rise out of the score box */
@@ -693,18 +786,18 @@ static void title_screen(void) {
     if (!(sv.flags[s] & 1) && j < 11 - (k == 3) * 2) cells[i] = demo[j + (k == 3) * 2];
   }
   text("2048", 20, 14, 3.0f, WT, INK, 32);
-  score_box(214, 16, 90, 42, "BEST", sv.best[s]);
-  const char *join = "Join the numbers and get to the ";
+  score_box(214, 16, 90, 42, T("BEST"), sv.best[s]);
+  const char *join = T("Join the numbers and get to the ");
   text(join, 20, 68, 0.62f, 2.0f, INK, 32);
   /* then the goal, in bold */
-  text(k == 3 ? "512 tile!" : "2048 tile!", 20 + (tw(join, 2.0f) + 0.4f) * 0.62f, 68, 0.62f, 2.6f, INK, 32);
+  text(k == 3 ? T("512 tile!") : T("2048 tile!"), 20 + (tw_u(join, 0.62f, 2.0f) + 0.4f) * 0.62f, 68, 0.62f, 2.6f, INK, 32);
   board(&g, cells, false);
   text("<", 166, 104, 1.3f, WT, s ? INK : SLOT, 32);
   text(">", 292, 104, 1.3f, WT, s < 3 ? INK : SLOT, 32);
   ctext(str, 236, 114, 1.3f, WT, INK, 32);
-  if (sv.flags[s] & 1) button(236, 140, 132, 28, "Continue", tsel == 0, 32);
-  button(236, sv.flags[s] & 1 ? 176 : 150, 132, 28, "New game", tsel == 1 || !(sv.flags[s] & 1), 32);
-  ctext("Game by Gabriele Cirulli  -  based on Tatone26's version", 160, 226, 0.5f, 1.9f, BROWN, 32);
+  if (sv.flags[s] & 1) button(236, 140, 132, 28, T("Continue"), tsel == 0, 32);
+  button(236, sv.flags[s] & 1 ? 176 : 150, 132, 28, T("New game"), tsel == 1 || !(sv.flags[s] & 1), 32);
+  ctext(T("Game by Gabriele Cirulli  -  based on Tatone26's version"), 160, 226, 0.5f, 1.9f, BROWN, 32);
 }
 
 /* paints a rectangle of the screen, a few rows at a time */

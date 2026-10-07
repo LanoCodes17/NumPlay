@@ -1,0 +1,60 @@
+# Minesweeper in French: the English text as in the source, a tab, the translation (see tools/lang.py).
+# The calculator's small font: 7 pixels a letter.
+ s	 s
+Minesweeper	Démineur
+Continue	Continuer
+Beginner	Débutant
+Intermediate	Intermédiaire
+Expert	Expert
+Custom...	Sur mesure...
+Options...	Options...
+Help	Aide
+ mines	 mines
+Start	Démarrer
+Resume	Reprendre
+New game	Nouvelle partie
+Quit game	Quitter
+Yes	Oui
+No	Non
+New best time!	Nouveau record !
+You win!	Gagné !
+# "Time 12.3 s", "Won 3 of 5"
+Time 	Temps 
+Won 	Gagnées 
+ of 	 sur 
+Open every square without a mine.	Ouvre toutes les cases sans mine.
+A number counts the mines around it.	Un nombre compte les mines voisines.
+Arrows, 8 4 6 2	Flèches, 8 4 6 2
+Move (wraps around)	Bouger (en boucle)
+OK, EXE, 5	OK, EXE, 5
+Open	Ouvrir
+OK on a number	OK sur un nombre
+Open all around it	Ouvrir autour
+Backspace, Shift, 0	Effacer, Shift, 0
+Flag	Drapeau
+Back	Retour
+Pause	Pause
+Original by Robert Donner & Curt Johnson	D'après Robert Donner et Curt Johnson
+OK	OK
+Marks (?)	Marques (?)
+No guessing	Sans deviner
+Open an area first	Ouvrir une zone d'abord
+Cursor wraps around	Curseur en boucle
+Flag, then ?, then nothing:	Drapeau, puis ?, puis rien :
+for squares you are unsure of.	pour les cases incertaines.
+Every field can be cleared	Chaque grille se résout
+by logic alone.	par la seule logique.
+The first square opens an area.	La 1re case ouvre une zone.
+Off: only safe, like Windows.	Sinon, sûre, comme Windows.
+Off: the cursor stops at	Sinon, le curseur s'arrête
+the edges of the field.	aux bords de la grille.
+Options	Options
+Always on with no guessing.	Toujours actif sans deviner.
+OK: on/off     Back: done	OK : oui/non   Retour : fini
+Height:	Hauteur :
+Width:	Largeur :
+Mines:	Mines :
+Custom Field	Grille personnalisée
+Cancel	Annuler
+Arrows: change	Flèches : changer
+Quit game?	Quitter le jeu ?

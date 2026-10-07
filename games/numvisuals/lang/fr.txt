@@ -1,0 +1,33 @@
+# NumVisuals in French: the English text as in the source, a tab, the translation (see tools/lang.py).
+Aurora	Aurore
+Sunset Drive	Crépuscule
+Plasma	Plasma
+Pastel	Pastel
+Lava Lamp	Lampe à lave
+Warp	Hyperespace
+Tunnel	Tunnel
+Fire	Feu
+Ocean	Océan
+Bokeh	Bokeh
+Code Rain	Pluie de code
+None	Aucun
+Clock	Horloge
+Stopwatch	Chronomètre
+Timer	Minuteur
+Counter	Compteur
+Text	Texte
+OK: change  BACK: menu	OK : changer  RETOUR : menu
+OK: go/stop  \x7f: reset	OK : marche/arrêt  \x7f : zéro
+OK: +1  -: -1  \x7f: 0	OK : +1  - : -1  \x7f : 0
+BACK: menu	RETOUR : menu
+BACKGROUND	FOND ANIMÉ
+ADD-ON	EXTRA
+OK: add-ons  BACK: quit	OK : extras  RETOUR : sortir
+OK: choose  BACK: back	OK : choisir  RETOUR : fond
+SET THE TIME	RÉGLER L'HEURE
+SET THE TIMER	RÉGLER LE MINUTEUR
+TYPE YOUR TEXT	TAPE TON TEXTE
+ALPHA: letters  OK: done	ALPHA : lettres  OK : fini
+12-hour	12 heures
+24-hour	24 heures
+ARROWS: set  OK: done	FLÈCHES : régler  OK : fini

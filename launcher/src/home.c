@@ -2,6 +2,7 @@
  * its neighbours peek in from the sides, and the card cycles through the
  * game's screenshots. The last card opens the settings. */
 #include "ui.h"
+#include "live.h"
 #include "../../games/common/np_text.h"
 
 #define CARD_W 200
@@ -120,11 +121,15 @@ static void scene(void *ctx) {
   t = NP_CLAMP(t, 0, 256);
   uint32_t top = gfx_lerp888(item_color(h->item[a], 0), item_color(h->item[b], 0), t);
   uint32_t bottom = gfx_lerp888(item_color(h->item[a], 1), item_color(h->item[b], 1), t);
-  gfx_vgrad(0, 0, SCREEN_W, SCREEN_H, top, bottom);
-  /* a faint dot grid gives the background some texture */
-  for (int y = (gfx_y0 + 15) / 16 * 16 + 8 - 16; y < gfx_y1; y += 16) {
-    if (y < gfx_y0) continue;
-    for (int x = 8; x < SCREEN_W; x += 16) gfx_fill_alpha(x, y, 2, 1, 0xFFFF, 22);
+  if (live_active()) { /* a moving background (Backspace), Gabriel's port of NumVisuals' */
+    live_strip();
+  } else {
+    gfx_vgrad(0, 0, SCREEN_W, SCREEN_H, top, bottom);
+    /* a faint dot grid gives the background some texture */
+    for (int y = (gfx_y0 + 15) / 16 * 16 + 8 - 16; y < gfx_y1; y += 16) {
+      if (y < gfx_y0) continue;
+      for (int x = 8; x < SCREEN_W; x += 16) gfx_fill_alpha(x, y, 2, 1, 0xFFFF, 22);
+    }
   }
 
   float z = ui_ease_in_out(h->zoom);
@@ -187,8 +192,15 @@ static int build_items(home_t *h) {
   return h->n;
 }
 
+static bool bg_loaded;
+
 int np_home(int *selected, bool returning) {
   ui_init();
+  if (!bg_loaded) { /* once per run: the background chosen last time */
+    bg_loaded = true;
+    int m;
+    if (np_bg_load(&m)) live_set(m);
+  }
   home_t h = {0};
   build_items(&h);
   /* the game played last, or else the first game there is: never Settings,
@@ -226,6 +238,11 @@ int np_home(int *selected, bool returning) {
         h.badge = 0;
       }
       if (pressed & K_OK) result = h.item[h.sel];
+      if (pressed & K_BACKSPACE) { /* the next background, then none */
+        live_next();
+        np_bg_save(live_mode());
+        dirty = true;
+      }
       if (pressed & (K_HOME | K_BACK)) return -2;
     }
     /* motion */
@@ -278,7 +295,9 @@ int np_home(int *selected, bool returning) {
         }
       }
     }
+    if (live_active()) dirty = true; /* the background moves: every frame */
     if (dirty) {
+      live_frame(now);
       ui_frame(scene, &h);
       dirty = bar_dirty = false;
     } else if (bar_dirty) {

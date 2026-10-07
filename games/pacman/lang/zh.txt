@@ -1,0 +1,49 @@
+# Pac-Man in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+# Chinese letters come from the 12-pixel font, about as tall as the arcade's capitals.
+SLOW	慢
+NORMAL	普通
+FAST	快
+STRICT	严格
+SNAPPY	灵敏
+FORGIVING	宽松
+INFINITE	无限
+# the high score at the right of the maze: one line in Chinese (12 pixels tall), the second one empty
+HIGH	最高分
+SCORE	
+CHEAT	作弊
+READY!	准备！
+PLAYER ONE	玩家一
+GAME  OVER	游戏结束
+NO	否
+YES	是
+RESUME	继续
+RESTART	重新开始
+QUIT GAME	退出游戏
+PAUSED	暂停
+QUIT GAME?	退出游戏？
+PLAY	开始
+CONTINUE	继续
+OPTIONS	选项
+-SHADOW    \"BLINKY\"	-追踪     \"BLINKY\"
+-SPEEDY    \"PINKY\"	-伏击     \"PINKY\"
+-BASHFUL   \"INKY\"	-害羞     \"INKY\"
+-POKEY     \"CLYDE\"	-迟钝     \"CLYDE\"
+CHARACTER / NICKNAME	角色 / 绰号
+HIGH SCORE	最高分
+BASED ON TATONE26'S VERSION	基于 TATONE26 的版本
+GAME SPEED	游戏速度
+LIVES	生命
+BUFFER	转向缓冲
+START LEVEL	起始关卡
+BONUS LIFE	奖励生命
+NO COLLISIONS	无敌
+NONE	无
+ON	开
+OFF	关
+HOW FAST EVERYTHING MOVES	所有角色移动的速度
+PAC-MEN TO START WITH	开局时的生命数
+HOW LONG A TURN WAITS FOR A GAP	提前按下的转向能等待多久
+LATER LEVELS ARE FASTER	后面的关卡更快
+THE SCORE FOR AN EXTRA PAC-MAN	奖励一条命所需的分数
+GHOSTS CANNOT CATCH YOU: NO HIGH SCORE	幽灵抓不到你：不记录最高分
+LEFT/RIGHT: CHANGE    BACK: DONE	左/右：调整    返回：完成

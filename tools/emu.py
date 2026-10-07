@@ -51,6 +51,25 @@ STACK_TOP = 0x2403F000
 EXT_FLASH_START = 0x90200000
 EXT_FLASH_END = 0x903F0000
 CPU_HZ = 216_000_000
+MODEL, SYSTEM = "n0120", "epsilon"
+
+
+def configure(model="n0120", system="epsilon"):
+    """The calculator to emulate: the N0120 (RAM at 0x24000000, the userland after an extra data
+    sector) or the N0110/N0115 (RAM at 0x20000000); Epsilon or Upsilon (its userland header has no
+    device name, apps get 107674 bytes of RAM, its file system is Epsilon 15's and it has none of
+    the system calls for Home, checksums or flash)."""
+    global MODEL, SYSTEM, SRAM, USERLAND_HEADER, STORAGE, STORAGE_SIZE, EXT_RAM_END, EXT_RAM_LEN, EXT_RAM_START, \
+        STACK_TOP
+    MODEL, SYSTEM = model, system
+    SRAM = 0x20000000 if model == "n0110" else 0x24000000
+    USERLAND_HEADER = 0x90010000 if model == "n0110" else 0x90020000
+    STORAGE = SRAM + 0x1000
+    STORAGE_SIZE = 64400 if system == "upsilon" else 42 * 1024
+    EXT_RAM_END = SRAM + 0x37000
+    EXT_RAM_LEN = 107674 if system == "upsilon" else 153676
+    EXT_RAM_START = EXT_RAM_END - EXT_RAM_LEN
+    STACK_TOP = SRAM + 0x3F000
 # Epsilon's SmallFont.ttf and LargeFont.ttf (from the epsilon repository), for text drawn by
 # the firmware. Without them, text shows as blank cells.
 FONT_DIR = os.environ.get("EPSILON_FONTS", "")
@@ -181,8 +200,14 @@ class Calculator:
             uc.mem_write(addr, data)
         self.app_end = max(a + len(d) for a, d in self.segments if a >= FLASH)
         # userland header (Ion::Device::UserlandHeader) and slot info, as apps find them
-        hdr = struct.pack("<I8sIIIIIIIII", 0xDEC0EDFE, b"25.2.2\0\0", STORAGE, STORAGE_SIZE, EXT_FLASH_START,
-                          EXT_FLASH_END, EXT_RAM_START, EXT_RAM_END, 0x903F0000, 0x903F0400, 0xDEC0EDFE)
+        if SYSTEM == "upsilon":  # no device name; then Omega's and Upsilon's blocks
+            hdr = struct.pack("<I8sIIIIIIII4sI8s16sII16sII", 0xDEC0EDFE, b"15.5.0\0\0", STORAGE, STORAGE_SIZE,
+                              EXT_FLASH_START, 0x907FFFFF, EXT_RAM_START, EXT_RAM_END, 0xDEC0EDFE, 0xEFBEADDE,
+                              b"1.0\0", DRAW_STRING_HOOK | 1, bytes(8), bytes(16), 0xEFBEADDE, 0x55707369,
+                              b"1.1.2", 0x79827178, 0x55707369)
+        else:
+            hdr = struct.pack("<I8sIIIIIIIII", 0xDEC0EDFE, b"25.2.2\0\0", STORAGE, STORAGE_SIZE, EXT_FLASH_START,
+                              EXT_FLASH_END, EXT_RAM_START, EXT_RAM_END, 0x903F0000, 0x903F0400, 0xDEC0EDFE)
         uc.mem_write(USERLAND_HEADER, hdr)
         uc.mem_write(SRAM, struct.pack("<IIII", 0xEFEEDBBA, 0x90000000, USERLAND_HEADER, 0xEFEEDBBA))
         # Epsilon's file system object: magic, buffer, magic, then private members
@@ -194,8 +219,13 @@ class Calculator:
         # then, as in Epsilon's FileSystem: delegate, record name verifier (128 bytes),
         # accessible size, and the cache of the last record looked up (checksum, pointer)
         self.fs_private = STORAGE + 8 + STORAGE_SIZE
-        uc.mem_write(self.fs_private, struct.pack("<I", 0x24000F00) + bytes(128) +
-                     struct.pack("<III", STORAGE_SIZE, 0, 0))
+        if SYSTEM == "upsilon":  # Epsilon 15's: the delegate, then the cache
+            self.cache_at = self.fs_private + 4
+            uc.mem_write(self.fs_private, struct.pack("<III", SRAM + 0xF00, 0, 0))
+        else:
+            self.cache_at = self.fs_private + 4 + 128 + 4
+            uc.mem_write(self.fs_private, struct.pack("<I", SRAM + 0xF00) + bytes(128) +
+                         struct.pack("<III", STORAGE_SIZE, 0, 0))
         # trampoline: entry 0 is the firmware's draw string
         uc.mem_write(TRAMPOLINE, struct.pack("<I", DRAW_STRING_HOOK | 1))
         uc.mem_write(DRAW_STRING_HOOK, b"\x70\x47" * 8)
@@ -254,7 +284,7 @@ class Calculator:
         """Offsets of firmware RAM that changed, outside the file system."""
         now = bytes(self.uc.mem_read(SRAM, SRAM_SIZE))
         allowed = [(EXT_RAM_START, STACK_TOP), (STORAGE + 4, STORAGE + 4 + STORAGE_SIZE),
-                   (self.fs_private + 4 + 128 + 4, self.fs_private + 4 + 128 + 12)]
+                   (self.cache_at, self.cache_at + 8)]
         changed = []
         for i in range(0, SRAM_SIZE, 4):
             if now[i:i + 4] != self.ram_before[i:i + 4]:
@@ -318,10 +348,10 @@ class Calculator:
         crc = ptr = 0
         if cached:
             crc, ptr = record_crc(cached), STORAGE + 4 + where[cached]
-        self.uc.mem_write(self.fs_private + 4 + 128 + 4, struct.pack("<II", crc, ptr))
+        self.uc.mem_write(self.cache_at, struct.pack("<II", crc, ptr))
 
     def cache(self):
-        return struct.unpack("<II", self.uc.mem_read(self.fs_private + 4 + 128 + 4, 8))
+        return struct.unpack("<II", self.uc.mem_read(self.cache_at, 8))
 
     def records(self):
         buf = self.storage_bytes()
@@ -380,6 +410,9 @@ class Calculator:
         op, = struct.unpack("<H", uc.mem_read(pc - 2, 2))
         n = op & 0xFF
         self.svc_counts[n] = self.svc_counts.get(n, 0) + 1
+        if SYSTEM == "upsilon" and n not in (1, 2, 3, 4, 5, 18, 19, 20, 21, 23, 34, 45, 48, 49, 50):
+            if hasattr(self, "violations"):
+                self.violations.append(f"system call {n}, which Upsilon doesn't have")
         r0, r1, r2, r3 = (self.reg(r) for r in (UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2, UC_ARM_REG_R3))
         ret = None
         ret1 = None
@@ -527,11 +560,14 @@ def main():
     ap.add_argument("--storage", help="file keeping the calculator's storage between runs")
     ap.add_argument("--flash-start", type=lambda s: int(s, 0), default=EXT_FLASH_START)
     ap.add_argument("--nwlink", default="nwlink")
+    ap.add_argument("--model", choices=["n0120", "n0110"], default="n0120")
+    ap.add_argument("--system", choices=["epsilon", "upsilon"], default="epsilon")
     ap.add_argument("--records", action="store_true", help="list storage records at the end")
     ap.add_argument("--frames", help="save raw RGB565 frames here (for tools/record.py --frames)")
     ap.add_argument("--profile", type=int, default=0,
                     help="print the N functions the CPU was found in most (build the .nwa without stripping it)")
     a = ap.parse_args()
+    configure(a.model, a.system)
     os.makedirs(a.out, exist_ok=True)
     c = Calculator(a.nwa, a.flash_start, a.storage, a.nwlink)
     c.keys = parse_keys(a.keys)

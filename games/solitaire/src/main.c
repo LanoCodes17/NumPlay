@@ -14,6 +14,7 @@
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
 #include "../../common/jump.h"
+#include "../../common/np_text.h"
 
 #ifdef __ELF__ /* app name and API level, for the calculator's installer */
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "Solitaire";
@@ -140,11 +141,7 @@ static void glyph(int ch, int x, int y, int k, color c, int b) {
     for (int j = 0; j < 7; j++)
       if (g[i] >> j & 1) fill(x + i * k, y + j * k, k + b, k, c);
 }
-static int slen(const char *s) {
-  int n = 0;
-  while (s[n]) n++;
-  return n;
-}
+static int slen(const char *s) { return np_text_cells(s); } /* (Chinese letters take two cells) */
 /* the firmware's fonts, straight to the screen: 7x14 or 10x18 cells */
 static void str(const char *s, int x, int y, int large, color fg, color bg) {
   eadk_display_draw_string(s, (eadk_point_t){(uint16_t)x, (uint16_t)y}, large, fg, bg);
@@ -315,6 +312,31 @@ static void rframe(int x, int y, int w, int h, color c) {
 }
 static void text(const char *s, int x, int y, color c) {
   for (; *s; s++, x += 6) glyph(*s, x, y, 1, c, 0);
+}
+/* Language builds: a text in the 5x7 font with letters beyond ASCII. An accented letter is the
+   plain one with its accent (np_text.h) over it (in the rows over a small letter, just over a
+   capital, under it for a cedilla); others (Chinese) come from the 12-pixel font. Returns the
+   width (draw false: only measures). */
+static color xcol;
+static void xplot(int x, int y, void *ctx) { px(x, y, xcol); }
+static int xtext(const char *s, int x, int y, color c, int draw) {
+  int x0 = x;
+  xcol = c;
+  while (*s) {
+    uint32_t cp = np_utf8(&s);
+    char b = (char)cp, b2 = 0;
+    int acc = cp >= 0x80 ? np_latin(cp, &b, &b2) : 0;
+    if (cp >= 0x80 && !b) {
+      x += draw ? np_xdraw(cp, x, y - 3, 1, xplot, 0) : np_xadvance(cp, 1);
+      continue;
+    }
+    for (; b; b = b2, b2 = 0, acc = 0, x += 6)
+      if (draw) {
+        glyph(b, x, y, 1, c, 0);
+        np_accent(acc, x, acc == NP_ACC_CEDIL ? y + 7 : b >= 'a' ? y : y - 3, 1, xplot, 0);
+      }
+  }
+  return x - x0 - 1;
 }
 
 /* ------------------------------------------------------------------ state */
@@ -536,6 +558,15 @@ static void win(int x, int y, int w, int h, const char *title, int icon) {
   str(title, x + 16, y + 9, 1, INK, WHITE);
 }
 
+/* the cells of the first n bytes of s (language builds: Chinese letters take two) */
+static int cells(const char *s, int n) {
+  char t[120];
+  int k = 0;
+  for (; k < n && k < (int)sizeof t - 1; k++) t[k] = s[k];
+  t[k] = 0;
+  return slen(t);
+}
+
 /* A dialog box: text lines, then buttons (in a column when vert). Returns the
    button chosen, or -1 for Back. box keeps where it was. */
 static int16_t box[4];
@@ -544,7 +575,7 @@ static int dialog(const char *title, const char *body, const char *const *btn, i
   for (const char *s = body; s && *s; lines++) {
     int n = 0;
     while (s[n] && s[n] != '\n') n++;
-    tw = max(tw, n * 7);
+    tw = max(tw, (NP_TEXT_EXTRA ? cells(s, n) : n) * 7);
     s += n + (s[n] == '\n');
   }
   for (int i = 0; i < nb; i++) bw = max(bw, slen(btn[i]) * 7 + 28);
@@ -554,9 +585,9 @@ static int dialog(const char *title, const char *body, const char *const *btn, i
   box[0] = (int16_t)x, box[1] = (int16_t)y, box[2] = (int16_t)w, box[3] = (int16_t)h;
   ndr = 0, ticking = 0; /* nothing of the table shows through, and the clock stops */
   win(x, y, w, h, title, icon);
-  char ln[48];
+  char ln[NP_TEXT_EXTRA ? 120 : 48]; /* (a Chinese letter takes three bytes) */
   for (int i = 0, n; body && *body; i++, body += n + (body[n] == '\n')) {
-    for (n = 0; body[n] && body[n] != '\n' && n < 47; n++) ln[n] = body[n];
+    for (n = 0; body[n] && body[n] != '\n' && n < (int)sizeof ln - 1; n++) ln[n] = body[n];
     ln[n] = 0;
     str(ln, x + 18 + ix, y + 38 + (th - lines * 16) / 2 + i * 16, 0, GREY, WHITE);
   }
@@ -640,11 +671,11 @@ static void over_text(int x, int y, int w, int h) {
     two(cat(o, ":"), (int)(t % 60));
     str(s, 96, 2, 0, WHITE, BAR);
     if (V.gscoring < 2) {
-      str("Score", 162, 2, 0, RGB(0x9AA0A6), BAR);
+      str(T("Score"), 162, 2, 0, RGB(0x9AA0A6), BAR);
       (V.gscoring ? money : num)(s, shown_score());
       str(s, 204, 2, 0, WHITE, BAR);
     }
-    str("Moves", 250, 2, 0, RGB(0x9AA0A6), BAR);
+    str(T("Moves"), 250, 2, 0, RGB(0x9AA0A6), BAR);
     num(s, V.moves);
     str(s, 292, 2, 0, WHITE, BAR);
   }
@@ -695,7 +726,8 @@ static void game_scene(void) {
       }
       fill(cx - 4, by + 8, 3, 2, WHITE), fill(cx + 2, by + 8, 3, 2, WHITE), fill(cx - 1, by + 8, 3, 1, SIDE);
     }
-    text(i ? "NEW" : "UNDO", cx - (i ? 9 : 12), by + 13, WHITE);
+    if (NP_TEXT_EXTRA) xtext(i ? T("NEW") : T("UNDO"), cx - xtext(i ? T("NEW") : T("UNDO"), 0, 0, 0, 0) / 2, by + 13, WHITE, 1);
+    else text(i ? T("NEW") : T("UNDO"), cx - (i ? 9 : 12), by + 13, WHITE);
   }
   for (int p = T0; p < NP; p++) {
     if (!pn[p] || !shown(pl[p][0])) slot(COLX(p - T0), TABY, -1);
@@ -846,7 +878,7 @@ static void draw_cards(void) {
   } else if (!pn[WASTE]) {
     return;
   } else if (!can_recycle()) {
-    say("No more passes");
+    say(T("No more passes"));
     return;
   } else { /* the waste goes back to the stock */
     int d = V.gscoring ? 0 : V.gdraw == 1 ? -100 : V.passes >= 2 ? -20 : 0;
@@ -864,7 +896,7 @@ static void draw_cards(void) {
 
 static void undo(void) {
   if (!nu) {
-    say("Nothing to undo");
+    say(T("Nothing to undo"));
     return;
   }
   deselect();
@@ -909,16 +941,16 @@ static void hint(void) {
     if (legal(WASTE, 1, t)) goto found;
   if (pn[STOCK] || (pn[WASTE] && can_recycle())) {
     set_cursor(STOCK, 1);
-    say("Draw a card");
+    say(T("Draw a card"));
   } else {
-    say("No more moves");
+    say(T("No more moves"));
   }
   return;
 found:
   deselect();
   set_cursor(f, n);
   hint_p = t, hint_until = now + 1600;
-  say("Hint");
+  say(T("Hint"));
 }
 
 static int difficulty(int full);
@@ -956,7 +988,7 @@ static void act(void) {
   }
   for (n = 1; n <= run(sp) && !legal(sp, n, cp); n++) {} /* only one count can fit */
   if (n > run(sp)) {
-    say("Not there");
+    say(T("Not there"));
     return;
   }
   int f = sp;
@@ -1106,7 +1138,7 @@ static void finish(void) {
 }
 
 /* ------------------------------------------------------------------ play */
-static const char *const yes_no[] = {"Yes", "No"}, *const ok_btn[] = {"OK"};
+static const char *const yes_no[] = {T("Yes"), T("No")}, *const ok_btn[] = {T("OK")};
 
 static void new_deal(uint32_t s) {
   abandon();
@@ -1121,7 +1153,7 @@ static int col(int p) { return p < 0 || p <= WASTE ? -1 : p < T0 ? 7 : p - T0; }
 
 /* the game, until the player leaves it */
 static void play(void) {
-  static const char *const pause_items[] = {"Resume", "Restart", "New game", "Quit game"};
+  static const char *const pause_items[] = {T("Resume"), T("Restart"), T("New game"), T("Quit game")};
   static const int8_t LEFT[4] = {STOCK, WASTE, B_UNDO, B_NEW};
   layer = 0, sp = -1, hint_p = -1, msg = 0, ticking = 1;
   relayout();
@@ -1157,7 +1189,7 @@ static void play(void) {
     if (e & KEY(eadk_key_exe)) draw_cards();
     if (e & KEY(eadk_key_toolbox)) {
       deselect();
-      if (!to_foundation(7)) say("Nothing to play");
+      if (!to_foundation(7)) say(T("Nothing to play"));
       while (to_foundation(7)) {}
     }
     if (e & KEY(eadk_key_backspace)) undo();
@@ -1168,9 +1200,9 @@ static void play(void) {
       } else {
         for (;;) {
           layer = 1, paint(0, 0, 320, 240), layer = 0; /* the table, dimmed under the dialog */
-          int r = dialog("Paused", 0, pause_items, 4, 1, 0);
+          int r = dialog(T("Paused"), 0, pause_items, 4, 1, 0);
           if (r == 3) {
-            if (!dialog("Solitaire", "Quit game?", yes_no, 2, 0, 1)) np_jump(leave); /* saves, then leaves */
+            if (!dialog(T("Solitaire"), T("Quit game?"), yes_no, 2, 0, 1)) np_jump(leave); /* saves, then leaves */
             continue;
           }
           if (r == 2) {
@@ -1189,14 +1221,14 @@ static void play(void) {
     if (won() && V.live) {
       char s[96], *o = s;
       finish();
-      o = num(cat(o, "Time: "), (int32_t)(V.ms / 1000));
-      o = num(cat(o, " seconds\nMoves: "), V.moves);
-      if (V.gscoring < 2) o = (V.gscoring ? money : num)(cat(o, "\nScore: "), shown_score());
-      cat(o, "\n\nPlay again?");
+      o = num(cat(o, T("Time: ")), (int32_t)(V.ms / 1000));
+      o = num(cat(o, T(" seconds\nMoves: ")), V.moves);
+      if (V.gscoring < 2) o = (V.gscoring ? money : num)(cat(o, T("\nScore: ")), shown_score());
+      cat(o, T("\n\nPlay again?"));
       next_frame();
       nocur = 1, bounce(), nocur = 0;
       layer = 1, paint(0, 0, 320, 240), layer = 0;
-      if (dialog("You win!", s, yes_no, 2, 0, 0)) return;
+      if (dialog(T("You win!"), s, yes_no, 2, 0, 0)) return;
       new_deal(rnd());
     }
   }
@@ -1209,28 +1241,34 @@ static void play(void) {
    1 Hard, 2 Continue, 3 Options, 4 Statistics, 5 How to play, or -1 (Back). */
 static int drow, dsel;
 static void difficulty_draw(int full, int all) {
-  static const char *const LINKS[3] = {"Options", "Stats", "Help"};
+  static const char *const LINKS[3] = {T("Options"), T("Stats"), T("Help")};
   int live = full && V.live, h = full ? (live ? 176 : 148) : 120, x = 48, y = (240 - h) / 2;
   if (all) {
     layer = 1, paint(0, 0, 320, 240), layer = 0;
     widget(W_WIN, x, y, 224, h, 0, 0);
-    str("Choose your difficulty", 160 - 22 * 7 / 2, y + 8, 0, GREY, WHITE);
+    str(T("Choose your difficulty"), 160 - (NP_TEXT_EXTRA ? slen(T("Choose your difficulty")) : 22) * 7 / 2, y + 8, 0, GREY, WHITE);
   }
   for (int i = 0; i < 2; i++) { /* the kings */
     bool on = drow == 0 && dsel == i;
     int kx = i ? 184 : 88, l = layer;
+    const char *lb = i ? T("HARD") : T("EASY");
+    int big = 1, lw = 0;
+    if (NP_TEXT_EXTRA) big = slen(lb) * 10 <= 56, lw = slen(lb) * (big ? 10 : 7); /* (a long word: small) */
     wt = W_WIN, wf = 0, layer = 3;
     rx = kx - 4, ry = y + 26, rw = 56, rh = 86;
+    if (NP_TEXT_EXTRA && lw + 6 > rw) rx -= (lw + 7 - rw) / 2, rw = lw + 6;
     fill(rx, ry, rw, rh, WHITE);
     if (on) rbox(rx, ry, rw, rh, 7, PALE);
     portrait(12, kx, y + 30, 2, i ? RGB(0x5B7FD6) : RGB(0xEF5050), i ? RGB(0x2F4F9A) : RGB(0xBB2026));
     eadk_display_push_rect((eadk_rect_t){(uint16_t)rx, (uint16_t)ry, (uint16_t)rw, (uint16_t)rh}, buf);
     layer = l;
-    str(i ? "HARD" : "EASY", kx + 4, y + 90, 1, INK, on ? PALE : WHITE);
+    if (NP_TEXT_EXTRA) str(lb, kx + 24 - lw / 2, y + (big ? 90 : 93), big, INK, on ? PALE : WHITE);
+    else str(lb, kx + 4, y + 90, 1, INK, on ? PALE : WHITE);
   }
-  if (live) widget(W_BTN, 100, y + 118, 120, 22, "Continue", drow == 1 ? F_FOCUS : 0);
+  if (live) widget(W_BTN, 100, y + 118, 120, 22, T("Continue"), drow == 1 ? F_FOCUS : 0);
+  int links = NP_TEXT_EXTRA ? slen(LINKS[0]) + slen(LINKS[1]) + slen(LINKS[2]) : 16;
   if (full)
-    for (int i = 0, lx = 160 - (7 * 16 + 3 * 16 + 2 * 8) / 2; i < 3; lx += slen(LINKS[i]) * 7 + 24, i++) {
+    for (int i = 0, lx = 160 - (7 * links + 3 * 16 + 2 * 8) / 2; i < 3; lx += slen(LINKS[i]) * 7 + 24, i++) {
       bool on = drow == 2 && dsel == i;
       int w = slen(LINKS[i]) * 7 + 16, ly = y + h - 30, l = layer;
       layer = 3, rx = lx, ry = ly, rw = w, rh = 22;
@@ -1272,14 +1310,14 @@ static void scene(void) {
 }
 
 static void options(void) {
-  static const char *const lbl[5] = {"Standard", "Vegas", "None", "Timed game", "Keep score"};
+  static const char *const lbl[5] = {T("Standard"), T("Vegas"), T("None"), T("Timed game"), T("Keep score")};
   int x = 22, y = 9, f = 0;
   ndr = 0;
   layer = 1, paint(0, 0, 320, 240), layer = 0;
-  win(x, y, 276, 222, "Options", 0);
-  widget(W_GROUP, x + 16, y + 36, 110, 16, "Scoring", 0);
-  widget(W_GROUP, x + 146, y + 36, 110, 16, "Game", 0);
-  widget(W_GROUP, x + 16, y + 120, 110, 16, "Card back", 0);
+  win(x, y, 276, 222, T("Options"), 0);
+  widget(W_GROUP, x + 16, y + 36, 110, 16, T("Scoring"), 0);
+  widget(W_GROUP, x + 146, y + 36, 110, 16, T("Game"), 0);
+  widget(W_GROUP, x + 16, y + 120, 110, 16, T("Card back"), 0);
   for (uint64_t e = 0;; e = take()) {
     int o = f;
     if (e & (KEY(eadk_key_up) | KEY(eadk_key_left))) f = (f + 10) % 11;
@@ -1296,7 +1334,7 @@ static void options(void) {
     for (int i = 0; i < 11; i++) {
       if (e && i != f && i != o && !(e & OK_KEYS)) continue;
       if (i == 10) {
-        widget(W_BTN, x + 196, y + 188, 64, 24, "OK", f == 10 ? F_FOCUS : 0);
+        widget(W_BTN, x + 196, y + 188, 64, 24, T("OK"), f == 10 ? F_FOCUS : 0);
       } else if (i >= 5 && i < 9) {
         for (int j = 5; j < 9 && (e & OK_KEYS); j++) /* the one on changed */
           if (j != i) widget(W_BACK, x + 12 + (j - 5) * 42, y + 138, CW + 8, CH + 8, 0, (j == f) * F_FOCUS | (V.back == j - 5) * F_ON | (j - 5) << 4);
@@ -1313,32 +1351,25 @@ static void options(void) {
 
 static void stats(void) {
   char s[200], *o = s;
-  o = num(cat(o, "Games played: "), V.played);
-  o = num(cat(o, "\nGames won: "), V.won);
-  if (V.played) o = cat(num(cat(o, " ("), V.won * 100 / V.played), "%)");
-  o = num(cat(o, "\nStreak: "), V.streak);
-  o = num(cat(o, "   Best: "), V.best_streak);
-  o = cat(o, "\nBest time: ");
+  o = num(cat(o, T("Games played: ")), V.played);
+  o = num(cat(o, T("\nGames won: ")), V.won);
+  if (V.played) o = cat(num(cat(o, " ("), V.won * 100 / V.played), T("%)"));
+  o = num(cat(o, T("\nStreak: ")), V.streak);
+  o = num(cat(o, T("   Best: ")), V.best_streak);
+  o = cat(o, T("\nBest time: "));
   if (V.best_time) o = two(cat(num(o, V.best_time / 60), ":"), V.best_time % 60);
   else o = cat(o, "-");
-  o = num(cat(o, "\nBest score: "), V.best_score);
-  money(cat(o, "\nVegas bank: "), V.bank);
+  o = num(cat(o, T("\nBest score: ")), V.best_score);
+  money(cat(o, T("\nVegas bank: ")), V.bank);
   layer = 1, paint(0, 0, 320, 240), layer = 0;
-  dialog("Statistics", s, ok_btn, 1, 0, 0);
+  dialog(T("Statistics"), s, ok_btn, 1, 0, 0);
 }
 
 static void help(void) {
   layer = 1, paint(0, 0, 320, 240), layer = 0;
-  dialog("How to play",
-         "Build the four suits up, ace to\n"
-         "king, on the right. In the columns,\n"
-         "go down, alternating red and black.\n"
-         "OK         Pick up, put down\n"
-         "OK twice   Send to its foundation\n"
-         "Up, Down   Pick more or fewer\n"
-         "EXE        Draw from the deck\n"
-         "Toolbox    Play all you can up\n"
-         "Backspace  Undo      Shift  Hint",
+  /* (one text, so that it is translated as one: the keys line up in the font's cells) */
+  dialog(T("How to play"),
+         T("Build the four suits up, ace to\nking, on the right. In the columns,\ngo down, alternating red and black.\nOK         Pick up, put down\nOK twice   Send to its foundation\nUp, Down   Pick more or fewer\nEXE        Draw from the deck\nToolbox    Play all you can up\nBackspace  Undo      Shift  Hint"),
          ok_btn, 1, 0, 0);
 }
 
@@ -1370,7 +1401,7 @@ int main(void) {
       help();
     } else {
       layer = 1, paint(0, 0, 320, 240), layer = 0;
-      if (!dialog("Solitaire", "Quit game?", yes_no, 2, 0, 1)) np_jump(leave);
+      if (!dialog(T("Solitaire"), T("Quit game?"), yes_no, 2, 0, 1)) np_jump(leave);
     }
     nocur = 1;
   }

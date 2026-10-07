@@ -111,9 +111,63 @@ void glyph(char c, int x2, int y) {
   push(x2 * 2, y, 8, 8, gb);
 }
 
+#if NP_TEXT_EXTRA
+/* Other languages. An accented letter is the font's capital with its accent in the 3 rows over it,
+ * in 2 pixel wide strokes like the font's (a cedilla in the 2 under it); a Chinese letter, or one the
+ * font lacks, comes from the 12-pixel font, its 12 rows on the line's middle. All written opaque, like
+ * the font's letters. */
+static u16 *xb;
+static int xbw, xbh;
+static void xplot(int x, int y, void *ctx) {
+  if ((unsigned)x < (unsigned)xbw && (unsigned)y < (unsigned)xbh) xb[y * xbw + x] = text_fg;
+}
+static void accent_plot(int x, int y, void *ctx) { xplot(2 * x - 1, y, ctx), xplot(2 * x, y, ctx); }
+
+int letter(const char **s, int x2, int y, bool draw) {
+  static u16 cb[12 * 12];
+  uint32_t cp = np_utf8(s);
+  char b = (char)cp, b2 = 0;
+  int acc = cp >= 0x80 ? np_latin(cp, &b, &b2) : 0;
+  if (b >= 'a' && b <= 'z') b -= 32; /* (capitals only) */
+  if (b2 >= 'a' && b2 <= 'z') b2 -= 32;
+  if (!b || (u8)b - 0x20u >= FONT_CHARS) {
+    int w = np_xadvance(cp, 1);
+    if (w > 12) w = 12;
+    if (draw && w) {
+      for (int i = 0; i < w * 12; i++) cb[i] = text_bg;
+      xb = cb, xbw = w, xbh = 12;
+      np_xdraw(cp, 0, 0, 1, xplot, 0);
+      push(x2 * 2, y - 2, w, 12, cb);
+    }
+    return x2 + (w + 1) / 2;
+  }
+  if (draw) {
+    glyph(b, x2, y);
+    if (b2) glyph(b2, x2 + 5, y);
+    if (acc) {
+      int ced = acc == NP_ACC_CEDIL;
+      for (int i = 0; i < 24; i++) cb[i] = text_bg;
+      xb = cb, xbw = 8, xbh = ced ? 2 : 3;
+      np_accent(acc, 0, 0, 1, accent_plot, 0);
+      push(x2 * 2, ced ? y + 8 : y - 3, 8, xbh, cb);
+    }
+  }
+  return x2 + (b2 ? 10 : 5);
+}
+int text_w(const char *s) {
+  int w = 0;
+  while (*s) w = letter(&s, w, 0, false);
+  return w;
+}
+#endif
+
 /* Characters every 10 pixels (5 units), like the original. */
 int text(const char *s, int x2, int y) {
+#if NP_TEXT_EXTRA
+  while (*s) x2 = letter(&s, x2, y, true);
+#else
   for (; *s; s++, x2 += 5) glyph(*s, x2, y);
+#endif
   return x2;
 }
 

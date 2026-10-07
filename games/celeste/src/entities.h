@@ -92,6 +92,12 @@ void cassette_level_start(bool transition);                       /* the end of 
 bool cassette_block_scale(const Ent *block, V2 *origin, V2 *scale);
 void cassette_blocks_finish(void);
 void spikes_set_cassette(Ent *spikes, V2 origin);
+/* LedgeBlocker: whether e is one, for Madeline (pe, facing) (spikes but downward ones; dust tendrils, where they are out;
+ * attached dust bunnies; the other static spinners: spinners_hit_rect) */
+bool spikes_ledge(const Ent *e);
+bool tspikes_ledge(const Ent *e, const Ent *pe, int facing);   /* (ch3.c) */
+bool dust_ledge(const Ent *e);
+bool leader_has_seed(void);                                       /* a StrawberrySeed follows (berry.c) */
 uint16_t cassette_tint(const Ent *blk, bool on);   /* (cassette.c) its color for what it carries */
 typedef struct { V2 a, b, c; float lerp; } CassetteFly;           /* Player.cassetteFlyCurve, cassetteFlyLerp */
 CassetteFly *cassette_fly(void);

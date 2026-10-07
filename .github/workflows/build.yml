@@ -36,12 +36,12 @@ jobs:
       - name: Tools
         run: |
           sudo apt-get update -q && sudo apt-get install -yq pngquant
-          pip install pillow zopfli pyelftools unicorn==2.1.4
+          pip install pillow numpy zopfli pyelftools unicorn==2.1.4
           npm install -g nwlink@1.0.0
           rustup target add thumbv7em-none-eabihf
 
       - name: Build
-        run: make -j4 nwa apps check NWLINK=nwlink
+        run: make -j4 nwa apps check NWLINK=nwlink && make lang NWLINK=nwlink
 
       - name: Test
         run: |
@@ -49,6 +49,7 @@ jobs:
           python3 tests/test_uninstall.py build/NumPlay.nwa --game numdrive
           python3 tests/test_progress.py build/NumPlay.nwa
           python3 tests/test_numblocks_progress.py build/apps/NumBlocks.nwa
+          python3 tests/test_upsilon.py build/NumPlay-Upsilon.nwa
 
       - uses: actions/upload-artifact@v4
         with:

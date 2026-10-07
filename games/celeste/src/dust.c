@@ -478,6 +478,7 @@ static bool mover_new(const EData *d, bool rotate) {
 }
 
 /* DustStaticSpinner with attachToSolid (the static ones are the room's, spinner.c): rides the solid it overlaps */
+bool dust_ledge(const Ent *e) { return e->cls == &MOVER && ST(e, Mover)->attached; }
 bool dust_spinner_new(const EData *d) {
   if (!dust_room_of(d)) return false;
   Ent *e = ent_new(&MOVER, d->x, d->y);

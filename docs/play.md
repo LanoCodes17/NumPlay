@@ -7,6 +7,7 @@
 | **Left / Right** (or 4 / 6) | Pick a game |
 | **OK** or **EXE** (or 5) | Play |
 | **Back** | Leave a game's main menu to come back here. On the carousel, quit NumPlay |
+| **⌫** (backspace) | A moving background behind the carousel: Aurora, Sunset Drive, Plasma, Pastel, Lava Lamp, Ocean, then none again. NumPlay remembers it |
 | **Home** | Quit, from anywhere |
 
 The last card, **Settings**, can:
@@ -50,7 +51,7 @@ Keep moving, or the eagle gets you. Coins add up across every run and stay saved
 
 ## NumBlocks
 
-<img src="media/numblocks.gif" width="320" align="right" alt="NumBlocks: chopping a birch tree, then building a pillar of planks">
+<img src="media/numblocks.gif" width="320" align="right" alt="NumBlocks: the inventory, TNT, water and lava">
 
 | Key | What it does |
 | --- | --- |

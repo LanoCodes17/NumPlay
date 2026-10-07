@@ -1,5 +1,6 @@
 #include "ui.h"
 #include "inflate.h"
+#include "live.h"
 
 /* ---- screenshots: decoded on demand into a few slots of the arena */
 #define MAX_SLOTS 6
@@ -17,6 +18,7 @@ void ui_init(void) {
   np_alloc_reset();
   gfx_init();
   tables = np_alloc(np_inflate_tables_size());
+  live_init(); /* its small tables first: the screenshot slots below take all that is left */
   nslots = 0;
   while (nslots < MAX_SLOTS) {
     uint8_t *p = np_alloc(SHOT_W * SHOT_H);

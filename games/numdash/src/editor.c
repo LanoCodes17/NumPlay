@@ -5,6 +5,7 @@
 #include "ui.h"
 #include <math.h>
 #include <string.h>
+#include "../../common/np_text.h"
 
 enum { MODE_BUILD, MODE_EDIT, MODE_DELETE };
 enum { UNDO_ADD, UNDO_REMOVE, UNDO_XF };
@@ -21,9 +22,9 @@ static int undo_len;
 static SceneOpts opts;
 static bool settings_open;
 static int settings_sel, clear_armed;
-static const char *const slot_names[CUSTOM_SLOTS] = {"MY LEVEL 1", "MY LEVEL 2", "MY LEVEL 3"};
-static const char *const theme_names[THEME_COUNT] = {"BLUE", "PINK", "GREEN", "RED", "OCEAN", "PURPLE", "VIOLET",
-                                                              "LIME", "PLUM"};
+static const char *const slot_names[CUSTOM_SLOTS] = {T("MY LEVEL 1"), T("MY LEVEL 2"), T("MY LEVEL 3")};
+static const char *const theme_names[THEME_COUNT] = {T("BLUE"), T("PINK"), T("GREEN"), T("RED"), T("OCEAN"), T("PURPLE"), T("VIOLET"),
+                                                              T("LIME"), T("PLUM")};
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -173,7 +174,7 @@ static void place(void) {
       remove_at(i);
       break;
     }
-  if (count >= CUSTOM_MAX) { app_notice("OBJECT LIMIT REACHED"); return; }
+  if (count >= CUSTOM_MAX) { app_notice(T("OBJECT LIMIT REACHED")); return; }
   unsigned i = insert_obj(o);
   push_undo(UNDO_ADD, i, o);
   edited();
@@ -207,7 +208,7 @@ static void rotate_obj(void) {
 }
 
 static void undo_last(void) {
-  if (!undo_len) { app_notice("NOTHING TO UNDO"); return; }
+  if (!undo_len) { app_notice(T("NOTHING TO UNDO")); return; }
   Undo u = undo[--undo_len];
   if (u.op == UNDO_ADD) {
     if (u.index < count) remove_at(u.index);
@@ -242,7 +243,7 @@ static void settings_tick(void) {
       undo_len = 0;
       clear_armed = 0;
       edited();
-      app_notice("LEVEL CLEARED");
+      app_notice(T("LEVEL CLEARED"));
     } else {
       clear_armed = 1;
     }
@@ -255,12 +256,12 @@ void editor_tick(void) {
   if (settings_open) { settings_tick(); return; }
   uint32_t h = app.hit;
   if (h & K_BACK) {
-    if (app.dirty && !save_level()) app_notice("SAVE FAILED - STORAGE FULL");
+    if (app.dirty && !save_level()) app_notice(T("SAVE FAILED - STORAGE FULL"));
     app_go(SCR_CREATOR);
     return;
   }
   if (h & K_EXE) {
-    if (app.dirty && !save_level()) app_notice("NOT SAVED - STORAGE FULL");
+    if (app.dirty && !save_level()) app_notice(T("NOT SAVED - STORAGE FULL"));
     app.testing = true;
     app.level = LEVEL_COUNT + app.slot;
     app.practice = false;
@@ -286,7 +287,7 @@ void editor_tick(void) {
   if (h & K_ERASE) erase();
   if (h & K_UNDO) undo_last();
   if (h & K_COPY) pick();
-  if (h & K_SAVE) app_notice(save_level() ? "LEVEL SAVED" : "SAVE FAILED - STORAGE FULL");
+  if (h & K_SAVE) app_notice(save_level() ? T("LEVEL SAVED") : T("SAVE FAILED - STORAGE FULL"));
   if (h & K_PROPS) { settings_open = true; settings_sel = 0; clear_armed = 0; }
 }
 
@@ -334,16 +335,16 @@ typedef struct {
 
 /* sorted from top to bottom on each side, so the lines do not cross */
 static const KeyLabel keys_left[] = {
-    {159, 57, "HOME", "QUIT"},           {126, 66, "ARROWS", "MOVE"},
-    {121, 95, "SHIFT", "ROTATE"},        {136, 95, "ALPHA", "UNDO"},
-    {151, 95, "X,N,T", "COPY BLOCK"},    {136, 108, "LN", "SETTINGS"},
-    {123, 178, "0", "CHANGE MODE"},
+    {159, 57, T("HOME"), T("QUIT")},           {126, 66, T("ARROWS"), T("MOVE")},
+    {121, 95, "SHIFT", T("ROTATE")},           {136, 95, "ALPHA", T("UNDO")},
+    {151, 95, "X,N,T", T("COPY BLOCK")},       {136, 108, "LN", T("SETTINGS")},
+    {123, 178, "0", T("CHANGE MODE")},
 };
 static const KeyLabel keys_right[] = {
-    {181, 62, "OK", "USE THE MODE"},     {198, 62, "BACK", "SAVE, LEAVE"},
-    {166, 95, "VAR", "SAVE"},            {181, 95, "TOOLBOX", "NEXT BLOCK"},
-    {196, 95, "BACKSPACE", "DELETE"},    {177, 164, "+", "NEXT BLOCK"},
-    {195, 164, "-", "PREV BLOCK"},       {195, 178, "EXE", "PLAYTEST"},
+    {181, 62, "OK", T("USE THE MODE")},        {198, 62, T("BACK"), T("SAVE, LEAVE")},
+    {166, 95, "VAR", T("SAVE")},               {181, 95, T("TOOLBOX"), T("NEXT BLOCK")},
+    {196, 95, T("BACKSPACE"), T("DELETE")},    {177, 164, "+", T("NEXT BLOCK")},
+    {195, 164, "-", T("PREV BLOCK")},          {195, 178, "EXE", T("PLAYTEST")},
 };
 
 static void thin_line(int x0, int y0, int x1, int y1, color_t c, unsigned a) {
@@ -375,7 +376,7 @@ static void key(int x, int y, int w, int h, color_t c) {
 
 static void keys_draw(void) {
   gfx_blend(0, 0, GFX_W, GFX_H, rgb(10, 14, 40), 235);
-  ui_title(FONT_BIG, 160, 22, "EDITOR KEYS");
+  ui_title(FONT_BIG, 160, 22, T("EDITOR KEYS"));
   /* the calculator, without its screen */
   gfx_round_rect(108, 42, 104, 152, 10, rgb(60, 62, 70), 256);
   gfx_round_rect(110, 44, 100, 148, 9, rgb(236, 236, 238), 256);
@@ -399,20 +400,31 @@ static void keys_draw(void) {
   for (unsigned i = 0; i < nl; i++) {
     const KeyLabel *k = &keys_left[i];
     int y = 48 + (int)i * 23;
-    gfx_text_right(FONT_SMALL, 100, y + 8, k->name, GOLD_TOP, GOLD_BOTTOM, 256);
-    gfx_text_right(FONT_SMALL, 100, y + 18, k->what, 0xffff, 0xffff, 220);
+    if (NP_TEXT_EXTRA && (uint8_t)k->what[0] >= 0xE0) { /* Chinese, taller: the key and what it does on one line */
+      int ww = gfx_text_width(FONT_SMALL, k->what);
+      gfx_text_right(FONT_SMALL, 100 - ww - 2, y + 11, k->name, GOLD_TOP, GOLD_BOTTOM, 256);
+      gfx_text_right(FONT_SMALL, 100, y + 11, k->what, 0xffff, 0xffff, 220);
+    } else {
+      gfx_text_right(FONT_SMALL, 100, y + 8, k->name, GOLD_TOP, GOLD_BOTTOM, 256);
+      gfx_text_right(FONT_SMALL, 100, y + 18, k->what, 0xffff, 0xffff, 220);
+    }
     thin_line(102, y + 4, k->x, k->y, line, 256);
     gfx_round_rect(k->x - 1, k->y - 1, 3, 3, 1, line, 256);
   }
   for (unsigned i = 0; i < nr; i++) {
     const KeyLabel *k = &keys_right[i];
     int y = 44 + (int)i * 20;
-    gfx_text(FONT_SMALL, 220, y + 8, k->name, GOLD_TOP, GOLD_BOTTOM, 256);
-    gfx_text(FONT_SMALL, 220, y + 18, k->what, 0xffff, 0xffff, 220);
+    if (NP_TEXT_EXTRA && (uint8_t)k->what[0] >= 0xE0) {
+      gfx_text(FONT_SMALL, 220, y + 11, k->name, GOLD_TOP, GOLD_BOTTOM, 256);
+      gfx_text(FONT_SMALL, 220 + gfx_text_width(FONT_SMALL, k->name) + 2, y + 11, k->what, 0xffff, 0xffff, 220);
+    } else {
+      gfx_text(FONT_SMALL, 220, y + 8, k->name, GOLD_TOP, GOLD_BOTTOM, 256);
+      gfx_text(FONT_SMALL, 220, y + 18, k->what, 0xffff, 0xffff, 220);
+    }
     thin_line(218, y + 4, k->x, k->y, line, 256);
     gfx_round_rect(k->x - 1, k->y - 1, 3, 3, 1, line, 256);
   }
-  gfx_text_center(FONT_SMALL, 160, 232, "OK: GOT IT", 0xffff, 0xffff, 230);
+  gfx_text_center(FONT_SMALL, 160, 232, T("OK: GOT IT"), 0xffff, 0xffff, 230);
 }
 
 /* while the guide is open it takes the keys; closing it the first time
@@ -473,7 +485,7 @@ static void panel(void) {
   const int top = 178;
   gfx_blend(0, top, GFX_W, GFX_H - top, 0, 190);
   gfx_fill(0, top, GFX_W, 1, rgb(90, 90, 90));
-  static const char *const modes[3] = {"BUILD", "EDIT", "DELETE"};
+  static const char *const modes[3] = {T("BUILD"), T("EDIT"), T("DELETE")};
   for (int i = 0; i < 3; i++) ui_text_button(30, top + 12 + i * 20, 50, 17, modes[i], app.edit_mode == i ? BTN_GREEN : BTN_GRAY, 1);
   int page = app.edit_page;
   for (int k = 0; k < PAGE_ITEMS; k++) {
@@ -492,16 +504,16 @@ static void panel(void) {
   buf[n++] = '/';
   gfx_format_uint(buf + n, CUSTOM_MAX);
   gfx_text_center(FONT_SMALL, 286, top + 34, buf, 0xffff, 0xffff, 220);
-  static const char *const rots[4] = {"ROT 0", "ROT 90", "ROT 180", "ROT 270"};
+  static const char *const rots[4] = {T("ROT 0"), T("ROT 90"), T("ROT 180"), T("ROT 270")};
   gfx_text_center(FONT_SMALL, 286, top + 50, rots[app.rotate], 0xffff, 0xffff, 220);
 }
 
 static void settings_draw(void) {
   ui_dim(110);
   ui_window_brown(40, 44, 240, 150);
-  ui_title(FONT_BIG, 160, 70, "LEVEL SETTINGS");
+  ui_title(FONT_BIG, 160, 70, T("LEVEL SETTINGS"));
   const LevelDef *d = &level_defs[meta.theme % THEME_COUNT];
-  const char *labels[3] = {"COLORS", "START MODE", "CLEAR LEVEL"};
+  const char *labels[3] = {T("COLORS"), T("START MODE"), T("CLEAR LEVEL")};
   for (int i = 0; i < 3; i++) {
     int y = 98 + i * 28;
     color_t t = settings_sel == i ? GOLD_TOP : 0xffff, b = settings_sel == i ? GOLD_BOTTOM : 0xffff;
@@ -510,19 +522,20 @@ static void settings_draw(void) {
   gfx_round_rect(176, 90, 18, 16, 3, 0, 256);
   gfx_fill(177, 91, 16, 14, rgb(d->bg[0], d->bg[1], d->bg[2]));
   gfx_text(FONT_SMALL, 200, 102, theme_names[meta.theme % THEME_COUNT], 0xffff, 0xffff, 256);
-  gfx_text(FONT_SMALL, 200, 130, meta.flags & 1 ? "SHIP" : "CUBE", 0xffff, 0xffff, 256);
-  ui_text_button(214, 154, 90, 20, clear_armed ? "SURE?" : "CLEAR", clear_armed ? BTN_PINK : BTN_GRAY, settings_sel == 2 ? 1.08f : 1);
-  gfx_text_center(FONT_SMALL, 160, 186, "LEFT RIGHT: CHANGE    BACK: CLOSE", rgb(255, 230, 190), rgb(255, 230, 190), 220);
+  gfx_text(FONT_SMALL, 200, 130, meta.flags & 1 ? T("SHIP") : T("CUBE"), 0xffff, 0xffff, 256);
+  ui_text_button(214, 154, 90, 20, clear_armed ? T("SURE?") : T("CLEAR"), clear_armed ? BTN_PINK : BTN_GRAY, settings_sel == 2 ? 1.08f : 1);
+  gfx_text_center(FONT_SMALL, 160, 186, T("LEFT RIGHT: CHANGE    BACK: CLOSE"), rgb(255, 230, 190), rgb(255, 230, 190), 220);
 }
 
 void editor_draw(void) {
   scene_draw();
   draw_cursor();
   panel();
-  gfx_text(FONT_SMALL, 6, 12, slot_names[app.slot], 0xffff, 0xffff, 230);
-  if (app.dirty) gfx_text(FONT_SMALL, 6, 24, "UNSAVED", rgb(255, 220, 120), rgb(255, 180, 60), 230);
-  gfx_text_right(FONT_SMALL, 314, 12, "EXE: PLAYTEST", 0xffff, 0xffff, 200);
-  gfx_text_right(FONT_SMALL, 314, 24, "LN: SETTINGS", 0xffff, 0xffff, 200);
+  const int y0 = 12 - NP_TEXT_EXTRA, y1 = 24 + 2 * NP_TEXT_EXTRA; /* (further apart for Chinese letters) */
+  gfx_text(FONT_SMALL, 6, y0, slot_names[app.slot], 0xffff, 0xffff, 230);
+  if (app.dirty) gfx_text(FONT_SMALL, 6, y1, T("UNSAVED"), rgb(255, 220, 120), rgb(255, 180, 60), 230);
+  gfx_text_right(FONT_SMALL, 314, y0, T("EXE: PLAYTEST"), 0xffff, 0xffff, 200);
+  gfx_text_right(FONT_SMALL, 314, y1, T("LN: SETTINGS"), 0xffff, 0xffff, 200);
   if (settings_open) settings_draw();
   if (keys_open) keys_draw();
 }
@@ -546,7 +559,7 @@ void creator_tick(void) {
       app.testing = false;
       app_go(SCR_EDITOR);
     } else if (!custom_meta[app.row].exists || !custom_meta[app.row].count) {
-      app_notice("THIS LEVEL IS EMPTY");
+      app_notice(T("THIS LEVEL IS EMPTY"));
     } else {
       app.level = LEVEL_COUNT + app.row;
       app.practice = false;
@@ -564,7 +577,7 @@ void creator_draw(void) {
   gfx_vgrad(28, 48, 6, 168, rgb(190, 242, 72), rgb(80, 150, 30));
   gfx_vgrad(286, 48, 6, 168, rgb(190, 242, 72), rgb(80, 150, 30));
   ui_top_bar(40, false);
-  ui_title(FONT_BIG, 160, 38, "MY LEVELS");
+  ui_title(FONT_BIG, 160, 38, T("MY LEVELS"));
   for (int i = 0; i < CUSTOM_SLOTS; i++) {
     int y = 52 + i * 54;
     color_t c = i & 1 ? rgb(161, 88, 44) : rgb(194, 114, 62);
@@ -574,7 +587,7 @@ void creator_draw(void) {
     gfx_text(FONT_BIG, 44, y + 24, slot_names[i], 0xffff, 0xffff, 256);
     char buf[24];
     int n = gfx_format_uint(buf, m->exists ? m->count : 0);
-    memcpy(buf + n, " OBJECTS", 9);
+    memcpy(buf + n, T(" OBJECTS"), strlen(T(" OBJECTS")) + 1);
     gfx_text(FONT_SMALL, 46, y + 42, buf, rgb(255, 230, 190), rgb(255, 230, 190), 256);
     const LevelStat *s = &progress.lv[LEVEL_COUNT + i];
     if (m->exists && m->count) {
@@ -583,12 +596,12 @@ void creator_draw(void) {
       gfx_text(FONT_SMALL, 140, y + 42, buf, 0xffff, 0xffff, 220);
     }
     bool row = app.row == i;
-    ui_text_button(216, y + 27, 52, 22, "EDIT", BTN_GREEN, row && app.sel == 0 ? 1.12f : 1);
-    ui_text_button(266, y + 27, 42, 22, "PLAY", BTN_CYAN, row && app.sel == 1 ? 1.12f : 1);
+    ui_text_button(216, y + 27, 52, 22, T("EDIT"), BTN_GREEN, row && app.sel == 0 ? 1.12f : 1);
+    ui_text_button(266, y + 27, 42, 22, T("PLAY"), BTN_CYAN, row && app.sel == 1 ? 1.12f : 1);
   }
   gfx_round_rect(26, 212, 268, 8, 3, 0, 256);
   gfx_vgrad(28, 213, 264, 5, rgb(190, 242, 72), rgb(80, 150, 30));
-  gfx_text_center(FONT_SMALL, 160, 234, "UP DOWN: LEVEL    LEFT RIGHT: EDIT / PLAY", 0xffff, 0xffff, 200);
-  ui_text_button(262, 26, 70, 20, "KEYS", app.row < 0 ? BTN_GREEN : BTN_GRAY, app.row < 0 ? 1.12f : 1);
+  gfx_text_center(FONT_SMALL, 160, 234, T("UP DOWN: LEVEL    LEFT RIGHT: EDIT / PLAY"), 0xffff, 0xffff, 200);
+  ui_text_button(262, 26, 70, 20, T("KEYS"), app.row < 0 ? BTN_GREEN : BTN_GRAY, app.row < 0 ? 1.12f : 1);
   if (keys_open) keys_draw();
 }

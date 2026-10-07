@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
+#include "../../common/np_text.h"
 
 #ifdef __ELF__ /* app name and API level, for the calculator's installer */
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "Flappy Bird";
@@ -119,6 +120,58 @@ static int slen(const char *s) {
   while (s[n]) n++;
   return n;
 }
+#if NP_TEXT_EXTRA
+/* Other languages: an accented letter is the font's letter with np_accent() in the two rows over
+   lowercase letters (an i without its dot; a capital before a lowercase letter as a small
+   capital, its rows 0, 2, 3, 4 and 6; among capitals, above it), a cedilla under it. Chinese
+   comes from the 12-pixel font, 12 pixels tall up to size 2, then 24. */
+static color pen_c;
+static void pen_px(int x, int y, void *ctx) { fill(x, y, 1, 1, pen_c); }
+static int xk(int k) { return (7 * k + 6) / 12; }
+static char plain(uint32_t cp) { /* the letter without its accent (0: none such) */
+  char b = (char)cp, b2;
+  if (cp >= 0x80) np_latin(cp, &b, &b2);
+  return b;
+}
+static void glyph(char b, int x, int y, int k, int j0, bool small, void (*plot)(int x, int y, void *ctx)) {
+  for (int i = 0; i < 5; i++)
+    for (int j = j0; j < 8; j++)
+      if (fpix(b, i, small ? "\0\0\0\2\3\4\6\7"[j] : j))
+        for (int a = 0; a < k * k; a++) plot(x + i * k + a % k, y + j * k + a / k, 0);
+}
+/* draws (with plot, or only measures) the next letter of *s at x; returns its advance */
+static int letter(const char **s, int x, int y, int k, void (*plot)(int x, int y, void *ctx)) {
+  uint32_t cp = np_utf8(s);
+  char b = (char)cp, b2 = 0;
+  int acc = 0;
+  if (cp >= 0x80 && (acc = np_latin(cp, &b, &b2), !b)) {
+    if (plot) np_xdraw(cp, x, y + (7 * k - 12 * xk(k)) / 2, xk(k), plot, 0);
+    return np_xadvance(cp, xk(k));
+  }
+  if (plot) {
+    const char *n = *s;
+    char nb = *n ? plain(np_utf8(&n)) : 0;
+    bool over = acc && acc != NP_ACC_CEDIL, cap = b >= 'A' && b <= 'Z', small = over && cap && nb >= 'a' && nb <= 'z';
+    glyph(b, x, y, k, over && (!cap || small) ? 2 : 0, small, plot);
+    if (over && (!cap || small) && plot != pen_px && k > 1) /* (in big lettering: a size smaller, 2 pixels off the letter) */
+      np_accent(acc, x + k / 2 + 1, y + 2 * k - 2 * (k - 1) - 2, k - 1, plot, 0);
+    else
+      np_accent(acc, x, acc == NP_ACC_CEDIL ? y + 7 * k : over && cap && !small ? y - 3 * k : y, k, plot, 0);
+    if (b2) glyph(b2, x + ADV(k), y, k, 0, false, plot);
+  }
+  return (b2 ? 2 : 1) * ADV(k);
+}
+static int tw(const char *s, int k) {
+  int w = 5 * k - ADV(k);
+  while (*s) w += letter(&s, 0, 0, k, 0);
+  return w;
+}
+static void text(const char *s, int x, int y, int k, color c) {
+  if (y - 3 * k >= ry + rh || y + 10 * k <= ry) return;
+  pen_c = c;
+  while (*s) x += letter(&s, x, y, k, pen_px);
+}
+#else
 static int tw(const char *s, int k) { return slen(s) * ADV(k) - ADV(k) + 5 * k; }
 static void text(const char *s, int x, int y, int k, color c) {
   if (y >= ry + rh || y + 8 * k <= ry) return;
@@ -127,6 +180,7 @@ static void text(const char *s, int x, int y, int k, color c) {
       for (int j = 0; j < 8; j++)
         if (fpix(*s, i, j)) fill(x + i * k, y + j * k, k, k, c);
 }
+#endif
 static void ctext(const char *s, int cx, int y, int k, color c) { text(s, cx - tw(s, k) / 2, y, k, c); }
 static void otext(const char *s, int x, int y, int k, color c) { /* with a dark outline */
   for (int d = 0; d < 9; d++) text(s, x + d % 3 - 1, y + d / 3 - 1, k, DARK);
@@ -177,16 +231,48 @@ static void big(int n, int x, int y, int k, bool c) {
 static uint8_t lmap[LMW * LMH / 4];
 static int lw, lh;
 static color lfill[LMH];
+#if NP_TEXT_EXTRA
+/* (other languages: the letters drawn first into a mask, a bit a pixel, after the distances) */
+static uint8_t *lmask;
+static int lwide;
+static void mask_px(int x, int y, void *ctx) {
+  for (int i = 0; i < lwide; i++, x++) /* strokes widened to the right (not a Chinese letter's) */
+    if ((unsigned)x < (unsigned)lw && (unsigned)y < (unsigned)lh) lmask[(y * lw + x) >> 3] |= (uint8_t)(1 << ((y * lw + x) & 7));
+}
+#endif
 static void letters(const char *s, int k, int drop, color top, color bot) {
+#if NP_TEXT_EXTRA
+  const int p = 3, R = p + drop + 1, a = ADV(k) + 1;
+  lw = 5 * k + 1 + 2 * p - a, lh = 8 * k + 2 * p + drop;
+  for (const char *t = s; *t;) { /* (a Chinese letter a pixel apart too) */
+    int d = letter(&t, 0, 0, k, 0);
+    lw += d % ADV(k) ? d + 1 : d / ADV(k) * a;
+  }
+  lw = imin(lw, LMW);
+  lmask = (uint8_t *)buf + LMW * LMH;
+  for (int i = 0; i < (lw * lh + 7) >> 3; i++) lmask[i] = 0;
+  for (int x = p; *s;) {
+    const char *t = s;
+    uint32_t cp = np_utf8(&t);
+    lwide = cp < 0x80 || plain(cp) ? 2 : 1;
+    int d = letter(&s, x, p, k, mask_px);
+    x += d % ADV(k) ? d + 1 : d / ADV(k) * a;
+  }
+#else
   const int p = 3, R = p + drop + 1, n = slen(s), a = ADV(k) + 1; /* strokes a pixel bolder */
   lw = n * a - a + 5 * k + 1 + 2 * p, lh = 8 * k + 2 * p + drop;
+#endif
   uint8_t *hd = (uint8_t *)buf; /* distance to the nearest letter pixel in the row */
   for (int y = 0; y < lh; y++) {
     uint8_t *h = hd + y * lw;
     int d = R;
     for (int x = 0; x < lw; x++) {
+#if NP_TEXT_EXTRA
+      bool on = lmask[(y * lw + x) >> 3] >> ((y * lw + x) & 7) & 1;
+#else
       int u = x - p, v = y - p, c = u % a; /* strokes widened to the right */
       bool on = u >= 0 && v >= 0 && v < 8 * k && (fpix(s[u / a], c / k, v / k) || (c && fpix(s[u / a], (c - 1) / k, v / k)));
+#endif
       d = on ? 0 : imin(d + 1, R);
       h[x] = (uint8_t)d;
     }
@@ -450,15 +536,11 @@ static void pipe_dirty(pipe_t *p) {
 /* ------------------------------------------------------------------ settings, save */
 enum { O_SPEED, O_SPEEDUP, O_PIPES, O_GAP, O_MOVING, O_JUMP, O_EVENTS, O_SURGE, O_WIND, O_NARROW, O_WIDE, O_DENSE,
        O_GRAV, O_STACK, O_NOCOLL, O_BIRD, O_SKY, O_RESET, NOPT };
-static const char opt_names[] = /* one after the other, see nth() */
-  "Speed\0Speed up\0Pipes\0Gap\0Moving pipes\0Jump\0Events\0- Pipe surge\0- Wind\0- Narrow gaps\0- Wide gaps\0"
-  "- Dense pipes\0- Gravity\0Stack events\0No collisions\0Bird\0Sky\0Reset all";
+static const char *const opt_names = /* one after the other, see nth() */
+  T("Speed\0Speed up\0Pipes\0Gap\0Moving pipes\0Jump\0Events\0- Pipe surge\0- Wind\0- Narrow gaps\0- Wide gaps\0- Dense pipes\0- Gravity\0Stack events\0No collisions\0Bird\0Sky\0Reset all");
 /* the values of the options that are not Off/On, one list after the other */
-static const char opt_vals[] =
-  "Very slow\0Slow\0Normal\0Fast\0Insane\0Impossible\0Never\0Every 15\0Every 10\0Every 5\0Each pipe\0"
-  "Sparse\0Normal\0Dense\0Extreme\0Easy\0Normal\0Hard\0Off\0Rarely\0Sometimes\0Often\0Slow\0Fast\0"
-  "Floaty\0Bouncy\0Normal\0Snappy\0Heavy\0Never\0Rare\0Normal\0Frequent\0Random\0Yellow\0Blue\0Red\0"
-  "Random\0Day\0Night\0OK";
+static const char *const opt_vals =
+  T("Very slow\0Slow\0Normal\0Fast\0Insane\0Impossible\0Never\0Every 15\0Every 10\0Every 5\0Each pipe\0Sparse\0Normal\0Dense\0Extreme\0Easy\0Normal\0Hard\0Off\0Rarely\0Sometimes\0Often\0Slow\0Fast\0Floaty\0Bouncy\0Normal\0Snappy\0Heavy\0Never\0Rare\0Normal\0Frequent\0Random\0Yellow\0Blue\0Red\0Random\0Day\0Night\0OK");
 static const uint8_t opt_count[NOPT] = {6, 5, 4, 3, 6, 5, 4, 2, 2, 2, 2, 2, 2, 2, 2, 4, 3, 1};
 static const uint8_t opt_default[NOPT] = {2, 2, 1, 1, 0, 2, 2, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0};
 /* Classic: the real game (the bird and sky settings still apply) */
@@ -478,7 +560,7 @@ static const char *nth(const char *s, int i) {
 }
 static const char *opt_text(int r) {
   int k = sv.opt[r];
-  if (opt_count[r] == 2) return nth("Off\0On", k);
+  if (opt_count[r] == 2) return nth(T("Off\0On"), k);
   for (int i = 0; i < r; i++) k += opt_count[i] == 2 ? 0 : opt_count[i];
   return nth(opt_vals, k);
 }
@@ -503,8 +585,8 @@ static void load(void) {
 /* ------------------------------------------------------------------ the game */
 enum { S_TITLE, S_SETTINGS, S_READY, S_PLAY, S_DEAD, S_OVER };
 enum { EV_NONE, EV_SURGE, EV_TAIL, EV_HEAD, EV_NARROW, EV_WIDE, EV_DENSE, EV_LOW, EV_HIGH };
-static const char ev_names[] =
-  "\0Pipe surge!\0Tailwind!\0Headwind!\0Narrow gaps!\0Wide gaps!\0Dense pipes!\0Low gravity!\0High gravity!";
+static const char *const ev_names =
+  T("\0Pipe surge!\0Tailwind!\0Headwind!\0Narrow gaps!\0Wide gaps!\0Dense pipes!\0Low gravity!\0High gravity!");
 static int state, tick, sel, top_row, paused, psel; /* paused: 1 the menu, 2 "Quit game?" */
 static bool leave; /* Quit game: back to NumPlay (or the calculator) */
 static int32_t by, vy;                             /* the bird's height and speed, 1/256 pixel */
@@ -640,7 +722,7 @@ static void new_game(void) {
   for (int i = 0; i < NS; i++) st[i].life = 0;
   gmin = imax(ev_freq && sv.opt[O_NARROW] ? gap0 * 184 >> 8 : gap0, apex + 28); /* the gap's smallest size */
   last_c = GY / 2, last_w = 0, by = 100 << 8, vy = 0, score = 0, bird_a = 0, countdown = 0, flash = 0, landed = 0;
-  letters("Get Ready!", 3, 2, RGB(0xB8F07A), RGB(0x4DB33D));
+  letters(T("Get Ready!"), 3, 2, RGB(0xB8F07A), RGB(0x4DB33D));
   state = S_READY, tick = 0, paused = 0, full = true;
 }
 static void to_title(void) {
@@ -649,11 +731,11 @@ static void to_title(void) {
   make_scene();
   for (int i = 0; i < NP; i++) P[i].on = 0;
   for (int i = 0; i < NS; i++) st[i].life = 0;
-  letters("FlappyBird", 3, 3, RGB(0xFFF3B8), RGB(0xF7A93A));
+  letters(T("FlappyBird"), 3, 3, RGB(0xFFF3B8), RGB(0xF7A93A));
   state = S_TITLE, tick = 0, sel = sv.mode, paused = 0, bird_a = 0, full = true;
 }
 static void to_settings(void) {
-  letters("Settings", 3, 2, RGB(0xB8F07A), RGB(0x4DB33D));
+  letters(T("Settings"), 3, 2, RGB(0xB8F07A), RGB(0x4DB33D));
   state = S_SETTINGS, sel = 0, top_row = 0, full = true;
 }
 static void die(void) {
@@ -677,7 +759,7 @@ static void game_over(void) {
   state = S_OVER, tick = 0, sel = 0, shown = 0, done_t = 9999, sparkle = 0;
   newbest = keep_best();
   save();
-  letters("Game Over", 3, 2, RGB(0xFFD27A), RGB(0xE86101));
+  letters(T("Game Over"), 3, 2, RGB(0xFFD27A), RGB(0xE86101));
   full = true;
 }
 
@@ -735,7 +817,7 @@ static void streaks_draw(void) {
 }
 
 static void play_step(void) {
-  if (tick <= 8) add(W / 2 - lw / 2, 48, lw, lh), add(138, 94, 96, 56); /* Get Ready fades out */
+  if (tick <= 8) add(W / 2 - lw / 2, 48, lw, lh), add(NP_TEXT_EXTRA ? 0 : 138, 94, NP_TEXT_EXTRA ? W : 96, 56); /* Get Ready fades out */
   if (countdown) {
     if (!(--countdown % 50)) add(120, 82, 80, 56);
     return;
@@ -800,8 +882,8 @@ static void play_step(void) {
     die();
   }
   streaks_step();
-  if (ban_e && ++ban_t > 170) ban_e = 0, add(0, 210, 190, 30);
-  if (ban_e && (ban_t < 50 || ban_t > 158)) add(0, 210, 190, 30);
+  if (ban_e && ++ban_t > 170) ban_e = 0, add(0, 210, NP_TEXT_EXTRA ? W : 190, 30);
+  if (ban_e && (ban_t < 50 || ban_t > 158)) add(0, 210, NP_TEXT_EXTRA ? W : 190, 30);
 }
 
 static void (*fade_next)(void);
@@ -888,9 +970,10 @@ static void panel(int y) { /* the score board */
   const int x = 75, w = 170;
   char n[8];
   board(x, y, w, 88);
-  text("MEDAL", x + 16, y + 10, 1, ORANGE);
-  text("SCORE", x + w - 14 - tw("SCORE", 1), y + 10, 1, ORANGE);
-  text("BEST", x + w - 14 - tw("BEST", 1), y + 46, 1, ORANGE);
+  const char *sc = T("SCORE"), *be = T("BEST");
+  text(T("MEDAL"), x + 16, y + 10, 1, ORANGE);
+  text(sc, x + w - 14 - tw(sc, 1), y + 10, 1, ORANGE);
+  text(be, x + w - 14 - tw(be, 1), y + 46, 1, ORANGE);
   disc(x + 36, y + 46, 16, RGB(0xCFC285)); /* the medal's hollow */
   num(n, shown);
   big(shown, x + w - 14 - bigw(n, 2), y + 22, 2, false);
@@ -900,9 +983,16 @@ static void panel(int y) { /* the score board */
   if (shown == score && tick >= done_t) {
     if (score >= 10) medal(x + 36, y + 46, score >= 40 ? 3 : score >= 30 ? 2 : score >= 20 ? 1 : 0);
     if (newbest) {
+#if NP_TEXT_EXTRA /* (as wide as its text, and a Chinese letter's height) */
+      const char *nw = T("NEW");
+      int bw = tw(nw, 1) + 7, bx = x + w - 14 - bigw(n, 2) - 6 - bw;
+      rrect(bx, y + 59, bw, 13, RGB(0xFC3800));
+      text(nw, bx + 4, y + 62, 1, WHITE);
+#else
       int bx = x + w - 14 - bigw(n, 2) - 30;
       rrect(bx, y + 60, 24, 11, RGB(0xFC3800));
       text("NEW", bx + 3, y + 62, 1, WHITE);
+#endif
     }
   }
 }
@@ -913,9 +1003,10 @@ static void tap_hint(int cx, int y) { /* the original's tutorial, with the OK ke
   rrect(cx - 20, y + 26, 40, 24, DARK);
   rrect(cx - 19, y + 27, 38, 22, WHITE);
   fill(cx - 17, y + 45, 34, 2, RGB(0xD0D0D0));
-  ctext("OK", cx, y + 31, 2, DARK);
-  text("TAP", cx - 46, y + 34, 1, RGB(0xF4561D));
-  text("TAP", cx + 28, y + 34, 1, RGB(0xF4561D));
+  ctext("OK", cx, y + 31, 2, DARK); /* (the key) */
+  const char *tap = T("TAP");
+  text(tap, NP_TEXT_EXTRA ? cx - 29 - tw(tap, 1) : cx - 46, y + 34, 1, RGB(0xF4561D));
+  text(tap, cx + 28, y + 34, 1, RGB(0xF4561D));
 }
 
 static void settings_draw(void) {
@@ -934,24 +1025,24 @@ static void settings_draw(void) {
     if (arrows) text("<", vx - 12, y, 2, c), text(">", 294, y, 2, c);
   }
   fill(306, 44 + top_row * 146 / NOPT, 3, 8 * 146 / NOPT, mix(DARK, BEIGE, 14)); /* where we are */
-  ctext(nth("For Custom games\0For both games\0Back to the defaults", sel < O_BIRD ? 0 : sel < O_RESET ? 1 : 2), 160, 216, 1, DARK);
-  ctext("Left/Right: change   Back: done", 160, 228, 1, RGB(0x9A7F4E));
+  ctext(nth(T("For Custom games\0For both games\0Back to the defaults"), sel < O_BIRD ? 0 : sel < O_RESET ? 1 : 2), 160, 216, 1, DARK);
+  ctext(T("Left/Right: change   Back: done"), 160, 228, 1, RGB(0x9A7F4E));
 }
 
 static void pause_draw(void) {
   shade(0, 0, W, H, 0, 12);
   board(80, 58, 160, 118);
   if (paused == 2) {
-    ctext("Quit game?", 160, 76, 2, DARK);
-    button(94, 120, 60, 28, "Yes", psel == 1, false, 2);
-    button(166, 120, 60, 28, "No", psel == 0, false, 2);
+    ctext(T("Quit game?"), 160, 76, 2, DARK);
+    button(94, 120, 60, 28, T("Yes"), psel == 1, false, 2);
+    button(166, 120, 60, 28, T("No"), psel == 0, false, 2);
     return;
   }
-  ctext("Paused", 160, 68, 2, ORANGE);
+  ctext(T("Paused"), 160, 68, 2, ORANGE);
   for (int i = 0; i < 3; i++) {
     int y = 92 + i * 26;
     if (psel == i) rrect(92, y - 4, 136, 22, ORANGE);
-    ctext(nth("Resume\0Restart\0Quit game", i), 160, y, 2, psel == i ? WHITE : DARK);
+    ctext(nth(T("Resume\0Restart\0Quit game"), i), 160, y, 2, psel == i ? WHITE : DARK);
   }
 }
 
@@ -960,15 +1051,18 @@ static void ui(void) {
     case S_TITLE: {
       int b = bob(90, 4), lx = (W - lw - 56) / 2;
       lettering(lx, 28 + b, 32);
-      button(44, 112, 110, 38, "Classic", sel == 0, true, 2);
-      button(166, 112, 110, 38, "Custom", sel == 1, true, 2);
+      const char *m0 = T("Classic"), *m1 = T("Custom");
+      bool arrow = !NP_TEXT_EXTRA || imax(tw(m0, 2), tw(m1, 2)) + 16 <= 104; /* (both with it, or neither) */
+      button(44, 112, 110, 38, m0, sel == 0, arrow, 2);
+      button(166, 112, 110, 38, m1, sel == 1, arrow, 2);
       for (int i = 0; i < 2; i++) {
-        char t[16] = "Best ";
-        num(t + 5, sv.best[i]);
+        char t[NP_TEXT_EXTRA ? 32 : 16], *e = t;
+        for (const char *b = T("Best "); *b;) *e++ = *b++;
+        num(e, sv.best[i]);
         otext(t, 99 + 122 * i - tw(t, 1) / 2, 158, 1, WHITE);
       }
-      button(116, 172, 88, 20, "Settings", sel == 2, false, 1); /* small, like the original's Rate */
-      ctext("Based on Tatone26's version", 160, 222, 1, RGB(0x9A7F4E));
+      button(116, 172, 88, 20, T("Settings"), sel == 2, false, 1); /* small, like the original's Rate */
+      ctext(T("Based on Tatone26's version"), 160, 222, 1, RGB(0x9A7F4E));
       break;
     }
     case S_SETTINGS:
@@ -1004,13 +1098,16 @@ static void ui(void) {
       lettering(W / 2 - lw / 2, 14 - imax(0, 8 - t), imin(32, t * 4));
       if (t >= 16) panel(panel_y(t));
       if (t >= done_t + 6) {
-        button(80, BTY, 76, 26, "Play", sel == 0, true, 2);
-        button(164, BTY, 76, 26, "Menu", sel == 1, false, 2);
+        button(80, BTY, 76, 26, T("Play"), sel == 0, true, 2);
+        button(164, BTY, 76, 26, T("Menu"), sel == 1, false, 2);
       }
       break;
     }
   }
-  if (nocoll && state >= S_READY && state <= S_DEAD) otext("PRACTICE", W / 2 - 23, 42, 1, WHITE); /* scores don't count */
+  if (nocoll && state >= S_READY && state <= S_DEAD) { /* scores don't count */
+    const char *s = T("PRACTICE");
+    otext(s, NP_TEXT_EXTRA ? W / 2 - tw(s, 1) / 2 : W / 2 - 23, 42, 1, WHITE);
+  }
   if (paused) pause_draw();
   if (flash) shade(0, 0, W, H, WHITE, flash);
   if (fade_t) shade(0, 0, W, H, 0, (fade_t < 7 ? fade_t : 13 - fade_t) * 5);

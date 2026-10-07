@@ -1,0 +1,39 @@
+# Connect 4 in French: the English text as in the source, a tab, the translation (see tools/lang.py).
+Resume	Reprendre
+Undo move	Annuler
+Restart	Rejouer
+Quit game	Quitter
+P1	J1
+P2	J2
+P3	J3
+RED WINS!	ROUGE GAGNE !
+YELLOW WINS!	JAUNE GAGNE !
+GREEN WINS!	VERT GAGNE !
+DRAW!	MATCH NUL !
+YOU	TOI
+CPU 1	IA 1
+CPU 2	IA 2
+CPU	IA
+YOU WIN!	TU GAGNES !
+CPU 1 WINS	IA 1 GAGNE
+CPU 2 WINS	IA 2 GAGNE
+CPU WINS	L'IA GAGNE
+OK: next round	OK : manche suivante
+PAUSED	PAUSE
+Quit game?	Quitter ?
+Yes	Oui
+No	Non
+Opponent	Adversaire
+Players	Joueurs
+Level	Niveau
+Theme	Thème
+Friend	Ami
+Computer	IA
+Weak	Faible
+Normal	Normal
+Strong	Fort
+Light	Clair
+Dark	Sombre
+CONNECT	PUISSANCE
+PLAY	JOUER
+Based on Tatone26's version	D'après la version de Tatone26

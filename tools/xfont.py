@@ -71,32 +71,44 @@ def table(font_path, out, texts):
     cps = sorted(c for c in used if c in font and (c >= 0x2100 or 0x21 <= c < 0x180))
     L = ["/* Made by tools/xfont.py from Fusion Pixel 12px (SIL Open Font License 1.1): the letters this",
          "   build's texts use that the games' fonts don't have. See games/common/np_text.h. */"]
-    rows = bytearray()
-    glyphs = []
-    for cp in cps:
+    bits, sizes, size, start = [], [], [], []
+    for k, cp in enumerate(cps):
         adv, x, y, w, h, r = font[cp]
+        if cp >= 0x10000:
+            raise SystemExit("xfont: letters above 0xFFFF")
+        if k % 16 == 0:
+            start.append(len(bits))
         stride = (w + 7) // 8
-        bits = [r[j * stride + i // 8] >> (i % 8) & 1 for j in range(h) for i in range(w)]
-        packed = bytearray((len(bits) + 7) // 8)
-        for k, b in enumerate(bits):
-            packed[k // 8] |= b << (k % 8)
-        if cp >= 0x10000 or len(rows) >= 0x10000:
-            raise SystemExit("xfont: too many letters for 16-bit offsets")
-        glyphs.append(f"{{{cp:#x}, {adv}, {w}, {h}, {x}, {y}, {len(rows)}}}")
-        rows += packed  # (each letter starts on a byte: its offset counts bytes)
+        bits += [r[j * stride + i // 8] >> (i % 8) & 1 for j in range(h) for i in range(w)]
+        s = (adv, w, h, x, y)  # (the Chinese letters share a few)
+        if s not in sizes:
+            sizes.append(s)
+        size.append(sizes.index(s))
+    if len(sizes) > 256:
+        raise SystemExit("xfont: more than 256 sizes")
+    rows = bytearray((len(bits) + 7) // 8)
+    for k, b in enumerate(bits):
+        rows[k // 8] |= b << (k % 8)
+
+    def array(ctype, name, values, per_line=24):
+        out = [f"static const {ctype} {name}[{len(values)}] = {{"]
+        for i in range(0, len(values), per_line):
+            out.append("  " + ", ".join(str(v) for v in values[i:i + per_line]) + ",")
+        return out + ["};"]
     if cps:
-        L.append("static const np_xglyph_t np_xfont_glyphs[] = {")
-        L += [f"  {g}," for g in glyphs]
+        L += array("uint16_t", "np_xfont_cps", cps, 16)
+        L += array("uint8_t", "np_xfont_size", size)
+        L.append("static const np_xglyph_t np_xfont_sizes[] = {")
+        L += [f"  {{{adv}, {w}, {h}, {x}, {y}}}," for adv, w, h, x, y in sizes]
         L.append("};")
-        L.append(f"static const uint8_t np_xfont_rows[{len(rows)}] = {{")
-        for i in range(0, len(rows), 24):
-            L.append("  " + ", ".join(str(b) for b in rows[i:i + 24]) + ",")
-        L.append("};")
-        L.append(f"const np_xfont_t np_xfont = {{{len(cps)}, np_xfont_glyphs, np_xfont_rows}};")
+        L += array("uint32_t", "np_xfont_start", start, 12)
+        L += array("uint8_t", "np_xfont_rows", list(rows))
+        L.append(f"const np_xfont_t np_xfont = {{{len(cps)}, np_xfont_cps, np_xfont_size, np_xfont_sizes, "
+                 "np_xfont_start, np_xfont_rows};")
     else:
-        L.append("const np_xfont_t np_xfont = {0, 0, 0};")
+        L.append("const np_xfont_t np_xfont = {0, 0, 0, 0, 0, 0};")
     open(out, "w").write("\n".join(L) + "\n")
-    return len(cps), len(rows) + 10 * len(cps)
+    return len(cps), 3 * len(cps) + 5 * len(sizes) + 4 * len(start) + len(rows)
 
 
 if __name__ == "__main__":

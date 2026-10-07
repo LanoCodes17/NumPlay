@@ -588,6 +588,26 @@ int main(void) {
     delete_world(3);
     plat_remove_prefix("numblocks_saves.py");
   }
+  /* sneaking along a one-block bridge over the void: it walks to the end and stops there (bridging);
+   * not sneaking, it walks off */
+  for (int sneak = 1; sneak >= 0; sneak--) {
+    world_new(0, "ut4");
+    world_follow(8, 70, 8);
+    int y = 70;
+    for (int z = 0; z <= 20; z++)
+      for (int x = 0; x <= 16; x++)
+        for (int k = -6; k < 4; k++) world_set(x, y + k, z, B_AIR);
+    for (int z = 8; z <= 12; z++) world_set(8, y - 1, z, B_COBBLESTONE);
+    memset(ents, 0, sizeof ents);
+    pl.mode = 0, pl.dead = false, pl.health = 20, pl.flying = false;
+    pl.x = 8.5f, pl.y = (float)y, pl.z = 8.5f, pl.vx = pl.vy = pl.vz = 0, pl.yaw = 0, pl.pitch = 0;
+    pl.on_ground = true;
+    uint32_t k = K_FWD | (sneak ? K_SNEAK : 0);
+    for (int t = 0; t < 100; t++) player_tick(k, t ? 0 : k);
+    if (sneak) CHECK(pl.y == (float)y && pl.z > 12.9f && pl.z < 13.31f);
+    else CHECK(pl.y < (float)y - 1);
+    plat_remove_prefix("ut4");
+  }
   {
     /* keys saved as they first were (Back mining, OK placing) become OK mining, Back placing; set ones stay */
     keys_reset();

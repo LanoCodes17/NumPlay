@@ -49,14 +49,22 @@ static void cell_plot(int x, int y, void *ctx) {
   if (x >= 0 && x < p->cw && y >= 0 && y < p->ch) p->cell[y * p->cw + x] = p->fg;
 }
 
-/* a Chinese letter in two cells */
-static void draw_wide(uint32_t cp, int cw, int ch, int x, int y, color_t fg, color_t bg) {
+/* Chinese letters, two cells each: n of them from (x, y). Their 12-pixel letters go 14 pixels
+ * apart, centred in the cells (in the large font's 20-pixel pairs, a letter a pair looks spaced). */
+#define WIDE_STEP 14
+static void draw_wide(const uint32_t *cps, int n, int cw, int ch, int x, int y, color_t fg, color_t bg) {
   color_t cell[20 * 18];
-  for (int i = 0; i < 2 * cw * ch; i++) cell[i] = bg;
-  cell_plot_t p = {cell, 2 * cw, ch, fg};
-  np_xdraw(cp, (2 * cw - 12) / 2, (ch - 12) / 2, 1, cell_plot, &p);
-  if (x + 2 * cw > 320 || y + ch > 240) return;
-  eadk_display_push_rect((eadk_rect_t){(uint16_t)x, (uint16_t)y, (uint16_t)(2 * cw), (uint16_t)ch}, cell);
+  int start = (2 * cw - WIDE_STEP) * n / 2 + (WIDE_STEP - 12) / 2;
+  for (int k = 0; k < n; k++, x += 2 * cw) {
+    for (int i = 0; i < 2 * cw * ch; i++) cell[i] = bg;
+    cell_plot_t p = {cell, 2 * cw, ch, fg};
+    for (int i = 0; i < n; i++) {
+      int pen = start + WIDE_STEP * i - 2 * cw * k;
+      if (pen > -12 && pen < 2 * cw) np_xdraw(cps[i], pen, (ch - 12) / 2, 1, cell_plot, &p);
+    }
+    if (x + 2 * cw > 320 || y + ch > 240) return;
+    eadk_display_push_rect((eadk_rect_t){(uint16_t)x, (uint16_t)y, (uint16_t)(2 * cw), (uint16_t)ch}, cell);
+  }
 }
 
 static bool has_wide(const char *s) {
@@ -87,10 +95,19 @@ void np_display_draw_string(const char *text, eadk_point_t point, bool large_fon
       s++, x += cw;
       continue;
     }
+    const char *at = s;
     uint32_t cp = np_utf8(&s);
-    if (cp >= 0x2E80 && np_xglyph(cp)) {
-      draw_wide(cp, cw, ch, x, y, text_color, background_color);
-      x += 2 * cw;
+    if (cp >= 0x2E80 && np_xglyph(cp)) { /* the run of them */
+      uint32_t run[16];
+      int n = 0;
+      for (s = at; *s && n < 16;) {
+        const char *next = s;
+        uint32_t c = np_utf8(&next);
+        if (c < 0x2E80 || !np_xglyph(c)) break;
+        run[n++] = c, s = next;
+      }
+      draw_wide(run, n, cw, ch, x, y, text_color, background_color);
+      x += 2 * cw * n;
       continue;
     }
     char base = (char)cp, second = 0;

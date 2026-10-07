@@ -14,6 +14,7 @@
 #include <string.h>
 #include "blocks.h"
 #include "data.h"
+#include "../../common/np_text.h"
 
 /* ---------------------------------------------------------------- the platform (plat_eadk.c / plat_host.c) */
 enum {

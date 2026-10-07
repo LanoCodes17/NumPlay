@@ -1,0 +1,523 @@
+# NumBlocks in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+# Minecraft's own Simplified Chinese where it has one (zh_CN), shorter where a button or a key is narrow.
+# ---- menus
+Done	完成
+Singleplayer	单人游戏
+Multiplayer	多人游戏
+Options...	选项...
+Quit Game	退出游戏
+Play Selected World	进入选中的世界
+Create New World	创建新的世界
+Rename	重命名
+Delete	删除
+Re-Create	重新创建
+Cancel	取消
+Game Mode: 	游戏模式：
+Creative	创造
+Survival	生存
+Allow Cheats: 	允许作弊：
+ON	开
+OFF	关
+Seed: 	种子：
+(random)	(随机)
+World Type: 	世界类型：
+Superflat	超平坦
+Default	默认
+Peaceful	和平
+Easy	简单
+Normal	普通
+Hard	困难
+Difficulty: 	难度：
+Graphics: 	图像品质：
+Fancy	高品质
+Fast	流畅
+Look Speed: 	灵敏度：
+Clouds: 	云：
+View Bobbing: 	视角摇晃：
+Controls...	按键控制...
+Back to Game	回到游戏
+Achievements	成就
+Statistics	统计信息
+Open to LAN	对局域网开放
+Save and Quit to Title	保存并退回到标题画面
+Start LAN World	创建局域网世界
+Respawn	重生
+Title screen	标题画面
+New World	新的世界
+Copy of 	副本 
+Select World	选择世界
+Creative Mode	创造模式
+Survival Mode	生存模式
+, Cheats	，作弊
+No worlds yet	还没有世界
+Storage free: 	剩余空间：
+ KB	 KB
+World Name	世界名称
+Unlimited resources, free flying and	无限的资源、自由地飞翔并且
+destroy blocks instantly	能够瞬间破坏方块
+Search for resources, crafting, gain	探索世界、收集资源、合成道具、
+levels, health and hunger	提高等级、补充体力和饥饿值
+alpha: letters or digits, shift: capitals, OK: done	alpha：字母/数字，shift：大写，OK：完成
+Leave blank for a random seed	留空以生成随机种子
+Rename World	重命名世界
+Enter Name	输入名称
+Are you sure you want to delete this world?	你确定要删除这个世界吗？
+'	“
+' will be lost forever! (A long time!)	”将会永久消失！（真的很久！）
+Options	选项
+Game menu	游戏菜单
+LAN World	局域网世界
+Settings for Other Players	其他玩家的设置
+Loading world	正在载入世界
+Building terrain	正在建立地形
+You died!	你死了！
+Score: 	分数：
+Inspired by Minecraft, not affiliated with Mojang	灵感来自Minecraft，与Mojang无关
+Made by Mason Chen as part of NumPlay	Mason Chen为NumPlay制作
+# ---- containers
+Crafting	合成
+Inventory	物品栏
+Furnace	熔炉
+Chest	箱子
+# ---- the chat
+alpha: abc/123   shift: Abc   toolbox: finish the word	alpha：abc/123   shift：Abc   工具箱：补全单词
+x,n,t  :     var  _     x10^x  ~     ans  space     0  @	x,n,t  :     var  _     x10^x  ~     ans  空格     0  @
+You can only sleep at night	你只能在夜间入睡
+You may not rest now, there are monsters nearby	你现在不能休息，周围有怪物在游荡
+# ---- the keys: names in Controls (Minecraft's), then the key sheet's words
+Controls	按键控制
+Key Sheet...	按键图...
+Reset	重置
+Reset Keys	全部重置
+Gameplay	游戏内容
+Miscellaneous	杂项
+Movement	移动
+Attack/Destroy	攻击/摧毁
+Mine, attack	挖掘、攻击
+Pick Block	选取方块
+Pick block	选取方块
+Use Item/Place Block	使用物品/放置方块
+Place, use	放置、使用
+Drop Item	丢弃物品
+Drop	丢弃
+Hotbar Slot 1	快捷栏1
+Hotbar Slot 2	快捷栏2
+Hotbar Slot 3	快捷栏3
+Hotbar Slot 4	快捷栏4
+Hotbar Slot 5	快捷栏5
+Hotbar Slot 6	快捷栏6
+Hotbar Slot 7	快捷栏7
+Hotbar Slot 8	快捷栏8
+Hotbar Slot 9	快捷栏9
+Slot 1	快捷栏1
+Slot 2	快捷栏2
+Slot 3	快捷栏3
+Slot 4	快捷栏4
+Slot 5	快捷栏5
+Slot 6	快捷栏6
+Slot 7	快捷栏7
+Slot 8	快捷栏8
+Slot 9	快捷栏9
+Pause	暂停
+Jump	跳跃
+Sneak	潜行
+Sprint	疾跑
+Strafe Left	向左平移
+Left	左移
+Strafe Right	向右平移
+Right	右移
+Walk Backwards	向后
+Backward	后退
+Walk Forwards	向前
+Forward	前进
+Open Chat	打开聊天栏
+Chat	聊天
+Open Command	输入命令
+Command	命令
+Look	视角
+Back	返回
+toolbox	工具箱
+NONE	无
+Home	主页
+Save, quit	保存退出
+1 to 9: hotbar slot.	1至9：快捷栏。
+EXE: as OK.	EXE：同OK。
+# (a key, these two, then what it does)
+: 	：
+.	。
+Forward twice: sprint.   Jump twice: fly (Creative).	连按前进：疾跑。   连按跳跃：飞行（创造模式）。
+Menus: OK takes or puts, EXE one, shift+OK moves.	菜单：OK拿取或放下，EXE放一个，shift+OK移动。
+Hold OK and move over slots to spread a stack out.	按住OK划过格子，可分散一组物品。
+# ---- the commands' answers (Minecraft's words: %s and %d take the same things in turn, strings and numbers apart)
+Usage: %s	用法：%s
+'%s' is not a valid number	'%s'不是有效的数字
+The number you have entered (%d) is too small, it must be at least %d	你输入的数字（%d）太小，至少需要为%d
+The number you have entered (%d) is too big, it must be at most %d	你输入的数字（%d）太大，最多只能为%d
+That player cannot be found	找不到该玩家
+Your game mode has been updated	你的游戏模式已被更新
+Set own game mode to %s	已将自己的游戏模式设为%s
+Set the time to %d	已将时间设为%d
+Added %d to the time	已将时间增加%d
+Time is %d	时间是%d
+Changing to clear weather	天气已变为晴天
+Changing to rainy weather	天气已变为雨天
+Changing to rain and thunder	天气已变为雷雨
+There is no such item with name %s	不存在名为%s的物品
+Given %s * %d to %s	已将%s * %d给予%s
+Teleported %s to %s	已将%s传送到%s
+Teleported Player to 	已将Player传送到
+Killed %s	已清除%s
+Set game difficulty to %s	已将游戏难度设为%s
+Set Player's spawn point to (	已将Player的出生点设为(
+Taken %d levels from %s	已从%s拿走%d级经验
+Given %d levels to %s	已给予%s %d级经验
+Cannot give player negative experience points	不能给予玩家负数的经验
+Given %d experience to %s	已给予%s %d点经验
+Could not clear the inventory of %s, no items to remove	无法清除%s的物品栏，没有可移除的物品
+Cleared the inventory of %s, removing %d items	已清除%s的物品栏，共移除%d个物品
+Couldn't take any effects from %s as they do not have any	无法移除%s的效果，因为其没有任何效果
+Took all effects from %s	已移除%s的所有效果
+There is no such mob effect with ID %d	不存在ID为%d的效果
+There is no such mob effect with ID %s	不存在ID为%s的效果
+# (an effect's name between these)
+Couldn't take 	无法移除Player的
+ from Player as they do not have the effect	效果，因为其没有该效果
+Took 	已移除Player的
+ from Player	效果
+Given 	已将
+ (ID 	(ID 
+) * 	) * 
+ to Player for 	给予Player，持续
+ seconds	秒
+Poison	中毒
+Hunger	饥饿
+Regeneration	生命恢复
+Cannot summon the object out of the world	无法在世界外生成实体
+Object successfully summoned	成功生成实体
+Unable to summon object	无法生成实体
+There is no such block with ID/name %s	不存在ID或名称为%s的方块
+Cannot place block outside of the world	无法在世界外放置方块
+The block couldn't be placed	无法放置方块
+Block placed	方块已放置
+No game rule called '%s' is available	没有名为'%s'的游戏规则
+Game rule has been updated	游戏规则已更新
+Unknown command. Try /help for a list of commands	未知的命令。输入/help查看命令列表
+--- Showing help page %d of %d (/help <page>) ---	--- 显示帮助第%d页，共%d页（/help <页码>）---
+Tip: Use the toolbox key while typing a command to auto-complete the command or its arguments	提示：输入命令时按工具箱键可自动补全命令或其参数
+You do not have permission to use this command	你没有使用此命令的权限
+Toggled downfall	已切换降水
+# ---- the commands' usage (their words, as typed, stay)
+/clear [player] [item] [data] [maxCount] [dataTag]	/clear [玩家] [物品] [数据值] [最大数量] [数据标签]
+/difficulty <new difficulty>	/difficulty <新难度>
+/effect <player> <effect> [seconds] [amplifier] [hideParticles] OR /effect <player> clear	/effect <玩家> <效果> [秒数] [等级] [隐藏粒子] 或 /effect <玩家> clear
+/gamemode <mode> [player]	/gamemode <模式> [玩家]
+/gamerule <rule name> [value]	/gamerule <规则名> [值]
+/give <player> <item> [amount] [data] [dataTag]	/give <玩家> <物品> [数量] [数据值] [数据标签]
+/help [page|command name]	/help [页码|命令名]
+/kill [player|entity]	/kill [玩家|实体]
+/me <action ...>	/me <动作 ...>
+/say <message ...>	/say <消息 ...>
+/setblock <x> <y> <z> <TileName> [dataValue] [oldBlockHandling] [dataTag]	/setblock <x> <y> <z> <方块名> [数据值] [旧方块处理] [数据标签]
+/spawnpoint [player] [<x> <y> <z>]	/spawnpoint [玩家] [<x> <y> <z>]
+/summon <EntityName> [x] [y] [z] [dataTag]	/summon <实体名> [x] [y] [z] [数据标签]
+/time <set|add|query> <value>	/time <set|add|query> <值>
+/tp [target player] <destination player> OR /tp [target player] <x> <y> <z> [<y-rot> <x-rot>]	/tp [目标玩家] <目的地玩家> 或 /tp [目标玩家] <x> <y> <z> [<y旋转> <x旋转>]
+/weather <clear|rain|thunder> [duration in seconds]	/weather <clear|rain|thunder> [持续秒数]
+/xp <amount> [player] OR /xp <amount>L [player]	/xp <数量> [玩家] 或 /xp <数量>L [玩家]
+# ---- blocks, items and the creative inventory's tabs: Minecraft's Simplified Chinese names (zh_CN)
+Stone	石头
+Granite	花岗岩
+Polished Granite	磨制花岗岩
+Diorite	闪长岩
+Polished Diorite	磨制闪长岩
+Andesite	安山岩
+Polished Andesite	磨制安山岩
+Grass Block	草方块
+Dirt	泥土
+Coarse Dirt	砂土
+Podzol	灰化土
+Cobblestone	圆石
+Oak Wood Planks	橡木木板
+Spruce Wood Planks	云杉木板
+Birch Wood Planks	白桦木板
+Jungle Wood Planks	丛林木板
+Acacia Wood Planks	金合欢木板
+Dark Oak Wood Planks	深色橡木木板
+Oak Sapling	橡树树苗
+Spruce Sapling	云杉树苗
+Birch Sapling	白桦树苗
+Jungle Sapling	丛林树苗
+Acacia Sapling	金合欢树苗
+Dark Oak Sapling	深色橡树树苗
+Bedrock	基岩
+Sand	沙子
+Red Sand	红沙
+Gravel	沙砾
+Gold Ore	金矿石
+Iron Ore	铁矿石
+Coal Ore	煤矿石
+Oak Wood	橡木
+Spruce Wood	云杉木
+Birch Wood	白桦木
+Jungle Wood	丛林木
+Oak Leaves	橡树树叶
+Spruce Leaves	云杉树叶
+Birch Leaves	白桦树叶
+Jungle Leaves	丛林树叶
+Sponge	海绵
+Glass	玻璃
+Lapis Lazuli Ore	青金石矿石
+Lapis Lazuli Block	青金石块
+Sandstone	砂岩
+Chiseled Sandstone	雕纹砂岩
+Smooth Sandstone	平滑砂岩
+Cobweb	蜘蛛网
+Shrub	灌木
+Grass	草丛
+Fern	蕨
+Dead Bush	枯死的灌木
+Wool	羊毛
+Orange Wool	橙色羊毛
+Magenta Wool	品红色羊毛
+Light Blue Wool	淡蓝色羊毛
+Yellow Wool	黄色羊毛
+Lime Wool	黄绿色羊毛
+Pink Wool	粉红色羊毛
+Gray Wool	灰色羊毛
+Light Gray Wool	淡灰色羊毛
+Cyan Wool	青色羊毛
+Purple Wool	紫色羊毛
+Blue Wool	蓝色羊毛
+Brown Wool	棕色羊毛
+Green Wool	绿色羊毛
+Red Wool	红色羊毛
+Black Wool	黑色羊毛
+Dandelion	蒲公英
+Poppy	虞美人
+Blue Orchid	兰花
+Allium	绒球葱
+Azure Bluet	茜草花
+Red Tulip	红色郁金香
+Orange Tulip	橙色郁金香
+White Tulip	白色郁金香
+Pink Tulip	粉红色郁金香
+Oxeye Daisy	滨菊
+Mushroom	蘑菇
+Block of Gold	金块
+Block of Iron	铁块
+Stone Slab	石台阶
+Sandstone Slab	砂岩台阶
+Wooden Slab	木台阶
+Cobblestone Slab	圆石台阶
+Bricks Slab	砖块台阶
+Stone Bricks Slab	石砖台阶
+Bricks	砖块
+TNT	TNT
+Bookshelf	书架
+Moss Stone	苔石
+Obsidian	黑曜石
+Torch	火把
+Monster Spawner	刷怪箱
+Oak Wood Stairs	橡木楼梯
+Diamond Ore	钻石矿石
+Block of Diamond	钻石块
+Crafting Table	工作台
+Farmland	耕地
+Ladder	梯子
+Rail	铁轨
+Cobblestone Stairs	圆石楼梯
+Redstone Ore	红石矿石
+Snow	雪
+Ice	冰
+Cactus	仙人掌
+Clay	粘土块
+Oak Fence	橡木栅栏
+Pumpkin	南瓜
+Jack o'Lantern	南瓜灯
+Stone Bricks	石砖
+Mossy Stone Bricks	苔石砖
+Cracked Stone Bricks	裂石砖
+Chiseled Stone Bricks	雕纹石砖
+Glass Pane	玻璃板
+Melon	西瓜
+Vines	藤蔓
+Mycelium	菌丝
+Lily Pad	睡莲
+Emerald Ore	绿宝石矿石
+Block of Emerald	绿宝石块
+Cobblestone Wall	圆石墙
+Hardened Clay	硬化粘土
+White Stained Clay	白色硬化粘土
+Orange Stained Clay	橙色硬化粘土
+Magenta Stained Clay	品红色硬化粘土
+Light Blue Stained Clay	淡蓝色硬化粘土
+Yellow Stained Clay	黄色硬化粘土
+Lime Stained Clay	黄绿色硬化粘土
+Pink Stained Clay	粉红色硬化粘土
+Gray Stained Clay	灰色硬化粘土
+Light Gray Stained Clay	淡灰色硬化粘土
+Cyan Stained Clay	青色硬化粘土
+Purple Stained Clay	紫色硬化粘土
+Blue Stained Clay	蓝色硬化粘土
+Brown Stained Clay	棕色硬化粘土
+Green Stained Clay	绿色硬化粘土
+Red Stained Clay	红色硬化粘土
+Black Stained Clay	黑色硬化粘土
+Acacia Wood	金合欢木
+Dark Oak Wood	深色橡木
+Acacia Leaves	金合欢树叶
+Dark Oak Leaves	深色橡树树叶
+Hay Bale	干草块
+Block of Coal	煤炭块
+Packed Ice	浮冰
+Sunflower	向日葵
+Lilac	丁香
+Double Tallgrass	高草丛
+Large Fern	大型蕨
+Rose Bush	玫瑰丛
+Peony	牡丹
+Red Sandstone	红砂岩
+Glowstone	萤石
+Oak Wood Slab	橡木台阶
+Spruce Wood Slab	云杉木台阶
+Birch Wood Slab	白桦木台阶
+Jungle Wood Slab	丛林木台阶
+Acacia Wood Slab	金合欢木台阶
+Dark Oak Wood Slab	深色橡木台阶
+Wooden Sword	木剑
+Wooden Shovel	木锹
+Wooden Pickaxe	木镐
+Wooden Axe	木斧
+Wooden Hoe	木锄
+Stone Sword	石剑
+Stone Shovel	石锹
+Stone Pickaxe	石镐
+Stone Axe	石斧
+Stone Hoe	石锄
+Iron Sword	铁剑
+Iron Shovel	铁锹
+Iron Pickaxe	铁镐
+Iron Axe	铁斧
+Iron Hoe	铁锄
+Diamond Sword	钻石剑
+Diamond Shovel	钻石锹
+Diamond Pickaxe	钻石镐
+Diamond Axe	钻石斧
+Diamond Hoe	钻石锄
+Golden Sword	金剑
+Golden Shovel	金锹
+Golden Pickaxe	金镐
+Golden Axe	金斧
+Golden Hoe	金锄
+Shears	剪刀
+Flint and Steel	打火石
+Bow	弓
+Arrow	箭
+Leather Cap	皮革帽子
+Leather Tunic	皮革外套
+Leather Pants	皮革裤子
+Leather Boots	皮革靴子
+Chain Helmet	锁链头盔
+Chain Chestplate	锁链胸甲
+Chain Leggings	锁链护腿
+Chain Boots	锁链靴子
+Iron Helmet	铁头盔
+Iron Chestplate	铁胸甲
+Iron Leggings	铁护腿
+Iron Boots	铁靴子
+Golden Helmet	金头盔
+Golden Chestplate	金胸甲
+Golden Leggings	金护腿
+Golden Boots	金靴子
+Diamond Helmet	钻石头盔
+Diamond Chestplate	钻石胸甲
+Diamond Leggings	钻石护腿
+Diamond Boots	钻石靴子
+Stick	木棍
+Coal	煤炭
+Charcoal	木炭
+Diamond	钻石
+Iron Ingot	铁锭
+Gold Ingot	金锭
+Gold Nugget	金粒
+Emerald	绿宝石
+Redstone	红石
+Flint	燧石
+Feather	羽毛
+String	线
+Bone	骨头
+Gunpowder	火药
+Leather	皮革
+Wheat	小麦
+Seeds	种子
+Sugar Canes	甘蔗
+Sugar	糖
+Paper	纸
+Book	书
+Brick	红砖
+Bowl	碗
+Snowball	雪球
+Egg	鸡蛋
+Slimeball	粘液球
+Glowstone Dust	萤石粉
+Bucket	桶
+Water Bucket	水桶
+Lava Bucket	熔岩桶
+Milk	牛奶
+Oak Door	橡木门
+Bed	床
+Compass	指南针
+Fishing Rod	钓鱼竿
+Clock	钟
+Ink Sac	墨囊
+Rose Red	玫瑰红
+Cactus Green	仙人掌绿
+Cocoa Beans	可可豆
+Lapis Lazuli	青金石
+Purple Dye	紫色染料
+Cyan Dye	青色染料
+Light Gray Dye	淡灰色染料
+Gray Dye	灰色染料
+Pink Dye	粉红色染料
+Lime Dye	黄绿色染料
+Dandelion Yellow	蒲公英黄
+Light Blue Dye	淡蓝色染料
+Magenta Dye	品红色染料
+Orange Dye	橙色染料
+Bone Meal	骨粉
+Apple	苹果
+Golden Apple	金苹果
+Bread	面包
+Raw Porkchop	生猪排
+Cooked Porkchop	熟猪排
+Raw Beef	生牛肉
+Steak	牛排
+Raw Chicken	生鸡肉
+Cooked Chicken	熟鸡肉
+Raw Mutton	生羊肉
+Cooked Mutton	熟羊肉
+Rotten Flesh	腐肉
+Spider Eye	蜘蛛眼
+Mushroom Stew	蘑菇煲
+Cookie	曲奇
+Carrot	胡萝卜
+Potato	马铃薯
+Baked Potato	烤马铃薯
+Poisonous Potato	毒马铃薯
+Pumpkin Pie	南瓜派
+Raw Fish	生鱼
+Raw Salmon	生鲑鱼
+Clownfish	小丑鱼
+Pufferfish	河豚
+Cooked Fish	熟鱼
+Cooked Salmon	熟鲑鱼
+Building Blocks	建筑方块
+Decoration Blocks	装饰性方块
+Transportation	交通运输
+Search Items	搜索物品
+Foodstuffs	食物
+Tools	工具
+Combat	战斗
+Brewing	酿造
+Materials	材料
+Survival Inventory	生存模式物品栏

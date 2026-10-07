@@ -1,0 +1,21 @@
+# NumDrive in French: the English text as in the source, a tab, the translation (see tools/lang.py).
+# The levels' names (in the level pack) stay as they are.
+Level 	Niveau 
+Drive silly cars at high	Des voitures folles à
+speeds in dangerous	toute allure en terrain
+terrain. Oh, and you	dangereux. Ah, et pas de
+can't steer. Good luck!	volant. Bonne chance !
+Inspired by Drive Mad	Inspiré de Drive Mad
+Made by Mason Chen	Créé par Mason Chen
+Good game	Bien joué !
+Terminated	Éliminé
+Retry	Réessayer
+Restart	Rejouer
+Resume	Reprendre
+Next Level	Niveau suivant
+Levels	Niveaux
+Quit game	Quitter
+Quit game?	Quitter ?
+You can come back anytime.	Tu peux revenir quand tu veux.
+Yes	Oui
+No	Non

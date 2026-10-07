@@ -1,0 +1,30 @@
+# Block Breaker in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+LV 	关卡 
+SLOW	慢
+NORMAL	正常
+FAST	快
+BLOCK BREAKER	打砖块
+PLAY	开始
+SETTINGS	设置
+< LEVEL 	< 第 
+ >	 关 >
+BEST 	最高分 
+SPEED	速度
+SHAKE	震动
+ON	开
+OFF	关
+LEFT/RIGHT: CHANGE   BACK: DONE	左/右：更改   返回：完成
+LEVEL 	第 
+ CLEAR	 关完成
+OK: LAUNCH	OK：发射
+RESUME	继续
+RESTART	重新开始
+QUIT GAME	退出游戏
+PAUSED	暂停
+QUIT GAME?	退出游戏？
+YES	是
+NO	否
+GAME OVER	游戏结束
+SCORE 	得分 
+NEW BEST!	新纪录！
+OK: PLAY AGAIN   BACK: MENU	OK：再来一局   返回：菜单

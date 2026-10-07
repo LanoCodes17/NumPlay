@@ -26,19 +26,27 @@ static void move(float dx, float dy, float dz) {
   float a[6];
   box_of(pl.x, pl.y, pl.z, a);
   float ody = dy, odx = dx, odz = dz;
-  /* sneaking on the ground: no walking off edges */
+  /* sneaking on the ground: no walking off edges (Entity.moveEntity: the box moved down 1 must still
+   * touch a block, the one under the feet included, so sneaking along a one-block bridge works) */
   if (pl.on_ground && pl.sneaking) {
     float t[6];
-    for (; dx != 0; dx = fabsf(dx) < 0.05f ? 0 : dx - (dx > 0 ? 0.05f : -0.05f)) {
+#define STEP(v) (fabsf(v) < 0.05f ? 0 : (v) - ((v) > 0 ? 0.05f : -0.05f))
+    for (; dx != 0; dx = STEP(dx)) {
       memcpy(t, a, sizeof t);
-      t[0] += dx, t[3] += dx, t[1] -= 1, t[4] = t[1] + 1;
-      if (phys_clip(t, 1, -0.01f) > -0.01f) break;   /* something under */
+      t[0] += dx, t[3] += dx, t[1] -= 1, t[4] -= 1;
+      if (!phys_free(t)) break;   /* something under */
     }
-    for (; dz != 0; dz = fabsf(dz) < 0.05f ? 0 : dz - (dz > 0 ? 0.05f : -0.05f)) {
+    for (; dz != 0; dz = STEP(dz)) {
       memcpy(t, a, sizeof t);
-      t[2] += dz, t[5] += dz, t[1] -= 1, t[4] = t[1] + 1;
-      if (phys_clip(t, 1, -0.01f) > -0.01f) break;
+      t[2] += dz, t[5] += dz, t[1] -= 1, t[4] -= 1;
+      if (!phys_free(t)) break;
     }
+    for (; dx != 0 && dz != 0; dx = STEP(dx), dz = STEP(dz)) {   /* (both at once: a corner) */
+      memcpy(t, a, sizeof t);
+      t[0] += dx, t[3] += dx, t[2] += dz, t[5] += dz, t[1] -= 1, t[4] -= 1;
+      if (!phys_free(t)) break;
+    }
+#undef STEP
     odx = dx, odz = dz;
   }
   float mdy = phys_clip(a, 1, dy);
@@ -546,14 +554,14 @@ static void eat_done(void) {
 /* EntityPlayer.trySleep: at night (or in a storm), with no monster within 8 blocks; the bed is the new spawn point */
 static void sleep_in(int x, int y, int z) {
   if (sky_sub() < 4) {
-    gui_message("You can only sleep at night");
+    gui_message(T("You can only sleep at night"));
     return;
   }
   for (int i = 0; i < N_ENT; i++) {
     const Entity *e = &ents[i];
     if (e->type >= E_ZOMBIE && e->type <= E_SPIDER && fabsf(e->x - x) < 8 && fabsf(e->y - y) < 5 &&
         fabsf(e->z - z) < 8) {
-      gui_message("You may not rest now, there are monsters nearby");
+      gui_message(T("You may not rest now, there are monsters nearby"));
       return;
     }
   }

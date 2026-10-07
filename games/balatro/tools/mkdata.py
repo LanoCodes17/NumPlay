@@ -14,6 +14,7 @@ builds, in the game's own markup. Without Balatro's source at hand,
 import os
 import re
 import sys
+import unicodedata
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
@@ -325,8 +326,11 @@ def main():
         n, t = desc(cat, k)
         rows.append(("X", k, n, t, {}))
 
-    # string blob, compressed with byte pair encoding (codes 0x80..0xFF)
-    raw = [(r[2] + "\0" + r[3] + "\0").encode("latin1") for r in rows]
+    # string blob, compressed with byte pair encoding (codes 0x80..0xFF): in plain ASCII, as a byte
+    # 0x80 or above is a pair ("Séance" came out "Singance")
+    def ascii(s):
+        return unicodedata.normalize("NFKD", s).encode("ascii", "ignore")
+    raw = [ascii(r[2] + "\0" + r[3] + "\0") for r in rows]
     seqs, pairs = bpe(raw, range(0x80, 0x100))
     blob = b"".join(bytes(x) for x in seqs)
     offs = []

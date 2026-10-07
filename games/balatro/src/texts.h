@@ -67,7 +67,7 @@ T("Card Sharp"), T("{X:mult,C:white} X#1# {} Mult if played\n{C:attention}poker 
 T("Red Card"), T("This Joker gains\n{C:mult}+#1#{} Mult when any\n{C:attention}Booster Pack{} is skipped\n{C:inactive}(Currently {C:mult}+#2#{C:inactive} Mult)"),
 T("Madness"), T("When {C:attention}Small Blind{} or {C:attention}Big Blind{}\nis selected, gain {X:mult,C:white} X#1# {} Mult\nand {C:attention}destroy{} a random Joker\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)"),
 T("Square Joker"), T("This Joker gains {C:chips}+#2#{} Chips\nif played hand has\nexactly {C:attention}4{} cards\n{C:inactive}(Currently {C:chips}#1#{C:inactive} Chips)"),
-T("Singance"), T("If {C:attention}poker hand{} is a\n{C:attention}#1#{}, create a\nrandom {C:spectral}Spectral{} card\n{C:inactive}(Must have room)"),
+T("Seance"), T("If {C:attention}poker hand{} is a\n{C:attention}#1#{}, create a\nrandom {C:spectral}Spectral{} card\n{C:inactive}(Must have room)"),
 T("Riff-Raff"), T("When {C:attention}Blind{} is selected,\ncreate {C:attention}#1# {C:chips}Common{C:attention} Jokers\n{C:inactive}(Must have room)"),
 T("Vampire"), T("This Joker gains {X:mult,C:white} X#1# {} Mult\nper scoring {C:attention}Enhanced card{} played,\nremoves card {C:attention}Enhancement\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)"),
 T("Shortcut"), T("Allows {C:attention}Straights{} to be\nmade with gaps of {C:attention}1 rank\n{C:inactive}(ex: {C:attention}10 8 6 5 3{C:inactive})"),

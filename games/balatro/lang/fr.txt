@@ -122,7 +122,7 @@ Madness	Folie
 When {C:attention}Small Blind{} or {C:attention}Big Blind{}\nis selected, gain {X:mult,C:white} X#1# {} Mult\nand {C:attention}destroy{} a random Joker\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	Quand la {C:attention}petite{} ou la {C:attention}grosse\nblind{} est choisie, gagne {X:mult,C:white} X#1# {} Multi\net {C:attention}détruit{} un Joker au hasard\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
 Square Joker	Joker carré
 This Joker gains {C:chips}+#2#{} Chips\nif played hand has\nexactly {C:attention}4{} cards\n{C:inactive}(Currently {C:chips}#1#{C:inactive} Chips)	Ce Joker gagne {C:chips}+#2#{} Jetons\nsi la main jouée a\nexactement {C:attention}4{} cartes\n{C:inactive}(Actuellement {C:chips}#1#{C:inactive} Jetons)
-Singance	Séance
+Seance	Séance
 If {C:attention}poker hand{} is a\n{C:attention}#1#{}, create a\nrandom {C:spectral}Spectral{} card\n{C:inactive}(Must have room)	Si la {C:attention}main de poker\nest : {C:attention}#1#{}, crée une\ncarte {C:spectral}Spectrale{} au hasard\n{C:inactive}(Place requise)
 Riff-Raff	Racaille
 When {C:attention}Blind{} is selected,\ncreate {C:attention}#1# {C:chips}Common{C:attention} Jokers\n{C:inactive}(Must have room)	Quand une {C:attention}Blind{} est choisie,\ncrée {C:attention}#1#{} Jokers {C:chips}communs\n{C:inactive}(Place requise)

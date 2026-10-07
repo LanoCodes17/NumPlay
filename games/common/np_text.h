@@ -111,30 +111,51 @@ static inline void np_accent(int acc, int x, int y, int scale, void (*plot)(int 
           for (int b = 0; b < scale; b++) plot(x + i * scale + b, y + j * scale + a, ctx);
 }
 
-/* ---- the 12-pixel font */
+/* ---- the 12-pixel font
+ * Kept small, as the Chinese build holds a thousand letters and more: a letter is
+ * its code point, the index of its sizes (letters share a few dozen) and its
+ * bits, back to back with the others'; where they start is kept for every
+ * 16th letter, the others' found by adding the sizes before them. */
 typedef struct {
-  uint16_t cp;        /* (Chinese and its punctuation are all below 0x10000) */
   uint8_t adv, w, h;  /* advance; the bitmap's size */
   int8_t x, y;        /* the bitmap's top-left from the pen, y down from the top of a 12-pixel line */
-  uint16_t off;       /* its first bit in rows: w x h bits, row by row, the first pixel first */
 } np_xglyph_t;
 typedef struct {
   uint32_t count;
-  const np_xglyph_t *glyphs;  /* sorted by code point */
-  const uint8_t *rows;        /* bits, lowest first in each byte */
+  const uint16_t *cps;           /* the letters, sorted (Chinese and its punctuation are all below 0x10000) */
+  const uint8_t *size;           /* each one's in sizes */
+  const np_xglyph_t *sizes;
+  const uint32_t *start;         /* the first bit of letters 0, 16, 32... */
+  const uint8_t *rows;           /* w x h bits a letter, row by row, the first pixel first, lowest first in each byte */
 } np_xfont_t;
 
 extern const np_xfont_t np_xfont; /* the launcher's (launcher/src/np_xfont.h) */
 
-/* The glyph of cp in the 12-pixel font, or NULL. */
-static inline const np_xglyph_t *np_xglyph(uint32_t cp) {
+/* The index of cp in the 12-pixel font, or -1. */
+static inline int np_xindex(uint32_t cp) {
   uint32_t lo = 0, hi = np_xfont.count;
   while (lo < hi) {
     uint32_t m = (lo + hi) / 2;
-    if (np_xfont.glyphs[m].cp < cp) lo = m + 1;
+    if (np_xfont.cps[m] < cp) lo = m + 1;
     else hi = m;
   }
-  return lo < np_xfont.count && np_xfont.glyphs[lo].cp == cp ? &np_xfont.glyphs[lo] : 0;
+  return lo < np_xfont.count && np_xfont.cps[lo] == cp ? (int)lo : -1;
+}
+
+/* The glyph of cp in the 12-pixel font, or NULL. */
+static inline const np_xglyph_t *np_xglyph(uint32_t cp) {
+  int k = np_xindex(cp);
+  return k < 0 ? 0 : &np_xfont.sizes[np_xfont.size[k]];
+}
+
+/* The first bit of cp's rows (cp in the font). */
+static inline uint32_t np_xbit(uint32_t cp) {
+  uint32_t k = (uint32_t)np_xindex(cp), bit = np_xfont.start[k / 16];
+  for (uint32_t i = k & ~15u; i < k; i++) {
+    const np_xglyph_t *g = &np_xfont.sizes[np_xfont.size[i]];
+    bit += (uint32_t)g->w * g->h;
+  }
+  return bit;
 }
 
 /* Draws cp from the 12-pixel font with its line's top at (x, top), each font
@@ -142,7 +163,7 @@ static inline const np_xglyph_t *np_xglyph(uint32_t cp) {
 static inline int np_xdraw(uint32_t cp, int x, int top, int scale, void (*plot)(int x, int y, void *ctx), void *ctx) {
   const np_xglyph_t *g = np_xglyph(cp);
   if (!g) return 0;
-  uint32_t bit = (uint32_t)g->off * 8;
+  uint32_t bit = np_xbit(cp);
   for (int j = 0; j < g->h; j++)
     for (int i = 0; i < g->w; i++, bit++)
       if (np_xfont.rows[bit >> 3] >> (bit & 7) & 1)

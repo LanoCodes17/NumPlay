@@ -6,7 +6,7 @@ Texts players read are marked in the sources: T("...") in C, T!("...") in Rust
 English text as it is written in the source, a tab, then the translation (the
 same escapes: \\n, \\"; UTF-8):
 
-    launcher/lang/<code>.txt      the launcher, and the games' names and taglines (games/games.json)
+    launcher/lang/<code>.txt      the launcher, and the games' names, taglines and credits (games/games.json)
     games/<game>/lang/<code>.txt  a game
 
   lang.py strings [PART]        every marked text of a part (or all), for translating
@@ -63,7 +63,9 @@ def strings(part):
                 found.append(s)
     if part == "launcher":
         for g in json.load(open(os.path.join(ROOT, "games", "games.json"))):
-            for k in ("title", "tagline"):
+            for k in ("title", "tagline", "credit"):
+                if not g.get(k):
+                    continue
                 v = json.dumps(g[k], ensure_ascii=False)[1:-1]
                 if v not in found:
                     found.append(v)
@@ -145,19 +147,22 @@ def tree(code, out):
     h = os.path.join(out, "games/common/np_text.h")
     text = open(h).read().replace("#define NP_TEXT_EXTRA 0", "#define NP_TEXT_EXTRA 1")
     open(h, "w").write(text)
-    # the games' names and taglines
+    # the games' names, taglines and credits
     gj = os.path.join(out, "games/games.json")
     games = json.load(open(gj))
     lt = tables["launcher"]
     for g in games:
-        for k in ("title", "tagline"):
+        for k in ("title", "tagline", "credit"):
+            if not g.get(k):
+                continue
             key = json.dumps(g[k], ensure_ascii=False)[1:-1]
             if key in lt:
                 g[k] = json.loads(f'"{lt[key]}"')
                 used.append(lt[key])
-    # (the screenshots in 32 colours, not 64: room for the translations and their letters)
+    # (the screenshots in 16 colours, not 48: room for the translations and their letters; at the
+    # carousel's size they look the same)
     for g in games:
-        g["colors"] = min(g.get("colors", 64), 32)
+        g["colors"] = min(g.get("colors", 48), 16)
     json.dump(games, open(gj, "w"), indent=2, ensure_ascii=False)
     # node packages some games build with
     for nm in ("games/numdash/node_modules",):

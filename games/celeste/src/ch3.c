@@ -1599,32 +1599,69 @@ static void water_update(Ent *e) {
     }
   }
 }
-/* the fill, the light rays and the surfaces, like the surfaces' meshes */
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC push_options
+#pragma GCC optimize("O2")   /* drawn every frame */
+#endif
+/* blend565(d, pc, 256 - ia) where pc is a color scaled by that alpha (scale565): no field can go past its top, so
+ * the same pixels without its clamps, and inlined (the water blends thousands a frame) */
+static inline __attribute__((always_inline)) uint16_t water_blend(uint16_t d, uint16_t pc, uint32_t ia) {
+  uint32_t r = (uint32_t)(pc >> 11) + (((uint32_t)(d >> 11) * ia) >> 8);
+  uint32_t g = ((pc >> 5) & 63u) + ((((d >> 5) & 63u) * ia) >> 8);
+  uint32_t b = (pc & 31u) + (((d & 31u) * ia) >> 8);
+  return (uint16_t)(r << 11 | g << 5 | b);
+}
+/* a span of view columns [X0, X1) on view row Y, blended with c at alpha a (0..255) */
+static void water_span(uint16_t *strip, int sy0, int sy1, int Y, int X0, int X1, uint16_t c, int a) {
+  if (Y < sy0 || Y >= sy1) return;
+  if (X0 < 0) X0 = 0;
+  if (X1 > VIEW_W) X1 = VIEW_W;
+  uint16_t pc = scale565(c, a), *d = strip + (Y - sy0) * VIEW_W;
+  uint32_t ia = 256u - (uint32_t)a;
+  for (int X = X0; X < X1; X++) d[X] = water_blend(d[X], pc, ia);
+}
+/* a column of rows [y0, y1) (world, centers inside) at view column X, blended with pc (a color scaled by 256 - ia) */
+static void water_column(uint16_t *strip, int sy0, int sy1, int X, float y0, float y1, uint16_t pc, uint32_t ia) {
+  int Y0 = (int)ceilf(y0 - 0.5f) - g_camy, Y1 = (int)ceilf(y1 - 0.5f) - g_camy;
+  if (Y0 < sy0) Y0 = sy0;
+  if (Y1 > sy1) Y1 = sy1;
+  for (uint16_t *d = strip + (Y0 - sy0) * VIEW_W + X; Y0 < Y1; Y0++, d += VIEW_W) *d = water_blend(*d, pc, ia);
+}
+/* the fill, the light rays and the surfaces, like the surfaces' meshes. A strip draws only what crosses its rows, and
+ * the surfaces' heights at the mesh's points in view once */
 static void water_layer(uint16_t *strip, int sy0, int sy1, void *ctx) {
   Ent *e = ctx;
   Water *w = ST(e, Water);
   float W = e->cw, H = e->ch;
   uint16_t sky = rgb(0x87CEFA);
   int fill_a = 77, surf_a = 204;   /* LightSkyBlue * 0.3, * 0.8 */
+  uint16_t fill_c = scale565(sky, fill_a), surf_c = scale565(sky, surf_a);
   /* the fill between the surfaces' bases */
   float ft = e->y + (w->top ? 8 : 0), fb = e->y + H - (w->bottom ? 8 : 0);
-  sp_rect(strip, sy0, sy1, vx(e->x), vy(ft), (int)W, vy(fb) - vy(ft), sky, fill_a);
+  int iw = (int)W, X0 = vx(e->x);
+  for (int Y = vy(ft) > sy0 ? vy(ft) : sy0, Y1 = vy(fb) < sy1 ? vy(fb) : sy1; Y < Y1; Y++)
+    water_span(strip, sy0, sy1, Y, X0, X0 + iw, sky, fill_a);
+  /* the columns in view: X = X0 + x */
+  int xa = X0 < 0 ? -X0 : 0, xb = VIEW_W - X0 < iw ? VIEW_W - X0 : iw;
   for (int k = 0; k < 2; k++) {
     if (!(k ? w->bottom : w->top)) continue;
     float base = k ? e->y + H - 8 : e->y + 8, out = k ? 1.f : -1.f;
-    /* surface heights at the mesh's points, every 4 px */
-    for (int x = 0; x < (int)W; x++) {
-      int x0 = x / 4 * 4, x1 = x0 + 4 < (int)W ? x0 + 4 : (int)W;
-      float h0 = water_surface_height(e, w, k, (float)x0), h1 = water_surface_height(e, w, k, (float)x1);
-      float h = x1 > x0 ? lerpf(h0, h1, (x + 0.5f - x0) / (x1 - x0)) : h0;
-      int X = vx(e->x + x);
-      if ((unsigned)X >= VIEW_W) continue;
-      /* fill from the base to the surface, then the surface line, a pixel further out */
-      float s = base + out * h, s2 = base + out * (h + 1);
-      float y0 = fminf(base, s), y1 = fmaxf(base, s);
-      for (int Y = (int)ceilf(y0 - 0.5f); (float)Y + 0.5f < y1; Y++) sp_plot(strip, sy0, sy1, X, Y - g_camy, sky, fill_a);
-      float z0 = fminf(s, s2), z1 = fmaxf(s, s2);
-      for (int Y = (int)ceilf(z0 - 0.5f); (float)Y + 0.5f < z1; Y++) sp_plot(strip, sy0, sy1, X, Y - g_camy, sky, surf_a);
+    int bv = vy(base);
+    /* a surface is 1 to 24 px from its base (water_surface_height: 6, +-4 of ripples, +12 of tension, +-1 of wave) */
+    if (xa < xb && bv + 26 >= sy0 && bv - 26 < sy1) {
+      /* surface heights at the mesh's points, every 4 px (point m at min(4 m, W)) */
+      float hp[VIEW_W / 4 + 3];
+      int m0 = xa / 4, m1 = (xb - 1) / 4 + 1;
+      for (int m = m0; m <= m1; m++) hp[m - m0] = water_surface_height(e, w, k, (float)(4 * m < iw ? 4 * m : iw));
+      for (int x = xa; x < xb; x++) {
+        int x0 = x / 4 * 4, x1 = x0 + 4 < iw ? x0 + 4 : iw;
+        float h0 = hp[x / 4 - m0], h1 = hp[x / 4 + 1 - m0];
+        float h = x1 > x0 ? lerpf(h0, h1, (x + 0.5f - x0) / (x1 - x0)) : h0;
+        /* fill from the base to the surface, then the surface line, a pixel further out */
+        float s = base + out * h, s2 = base + out * (h + 1);
+        water_column(strip, sy0, sy1, X0 + x, fminf(base, s), fmaxf(base, s), fill_c, 256 - fill_a);
+        water_column(strip, sy0, sy1, X0 + x, fminf(s, s2), fmaxf(s, s2), surf_c, 256 - surf_a);
+      }
     }
     /* the rays (Surface.Rays, from hashes: each its own cycle) */
     int nrays = (int)(W * 0.2f);
@@ -1640,18 +1677,28 @@ static void water_layer(uint16_t *strip, int sy0, int sy1, void *ctx) {
       float n9 = fmaxf(0, rpos - rw / 2), n10 = fminf(W, rpos + rw / 2);
       float depth = fminf(H, 0.7f * len), skew = 0.3f * len;
       if (n10 <= n9 || depth <= 0 || a <= 0) continue;
+      /* row d is about bv - out * d, give or take the surface's 24 px: only the rows of this strip */
+      int nd = (int)depth, d0, d1;
+      if (out < 0) d0 = sy0 - bv - 2, d1 = sy1 - bv + 26;
+      else d0 = bv - sy1 - 2, d1 = bv - sy0 + 26;
+      if (d0 < 0) d0 = 0;
+      if (d1 > nd) d1 = nd;
+      if (d0 >= d1) continue;
       float top = base + out * water_surface_height(e, w, k, (n9 + n10) / 2);
-      for (int d = 0; d < (int)depth; d++) {
+      for (int d = d0; d < d1; d++) {
+        int Y = vy(top - out * (d + 0.5f) - 0.5f);
+        if (Y < sy0 || Y >= sy1) continue;
         float k2 = (d + 0.5f) / depth;
         int alpha = (int)(0.6f * a * (1 - k2) * 256);
         if (alpha <= 0) continue;
-        float xs = e->x + n9 - skew * k2, xe = e->x + n10 - skew * k2;
-        int Y = vy(top - out * (d + 0.5f) - 0.5f);
-        for (int X = vx(xs); X < vx(xe); X++) sp_plot(strip, sy0, sy1, X, Y, sky, alpha);
+        water_span(strip, sy0, sy1, Y, vx(e->x + n9 - skew * k2), vx(e->x + n10 - skew * k2), sky, alpha);
       }
     }
   }
 }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC pop_options
+#endif
 static void water_render(Ent *e) {
   float t = e->y - 8 - g_level.cam.y;
   gfx_custom(water_layer, e, (int)t, (int)(t + e->ch + 16));

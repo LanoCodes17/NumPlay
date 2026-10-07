@@ -61,9 +61,9 @@ static void dialogue_box(const char *s, int *x, int *y, int *w, int *h) {
 }
 
 void ui_dialogue(const char *s, int len) {
-  char buf[96];
+  char buf[NP_TEXT_EXTRA ? 240 : 96];
   int n = 0;
-  for (; s[n] && n < len && n < 95; n++) buf[n] = s[n];
+  for (; s[n] && n < len && n < (int)sizeof buf - 1; n++) buf[n] = s[n];
   buf[n] = 0;
   /* the box is sized for the whole line so it does not grow while typing */
   int x, y, w, h;
@@ -220,7 +220,7 @@ void table_draw(void) {
     /* the words on the table: "DEALER" across it, and "YOU" at your edge,
      * below the picture, written the same way */
     gfx_sprite_dim(IMG_P_LBL_DEALER, 0, 0, T.lbl == 1 ? 0 : 2);
-    gfx_text_shadow(&font_big, "YOU", 160, 224, T.lbl == 2 ? C_WHITE : C_GREY);
+    gfx_text_shadow(&font_big, T("YOU"), 160, 224, T.lbl == 2 ? C_WHITE : C_GREY);
   }
   if (T.cursor >= 0) {
     int x, y, w, h;
@@ -288,6 +288,9 @@ void say_on(const char *s) {
     if (IS_OK(k2)) k = n; /* OK: the whole line at once */
     else if (k2 == KEY_BACK) app_pause_menu();
     if (s[k - 1] == ' ' || s[k - 1] == '\n') continue;
+#if NP_TEXT_EXTRA
+    if ((s[k] & 0xC0) == 0x80) continue; /* (in the middle of a letter) */
+#endif
     T.say_len = k;
     ui_dialogue(s, k);
     gfx_present_rect(x, y, w, h);
@@ -399,10 +402,10 @@ void round_indicator(void) {
 }
 
 void health_wins(void) {
-  char s[16];
+  char s[NP_TEXT_EXTRA ? 32 : 16];
   int n = 0;
   for (const char *p = G.name; *p; p++) s[n++] = *p;
-  for (const char *p = " WINS!"; *p; p++) s[n++] = *p;
+  for (const char *p = T(" WINS!"); *p; p++) s[n++] = *p;
   s[n] = 0;
   health_plate();
   gfx_present();

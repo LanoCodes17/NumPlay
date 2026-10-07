@@ -1,0 +1,8 @@
+# Crossy Road in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+# Chinese letters come from the 12-pixel font, at the game's text size.
+NEW TOP	新纪录
+QUIT GAME	退出游戏
+QUIT GAME?	退出游戏？
+NO	否
+YES	是
+TOP 	最高分 

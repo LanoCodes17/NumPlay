@@ -6,7 +6,8 @@ use numworks_utils::{
     },
     graphical::{draw_string_cfg, tiling::Tileset},
     include_bytes_align_as,
-    utils::{string_from_u32, LARGE_CHAR_WIDTH},
+    utils::{string_from_u32, text_cells, LARGE_CHAR_WIDTH},
+    T,
 };
 
 use crate::{
@@ -60,7 +61,11 @@ fn draw_panel(x: u16, y: u16) {
 
 /// Draws a label centred in a panel, `row` lines below its top.
 fn draw_label(text: &str, panel_x: u16, panel_y: u16, row: u16) {
-    let chars = text.trim_end_matches('\0').chars().count() as u16;
+    let chars = if cfg!(np_text_extra) {
+        text_cells(text)
+    } else {
+        text.trim_end_matches('\0').chars().count() as u16
+    };
     let x = panel_x + (PANEL_W - chars * LARGE_CHAR_WIDTH) / 2;
     draw_string_cfg(
         text,
@@ -105,12 +110,12 @@ pub fn draw_stable_ui(level: u16, level_lines: u16, score: u32, high_score: u32)
     draw_panel(LEFT_X, BOTTOM_Y);
     draw_panel(RIGHT_X, TOP_Y);
     draw_panel(RIGHT_X, BOTTOM_Y);
-    draw_label("NEXT\0", LEFT_X, TOP_Y, 0);
-    draw_label("HOLD\0", LEFT_X, BOTTOM_Y, 0);
-    draw_label("BEST\0", RIGHT_X, TOP_Y, 0);
-    draw_label("SCORE\0", RIGHT_X, TOP_Y, 2);
-    draw_label("LEVEL\0", RIGHT_X, BOTTOM_Y, 0);
-    draw_label("LINES\0", RIGHT_X, BOTTOM_Y, 2);
+    draw_label(T!("NEXT"), LEFT_X, TOP_Y, 0);
+    draw_label(T!("HOLD"), LEFT_X, BOTTOM_Y, 0);
+    draw_label(T!("BEST"), RIGHT_X, TOP_Y, 0);
+    draw_label(T!("SCORE"), RIGHT_X, TOP_Y, 2);
+    draw_label(T!("LEVEL"), RIGHT_X, BOTTOM_Y, 0);
+    draw_label(T!("LINES"), RIGHT_X, BOTTOM_Y, 2);
 
     wait_for_vblank();
     draw_score(high_score, true);

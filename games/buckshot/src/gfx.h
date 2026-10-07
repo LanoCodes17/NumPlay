@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include "assets.h"
 #include "font.h"
+#include "../../common/np_text.h" /* T(): the texts players read */
 
 #define GFX_W 320
 #define GFX_H 240

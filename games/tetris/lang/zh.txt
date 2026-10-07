@@ -1,0 +1,33 @@
+# Tetris in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+# A Chinese letter takes two cells of the calculator's font (32 big or 45 small cells across);
+# the panels' labels 8 big cells.
+NEXT	下一个
+HOLD	暂存
+BEST	最高分
+SCORE	得分
+LEVEL	等级
+LINES	行数
+\n                HOW TO PLAY\n\n    - <LEFT> and <RIGHT> to move\n    - <DOWN> for soft drop\n    - <UP> for hard drop\n    - <OK> & <TOOLBOX> to rotate left and right\n    - <BACKSPACE> (<clear>) to hold the tetri\n    - <BACK> to pause\n\n    Every full line disappears\n    Get more points by clearing\n      multiple lines at once !\n    The level increases every 10 lines.\n    You lose when the stack reaches the top. \n    Hold the tetri to keep it for later !                                 	\n                  玩法说明\n\n    - 左/右方向键：左右移动\n    - 下方向键：加速下落\n    - 上方向键：直接落下\n    - <OK>/<工具箱>：向左/向右旋转\n    - <退格>（<clear>）：暂存方块\n    - <返回>：暂停\n\n    填满一行即可消除，\n    一次消除多行得分更高！\n    每消除 10 行升一级。\n    方块堆到顶部即失败。\n    暂存的方块可留待以后使用！
+Ghost Piece	显示落点
+Yes	是
+No	否
+Starting Level	起始等级
+High Score	最高分
+Replay	再来一局
+Menu	菜单
+Quit game	退出游戏
+ GAME OVER 	 游戏结束 
+ NEW HIGH SCORE! 	 新纪录！ 
+Quit game?	退出游戏？
+Current Score	当前得分
+Current Level	当前等级
+Play	开始游戏
+Settings	设置
+How to Play	玩法说明
+Exit	退出
+Continue	继续游戏
+New Game	新游戏
+Overwrite save?	覆盖存档？
+Resume	继续
+Menu : <Back>  	菜单：<返回>  
+SETTINGS	设置

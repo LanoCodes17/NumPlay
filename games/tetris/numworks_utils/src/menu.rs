@@ -36,13 +36,13 @@ pub enum StartMenuAction<T> {
     Exit,
 }
 
-const CHOICES_NO_SAVE: &[&str] = &["Play\0", "Settings\0", "How to Play\0", "Exit\0"];
+const CHOICES_NO_SAVE: &[&str] = &[T!("Play"), T!("Settings"), T!("How to Play"), T!("Exit")];
 const CHOICES_WITH_SAVE: &[&str] = &[
-    "Continue\0",
-    "New Game\0",
-    "Settings\0",
-    "How to Play\0",
-    "Exit\0",
+    T!("Continue"),
+    T!("New Game"),
+    T!("Settings"),
+    T!("How to Play"),
+    T!("Exit"),
 ];
 
 /// Asks a yes/no question; No is selected first, and Back answers No.
@@ -85,7 +85,7 @@ pub fn confirm_dialog(prompt: &str, cfg: &ColorConfig) -> bool {
     let choice = selection(
         cfg,
         &MenuConfig {
-            choices: &["No\0", "Yes\0"],
+            choices: &[T!("No"), T!("Yes")],
             rect_margins: (35, 0), // 35px padding on left and right inside the 200px box
             dimensions: (dialog_w - 4, LARGE_CHAR_HEIGHT + 4),
             offset: (0, btn_y_offset),
@@ -217,7 +217,7 @@ fn start_menu_single_slot<T: GameSave>(
                     return StartMenuAction::Continue(save, None);
                 }
                 1 => {
-                    if confirm_dialog("Overwrite save?\0", cfg) {
+                    if confirm_dialog(T!("Overwrite save?"), cfg) {
                         delete_save(filename, None);
                         fading(FADING_TIME);
                         return StartMenuAction::NewGame(None);
@@ -236,7 +236,7 @@ fn start_menu_single_slot<T: GameSave>(
                     controls(controls_text, cfg);
                 }
                 _ => {
-                    if confirm_dialog("Quit game?\0", cfg) {
+                    if confirm_dialog(T!("Quit game?"), cfg) {
                         fading(FADING_TIME);
                         return StartMenuAction::Exit;
                     }
@@ -261,7 +261,7 @@ fn start_menu_single_slot<T: GameSave>(
                     controls(controls_text, cfg);
                 }
                 _ => {
-                    if confirm_dialog("Quit game?\0", cfg) {
+                    if confirm_dialog(T!("Quit game?"), cfg) {
                         fading(FADING_TIME);
                         return StartMenuAction::Exit;
                     }
@@ -337,7 +337,7 @@ pub fn pause_menu(cfg: &ColorConfig, y_offset: i16) -> u8 {
     selection(
         cfg,
         &MenuConfig {
-            choices: &["Resume\0", "Menu\0", "Quit game\0"],
+            choices: &[T!("Resume"), T!("Menu"), T!("Quit game")],
             rect_margins: (20, 10),
             dimensions: (
                 SCREEN_WIDTH * 2 / 5,
@@ -484,7 +484,7 @@ fn draw_selection_string(
 fn controls(text: &str, cfg: &ColorConfig) -> u8 {
     wait_for_vblank();
     fill_screen(cfg.bckgrd);
-    let back_text = "Menu : <Back>  \0";
+    let back_text = T!("Menu : <Back>  ");
     draw_string_cfg(
         back_text,
         Point::new(

@@ -15,7 +15,7 @@ vis_t V;
 
 /* ------------------------------------------------------------ popups */
 typedef struct {
-  char txt[20];
+  char txt[NP_TEXT_EXTRA ? 40 : 20];
   uint8_t col, tgt;
   uint16_t id;
   int16_t t, life;
@@ -149,11 +149,11 @@ static void add_popup(const ev_t *e) {
   popup_t *p = &pops[slot];
   const char *src = (e->txt[0] == 1 && !e->txt[1]) ? e->p.s : e->txt;
   int n = 0;
-  while (src[n] && n < 15) p->txt[n] = src[n], n++;
+  while (src[n] && n < (NP_TEXT_EXTRA ? 31 : 15)) p->txt[n] = src[n], n++;
   p->txt[n] = 0;
   if (e->c & 1) {
-    static const char suf[] = " Mult";
-    for (int k = 0; suf[k] && n < 19; k++) p->txt[n++] = suf[k];
+    static const char suf[] = T(" Mult");
+    for (int k = 0; suf[k] && n < (int)sizeof p->txt - 1; k++) p->txt[n++] = suf[k];
     p->txt[n] = 0;
   }
   p->col = e->b, p->tgt = e->t, p->id = e->a;
@@ -463,7 +463,7 @@ void draw_sidebar(void) {
     g_rrect(SB_X, 3, SB_W, 62, 4, C_RED);
     g_rrect(SB_X + 2, 5, SB_W - 4, 58, 3, SB_BLACK);
     g_sprite(SPR_SHOP, SB_X + (SB_W - 72) / 2, 7, 0, 256);
-    g_text("Improve your run!", SB_X + SB_W / 2, 50, F_LABEL | T_CENTER, C_WHITE);
+    g_text(T("Improve your run!"), SB_X + SB_W / 2, 50, F_LABEL | T_CENTER, C_WHITE);
   } else if (in_round) {
     int b = R.blind;
     cell(SB_X, 3, SB_W, 62, SB_BLACK);
@@ -475,20 +475,20 @@ void draw_sidebar(void) {
     /* score at least / chips / to earn */
     int bx = SB_X + 31, bw = SB_W - 33;
     cell(bx, 23, bw, 38, SB_BLACK);
-    g_text("Score at least", bx + bw / 2, 26, F_LABEL | T_CENTER, C_WHITE);
+    g_text(T("Score at least"), bx + bw / 2, 26, F_LABEL | T_CENTER, C_WHITE);
     char n[24];
     int f = num_fit(n, R.blind_chips, bw - 19, T_LARGE);
     int tw = g_textw(n, f) + 14, x0 = bx + (bw - tw) / 2;
     g_sprite(SPR_CHIP, x0, 36, 0, 256);
     g_text(n, x0 + 14, 36 + (11 - g_cap(f) + 1) / 2, f | T_SHADOW, C_RED);
-    label_dollars("to earn", blind_info[b].dollars, bx + bw / 2, 51, bw - 4);
+    label_dollars(T("to earn"), blind_info[b].dollars, bx + bw / 2, 51, bw - 4);
   } else {
     cell(SB_X, 3, SB_W, 62, SB_BLACK);
-    g_text_box("Choose your\nnext Blind", SB_X, 3, SB_W, 62, F_NAME, C_WHITE);
+    g_text_box(T("Choose your\nnext Blind"), SB_X, 3, SB_W, 62, F_NAME, C_WHITE);
   }
   /* round score (y 68..88) */
   cell(SB_X, 68, SB_W, 21, cellc);
-  g_text("Round\nscore", SB_X + 13, 70, F_LABEL | T_CENTER, C_WHITE);
+  g_text(T("Round\nscore"), SB_X + 13, 70, F_LABEL | T_CENTER, C_WHITE);
   g_rrect(SB_X + 25, 70, SB_W - 27, 17, 3, fill);
   {
     char n[24];
@@ -503,7 +503,7 @@ void draw_sidebar(void) {
   if (V.hand_name >= 0) {
     int lv = levelup_t > 0 ? (levelup_t < levelup_len * 6 / 10 ? levelup_level : levelup_old) : V.hand_level;
     const char *hn = hand_names[V.hand_name];
-    char *o = str_cat(t, "lvl.");
+    char *o = str_cat(t, T("lvl."));
     fmt_int(o, lv);
     int lw = g_textw(t, F_LABEL);
     /* long names are narrower, as in the game (hand_text_UI_set) */
@@ -529,10 +529,10 @@ void draw_sidebar(void) {
   /* buttons and counters (y 143..235): two columns ending on one line */
   int y0 = 143, lw = 30, rx = SB_X + lw + 2, rw = SB_W - lw - 2, hw = 30, dw = rw - hw - 2;
   cell(SB_X, y0, lw, 45, C_RED);
-  g_text_box("Run\nInfo", SB_X, y0, lw, 45, F_LABEL, C_WHITE);
+  g_text_box(T("Run\nInfo"), SB_X, y0, lw, 45, F_LABEL, C_WHITE);
   cell(SB_X, y0 + 48, lw, 45, C_ORANGE);
-  g_text_box("Options", SB_X, y0 + 48, lw, 45, F_LABEL, C_WHITE);
-  static const char *const lab[4] = {"Hands", "Discards", "Ante", "Round"};
+  g_text_box(T("Options"), SB_X, y0 + 48, lw, 45, F_LABEL, C_WHITE);
+  static const char *const lab[4] = {T("Hands"), T("Discards"), T("Ante"), T("Round")};
   for (int k = 0; k < 4; k++) {
     int x = k & 1 ? rx + hw + 2 : rx, w = k & 1 ? dw : hw, y = k < 2 ? y0 : y0 + 64;
     cell(x, y, w, 29, cellc);

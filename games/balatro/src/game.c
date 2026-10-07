@@ -9,9 +9,9 @@
 
 run_t R;
 
-const char *const rank_names[15] = {"", "", "2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"};
-const char *const suit_names[4] = {"Spade", "Heart", "Club", "Diamond"};
-const char *const suit_names_plural[4] = {"Spades", "Hearts", "Clubs", "Diamonds"};
+const char *const rank_names[15] = {"", "", "2", "3", "4", "5", "6", "7", "8", "9", "10", T("Jack"), T("Queen"), T("King"), T("Ace")};
+const char *const suit_names[4] = {T("Spade"), T("Heart"), T("Club"), T("Diamond")};
+const char *const suit_names_plural[4] = {T("Spades"), T("Hearts"), T("Clubs"), T("Diamonds")};
 
 /* ------------------------------------------------------------------ rng */
 static uint32_t rotl(uint32_t x, int k) { return (x << k) | (x >> (32 - k)); }
@@ -512,7 +512,7 @@ static void add_tag_orb(int t, int orb) {
     R.tag_orbital[R.ntags++] = (int8_t)orb;
   }
   for (int i = 0; i < copies; i++) {
-    ev_popup(TG_CENTER, 0, "Double Tag", PC_ATTN);
+    ev_popup(TG_CENTER, 0, T("Double Tag"), PC_ATTN);
     add_tag_orb(t, orb);
   }
 }

@@ -1,0 +1,764 @@
+# Balatro in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+# Names and descriptions (src/texts.h) in the game's markup: {C:mult}...{} a colour, #1# a value;
+# other texts: \004 and the like are colour codes (src/gfx.h). Terms as in the game's Chinese
+# version (筹码, 倍率, 盲注...). A Chinese letter is 12 pixels wide: tooltip lines stay within 12-13.
+# Each letter no other text uses costs NumPlay-Chinese about 18 bytes: the texts keep to common ones.
+Joker	小丑
+{C:mult}+#1#{} Mult	{C:mult}+#1#{}倍率
+Greedy Joker	贪婪小丑
+Played cards with\n{C:attention}#2#{} suit give\n{C:mult}+#1#{} Mult when scored	打出的{C:attention}#2#{}牌\n在计分时给予\n{C:mult}+#1#{}倍率
+Lusty Joker	色欲小丑
+Played cards with\n{C:mult}#2#{} suit give\n{C:mult}+#1#{} Mult when scored	打出的{C:mult}#2#{}牌\n在计分时给予\n{C:mult}+#1#{}倍率
+Wrathful Joker	愤怒小丑
+Played cards with\n{C:spades}#2#{} suit give\n{C:mult}+#1#{} Mult when scored	打出的{C:spades}#2#{}牌\n在计分时给予\n{C:mult}+#1#{}倍率
+Gluttonous Joker	暴食小丑
+Jolly Joker	开心小丑
+{C:mult}+#1#{} Mult if played\nhand contains\na {C:attention}#2#	如果打出的牌中\n包含{C:attention}#2#\n{C:mult}+#1#{}倍率
+Zany Joker	古怪小丑
+Mad Joker	疯狂小丑
+Crazy Joker	狂野小丑
+Droll Joker	滑稽小丑
+Sly Joker	狡猾小丑
+{C:chips}+#1#{} Chips if played\nhand contains\na {C:attention}#2#	如果打出的牌中\n包含{C:attention}#2#\n{C:chips}+#1#{}筹码
+Wily Joker	诡诈小丑
+Clever Joker	聪明小丑
+Devious Joker	阴险小丑
+Crafty Joker	精明小丑
+Half Joker	半张小丑
+{C:mult}+#1#{} Mult if played\nhand contains\n{C:attention}#2#{} or fewer cards	如果打出的牌\n不多于{C:attention}#2#{}张\n{C:mult}+#1#{}倍率
+Joker Stencil	小丑模板
+{X:mult,C:white} X1 {} Mult for each\nempty {C:attention}Joker{} slot\nJoker Stencil included\n{C:inactive}(Currently {X:mult,C:white} X#1# {C:inactive})	每个空的{C:attention}小丑{}槽位\n给予{X:mult,C:white} X1 {}倍率\n(含小丑模板本身)\n{C:inactive}(当前为{X:mult,C:white} X#1# {C:inactive})
+Four Fingers	四指
+All {C:attention}Flushes{} and\n{C:attention}Straights{} can be\nmade with {C:attention}4{} cards	所有{C:attention}同花{}和{C:attention}顺子\n只需{C:attention}4{}张牌\n即可组成
+Mime	哑剧演员
+Retrigger all\ncard {C:attention}held in\n{C:attention}hand{} abilities	重新触发所有\n{C:attention}手牌中{}的牌的\n能力
+Credit Card	信用卡
+Go up to\n{C:mult}-$#1#{} in debt	资金最多可为\n{C:mult}-$#1#
+Ceremonial Dagger	仪式匕首
+When {C:attention}Blind{} is selected,\ndestroy Joker to the right\nand permanently add {C:attention}double\nits sell value to this {C:mult}Mult\n{C:inactive}(Currently {C:mult}+#1#{C:inactive} Mult)	选择{C:attention}盲注{}时\n摧毁右边的小丑牌\n并将其售价的{C:attention}两倍\n永久加到此牌的{C:mult}倍率\n{C:inactive}(当前为{C:mult}+#1#{C:inactive}倍率)
+Banner	旗帜
+{C:chips}+#1#{} Chips for\neach remaining\n{C:attention}discard	每剩余一次\n{C:attention}弃牌\n{C:chips}+#1#{}筹码
+Mystic Summit	神秘之峰
+{C:mult}+#1#{} Mult when\n{C:attention}#2#{} discards\nremaining	剩余弃牌次数\n为{C:attention}#2#{}时\n{C:mult}+#1#{}倍率
+Marble Joker	大理石小丑
+Adds one {C:attention}Stone{} card\nto deck when\n{C:attention}Blind{} is selected	选择{C:attention}盲注{}时\n向牌组中加入\n一张{C:attention}石头牌
+Loyalty Card	积分卡
+{X:mult,C:white} X#1# {} Mult every\n{C:attention}#2#{} hands played\n{C:inactive}#3#	每打出{C:attention}#2#{}次牌\n给予{X:mult,C:white} X#1# {}倍率\n{C:inactive}#3#
+8 Ball	8号球
+{C:green}#1# in #2#{} chance for each\nplayed {C:attention}8{} to create a\n{C:tarot}Tarot{} card when scored\n{C:inactive}(Must have room)	每张打出的{C:attention}8{}计分时\n有{C:green}#1#/#2#{}的几率\n生成一张{C:tarot}塔罗牌\n{C:inactive}(必须有空位)
+Misprint	印错
+Dusk	黄昏
+Retrigger all played\ncards in {C:attention}final\n{C:attention}hand{} of round	重新触发每回合\n{C:attention}最后一次出牌{}中\n所有打出的牌
+Raised Fist	致胜之拳
+Adds {C:attention}double{} the rank\nof {C:attention}lowest{} ranked card\nheld in hand to Mult	将手牌中{C:attention}点数最小{}的牌\n其点数的{C:attention}两倍\n加到倍率上
+Chaos the Clown	混沌小丑
+{C:attention}#1#{} free {C:green}Reroll\nper shop	每个商店有\n{C:attention}#1#{}次免费{C:green}重掷
+Fibonacci	斐波那契
+Each played {C:attention}Ace{},\n{C:attention}2{}, {C:attention}3{}, {C:attention}5{}, or {C:attention}8{} gives\n{C:mult}+#1#{} Mult when scored	每张打出的{C:attention}A{}、{C:attention}2{}、\n{C:attention}3{}、{C:attention}5{}或{C:attention}8{}计分时\n给予{C:mult}+#1#{}倍率
+Steel Joker	钢铁小丑
+Gives {X:mult,C:white} X#1# {} Mult\nfor each {C:attention}Steel Card\nin your {C:attention}full deck\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	完整牌组中每有\n一张{C:attention}钢铁牌\n给予{X:mult,C:white} X#1# {}倍率\n{C:inactive}(当前为{X:mult,C:white} X#2# {C:inactive}倍率)
+Scary Face	恐怖面孔
+Played {C:attention}face{} cards\ngive {C:chips}+#1#{} Chips\nwhen scored	打出的{C:attention}人头牌\n计分时给予\n{C:chips}+#1#{}筹码
+Abstract Joker	抽象小丑
+{C:mult}+#1#{} Mult for\neach {C:attention}Joker{} card\n{C:inactive}(Currently {C:mult}+#2#{C:inactive} Mult)	每有一张{C:attention}小丑牌\n{C:mult}+#1#{}倍率\n{C:inactive}(当前为{C:mult}+#2#{C:inactive}倍率)
+Delayed Gratification	延迟满足
+Earn {C:money}$#1#{} per {C:attention}discard{} if\nno discards are used\nby end of the round	回合结束时如果\n没有使用弃牌，每次\n{C:attention}弃牌{}获得{C:money}$#1#
+Hack	黑客
+Retrigger\neach played\n{C:attention}2{}, {C:attention}3{}, {C:attention}4{}, or {C:attention}5{}	重新触发每张\n打出的{C:attention}2{}、{C:attention}3{}、\n{C:attention}4{}或{C:attention}5
+Pareidolia	幻视
+All cards are\nconsidered\n{C:attention}face{} cards	所有牌都视为\n{C:attention}人头牌
+Gros Michel	大麦克香蕉
+{C:mult}+#1#{} Mult\n{C:green}#2# in #3#{} chance this\ncard is destroyed\nat end of round	{C:mult}+#1#{}倍率\n回合结束时有{C:green}#2#/#3#\n的几率摧毁此牌
+Even Steven	偶数史蒂文
+Played cards with\n{C:attention}even{} rank give\n{C:mult}+#1#{} Mult when scored\n{C:inactive}(10, 8, 6, 4, 2)	打出的{C:attention}双数{}点数牌\n计分时给予\n{C:mult}+#1#{}倍率\n{C:inactive}(10, 8, 6, 4, 2)
+Odd Todd	奇数托德
+Played cards with\n{C:attention}odd{} rank give\n{C:chips}+#1#{} Chips when scored\n{C:inactive}(A, 9, 7, 5, 3)	打出的{C:attention}奇数{}点数牌\n计分时给予\n{C:chips}+#1#{}筹码\n{C:inactive}(A, 9, 7, 5, 3)
+Scholar	学者
+Played {C:attention}Aces{}\ngive {C:chips}+#2#{} Chips\nand {C:mult}+#1#{} Mult\nwhen scored	打出的{C:attention}A{}计分时\n给予{C:chips}+#2#{}筹码\n和{C:mult}+#1#{}倍率
+Business Card	名片
+Played {C:attention}face{} cards have\na {C:green}#1# in #2#{} chance to\ngive {C:money}$2{} when scored	打出的{C:attention}人头牌{}计分时\n有{C:green}#1#/#2#{}的几率\n给予{C:money}$2
+Supernova	超新星
+Adds the number of times\n{C:attention}poker hand{} has been\nplayed this run to Mult	将本局中该{C:attention}牌型\n已打出的次数\n加到倍率上
+Ride the Bus	搭乘巴士
+This Joker gains {C:mult}+#1#{} Mult\nper {C:attention}consecutive{} hand\nplayed without a\nscoring {C:attention}face{} card\n{C:inactive}(Currently {C:mult}+#2#{C:inactive} Mult)	每{C:attention}连续{}一次出牌\n没有计分的{C:attention}人头牌\n此小丑获得{C:mult}+#1#{}倍率\n{C:inactive}(当前为{C:mult}+#2#{C:inactive}倍率)
+Space Joker	太空小丑
+{C:green}#1# in #2#{} chance to\nupgrade level of\nplayed {C:attention}poker hand{}	有{C:green}#1#/#2#{}的几率\n升级打出的{C:attention}牌型
+Egg	鸡蛋
+Gains {C:money}$#1#{} of\n{C:attention}sell value{} at\nend of round	回合结束时\n{C:attention}售价{}增加{C:money}$#1#
+Burglar	窃贼
+When {C:attention}Blind{} is selected,\ngain {C:chips}+#1#{} Hands and\n{C:attention}lose all discards	选择{C:attention}盲注{}时\n获得{C:chips}+#1#{}次出牌\n并{C:attention}失去所有弃牌
+Blackboard	黑板
+{X:mult,C:white} X#1# {} Mult if all\ncards held in hand\nare {C:spades}#2#{} or {C:attention}#3#{}	如果手牌全部为\n{C:spades}#2#{}或{C:attention}#3#\n给予{X:mult,C:white} X#1# {}倍率
+Runner	跑步选手
+Gains {C:chips}+#2#{} Chips\nif played hand\ncontains a {C:attention}Straight{}\n{C:inactive}(Currently {C:chips}+#1#{C:inactive} Chips)	如果打出的牌中\n包含{C:attention}顺子\n获得{C:chips}+#2#{}筹码\n{C:inactive}(当前为{C:chips}+#1#{C:inactive}筹码)
+Ice Cream	冰淇淋
+{C:chips}+#1#{} Chips\n{C:chips}-#2#{} Chips for\nevery hand played	{C:chips}+#1#{}筹码\n每次出牌后\n{C:chips}-#2#{}筹码
+DNA	DNA
+If {C:attention}first hand{} of round\nhas only {C:attention}1{} card, add a\npermanent copy to deck\nand draw it to {C:attention}hand	如果回合的{C:attention}第一次出牌\n只有{C:attention}1{}张牌，将其\n永久复制到牌组\n并抽到{C:attention}手牌{}中
+Splash	飞溅
+Every {C:attention}played card\ncounts in scoring	每张{C:attention}打出的牌\n都会计分
+Blue Joker	蓝色小丑
+{C:chips}+#1#{} Chips for each\nremaining card in {C:attention}deck\n{C:inactive}(Currently {C:chips}+#2#{C:inactive} Chips)	{C:attention}牌组{}中每剩余\n一张牌{C:chips}+#1#{}筹码\n{C:inactive}(当前为{C:chips}+#2#{C:inactive}筹码)
+Sixth Sense	第六感
+If {C:attention}first hand{} of round is\na single {C:attention}6{}, destroy it and\ncreate a {C:spectral}Spectral{} card\n{C:inactive}(Must have room)	如果回合的{C:attention}第一次出牌\n只有一张{C:attention}6{}，将其摧毁\n并生成一张{C:spectral}幻灵牌\n{C:inactive}(必须有空位)
+Constellation	星座
+This Joker gains\n{X:mult,C:white} X#1# {} Mult every time\na {C:planet}Planet{} card is used\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	每使用一张{C:planet}星球牌\n此小丑获得\n{X:mult,C:white} X#1# {}倍率\n{C:inactive}(当前为{X:mult,C:white} X#2# {C:inactive}倍率)
+Hiker	徒步者
+Every played {C:attention}card{}\npermanently gains\n{C:chips}+#1#{} Chips when scored	每张打出的{C:attention}牌{}计分时\n永久获得{C:chips}+#1#{}筹码
+Faceless Joker	无面小丑
+Earn {C:money}$#1#{} if {C:attention}#2#{} or\nmore {C:attention}face cards{}\nare discarded\nat the same time	同时弃掉{C:attention}#2#{}张\n或更多{C:attention}人头牌{}时\n获得{C:money}$#1#
+Green Joker	绿色小丑
+{C:mult}+#1#{} Mult per hand played\n{C:mult}-#2#{} Mult per discard\n{C:inactive}(Currently {C:mult}+#3#{C:inactive} Mult)	每次出牌{C:mult}+#1#{}倍率\n每次弃牌{C:mult}-#2#{}倍率\n{C:inactive}(当前为{C:mult}+#3#{C:inactive}倍率)
+Superposition	叠加态
+Create a {C:tarot}Tarot{} card if\npoker hand contains an\n{C:attention}Ace{} and a {C:attention}Straight{}\n{C:inactive}(Must have room)	如果牌型中包含\n{C:attention}A{}和{C:attention}顺子\n生成一张{C:tarot}塔罗牌\n{C:inactive}(必须有空位)
+To Do List	待办清单
+Earn {C:money}$#1#{} if {C:attention}poker hand{}\nis a {C:attention}#2#{},\npoker hand changes\nat end of round	如果牌型为{C:attention}#2#\n获得{C:money}$#1#\n回合结束时牌型改变
+Cavendish	卡文迪什
+{X:mult,C:white} X#1# {} Mult\n{C:green}#2# in #3#{} chance this\ncard is destroyed\nat end of round	{X:mult,C:white} X#1# {}倍率\n回合结束时有{C:green}#2#/#3#\n的几率摧毁此牌
+Card Sharp	老千
+{X:mult,C:white} X#1# {} Mult if played\n{C:attention}poker hand{} has already\nbeen played this round	如果打出的{C:attention}牌型\n本回合已打出过\n给予{X:mult,C:white} X#1# {}倍率
+Red Card	红牌
+This Joker gains\n{C:mult}+#1#{} Mult when any\n{C:attention}Booster Pack{} is skipped\n{C:inactive}(Currently {C:mult}+#2#{C:inactive} Mult)	每跳过一个{C:attention}补充包\n此小丑获得{C:mult}+#1#{}倍率\n{C:inactive}(当前为{C:mult}+#2#{C:inactive}倍率)
+Madness	癫狂
+When {C:attention}Small Blind{} or {C:attention}Big Blind{}\nis selected, gain {X:mult,C:white} X#1# {} Mult\nand {C:attention}destroy{} a random Joker\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	选择{C:attention}小盲注{}或{C:attention}大盲注{}时\n获得{X:mult,C:white} X#1# {}倍率\n并随机{C:attention}摧毁{}一张小丑牌\n{C:inactive}(当前为{X:mult,C:white} X#2# {C:inactive}倍率)
+Square Joker	方形小丑
+This Joker gains {C:chips}+#2#{} Chips\nif played hand has\nexactly {C:attention}4{} cards\n{C:inactive}(Currently {C:chips}#1#{C:inactive} Chips)	如果打出的牌\n正好为{C:attention}4{}张\n此小丑获得{C:chips}+#2#{}筹码\n{C:inactive}(当前为{C:chips}#1#{C:inactive}筹码)
+Singance	降神会
+If {C:attention}poker hand{} is a\n{C:attention}#1#{}, create a\nrandom {C:spectral}Spectral{} card\n{C:inactive}(Must have room)	如果牌型为{C:attention}#1#\n随机生成一张\n{C:spectral}幻灵牌\n{C:inactive}(必须有空位)
+Riff-Raff	乌合之众
+When {C:attention}Blind{} is selected,\ncreate {C:attention}#1# {C:chips}Common{C:attention} Jokers\n{C:inactive}(Must have room)	选择{C:attention}盲注{}时\n生成{C:attention}#1#{}张{C:chips}普通{}小丑牌\n{C:inactive}(必须有空位)
+Vampire	吸血鬼
+This Joker gains {X:mult,C:white} X#1# {} Mult\nper scoring {C:attention}Enhanced card{} played,\nremoves card {C:attention}Enhancement\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	每打出一张计分的\n{C:attention}增强牌{}，此小丑获得\n{X:mult,C:white} X#1# {}倍率并移除\n该牌的{C:attention}增强\n{C:inactive}(当前为{X:mult,C:white} X#2# {C:inactive}倍率)
+Shortcut	捷径
+Allows {C:attention}Straights{} to be\nmade with gaps of {C:attention}1 rank\n{C:inactive}(ex: {C:attention}10 8 6 5 3{C:inactive})	{C:attention}顺子{}可以跳过\n{C:attention}1{}个点数\n{C:inactive}(例：{C:attention}10 8 6 5 3{C:inactive})
+Hologram	全息影像
+This Joker gains {X:mult,C:white} X#1# {} Mult\nevery time a {C:attention}playing card{}\nis added to your deck\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	每有一张{C:attention}游戏牌{}\n加入牌组，此小丑\n获得{X:mult,C:white} X#1# {}倍率\n{C:inactive}(当前为{X:mult,C:white} X#2# {C:inactive}倍率)
+Vagabond	流浪者
+Create a {C:tarot}Tarot{} card\nif hand is played\nwith {C:money}$#1#{} or less	如果出牌时资金\n不多于{C:money}$#1#\n生成一张{C:tarot}塔罗牌
+Baron	男爵
+Each {C:attention}King{}\nheld in hand\ngives {X:mult,C:white} X#1# {} Mult	手牌中每张{C:attention}K\n给予{X:mult,C:white} X#1# {}倍率
+Cloud 9	九霄云外
+Earn {C:money}$#1#{} for each\n{C:attention}9{} in your {C:attention}full deck\nat end of round\n{C:inactive}(Currently {C:money}$#2#{}{C:inactive})	回合结束时{C:attention}完整\n牌组{}中每有一张{C:attention}9\n获得{C:money}$#1#\n{C:inactive}(当前为{C:money}$#2#{}{C:inactive})
+Rocket	火箭
+Earn {C:money}$#1#{} at end of round\nPayout increases by {C:money}$#2#{}\nwhen {C:attention}Boss Blind{} is defeated	回合结束时获得{C:money}$#1#\n击败{C:attention}Boss盲注{}时\n奖励增加{C:money}$#2#
+Obelisk	方尖碑
+This Joker gains {X:mult,C:white} X#1# {} Mult\nper {C:attention}consecutive{} hand played\nwithout playing your\nmost played {C:attention}poker hand\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	每{C:attention}连续{}一次出牌\n不是最常打出的{C:attention}牌型\n此小丑获得{X:mult,C:white} X#1# {}倍率\n{C:inactive}(当前为{X:mult,C:white} X#2# {C:inactive}倍率)
+Midas Mask	迈达斯面具
+All played {C:attention}face{} cards\nbecome {C:attention}Gold{} cards\nwhen scored	打出的{C:attention}人头牌\n计分时变为\n{C:attention}黄金牌
+Luchador	摔跤手
+Sell this card to\ndisable the current\n{C:attention}Boss Blind{}	卖掉此牌\n使当前的{C:attention}Boss盲注\n失效
+Photograph	照片
+First played {C:attention}face\ncard gives {X:mult,C:white} X#1# {} Mult\nwhen scored	第一张打出的\n{C:attention}人头牌{}计分时\n给予{X:mult,C:white} X#1# {}倍率
+Gift Card	礼品卡
+Add {C:money}$#1#{} of {C:attention}sell value\nto every {C:attention}Joker{} and\n{C:attention}Consumable{} card at\nend of round	回合结束时每张\n{C:attention}小丑牌{}和{C:attention}消耗牌\n的售价增加{C:money}$#1#
+Turtle Bean	龟豆
+{C:attention}+#1#{} hand size,\nreduces by\n{C:mult}#2#{} every round	手牌上限{C:attention}+#1#\n每回合减少{C:mult}#2#
+Erosion	侵蚀
+{C:mult}+#1#{} Mult for each\ncard below {C:attention}#3#{}\nin your full deck\n{C:inactive}(Currently {C:mult}+#2#{C:inactive} Mult)	完整牌组中每比\n{C:attention}#3#{}张少一张牌\n{C:mult}+#1#{}倍率\n{C:inactive}(当前为{C:mult}+#2#{C:inactive}倍率)
+Reserved Parking	预留停车位
+Each {C:attention}face{} card\nheld in hand has\na {C:green}#2# in #3#{} chance\nto give {C:money}$#1#{}	手牌中每张{C:attention}人头牌\n有{C:green}#2#/#3#{}的几率\n给予{C:money}$#1#
+Mail-In Rebate	邮件回扣
+Earn {C:money}$#1#{} for each\ndiscarded {C:attention}#2#{}, rank\nchanges every round	每弃掉一张{C:attention}#2#\n获得{C:money}$#1#\n点数每回合改变
+To the Moon	冲向月球
+Earn an extra {C:money}$#1#{} of\n{C:attention}interest{} for every {C:money}$5{} you\nhave at end of round	回合结束时每有{C:money}$5\n额外获得{C:money}$#1#{}的{C:attention}利息
+Hallucination	幻觉
+{C:green}#1# in #2#{} chance to create\na {C:tarot}Tarot{} card when any\n{C:attention}Booster Pack{} is opened\n{C:inactive}(Must have room)	打开任何{C:attention}补充包{}时\n有{C:green}#1#/#2#{}的几率\n生成一张{C:tarot}塔罗牌\n{C:inactive}(必须有空位)
+Fortune Teller	占卜师
+{C:mult}+#1#{} Mult per {C:tarot}Tarot{}\ncard used this run\n{C:inactive}(Currently {C:mult}+#2#{C:inactive})	本局每使用一张\n{C:tarot}塔罗牌{C:mult}+#1#{}倍率\n{C:inactive}(当前为{C:mult}+#2#{C:inactive})
+Juggler	杂耍师
+{C:attention}+#1#{} hand size	手牌上限{C:attention}+#1#
+Drunkard	醉汉
+{C:mult}+#1#{} discard\neach round	每回合\n弃牌次数{C:mult}+#1#
+Stone Joker	石头小丑
+Gives {C:chips}+#1#{} Chips for\neach {C:attention}Stone Card\nin your {C:attention}full deck\n{C:inactive}(Currently {C:chips}+#2#{C:inactive} Chips)	完整牌组中每有\n一张{C:attention}石头牌\n给予{C:chips}+#1#{}筹码\n{C:inactive}(当前为{C:chips}+#2#{C:inactive}筹码)
+Golden Joker	黄金小丑
+Earn {C:money}$#1#{} at\nend of round	回合结束时\n获得{C:money}$#1#
+Lucky Cat	招财猫
+This Joker gains {X:mult,C:white} X#1# {} Mult\nevery time a {C:attention}Lucky{} card\n{C:green}successfully{} triggers\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	每次{C:attention}幸运牌{C:green}成功{}触发\n此小丑获得\n{X:mult,C:white} X#1# {}倍率\n{C:inactive}(当前为{X:mult,C:white} X#2# {C:inactive}倍率)
+Baseball Card	棒球卡
+{C:green}Uncommon{} Jokers\neach give {X:mult,C:white} X#1# {} Mult	每张{C:green}罕见{}小丑牌\n给予{X:mult,C:white} X#1# {}倍率
+Bull	斗牛
+{C:chips}+#1#{} Chips for\neach {C:money}$1{} you have\n{C:inactive}(Currently {C:chips}+#2#{C:inactive} Chips)	每有{C:money}$1\n{C:chips}+#1#{}筹码\n{C:inactive}(当前为{C:chips}+#2#{C:inactive}筹码)
+Diet Cola	无糖可乐
+Sell this card to\ncreate a free\n{C:attention}#1#	卖掉此牌\n获得一个免费的\n{C:attention}#1#
+Trading Card	交易卡
+If {C:attention}first discard{} of round\nhas only {C:attention}1{} card, destroy\nit and earn {C:money}$#1#	如果回合的{C:attention}第一次弃牌\n只有{C:attention}1{}张牌\n将其摧毁并获得{C:money}$#1#
+Flash Card	闪示卡
+This Joker gains {C:mult}+#1#{} Mult\nper {C:attention}reroll{} in the shop\n{C:inactive}(Currently {C:mult}+#2#{C:inactive} Mult)	商店中每{C:attention}重掷{}一次\n此小丑获得{C:mult}+#1#{}倍率\n{C:inactive}(当前为{C:mult}+#2#{C:inactive}倍率)
+Popcorn	爆米花
+{C:mult}+#1#{} Mult\n{C:mult}-#2#{} Mult per\nround played	{C:mult}+#1#{}倍率\n每回合{C:mult}-#2#{}倍率
+Spare Trousers	备用裤子
+This Joker gains {C:mult}+#1#{} Mult\nif played hand contains\na {C:attention}#2#\n{C:inactive}(Currently {C:mult}+#3#{C:inactive} Mult)	如果打出的牌中\n包含{C:attention}#2#\n此小丑获得{C:mult}+#1#{}倍率\n{C:inactive}(当前为{C:mult}+#3#{C:inactive}倍率)
+Ancient Joker	古老小丑
+Each played card with\n{C:attention}#2#{} suit gives\n{X:mult,C:white} X#1# {} Mult when scored,\nsuit changes at end of round	打出的{C:attention}#2#{}牌计分时\n给予{X:mult,C:white} X#1# {}倍率\n回合结束时花色改变
+Ramen	拉面
+{X:mult,C:white} X#1# {} Mult,\nloses {X:mult,C:white} X#2# {} Mult\nper {C:attention}card{} discarded	{X:mult,C:white} X#1# {}倍率\n每弃掉一张{C:attention}牌\n失去{X:mult,C:white} X#2# {}倍率
+Walkie Talkie	对讲机
+Each played {C:attention}10{} or {C:attention}4\ngives {C:chips}+#1#{} Chips and\n{C:mult}+#2#{} Mult when scored	每张打出的{C:attention}10{}或{C:attention}4\n计分时给予{C:chips}+#1#{}筹码\n和{C:mult}+#2#{}倍率
+Seltzer	苏打水
+Retrigger all\ncards played for\nthe next {C:attention}#1#{} hands	在接下来的{C:attention}#1#{}次出牌中\n重新触发所有\n打出的牌
+Castle	城堡
+This Joker gains {C:chips}+#1#{} Chips\nper discarded {C:attention}#2#{} card,\nsuit changes every round\n{C:inactive}(Currently {C:chips}+#3#{C:inactive} Chips)	每弃掉一张{C:attention}#2#{}牌\n此小丑获得{C:chips}+#1#{}筹码\n花色每回合改变\n{C:inactive}(当前为{C:chips}+#3#{C:inactive}筹码)
+Smiley Face	笑脸
+Played {C:attention}face{} cards\ngive {C:mult}+#1#{} Mult\nwhen scored	打出的{C:attention}人头牌\n计分时给予\n{C:mult}+#1#{}倍率
+Campfire	篝火
+This Joker gains {X:mult,C:white}X#1#{} Mult\nfor each card {C:attention}sold{}, resets\nwhen {C:attention}Boss Blind{} is defeated\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	每{C:attention}卖出{}一张牌\n此小丑获得{X:mult,C:white}X#1#{}倍率\n击败{C:attention}Boss盲注{}时重置\n{C:inactive}(当前为{X:mult,C:white} X#2# {C:inactive}倍率)
+Golden Ticket	金色门票
+Played {C:attention}Gold{} cards\nearn {C:money}$#1#{} when scored	打出的{C:attention}黄金牌\n计分时获得{C:money}$#1#
+Mr. Bones	骷髅先生
+Prevents Death\nif chips scored\nare at least {C:attention}25%\nof required chips\n{C:mult}self destructs{}	如果得分至少为\n所需筹码的{C:attention}25%\n则免于失败\n然后{C:mult}自我摧毁
+Acrobat	杂技演员
+{X:mult,C:white} X#1# {} Mult on {C:attention}final\n{C:attention}hand{} of round	每回合的{C:attention}最后一次\n{C:attention}出牌{}给予{X:mult,C:white} X#1# {}倍率
+Sock and Buskin	喜与悲
+Retrigger all\nplayed {C:attention}face{} cards	重新触发所有\n打出的{C:attention}人头牌
+Swashbuckler	侠盗
+Adds the sell value\nof all other owned\n{C:attention}Jokers{} to Mult\n{C:inactive}(Currently {C:mult}+#1#{C:inactive} Mult)	将其他所有{C:attention}小丑牌\n的售价加到倍率上\n{C:inactive}(当前为{C:mult}+#1#{C:inactive}倍率)
+Troubadour	吟游诗人
+{C:attention}+#1#{} hand size,\n{C:chips}-#2#{} hand each round	手牌上限{C:attention}+#1#\n每回合出牌次数{C:chips}-#2#
+Certificate	证书
+When round begins,\nadd a random {C:attention}playing\n{C:attention}card{} with a random\n{C:attention}seal{} to your hand	回合开始时\n将一张有随机{C:attention}蜡封\n的随机{C:attention}游戏牌\n加入手牌
+Smeared Joker	涂抹小丑
+{C:mult}Hearts{} and {C:attention}Diamonds\ncount as the same suit,\n{C:spades}Spades{} and {C:attention}Clubs\ncount as the same suit	{C:mult}红桃{}和{C:attention}方片\n视为同一花色\n{C:spades}黑桃{}和{C:attention}梅花\n视为同一花色
+Throwback	回溯
+{X:mult,C:white} X#1# {} Mult for each\n{C:attention}Blind{} skipped this run\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	本局每跳过一个{C:attention}盲注\n给予{X:mult,C:white} X#1# {}倍率\n{C:inactive}(当前为{X:mult,C:white} X#2# {C:inactive}倍率)
+Hanging Chad	悬孔
+Retrigger {C:attention}first{} played\ncard used in scoring\n{C:attention}#1#{} additional times	额外重新触发\n第{C:attention}一{}张计分的牌\n{C:attention}#1#{}次
+Rough Gem	原石
+Played cards with\n{C:attention}Diamond{} suit earn\n{C:money}$#1#{} when scored	打出的{C:attention}方片{}牌\n计分时获得{C:money}$#1#
+Bloodstone	血石
+{C:green}#1# in #2#{} chance for\nplayed cards with\n{C:mult}Heart{} suit to give\n{X:mult,C:white} X#3# {} Mult when scored	打出的{C:mult}红桃{}牌计分时\n有{C:green}#1#/#2#{}的几率\n给予{X:mult,C:white} X#3# {}倍率
+Arrowhead	箭头
+Played cards with\n{C:spades}Spade{} suit give\n{C:chips}+#1#{} Chips when scored	打出的{C:spades}黑桃{}牌\n计分时给予\n{C:chips}+#1#{}筹码
+Onyx Agate	缟玛瑙
+Played cards with\n{C:attention}Club{} suit give\n{C:mult}+#1#{} Mult when scored	打出的{C:attention}梅花{}牌\n计分时给予\n{C:mult}+#1#{}倍率
+Glass Joker	玻璃小丑
+This Joker gains {X:mult,C:white} X#1# {} Mult\nfor every {C:attention}Glass Card\nthat is destroyed\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	每摧毁一张{C:attention}玻璃牌\n此小丑获得\n{X:mult,C:white} X#1# {}倍率\n{C:inactive}(当前为{X:mult,C:white} X#2# {C:inactive}倍率)
+Showman	马戏团长
+{C:attention}Joker{}, {C:tarot}Tarot{}, {C:planet}Planet{},\nand {C:spectral}Spectral{} cards may\nappear multiple times	{C:attention}小丑牌{}、{C:tarot}塔罗牌{}、\n{C:planet}星球牌{}和{C:spectral}幻灵牌\n可以多次出现
+Flower Pot	花盆
+{X:mult,C:white} X#1# {} Mult if poker\nhand contains a\n{C:attention}Diamond{} card, {C:attention}Club{} card,\n{C:mult}Heart{} card, and {C:spades}Spade{} card	如果牌型中包含\n{C:attention}方片{}、{C:attention}梅花{}、\n{C:mult}红桃{}和{C:spades}黑桃{}牌\n给予{X:mult,C:white} X#1# {}倍率
+Blueprint	蓝图
+Copies ability of\n{C:attention}Joker{} to the right	复制右边\n{C:attention}小丑牌{}的能力
+Wee Joker	小小丑
+This Joker gains\n{C:chips}+#2#{} Chips when each\nplayed {C:attention}2{} is scored\n{C:inactive}(Currently {C:chips}+#1#{C:inactive} Chips)	每张打出的{C:attention}2{}计分时\n此小丑获得{C:chips}+#2#{}筹码\n{C:inactive}(当前为{C:chips}+#1#{C:inactive}筹码)
+Merry Andy	快乐安迪
+{C:mult}+#1#{} discards\neach round,\n{C:mult}#2#{} hand size	每回合弃牌\n次数{C:mult}+#1#\n手牌上限{C:mult}#2#
+Oops! All 6s	哎呀！全是6
+Doubles all {C:attention}listed\n{C:green}probabilities\n{C:inactive}(ex: {C:green}1 in 3{C:inactive} -> {C:green}2 in 3{C:inactive})	所有列出的\n{C:green}几率{}翻倍\n{C:inactive}(例：{C:green}1/3{C:inactive} -> {C:green}2/3{C:inactive})
+The Idol	偶像
+Each played {C:attention}#2#\nof {C:attention}#3#{} gives\n{X:mult,C:white} X#1# {} Mult when scored\nCard changes every round	每张打出的{C:attention}#3##2#\n计分时给予\n{X:mult,C:white} X#1# {}倍率\n牌每回合改变
+Seeing Double	重影
+{X:mult,C:white} X#1# {} Mult if played\nhand has a scoring\n{C:attention}Club{} card and a scoring\ncard of any other {C:attention}suit	如果打出的牌中有\n计分的{C:attention}梅花{}牌和\n其他{C:attention}花色{}的计分牌\n给予{X:mult,C:white} X#1# {}倍率
+Matador	斗牛士
+Earn {C:money}$#1#{} if played\nhand triggers the\n{C:attention}Boss Blind{} ability	如果打出的牌触发\n{C:attention}Boss盲注{}的能力\n获得{C:money}$#1#
+Hit the Road	上路吧
+This Joker gains {X:mult,C:white} X#1# {} Mult\nfor every {C:attention}Jack{}\ndiscarded this round\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	本回合每弃掉一张{C:attention}J\n此小丑获得\n{X:mult,C:white} X#1# {}倍率\n{C:inactive}(当前为{X:mult,C:white} X#2# {C:inactive}倍率)
+The Duo	二重奏
+{X:mult,C:white} X#1# {} Mult if played\nhand contains\na {C:attention}#2#	如果打出的牌中\n包含{C:attention}#2#\n给予{X:mult,C:white} X#1# {}倍率
+The Trio	三重奏
+The Family	一家人
+The Order	秩序
+The Tribe	部落
+Stuntman	特技演员
+{C:chips}+#1#{} Chips,\n{C:attention}-#2#{} hand size	{C:chips}+#1#{}筹码\n手牌上限{C:attention}-#2#
+Invisible Joker	隐形小丑
+After {C:attention}#1#{} rounds,\nsell this card to\n{C:attention}Duplicate{} a random Joker\n{C:inactive}(Currently {C:attention}#2#{C:inactive}/#1#)	经过{C:attention}#1#{}个回合后\n卖掉此牌可随机\n{C:attention}复制{}一张小丑牌\n{C:inactive}(当前为{C:attention}#2#{C:inactive}/#1#)
+Brainstorm	头脑风暴
+Copies the ability\nof leftmost {C:attention}Joker	复制最左边\n{C:attention}小丑牌{}的能力
+Satellite	卫星
+Earn {C:money}$#1#{} at end of\nround per unique {C:planet}Planet\ncard used this run\n{C:inactive}(Currently {C:money}$#2#{C:inactive})	回合结束时本局每使用过\n一种{C:planet}星球牌{}获得{C:money}$#1#\n{C:inactive}(当前为{C:money}$#2#{C:inactive})
+Shoot the Moon	射月
+Each {C:attention}Queen{}\nheld in hand\ngives {C:mult}+#1#{} Mult	手牌中每张{C:attention}Q\n给予{C:mult}+#1#{}倍率
+Driver's License	驾照
+{X:mult,C:white} X#1# {} Mult if you have\nat least {C:attention}16{} Enhanced\ncards in your full deck\n{C:inactive}(Currently {C:attention}#2#{C:inactive})	如果完整牌组中\n至少有{C:attention}16{}张增强牌\n给予{X:mult,C:white} X#1# {}倍率\n{C:inactive}(当前为{C:attention}#2#{C:inactive})
+Cartomancer	卡牌术士
+Create a {C:tarot}Tarot{} card\nwhen {C:attention}Blind{} is selected\n{C:inactive}(Must have room)	选择{C:attention}盲注{}时\n生成一张{C:tarot}塔罗牌\n{C:inactive}(必须有空位)
+Astronomer	天文学家
+All {C:planet}Planet{} cards and\n{C:planet}Celestial Packs{} in\nthe shop are {C:attention}free	商店中所有{C:planet}星球牌\n和{C:planet}天体包{}都{C:attention}免费
+Burnt Joker	烧焦小丑
+Upgrade the level of\nthe first {C:attention}discarded\npoker hand each round	每回合升级\n第一次{C:attention}弃掉{}的牌型
+Bootstraps	拔靴带
+{C:mult}+#1#{} Mult for every\n{C:money}$#2#{} you have\n{C:inactive}(Currently {C:mult}+#3#{C:inactive} Mult)	每有{C:money}$#2#\n{C:mult}+#1#{}倍率\n{C:inactive}(当前为{C:mult}+#3#{C:inactive}倍率)
+Canio	卡尼奥
+This Joker gains {X:mult,C:white} X#1# {} Mult\nwhen a {C:attention}face{} card\nis destroyed\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	每摧毁一张{C:attention}人头牌\n此小丑获得\n{X:mult,C:white} X#1# {}倍率\n{C:inactive}(当前为{X:mult,C:white} X#2# {C:inactive}倍率)
+Triboulet	特里布莱
+Played {C:attention}Kings{} and\n{C:attention}Queens{} each give\n{X:mult,C:white} X#1# {} Mult when scored	打出的{C:attention}K{}和{C:attention}Q\n计分时各给予\n{X:mult,C:white} X#1# {}倍率
+Yorick	约里克
+This Joker gains\n{X:mult,C:white} X#1# {} Mult every {C:attention}#2#{C:inactive} [#3#]{}\ncards discarded\n{C:inactive}(Currently {X:mult,C:white} X#4# {C:inactive} Mult)	每弃掉{C:attention}#2#{C:inactive} [#3#]{}张牌\n此小丑获得\n{X:mult,C:white} X#1# {}倍率\n{C:inactive}(当前为{X:mult,C:white} X#4# {C:inactive}倍率)
+Chicot	奇科
+Disables effect of\nevery {C:attention}Boss Blind	使每个{C:attention}Boss盲注\n的效果失效
+Perkeo	帕奇欧
+Creates a {C:dark_edition}Negative{} copy of\n{C:attention}1{} random {C:attention}consumable{}\ncard in your possession\nat the end of the {C:attention}shop	离开{C:attention}商店{}时\n随机复制{C:attention}1{}张持有的\n{C:attention}消耗牌{}，复制品为{C:dark_edition}负片
+The Fool	愚者
+Creates the last\n{C:tarot}Tarot{} or {C:planet}Planet{} card\nused during this run\n{C:tarot}The Fool excluded	生成本局最后使用的\n{C:tarot}塔罗牌{}或{C:planet}星球牌\n{C:tarot}愚者除外
+The Magician	魔术师
+Enhances {C:attention}#1#{}\nselected cards to\n{C:attention}#2#s	将{C:attention}#1#{}张选定的牌\n增强为{C:attention}#2#
+The High Priestess	女祭司
+Creates up to {C:attention}#1#\nrandom {C:planet}Planet{} cards\n{C:inactive}(Must have room)	随机生成最多\n{C:attention}#1#{}张{C:planet}星球牌\n{C:inactive}(必须有空位)
+The Empress	女皇
+Enhances {C:attention}#1#\nselected cards to\n{C:attention}#2#s	将{C:attention}#1#{}张选定的牌\n增强为{C:attention}#2#
+The Emperor	皇帝
+Creates up to {C:attention}#1#\nrandom {C:tarot}Tarot{} cards\n{C:inactive}(Must have room)	随机生成最多\n{C:attention}#1#{}张{C:tarot}塔罗牌\n{C:inactive}(必须有空位)
+The Hierophant	教皇
+The Lovers	恋人
+Enhances {C:attention}#1#{} selected\ncard into a\n{C:attention}#2#	将{C:attention}#1#{}张选定的牌\n增强为{C:attention}#2#
+The Chariot	战车
+Justice	正义
+The Hermit	隐者
+Doubles money\n{C:inactive}(Max of {C:money}$#1#{C:inactive})	资金翻倍\n{C:inactive}(最多{C:money}$#1#{C:inactive})
+The Wheel of Fortune	命运之轮
+{C:green}#1# in #2#{} chance to add\n{C:dark_edition}Foil{}, {C:dark_edition}Holographic{}, or\n{C:dark_edition}Polychrome{} edition\nto a random {C:attention}Joker	有{C:green}#1#/#2#{}的几率\n为随机一张{C:attention}小丑牌\n添加{C:dark_edition}闪箔{}、{C:dark_edition}镭射{}\n或{C:dark_edition}多彩{}版本
+Strength	力量
+Increases rank of\nup to {C:attention}#1#{} selected\ncards by {C:attention}1	将最多{C:attention}#1#{}张选定的牌\n的点数提升{C:attention}1
+The Hanged Man	倒吊人
+Destroys up to\n{C:attention}#1#{} selected cards	摧毁最多\n{C:attention}#1#{}张选定的牌
+Death	死神
+Select {C:attention}#1#{} cards,\nconvert the {C:attention}left{} card\ninto the {C:attention}right{} card\n{C:inactive}(Drag to rearrange)	选择{C:attention}#1#{}张牌\n将{C:attention}左边{}的牌\n变为{C:attention}右边{}的牌\n{C:inactive}(可移动以重新排列)
+Temperance	节制
+Gives the total sell\nvalue of all current\nJokers {C:inactive}(Max of {C:money}$#1#{C:inactive})\n{C:inactive}(Currently {C:money}$#2#{C:inactive})	获得所有小丑牌\n的售价总和\n{C:inactive}(最多{C:money}$#1#{C:inactive})\n{C:inactive}(当前为{C:money}$#2#{C:inactive})
+The Devil	恶魔
+The Tower	高塔
+The Star	星星
+Converts up to\n{C:attention}#1#{} selected cards\nto {C:attention}#2#{}	将最多{C:attention}#1#{}张\n选定的牌转换为\n{C:attention}#2#{}
+The Moon	月亮
+The Sun	太阳
+Judgement	审判
+Creates a random\n{C:attention}Joker{} card\n{C:inactive}(Must have room)	随机生成一张\n{C:attention}小丑牌\n{C:inactive}(必须有空位)
+The World	世界
+Mercury	水星
+({C:attention}lvl.#1#){} Level up\n{C:attention}#2#\n{C:mult}+#3#{} Mult and\n{C:chips}+#4#{} chips	({C:attention}等级#1#){}升级\n{C:attention}#2#\n{C:mult}+#3#{}倍率和\n{C:chips}+#4#{}筹码
+Venus	金星
+Earth	地球
+Mars	火星
+Jupiter	木星
+Saturn	土星
+Uranus	天王星
+Neptune	海王星
+Pluto	冥王星
+Planet X	X行星
+Ceres	谷神星
+Eris	阋神星
+Familiar	使魔
+Destroy {C:attention}1{} random\ncard in your hand, add\n{C:attention}#1#{} random {C:attention}Enhanced face\n{C:attention}cards{} to your hand	随机摧毁手牌中\n{C:attention}1{}张牌，并将{C:attention}#1#{}张\n随机{C:attention}增强人头牌\n加入手牌
+Grim	冷酷
+Destroy {C:attention}1{} random\ncard in your hand,\nadd {C:attention}#1#{} random {C:attention}Enhanced\n{C:attention}Aces{} to your hand	随机摧毁手牌中\n{C:attention}1{}张牌，并将{C:attention}#1#{}张\n随机{C:attention}增强A\n加入手牌
+Incantation	咒语
+Destroy {C:attention}1{} random\ncard in your hand, add {C:attention}#1#\nrandom {C:attention}Enhanced numbered\n{C:attention}cards{} to your hand	随机摧毁手牌中\n{C:attention}1{}张牌，并将{C:attention}#1#{}张\n随机{C:attention}增强数字牌\n加入手牌
+Talisman	护身符
+Add a {C:attention}Gold Seal{}\nto {C:attention}1{} selected\ncard in your hand	为手牌中{C:attention}1{}张选定的牌\n添加{C:attention}金色蜡封
+Aura	灵气
+Add {C:dark_edition}Foil{}, {C:dark_edition}Holographic{},\nor {C:dark_edition}Polychrome{} effect to\n{C:attention}1{} selected card in hand	为手牌中{C:attention}1{}张选定的牌\n添加{C:dark_edition}闪箔{}、{C:dark_edition}镭射\n或{C:dark_edition}多彩{}效果
+Wraith	幽灵
+Creates a random\n{C:mult}Rare{C:attention} Joker{},\nsets money to {C:money}$0	随机生成一张\n{C:mult}稀有{C:attention}小丑牌{}\n资金变为{C:money}$0
+Sigil	魔咒
+Converts all cards\nin hand to a single\nrandom {C:attention}suit	将所有手牌转换为\n随机的同一{C:attention}花色
+Ouija	通灵板
+Converts all cards\nin hand to a single\nrandom {C:attention}rank\n{C:mult}-1{} hand size	将所有手牌转换为\n随机的同一{C:attention}点数\n手牌上限{C:mult}-1
+Ectoplasm	灵质
+Add {C:dark_edition}Negative{} to\na random {C:attention}Joker,\n{C:mult}-#1#{} hand size	为随机一张{C:attention}小丑牌\n添加{C:dark_edition}负片\n手牌上限{C:mult}-#1#
+Immolate	献祭
+Destroys {C:attention}#1#{} random\ncards in hand,\ngain {C:money}$#2#	随机摧毁{C:attention}#1#{}张手牌\n获得{C:money}$#2#
+Ankh	安卡
+Create a copy of a\nrandom {C:attention}Joker{}, destroy\nall other Jokers	随机复制一张{C:attention}小丑牌\n摧毁其他所有小丑牌
+Deja Vu	既视感
+Add a {C:mult}Red Seal{}\nto {C:attention}1{} selected\ncard in your hand	为手牌中{C:attention}1{}张选定的牌\n添加{C:mult}红色蜡封
+Hex	妖法
+Add {C:dark_edition}Polychrome{} to a\nrandom {C:attention}Joker{}, destroy\nall other Jokers	为随机一张{C:attention}小丑牌\n添加{C:dark_edition}多彩\n摧毁其他所有小丑牌
+Trance	出神
+Add a {C:chips}Blue Seal{}\nto {C:attention}1{} selected\ncard in your hand	为手牌中{C:attention}1{}张选定的牌\n添加{C:chips}蓝色蜡封
+Medium	灵媒
+Add a {C:tarot}Purple Seal{}\nto {C:attention}1{} selected\ncard in your hand	为手牌中{C:attention}1{}张选定的牌\n添加{C:tarot}紫色蜡封
+Cryptid	神秘生物
+Create {C:attention}#1#{} copies of\n{C:attention}1{} selected card\nin your hand	为手牌中{C:attention}1{}张选定的牌\n生成{C:attention}#1#{}张复制
+The Soul	灵魂
+Creates a\n{C:tarot}Legendary{} Joker\n{C:inactive}(Must have room)	生成一张\n{C:tarot}传奇{}小丑牌\n{C:inactive}(必须有空位)
+Black Hole	黑洞
+Upgrade every\n{C:tarot}poker hand\nby {C:attention}1{} level	所有{C:tarot}牌型\n升级{C:attention}1{}级
+Overstock	库存过剩
+{C:attention}+1{} card slot\navailable in shop	商店中可用的\n卡槽{C:attention}+1
+Clearance Sale	清仓特卖
+All cards and packs in\nshop are {C:attention}#1#%{} off	商店中所有卡牌\n和补充包降价{C:attention}#1#%
+Hone	磨砺
+{C:dark_edition}Foil{}, {C:dark_edition}Holographic{}, and\n{C:dark_edition}Polychrome{} cards\nappear {C:attention}#1#X{} more often	{C:dark_edition}闪箔{}、{C:dark_edition}镭射{}和\n{C:dark_edition}多彩{}牌出现的频率\n提高到{C:attention}#1#X
+Reroll Surplus	重掷盈余
+Rerolls cost\n{C:money}$#1#{} less	重掷费用\n减少{C:money}$#1#
+Crystal Ball	水晶球
+{C:attention}+1{} consumable slot	消耗牌槽位{C:attention}+1
+Telescope	望远镜
+{C:attention}Celestial Packs{} always\ncontain the {C:planet}Planet{}\ncard for your most\nplayed {C:attention}poker hand	{C:attention}天体包{}总是包含\n你最常打出的{C:attention}牌型\n对应的{C:planet}星球牌
+Grabber	抓取者
+Permanently\ngain {C:chips}+#1#{} hand\nper round	永久获得\n每回合{C:chips}+#1#{}次出牌
+Wasteful	挥霍
+Permanently\ngain {C:mult}+#1#{} discard\neach round	永久获得\n每回合{C:mult}+#1#{}次弃牌
+Tarot Merchant	塔罗商人
+{C:tarot}Tarot{} cards appear\n{C:attention}#1#X{} more frequently\nin the shop	{C:tarot}塔罗牌{}在商店中\n出现的频率提高到\n{C:attention}#1#X
+Planet Merchant	星球商人
+{C:planet}Planet{} cards appear\n{C:attention}#1#X{} more frequently\nin the shop	{C:planet}星球牌{}在商店中\n出现的频率提高到\n{C:attention}#1#X
+Seed Money	种子基金
+Raise the cap on\ninterest earned in\neach round to {C:money}$#1#{}	每回合获得的\n利息上限提高到{C:money}$#1#
+Blank	空白
+{C:inactive}Does nothing?	{C:inactive}没有效果？
+Magic Trick	魔术
+{C:attention}Playing cards{} can\nbe purchased\nfrom the {C:attention}shop	可以在{C:attention}商店{}中\n购买{C:attention}游戏牌
+Hieroglyph	象形文字
+{C:attention}-#1#{} Ante,\n{C:chips}-#1#{} hand\neach round	底注{C:attention}-#1#\n每回合出牌次数{C:chips}-#1#
+Director's Cut	导演剪辑版
+Reroll Boss Blind\n{C:attention}1{} time per Ante,\n{C:money}$#1#{} per roll	每个底注可重掷\nBoss盲注{C:attention}1{}次\n每次{C:money}$#1#
+Paint Brush	画笔
+Overstock Plus	库存过剩+
+Liquidation	清算
+Glow Up	焕然一新
+Reroll Glut	重掷过剩
+Omen Globe	预兆球
+{C:spectral}Spectral{} cards may\nappear in any of\nthe {C:attention}Arcana Packs	{C:spectral}幻灵牌{}可能出现在\n{C:attention}秘术包{}中
+Observatory	天文台
+{C:planet}Planet{} cards in your\n{C:attention}consumable{} area give\n{X:mult,C:white} X#1# {} Mult for their\nspecified {C:attention}poker hand	消耗牌区域中的\n{C:planet}星球牌{}为其对应的\n{C:attention}牌型{}给予{X:mult,C:white} X#1# {}倍率
+Nacho Tong	玉米片夹
+Recyclomancy	回收术
+Tarot Tycoon	塔罗大亨
+Planet Tycoon	星球大亨
+Money Tree	摇钱树
+Antimatter	反物质
+{C:dark_edition}+1{} Joker Slot	小丑牌槽位{C:dark_edition}+1
+Illusion	幻象
+{C:attention}Playing cards{} in shop\nmay have an {C:attention}Enhancement{},\n{C:dark_edition}Edition{}, and/or a {C:attention}Seal{}	商店中的{C:attention}游戏牌\n可能有{C:attention}增强{}、\n{C:dark_edition}版本{}或{C:attention}蜡封
+Petroglyph	岩画
+{C:attention}-#1#{} Ante,\n{C:mult}-#1#{} discard\neach round	底注{C:attention}-#1#\n每回合弃牌次数{C:mult}-#1#
+Retcon	设定修改
+Reroll Boss Blind\n{C:attention}unlimited{} times,\n{C:money}$#1#{} per roll	可以{C:attention}无限{}次重掷\nBoss盲注\n每次{C:money}$#1#
+Palette	调色板
+Uncommon Tag	罕见标签
+Shop has a free\n{C:green}Uncommon Joker	商店中有一张免费的\n{C:green}罕见{}小丑牌
+Rare Tag	稀有标签
+Shop has a free\n{C:mult}Rare Joker	商店中有一张免费的\n{C:mult}稀有{}小丑牌
+Negative Tag	负片标签
+Next base edition shop\nJoker is free and\nbecomes {C:dark_edition}Negative	商店中下一张基础版本\n的小丑牌免费\n并变为{C:dark_edition}负片
+Foil Tag	闪箔标签
+Next base edition shop\nJoker is free and\nbecomes {C:dark_edition}Foil	商店中下一张基础版本\n的小丑牌免费\n并变为{C:dark_edition}闪箔
+Holographic Tag	镭射标签
+Next base edition shop\nJoker is free and\nbecomes {C:dark_edition}Holographic	商店中下一张基础版本\n的小丑牌免费\n并变为{C:dark_edition}镭射
+Polychrome Tag	多彩标签
+Next base edition shop\nJoker is free and\nbecomes {C:dark_edition}Polychrome	商店中下一张基础版本\n的小丑牌免费\n并变为{C:dark_edition}多彩
+Investment Tag	投资标签
+After defeating\nthe Boss Blind,\ngain {C:money}$#1#	击败Boss盲注后\n获得{C:money}$#1#
+Voucher Tag	优惠券标签
+Adds one {C:attention}Voucher\nto the next shop	在下一个商店中\n加入一张{C:attention}优惠券
+Boss Tag	Boss标签
+Rerolls the\n{C:attention}Boss Blind	重掷{C:attention}Boss盲注
+Standard Tag	标准标签
+Gives a free\n{C:attention}Mega Standard Pack	免费获得一个\n{C:attention}超级标准包
+Charm Tag	魅力标签
+Gives a free\n{C:tarot}Mega Arcana Pack	免费获得一个\n{C:tarot}超级秘术包
+Meteor Tag	流星标签
+Gives a free\n{C:planet}Mega Celestial Pack	免费获得一个\n{C:planet}超级天体包
+Buffoon Tag	小丑标签
+Gives a free\n{C:attention}Mega Buffoon Pack	免费获得一个\n{C:attention}超级小丑包
+Handy Tag	便利标签
+Gives {C:money}$#1#{} per played\n{C:chips}hand{} this run\n{C:inactive}(Will give {C:money}$#2#{C:inactive})	本局每打出一次{C:chips}牌\n获得{C:money}$#1#\n{C:inactive}(将获得{C:money}$#2#{C:inactive})
+Garbage Tag	垃圾标签
+Gives {C:money}$#1#{} per unused\n{C:mult}discard{} this run\n{C:inactive}(Will give {C:money}$#2#{C:inactive})	本局每有一次未使用的\n{C:mult}弃牌{}获得{C:money}$#1#\n{C:inactive}(将获得{C:money}$#2#{C:inactive})
+Ethereal Tag	空灵标签
+Gives a free\n{C:spectral}Spectral Pack	免费获得一个\n{C:spectral}幻灵包
+Coupon Tag	优惠标签
+Initial cards and\nbooster packs in next\nshop are free	下一个商店中\n初始的卡牌和\n补充包都免费
+Double Tag	双倍标签
+Gives a copy of the\nnext selected {C:attention}Tag{}\n{C:attention}Double Tag excluded	复制下一个选择的\n{C:attention}标签\n{C:attention}双倍标签除外
+Juggle Tag	杂耍标签
+{C:attention}+#1#{} hand size\nnext round	下一回合\n手牌上限{C:attention}+#1#
+D6 Tag	D6标签
+Rerolls in next shop\nstart at {C:money}$0	下一个商店的重掷\n从{C:money}$0{}开始
+Top-up Tag	补充标签
+Create up to {C:attention}#1#\n{C:chips}Common{} Jokers\n{C:inactive}(Must have room)	生成最多{C:attention}#1#{}张\n{C:chips}普通{}小丑牌\n{C:inactive}(必须有空位)
+Speed Tag	速度标签
+Gives {C:money}$#1#{} per skipped\nBlind this run\n{C:inactive}(Will give {C:money}$#2#{C:inactive})	本局每跳过一个盲注\n获得{C:money}$#1#\n{C:inactive}(将获得{C:money}$#2#{C:inactive})
+Orbital Tag	轨道标签
+Upgrade {C:attention}#1#\nby {C:attention}#2# levels	将{C:attention}#1#\n升级{C:attention}#2#{}级
+Economy Tag	经济标签
+Doubles your money\n{C:inactive}(Max of {C:money}$#1#{C:inactive})	资金翻倍\n{C:inactive}(最多{C:money}$#1#{C:inactive})
+Small Blind	小盲注
+Big Blind	大盲注
+The Ox	公牛
+Playing a #1#\nsets money to $0	打出{C:attention}#1#\n会使资金变为$0
+The House	房屋
+First hand is\ndrawn face down	第一手牌\n背面朝上抽取
+The Club	梅花
+All Club cards\nare debuffed	所有梅花牌\n被削弱
+The Fish	鱼
+Cards drawn face down\nafter each hand played	每次出牌后\n抽到的牌背面朝上
+The Window	窗口
+All Diamond cards\nare debuffed	所有方片牌\n被削弱
+The Hook	钩子
+Discards 2 random\ncards per hand played	每次出牌时\n随机弃掉2张手牌
+The Manacle	镣铐
+-1 Hand Size	手牌上限-1
+The Wall	墙壁
+Extra large blind	超大盲注
+The Wheel	轮子
+ in 7 cards get\ndrawn face down	/7的牌\n背面朝上抽取
+The Arm	手臂
+Decrease level of\nplayed poker hand	降低打出牌型\n的等级
+The Psychic	灵媒
+Must play 5 cards	必须打出5张牌
+The Goad	刺棒
+All Spade cards\nare debuffed	所有黑桃牌\n被削弱
+The Water	水
+Start with\n0 discards	开始时\n弃牌次数为0
+The Serpent	毒蛇
+After Play or Discard,\nalways draw 3 cards	出牌或弃牌后\n总是抽3张牌
+The Pillar	柱子
+Cards played previously\nthis Ante are debuffed	本底注中打出过\n的牌被削弱
+The Eye	眼睛
+No repeat hand\ntypes this round	本回合不能重复\n打出相同牌型
+The Mouth	嘴巴
+Play only 1 hand\ntype this round	本回合只能打出\n一种牌型
+The Plant	植物
+All face cards\nare debuffed	所有人头牌\n被削弱
+The Needle	针
+Play only 1 hand	只能出牌1次
+The Head	头
+All Heart cards\nare debuffed	所有红桃牌\n被削弱
+The Tooth	牙齿
+Lose $1 per\ncard played	每打出一张牌\n失去$1
+The Mark	标记
+All face cards are\ndrawn face down	所有人头牌\n背面朝上抽取
+The Flint	燧石
+Base Chips and\nMult are halved	基础筹码和\n倍率除以2
+Crimson Heart	绯红之心
+One random Joker\ndisabled every hand	每次出牌时随机\n一张小丑牌失效
+Cerulean Bell	蔚蓝之铃
+Forces 1 card to\nalways be selected	强制始终选中\n1张牌
+Amber Acorn	琥珀橡果
+Flips and shuffles\nall Joker cards	翻转所有小丑牌\n并改变顺序
+Verdant Leaf	翠绿之叶
+All cards debuffed\nuntil 1 Joker sold	卖出1张小丑牌前\n所有牌被削弱
+Violet Vessel	紫罗兰之杯
+Very large blind	巨型盲注
+Bonus Card	奖励牌
+Mult Card	倍率牌
+Wild Card	万能牌
+Can be used\nas any suit	可当作所有花色
+Glass Card	玻璃牌
+{X:mult,C:white} X#1# {} Mult\n{C:green}#2# in #3#{} chance to\ndestroy card	{X:mult,C:white} X#1# {}倍率\n有{C:green}#2#/#3#{}的几率\n摧毁此牌
+Steel Card	钢铁牌
+{X:mult,C:white} X#1# {} Mult\nwhile this card\nstays in hand	此牌留在手牌中时\n给予{X:mult,C:white} X#1# {}倍率
+Stone Card	石头牌
+{C:chips}+#1#{} Chips\nno rank or suit	{C:chips}+#1#{}筹码\n没有点数和花色
+Gold Card	黄金牌
+{C:money}$#1#{} if this\ncard is held in hand\nat end of round	回合结束时如果\n此牌在手牌中\n获得{C:money}$#1#
+Lucky Card	幸运牌
+{C:green}#1# in #3#{} chance\nfor {C:mult}+#2#{} Mult\n{C:green}#1# in #5#{} chance\nto win {C:money}$#4#	有{C:green}#1#/#3#{}的几率\n给予{C:mult}+#2#{}倍率\n有{C:green}#1#/#5#{}的几率\n获得{C:money}$#4#
+Foil	闪箔
+{C:chips}+#1#{} chips	{C:chips}+#1#{}筹码
+Holographic	镭射
+Polychrome	多彩
+{X:mult,C:white} X#1# {} Mult	{X:mult,C:white} X#1# {}倍率
+Negative	负片
+{C:dark_edition}+#1#{} Joker slot	小丑牌槽位{C:dark_edition}+#1#
+Gold Seal	金色蜡封
+Earn {C:money}$3{} when this\ncard is played\nand scores	此牌打出并计分时\n获得{C:money}$3
+Red Seal	红色蜡封
+Retrigger this\ncard {C:attention}1{} time	重新触发此牌\n{C:attention}1{}次
+Blue Seal	蓝色蜡封
+Creates the {C:planet}Planet{} card\nfor final played {C:attention}poker hand{}\nof round if {C:attention}held{} in hand\n{C:inactive}(Must have room)	如果此牌在回合结束时\n{C:attention}留在{}手牌中，生成\n最后打出的{C:attention}牌型\n对应的{C:planet}星球牌\n{C:inactive}(必须有空位)
+Purple Seal	紫色蜡封
+Creates a {C:tarot}Tarot{} card\nwhen {C:attention}discarded\n{C:inactive}(Must have room)	此牌被{C:attention}弃掉{}时\n生成一张{C:tarot}塔罗牌\n{C:inactive}(必须有空位)
+Arcana Pack	秘术包
+Choose {C:attention}#1#{} of up to\n{C:attention}#2#{C:tarot} Tarot{} cards to\nbe used immediately	从最多{C:attention}#2#{}张{C:tarot}塔罗牌\n中选择{C:attention}#1#{}张\n立即使用
+Jumbo Arcana Pack	巨型秘术包
+Mega Arcana Pack	超级秘术包
+Celestial Pack	天体包
+Choose {C:attention}#1#{} of up to\n{C:attention}#2#{C:planet} Planet{} cards to\nbe used immediately	从最多{C:attention}#2#{}张{C:planet}星球牌\n中选择{C:attention}#1#{}张\n立即使用
+Jumbo Celestial Pack	巨型天体包
+Mega Celestial Pack	超级天体包
+Standard Pack	标准包
+Choose {C:attention}#1#{} of up to\n{C:attention}#2#{C:attention} Playing{} cards to\nadd to your deck	从最多{C:attention}#2#{}张{C:attention}游戏牌\n中选择{C:attention}#1#{}张\n加入牌组
+Jumbo Standard Pack	巨型标准包
+Mega Standard Pack	超级标准包
+Buffoon Pack	小丑包
+Choose {C:attention}#1#{} of up to\n{C:attention}#2#{C:attention} Joker{} cards	从最多{C:attention}#2#{}张{C:attention}小丑牌\n中选择{C:attention}#1#{}张
+Jumbo Buffoon Pack	巨型小丑包
+Mega Buffoon Pack	超级小丑包
+Spectral Pack	幻灵包
+Choose {C:attention}#1#{} of up to\n{C:attention}#2#{C:spectral} Spectral{} cards to\nbe used immediately	从最多{C:attention}#2#{}张{C:spectral}幻灵牌\n中选择{C:attention}#1#{}张\n立即使用
+Jumbo Spectral Pack	巨型幻灵包
+Mega Spectral Pack	超级幻灵包
+Red Deck	红色牌组
+{C:mult}+#1#{} discard\nevery round	每回合\n弃牌次数{C:mult}+#1#
+Jack	J
+Queen	Q
+King	K
+Ace	A
+Spade	黑桃
+Heart	红桃
+Club	梅花
+Diamond	方片
+Spades	黑桃
+Hearts	红桃
+Clubs	梅花
+Diamonds	方片
+ Mult	倍率
+Active!	已生效！
+ remaining	次后生效
+[poker hand]	[牌型]
+\020 Mult	\020倍率
+Common	普通
+Uncommon	罕见
+Rare	稀有
+Legendary	传奇
+%1 of %2	%2%1
+\003Debuffed\020\nScores no chips\nand all abilities\nare disabled	\003已削弱\020\n不计筹码\n且所有能力失效
+\020 chips	\020筹码
+\020 extra chips	\020额外筹码
+compatible	可复制
+incompatible	不可复制
+Tarot	塔罗牌
+Planet	星球牌
+Spectral	幻灵牌
+Voucher	优惠券
+PLAY	开始
+OPTIONS	选项
+QUIT	退出
+CREDITS	制作者
+New Run	新游戏
+Continue	继续
+\003+1\020 discard\nevery round	每回合弃牌次数\003+1
+Round	回合
+Ante	底注
+Money	资金
+Best Hand	最佳出牌
+White Stake	白注
+Base Difficulty	基础难度
+Wins \004	胜场 \004
+\001   Best Ante \004	\001   最高底注 \004
+\001   Best Hand \003	\001   最佳出牌 \003
+Seed \004	种子 \004
+CONTINUE	继续
+Back	返回
+\004Arrows\020  move between cards, Jokers, buttons\n\004OK\020  select a card, or pick a Joker/item and\n     choose \006Sell\020, \003Use\020, \005Buy\020...\n\004EXE\020  \002Play Hand\020      \004DEL\020  \003Discard\020\n\004shift\020  sort the hand by rank or suit\n\004alpha\020 + \004left/right\020  move a Joker or card\n\004toolbox\020  Run Info      \004var\020  view deck\n\004back\020  back / Options     \004home\020  save, quit\nHold \004OK\020 or \004EXE\020 to speed up scoring.\n\nPlay poker hands: score = \002Chips\020 x \003Mult\020.\nBeat each Blind's score before your\nhands run out. Buy Jokers in the shop\nand beat the Ante 8 Boss Blind to win!	\004方向键\020  在牌、小丑牌和选项间移动\n\004OK\020  选择牌，或选中小丑牌/物品后\n     选择\006出售\020、\003使用\020、\005购买\020等\n\004EXE\020  \002出牌\020      \004DEL\020  \003弃牌\020\n\004shift\020  按点数或花色整理手牌\n\004alpha\020 + \004左/右\020  移动小丑牌或牌\n\004工具箱\020  牌局信息      \004var\020  查看牌组\n\004返回\020  返回/选项      \004主页\020  保存并退出\n按住\004OK\020或\004EXE\020可加快计分\n\n打出扑克牌型：得分 = \002筹码\020 x \003倍率\020\n在出牌次数用完前达到每个盲注的分数\n在商店里购买小丑牌\n击败第8底注的Boss盲注即可获胜！
+How to play	玩法说明
+Credits	制作者
+Inspired by \004Balatro\020 by LocalThunk.\nNot affiliated with LocalThunk or Playstack.\n\nCard, Joker and interface art adapted\nfrom Balatro by LocalThunk.\nRules and card texts follow the game.\nFont: \004m6x11\020 by Daniel Linssen.\n\nMade by \004Mason Chen\020 as part of NumPlay.\n\nPlease support the original game!	灵感来自LocalThunk的\004Balatro\020。\n与LocalThunk及Playstack无关。\n\n卡牌、小丑牌和界面美术\n改编自LocalThunk的Balatro。\n规则和卡牌说明同原版。\n字体：Daniel Linssen的\004m6x11\020。\n\n由\004Mason Chen\020为NumPlay制作。\n\n请购买原版游戏！
+Game Speed	游戏速度
+How to Play	玩法说明
+Main Menu	主菜单
+Options	选项
+Game Speed < 	游戏速度 <
+New run?	新游戏？
+The current run will be lost.	当前对局将会丢失。
+Yes	是
+No	否
+Poker Hands	牌型
+Blinds	盲注
+Vouchers	优惠券
+lvl.	等级
+Score at least	最低得分
+Reward:	奖励：
+No Vouchers redeemed yet	还没有兑换优惠券
+left/right: tabs     back: close	左/右：切换     返回：关闭
+Remaining	剩余
+Full Deck	完整牌组
+Play Hand	出牌
+Sort Hand	整理手牌
+Rank	点数
+Suit	花色
+Discard	弃牌
+SELL\n	出售\n
+USE	使用
+Select	选择
+Defeated	已击败
+Skipped	已跳过
+Upcoming	即将到来
+or	或
+Skip Blind	跳过
+Reroll Boss\n$10	重掷Boss\n$10
+Cash Out: 	兑现：
+Remaining Hands ($1 each)	剩余出牌(每次$1)
+Defeat the Boss Blind	击败Boss盲注
+ interest per $5 (	/每$5利息(最多
+ max)	)
+Next\nRound	下一回合
+Reroll	重掷
+ANTE 	第
+ VOUCHER	底注优惠券
+REDEEM	兑换
+OPEN	打开
+BUY	购买
+BUY\n& USE	购买并\n使用
+Choose 	选择
+Skip	跳过
+SELECT	选择
+Better luck\nnext time!	下次好运！
+Don't give up!	别放弃！
+So close!	再试一次！
+The house\nalways wins...	庄家\n总是会赢...
+You did it!	你做到了！
+Unbelievable!	难以置信！
+A true\ncard shark!	真正的\n卡牌高手！
+YOU WIN!	你赢了！
+GAME OVER	游戏结束
+Ante \004	底注 \004
+\001    Round \004	\001    回合 \004
+Most Played Hand	最常打出的牌型
+Cards Played	打出的牌
+Cards Discarded	弃掉的牌
+Cards Purchased	购买的牌
+Times Rerolled	重掷次数
+Seed	种子
+Endless\nMode	无限\n模式
+New\nRun	新游戏
+Main\nMenu	主菜单
+Mult	倍率
++3 Hand Size	手牌上限+3
+Debuffed	已削弱
+Again!	再来！
+X2 Mult	X2倍率
++10 Mult	+10倍率
+X1.5 Mult	X1.5倍率
+Not Allowed!	不允许！
++1 Tarot	+1塔罗牌
+Saved by Mr. Bones	骷髅先生保住了你
++1 Planet	+1星球牌
+Nope!	不行！
+Improve your run!	强化你的牌局！
+to earn	奖励
+Choose your\nnext Blind	选择你的\n下一个盲注
+Round\nscore	回合\n得分
+Run\nInfo	牌局\n信息
+Hands	出牌
+Discards	弃牌
+Upgrade!	升级！
+Reset	重置
+Saved!	保住了！
+Eaten!	吃掉了！
+Extinct!	没了！
+Safe!	安全！
+Melted!	没了！
+Drank!	用完了！
++1 Spectral	+1幻灵牌
+Copied!	已复制！
+Gold	黄金
+Level Up!	升级！
+Value Up!	价值提升！
+Boss Disabled!	Boss失效！
+Duplicated!	已复制！
++2 Mult	+2倍率
++3 Mult	+3倍率
++3 Hands	+3次出牌
++2 Jokers	+2小丑牌
++1 Stone	+1石头牌
+-X0.01 Mult	-X0.01倍率
+-1 Mult	-1倍率
+-4 Mult	-4倍率
++1 Mult	+1倍率
+Flush Five	同花五条
+Flush House	同花葫芦
+Five of a Kind	五条
+Straight Flush	同花顺
+Four of a Kind	四条
+Full House	葫芦
+Flush	同花
+Straight	顺子
+Three of a Kind	三条
+Two Pair	两对
+Pair	对子
+High Card	高牌

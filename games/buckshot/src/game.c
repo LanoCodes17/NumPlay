@@ -12,18 +12,18 @@
 match_t G;
 profile_t P;
 
-const char *const ITEM_NAME[IT_COUNT] = {"HAND SAW", "MAGNIFYING GLASS", "BEER", "CIGARETTE PACK", "HANDCUFFS",
-                                         "EXPIRED MEDICINE", "BURNER PHONE", "ADRENALINE", "INVERTER"};
+const char *const ITEM_NAME[IT_COUNT] = {T("HAND SAW"), T("MAGNIFYING GLASS"), T("BEER"), T("CIGARETTE PACK"), T("HANDCUFFS"),
+                                         T("EXPIRED MEDICINE"), T("BURNER PHONE"), T("ADRENALINE"), T("INVERTER")};
 const char *const ITEM_DESC[IT_COUNT] = {
-    "SHOTGUN DEALS 2 DAMAGE.",
-    "CHECK THE CURRENT ROUND\nIN THE CHAMBER.",
-    "RACKS THE SHOTGUN.\nEJECTS CURRENT SHELL.",
-    "TAKES THE EDGE OFF.\nREGAIN 1 CHARGE.",
-    "DEALER SKIPS THE\nNEXT TURN.",
-    "50% CHANCE TO REGAIN 2 CHARGES.\nIF NOT, LOSE 1 CHARGE.",
-    "A MYSTERIOUS VOICE GIVES\nYOU INSIGHT FROM THE FUTURE.",
-    "STEAL AN ITEM AND\nUSE IT IMMEDIATELY.",
-    "SWAPS THE POLARITY OF THE\nCURRENT SHELL IN THE CHAMBER.",
+    T("SHOTGUN DEALS 2 DAMAGE."),
+    T("CHECK THE CURRENT ROUND\nIN THE CHAMBER."),
+    T("RACKS THE SHOTGUN.\nEJECTS CURRENT SHELL."),
+    T("TAKES THE EDGE OFF.\nREGAIN 1 CHARGE."),
+    T("DEALER SKIPS THE\nNEXT TURN."),
+    T("50% CHANCE TO REGAIN 2 CHARGES.\nIF NOT, LOSE 1 CHARGE."),
+    T("A MYSTERIOUS VOICE GIVES\nYOU INSIGHT FROM THE FUTURE."),
+    T("STEAL AN ITEM AND\nUSE IT IMMEDIATELY."),
+    T("SWAPS THE POLARITY OF THE\nCURRENT SHELL IN THE CHAMBER."),
 };
 
 /* Story mode: live and blank shells of the five loads of each stage (the
@@ -131,8 +131,8 @@ static void cursor_desc(void) {
   T.title = 0;
   T.desc = 0;
   if (T.cursor == 8) {
-    T.title = "SHOTGUN";
-    T.desc = "SHOOTING YOURSELF WITH A BLANK\nSKIPS THE DEALER'S TURN.";
+    T.title = T("SHOTGUN");
+    T.desc = T("SHOOTING YOURSELF WITH A BLANK\nSKIPS THE DEALER'S TURN.");
   } else if (T.cursor >= 0) {
     int it = G.items[T.cursor >= 16][T.cursor & 7];
     if (it >= 0) T.title = ITEM_NAME[it], T.desc = ITEM_DESC[it];
@@ -192,7 +192,7 @@ static int choose(int *cur) {
     T.cursor = *cur;
     T.view = *cur >= 16 ? V_DEALER : V_TABLE;
     cursor_desc();
-    T.hint = *cur >= 16 ? "THE DEALER'S ITEM   DOWN: BACK" : "OK: USE   BACK: PAUSE";
+    T.hint = *cur >= 16 ? T("THE DEALER'S ITEM   DOWN: BACK") : T("OK: USE   BACK: PAUSE");
     table_show();
     int k = key_wait(-1);
     if (IS_OK(k)) {
@@ -230,7 +230,7 @@ static void steal(void) {
   while (left) {
     T.cursor = cur;
     cursor_desc();
-    T.hint = "OK: STEAL";
+    T.hint = T("OK: STEAL");
     table_show();
     int k = key_wait(left < 100 ? left : 100);
     left = left < 100 ? 0 : left - 100;
@@ -252,17 +252,17 @@ static void steal(void) {
   table_show();
 }
 
-static const char *const SEQ[7] = {"", "SECOND SHELL ...", "THIRD SHELL ...", "FOURTH SHELL ...",
-                                   "FIFTH SHELL ...", "SIXTH SHELL ...", "SEVENTH SHELL ..."};
+static const char *const SEQ[7] = {"", T("SECOND SHELL ..."), T("THIRD SHELL ..."), T("FOURTH SHELL ..."),
+                                   T("FIFTH SHELL ..."), T("SIXTH SHELL ..."), T("SEVENTH SHELL ...")};
 
 static const char *phone_message(void) {
-  static char msg[48];
-  if (G.nshell == 1) return "HOW UNFORTUNATE ...";
+  static char msg[NP_TEXT_EXTRA ? 96 : 48];
+  if (G.nshell == 1) return T("HOW UNFORTUNATE ...");
   int k = 1 + rnd(G.nshell - 1);
   if (k >= 7) k--;
   int n = 0;
   for (const char *p = SEQ[k]; *p; p++) msg[n++] = *p;
-  for (const char *p = G.shell[k] ? "\n... LIVE ROUND." : "\n... BLANK."; *p; p++) msg[n++] = *p;
+  for (const char *p = G.shell[k] ? T("\n... LIVE ROUND.") : T("\n... BLANK."); *p; p++) msg[n++] = *p;
   msg[n] = 0;
   return msg;
 }
@@ -551,29 +551,29 @@ static void deal_items(int n) {
   if (G.loaded == 0) G.deal_left = n, G.deal_spook = 0, G.loaded = 1;
   view_table();
   if (!P.read_items) {
-    say("LET'S MAKE THIS A LITTLE\nMORE INTERESTING ...", 3000);
+    say(T("LET'S MAKE THIS A LITTLE\nMORE INTERESTING ..."), 3000);
   }
   T.box = 1;
   table_show();
   pause_ms(800);
   if (!P.read_items) {
-    static char s[24];
+    static char s[NP_TEXT_EXTRA ? 64 : 24];
     s[0] = '0' + n;
-    const char *t = " ITEMS EACH.";
+    const char *t = T(" ITEMS EACH.");
     int k = 1;
     while (*t) s[k++] = *t++;
     s[k] = 0;
     say(s, 2500);
-    say("MORE ITEMS BEFORE\nEVERY LOAD.", 2500);
+    say(T("MORE ITEMS BEFORE\nEVERY LOAD."), 2500);
     P.read_items = 1;
     save_profile();
   } else if (G.mode == MODE_STORY && G.stage == 2 && G.load == 0 && !P.read_items4) {
-    say("4 ITEMS EACH.", 2500);
+    say(T("4 ITEMS EACH."), 2500);
     P.read_items4 = 1;
     save_profile();
   }
   while (G.deal_left) {
-    T.hint = "OK: TAKE AN ITEM";
+    T.hint = T("OK: TAKE AN ITEM");
     T.held = -1;
     table_show();
     for (;;) {
@@ -592,8 +592,8 @@ static void deal_items(int n) {
     if (it < 0) break;
     T.hint = 0;
     if (!free_slots(0)) {
-      say("OUT OF SPACE.", 1800);
-      say("HOW UNFORTUNATE ...", 2200);
+      say(T("OUT OF SPACE."), 1800);
+      say(T("HOW UNFORTUNATE ..."), 2200);
       break;
     }
     T.held = it;
@@ -604,7 +604,7 @@ static void deal_items(int n) {
     int cur = cand[0];
     for (;;) {
       T.cursor = cur;
-      T.hint = "OK: PLACE";
+      T.hint = T("OK: PLACE");
       table_show();
       int e;
       while ((e = idle_key()) < 0) {}
@@ -644,15 +644,15 @@ static void deal_items(int n) {
 }
 
 static const char *const RULES[INTRO_LINES] = {
-    "THE RULES ARE SIMPLE:",
-    "SHOOTING YOURSELF WITH\nA BLANK SKIPS MY TURN.",
-    "SHOOTING THE DEALER WITH\nA LIVE TAKES THEIR LIFE.",
-    "WE WILL PLAY A SERIES\nOF ROUNDS ...",
-    "UNTIL WE REACH\nTHE FINAL SHOWDOWN.",
-    "THERE, WE WILL DANCE ON\nTHE EDGE OF LIFE AND DEATH.",
-    "WIN, AND WALK AWAY WITH\n400,000$ IN CASH.",
-    "LOSE, AND WE SELL YOUR\nMANGLED CORPSE FOR PROFIT.",
-    "SHALL WE BEGIN?"};
+    T("THE RULES ARE SIMPLE:"),
+    T("SHOOTING YOURSELF WITH\nA BLANK SKIPS MY TURN."),
+    T("SHOOTING THE DEALER WITH\nA LIVE TAKES THEIR LIFE."),
+    T("WE WILL PLAY A SERIES\nOF ROUNDS ..."),
+    T("UNTIL WE REACH\nTHE FINAL SHOWDOWN."),
+    T("THERE, WE WILL DANCE ON\nTHE EDGE OF LIFE AND DEATH."),
+    T("WIN, AND WALK AWAY WITH\n400,000$ IN CASH."),
+    T("LOSE, AND WE SELL YOUR\nMANGLED CORPSE FOR PROFIT."),
+    T("SHALL WE BEGIN?")};
 static const uint16_t RULES_MS[INTRO_LINES] = {1900, 3000, 3000, 3000, 3000, 3700, 3700, 3700, 2500};
 
 static void load_start(void) {
@@ -692,20 +692,20 @@ static void load_start(void) {
     G.loaded = 2;
     save_match();
   }
-  static char text[40];
+  static char text[NP_TEXT_EXTRA ? 96 : 40];
   const char *msg = text;
   int k = 0;
   text[k++] = '0' + live;
-  for (const char *p = live == 1 ? " LIVE ROUND. " : " LIVE ROUNDS. "; *p; p++) text[k++] = *p;
+  for (const char *p = live == 1 ? T(" LIVE ROUND. ") : T(" LIVE ROUNDS. "); *p; p++) text[k++] = *p;
   text[k++] = '0' + blank;
-  for (const char *p = blank == 1 ? " BLANK." : " BLANKS."; *p; p++) text[k++] = *p;
+  for (const char *p = blank == 1 ? T(" BLANK.") : T(" BLANKS."); *p; p++) text[k++] = *p;
   text[k] = 0;
   int ms = 2500;
   if (G.mode == MODE_DON || (G.stage == 2)) {
     msg = 0;
     ms = 1300;
     if (G.mode == MODE_STORY && !P.drill_said) {
-      msg = "YOU KNOW THE DRILL.";
+      msg = T("YOU KNOW THE DRILL.");
       ms = 2500;
       P.drill_said = 1;
       save_profile();
@@ -785,13 +785,13 @@ static void stage_start(void) {
   if (G.mode == MODE_STORY && G.stage == 2) {
     /* the final showdown: no more defibrillators */
     if (!P.read_final) {
-      say("LONG LAST, WE ARRIVE\nAT THE FINAL SHOWDOWN.", 4000);
-      say("NO MORE DEFIBRILLATORS.\nNO MORE BLOOD TRANSFUSIONS.", 4000);
-      say("NOW, ME AND YOU, WE ARE DANCING\nON THE EDGE OF LIFE AND DEATH.", 4800);
+      say(T("LONG LAST, WE ARRIVE\nAT THE FINAL SHOWDOWN."), 4000);
+      say(T("NO MORE DEFIBRILLATORS.\nNO MORE BLOOD TRANSFUSIONS."), 4000);
+      say(T("NOW, ME AND YOU, WE ARE DANCING\nON THE EDGE OF LIFE AND DEATH."), 4800);
       P.read_final = 1;
       save_profile();
     } else {
-      say("I BETTER NOT\nSEE YOU AGAIN.", 3000);
+      say(T("I BETTER NOT\nSEE YOU AGAIN."), 3000);
     }
   }
   round_indicator();

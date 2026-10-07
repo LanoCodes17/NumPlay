@@ -31,7 +31,7 @@ typedef struct {
 } item_t;
 
 static item_t items[MAXI];
-static char strbuf[4096]; /* texts are copied: callers reuse their buffers */
+static char strbuf[NP_TEXT_EXTRA ? 6144 : 4096]; /* texts are copied: callers reuse their buffers */
 static int strpos;
 static int nitems;
 static int16_t clips[MAXCLIP][4];
@@ -192,7 +192,7 @@ static const uint8_t *font_bits(int f) {
 }
 static int glyph_rows(int f) { return (f & T_LARGE) ? FONT_LARGE_H : (f & T_MED) ? FONT_MED_H : FONT_SMALL_H; }
 int g_cap(int f) { return ((f & T_LARGE) ? 11 : (f & T_MED) ? 9 : 7) * ((f & T_X2) ? 2 : 1); }
-int g_pitch(int f) { return ((f & T_LARGE) ? 15 : (f & T_MED) ? 13 : 10) * ((f & T_X2) ? 2 : 1); }
+int g_pitch(int f) { return ((f & T_LARGE) ? 15 : (f & T_MED) ? 13 : LINE_H) * ((f & T_X2) ? 2 : 1); }
 
 /* the glyph of a character (condensed digits for long numbers) */
 static const glyph_t *glyph(int f, unsigned ch, const uint8_t **bits) {
@@ -228,6 +228,102 @@ static int advance(int f, unsigned ch, const glyph_t *g) {
   return a;
 }
 
+#if NP_TEXT_EXTRA
+/* ---- letters beyond ASCII, in NumPlay's language builds (games/common/np_text.h): an accented
+   letter is the font's plain letter with its accent (a cedilla under it), Chinese comes from the
+   12-pixel font, its letters' middle on the capitals' */
+
+/* the letter at *s (a UTF-8 lead byte), *s left at its last byte: its code point; *base its plain
+   letter and *second one after it (ligatures), or *base 0 when the 12-pixel font has it */
+static uint32_t xletter(const char **s, char *base, char *second, int *acc) {
+  const char *q = *s;
+  uint32_t cp = np_utf8(&q);
+  *s = q - 1;
+  *acc = np_latin(cp, base, second);
+  if (!*base && !np_xglyph(cp)) *base = '?';
+  return cp;
+}
+
+static int xadvance(int f, const char **s) {
+  char base, second;
+  int acc;
+  uint32_t cp = xletter(s, &base, &second, &acc);
+  if (!base) return np_xadvance(cp, 1);
+  const uint8_t *bits;
+  int a = advance(f, (unsigned char)base, glyph(f, (unsigned char)base, &bits));
+  if (second) a += advance(f, (unsigned char)second, glyph(f, (unsigned char)second, &bits));
+  return a;
+}
+
+/* pixels of those letters, into the strip: the text's colour or its shadow; turned a quarter left
+   for T_ROT (x along the text from the pen, y down from the top of the glyphs) */
+typedef struct {
+  int y0, ra, rb, cx0, cx1, shadow, rot, ox, oy;
+  C col;
+} xplot_t;
+static void xplot(int x, int y, void *ctx) {
+  xplot_t *p = ctx;
+  if (p->rot) {
+    int t = x;
+    x = p->ox + y, y = p->oy - 1 - t;
+  }
+  if (y < p->ra || y >= p->rb || x < p->cx0 || x >= p->cx1) return;
+  C *d = strip + (y - p->y0) * 320 + x;
+  *d = p->shadow ? shade565(*d, 12) : p->col;
+}
+
+/* a glyph of the font, its shadow first; rows above skip left out (an i's dot under an accent) */
+static void xglyph(int f, unsigned ch, int x, int y, int skip, xplot_t *p) {
+  int sc = (f & T_X2) ? 2 : 1, gh = glyph_rows(f);
+  const uint8_t *b;
+  const glyph_t *g = glyph(f, ch, &b);
+  int dc = drop_col(f, ch, g);
+  for (int pass = (f & (T_SHADOW | T_OUTLINE)) ? 0 : 1; pass < 2; pass++) {
+    uint32_t bit = g->off;
+    p->shadow = !pass;
+    for (int gx = 0; gx < g->w; gx++)
+      for (int gy = 0; gy < gh; gy++, bit++) {
+        if (gx == dc || gy < skip || !((b[bit >> 3] >> (bit & 7)) & 1)) continue;
+        int px = x + (gx - (dc >= 0 && gx > dc)) * sc, py = y + gy * sc + (pass ? 0 : sc);
+        for (int k = 0; k < sc * sc; k++) xplot(px + k % sc, py + k / sc, p);
+      }
+  }
+  p->shadow = 0;
+}
+
+/* draws the letter at *s (see xletter), the top of its capitals at y; returns its advance */
+static int xdraw(int f, const char **s, int x, int y, C col, xplot_t *p) {
+  char base, second;
+  int acc, sc = (f & T_X2) ? 2 : 1;
+  uint32_t cp = xletter(s, &base, &second, &acc);
+  p->col = col;
+  if (!base) {
+    int top = y - ((f & T_LARGE) ? 0 : (f & T_MED) ? 1 : 2) * sc;
+    if (f & (T_SHADOW | T_OUTLINE)) {
+      p->shadow = 1;
+      np_xdraw(cp, x, top + sc, sc, xplot, p);
+      p->shadow = 0;
+    }
+    return np_xdraw(cp, x, top, sc, xplot, p);
+  }
+  unsigned ch = (unsigned char)base;
+  const uint8_t *bits;
+  const glyph_t *g = glyph(f, ch, &bits);
+  int xh = (f & T_LARGE) ? 3 : 2; /* where lowercase letters start */
+  xglyph(f, ch, x, y, acc && (ch == 'i' || ch == 'j') ? xh : 0, p);
+  if (acc) {
+    int ay = acc == NP_ACC_CEDIL ? y + g_cap(f) : ch >= 'a' && ch <= 'z' ? y + (xh - 2) * sc : y - 2 * sc;
+    np_accent(acc, x + (g->w - 5) / 2 * sc, ay, sc, xplot, p);
+  }
+  int a = advance(f, ch, g) * sc;
+  if (second) {
+    xglyph(f, (unsigned char)second, x + a, y, 0, p);
+    a += advance(f, (unsigned char)second, glyph(f, (unsigned char)second, &bits)) * sc;
+  }
+  return a;
+}
+#endif
+
 /* width of the text, or of its first line only */
 static int textw(const char *s, int f, int one_line) {
   int w = 0, best = 0, badge = 0;
@@ -246,6 +342,12 @@ static int textw(const char *s, int f, int one_line) {
       else if (badge && ch != 14) w += 2, badge = 0;
       continue;
     }
+#if NP_TEXT_EXTRA
+    if (ch >= 0xC0) {
+      w += xadvance(f, &s);
+      continue;
+    }
+#endif
     if (ch > (f & (T_LARGE | T_MED) ? 126 : 130)) ch = '?';
     w += advance(f, ch, glyph(f, ch, &bits));
   }
@@ -285,7 +387,8 @@ void g_text(const char *s, int x, int y, int f, C c) {
   int n = 0;
   while (s[n]) n++;
   if (strpos + n + 1 > (int)sizeof strbuf) return;
-  item_t *it = add(I_TEXT, x - 2, y - 2, w + 4, h + 2);
+  /* (two rows more above in a language build, for accents over capitals) */
+  item_t *it = add(I_TEXT, x - 2, y - 2 - XROWS, w + 4, h + 2 + XROWS);
   if (!it) return;
   char *d = strbuf + strpos;
   for (int i = 0; i <= n; i++) d[i] = s[i];
@@ -302,8 +405,18 @@ void g_text_box(const char *s, int x, int y, int w, int h, int f, C c) {
 static void draw_text_rot(item_t *it, int y0, int ra, int rb, int cx0, int cx1) {
   int f = it->b, gh = glyph_rows(f);
   int x = it->x + 2, pen = it->y + it->h - 2; /* bottom */
+#if NP_TEXT_EXTRA
+  xplot_t xp = {y0, ra, rb, cx0, cx1, 0, 1, x, 0, it->a};
+#endif
   for (const char *s = it->s; *s; s++) {
     unsigned char ch = (unsigned char)*s;
+#if NP_TEXT_EXTRA
+    if (ch >= 0xC0) {
+      xp.oy = pen;
+      pen -= xdraw(f, &s, 0, 0, it->a, &xp);
+      continue;
+    }
+#endif
     if (ch < 32 || ch > 126) continue;
     const uint8_t *b;
     const glyph_t *g = glyph(f, ch, &b);
@@ -331,8 +444,11 @@ PROF_NOINLINE static void draw_text(item_t *it, int y0, int ra, int rb, int cx0,
     return;
   }
   int sc = (f & T_X2) ? 2 : 1, gh = glyph_rows(f), cap = g_cap(f) / sc, pitch = g_pitch(f);
-  int x0 = it->x + 2, x = x0, y = it->y + 2;
+  int x0 = it->x + 2, x = x0, y = it->y + 2 + XROWS;
   int multi = 0;
+#if NP_TEXT_EXTRA
+  xplot_t xp = {y0, ra, y1, cx0, cx1, 0, 0, 0, 0, 0};
+#endif
   for (const char *p = it->s; *p; p++) multi |= *p == '\n';
   C col = it->a, base = it->a;
   int badge = 0;
@@ -362,7 +478,15 @@ PROF_NOINLINE static void draw_text(item_t *it, int y0, int ra, int rb, int cx0,
         const char *e = s + 1;
         int bw = 0;
         const uint8_t *bb;
-        while (*e && (unsigned char)*e >= 32) bw += advance(f, (unsigned char)*e, glyph(f, (unsigned char)*e, &bb)), e++;
+        while (*e && (unsigned char)*e >= 32) {
+#if NP_TEXT_EXTRA
+          if ((unsigned char)*e >= 0xC0) {
+            bw += xadvance(f, &e), e++;
+            continue;
+          }
+#endif
+          bw += advance(f, (unsigned char)*e, glyph(f, (unsigned char)*e, &bb)), e++;
+        }
         bw = bw * sc + 3;
         int by0 = y - 2, by1 = y + cap * sc + 2;
         for (int yy = by0 > ra ? by0 : ra; yy < by1 && yy < y1; yy++) {
@@ -377,6 +501,12 @@ PROF_NOINLINE static void draw_text(item_t *it, int y0, int ra, int rb, int cx0,
       } else if (code_col[ch]) col = code_col[ch];
       continue;
     }
+#if NP_TEXT_EXTRA
+    if (ch >= 0xC0) {
+      x += xdraw(f, &s, x, y, col, &xp);
+      continue;
+    }
+#endif
     if (ch > (f & (T_LARGE | T_MED) ? 126 : 130)) ch = '?';
     const uint8_t *b;
     const glyph_t *g = glyph(f, ch, &b);

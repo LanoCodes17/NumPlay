@@ -184,10 +184,10 @@ static int menu_list(const char *const *items, int n, int x, int y, int *sel, in
 static int draw_frozen(void) { return 0; }
 
 void app_pause_menu(void) {
-  static const char *const items[] = {"RESUME", "MAIN MENU"};
+  static const char *const items[] = {T("RESUME"), T("MAIN MENU")};
   int sel = 0;
   gfx_darken(0, 0, GFX_W, GFX_H, 2);
-  gfx_text_c(&font_big, "PAUSED", 160, 70, C_WHITE);
+  gfx_text_c(&font_big, T("PAUSED"), 160, 70, C_WHITE);
   int r = menu_list(items, 2, 124, 110, &sel, draw_frozen);
   if (r == 1) {
     /* back to the menu: the match resumes from its last safe point */
@@ -212,21 +212,11 @@ static int draw_title(void) {
 
 static void credits(void) {
   static const char *const lines =
-      "INSPIRED BY BUCKSHOT ROULETTE\n"
-      "BY MIKE KLUBNIKA.\n"
-      "NOT AFFILIATED WITH MIKE KLUBNIKA\n"
-      "OR CRITICAL REFLEX.\n\n"
-      "EVERY PICTURE IS RENDERED FROM THE\n"
-      "GAME'S OWN SCENES, MODELS AND TEXTURES\n"
-      "BY MIKE KLUBNIKA, THROUGH THE OPEN\n"
-      "BUCKSHOT ROULETTE PROJECT (1503DEV).\n"
-      "FONTS: FAKE RECEIPT BY RAY LARABIE,\n"
-      "DOT MATRIX BY DIONAEA.\n\n"
-      "MADE BY MASON CHEN AS PART OF NUMPLAY.";
+      T("INSPIRED BY BUCKSHOT ROULETTE\nBY MIKE KLUBNIKA.\nNOT AFFILIATED WITH MIKE KLUBNIKA\nOR CRITICAL REFLEX.\n\nEVERY PICTURE IS RENDERED FROM THE\nGAME'S OWN SCENES, MODELS AND TEXTURES\nBY MIKE KLUBNIKA, THROUGH THE OPEN\nBUCKSHOT ROULETTE PROJECT (1503DEV).\nFONTS: FAKE RECEIPT BY RAY LARABIE,\nDOT MATRIX BY DIONAEA.\n\nMADE BY MASON CHEN AS PART OF NUMPLAY.");
   gfx_clear(C_BLACK);
-  gfx_text_c(&font_big, "CREDITS", 160, 14, C_WHITE);
+  gfx_text_c(&font_big, T("CREDITS"), 160, 14, C_WHITE);
   gfx_text_c(&font_small, lines, 160, 38, C_WHITE);
-  char best[40] = "BEST DOUBLE OR NOTHING: ";
+  char best[NP_TEXT_EXTRA ? 80 : 40] = T("BEST DOUBLE OR NOTHING: ");
   int n = 0;
   while (best[n]) n++;
   story_money(best + n, P.best);
@@ -335,10 +325,10 @@ int main(void) {
   for (;;) {
     const char *items[4];
     int ids[4], n = 0;
-    if (have_checkpoint) items[n] = "CONTINUE", ids[n++] = 0;
-    items[n] = "START", ids[n++] = 1;
-    items[n] = "CREDITS", ids[n++] = 2;
-    items[n] = "EXIT", ids[n++] = 3;
+    if (have_checkpoint) items[n] = T("CONTINUE"), ids[n++] = 0;
+    items[n] = T("START"), ids[n++] = 1;
+    items[n] = T("CREDITS"), ids[n++] = 2;
+    items[n] = T("EXIT"), ids[n++] = 3;
     if (sel >= n) sel = 0;
     int r = menu_list(items, n, 36, 150, &sel, draw_title);
     if (r < 0 || ids[r] == 3) return quit();

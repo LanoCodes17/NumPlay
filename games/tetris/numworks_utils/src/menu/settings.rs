@@ -147,8 +147,8 @@ fn draw_settings_page(
     // visual things
     display::wait_for_vblank();
     fill_screen(cfg.bckgrd);
-    draw_centered_string("SETTINGS\0", 5u16, true, cfg, false);
-    let back_text = "Menu : <Back>  \0";
+    draw_centered_string(T!("SETTINGS"), 5u16, true, cfg, false);
+    let back_text = T!("Menu : <Back>  ");
     draw_string_cfg(
         back_text,
         Point::new(

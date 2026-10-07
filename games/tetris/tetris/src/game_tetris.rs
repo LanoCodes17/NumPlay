@@ -12,6 +12,7 @@ use numworks_utils::{
     },
     storage::save::{delete_save, write_save, SaveSlotMode},
     utils::{randint, LARGE_CHAR_HEIGHT},
+    T,
 };
 
 use crate::{
@@ -40,18 +41,21 @@ fn vis_addon() {
     draw_tetrimino(&tetri, false);
 }
 
+/// The "How to Play" page (one line per line of the screen, 45 small letters wide).
+const CONTROLS: &str = T!("\n                HOW TO PLAY\n\n    - <LEFT> and <RIGHT> to move\n    - <DOWN> for soft drop\n    - <UP> for hard drop\n    - <OK> & <TOOLBOX> to rotate left and right\n    - <BACKSPACE> (<clear>) to hold the tetri\n    - <BACK> to pause\n\n    Every full line disappears\n    Get more points by clearing\n      multiple lines at once !\n    The level increases every 10 lines.\n    You lose when the stack reaches the top. \n    Hold the tetri to keep it for later !                                 ");
+
 pub fn start() {
     let mut opt: [&mut Setting; 3] = [
         &mut Setting {
-            name: "Ghost Piece\0",
+            name: T!("Ghost Piece"),
             choice: 0,
             values: Vec::from_slice(&[1, 0]).unwrap(),
-            texts: Vec::from_slice(&["Yes\0", "No\0"]).unwrap(),
+            texts: Vec::from_slice(&[T!("Yes"), T!("No")]).unwrap(),
             user_modifiable: true,
             fixed_values: true,
         },
         &mut Setting {
-            name: "Starting Level\0",
+            name: T!("Starting Level"),
             choice: 0,
             values: Vec::from_slice(&[1, 1, 9]).unwrap(),
             texts: Vec::new(),
@@ -59,7 +63,7 @@ pub fn start() {
             fixed_values: false,
         },
         &mut Setting {
-            name: "High Score\0",
+            name: T!("High Score"),
             choice: 0,
             values: Vec::from_slice(&[0, 0, 999999]).unwrap(),
             texts: Vec::new(),
@@ -74,7 +78,7 @@ pub fn start() {
             &mut opt,
             &COLOR_CONFIG,
             vis_addon,
-            include_str!("./data/tetris_controls.txt"),
+            CONTROLS,
             "tetris",
             SaveSlotMode::Single,
         );
@@ -187,7 +191,7 @@ const LEFT_ROTATION_KEY: u32 = key::OK;
 const HOLD_KEY: u32 = key::BACKSPACE;
 
 const DEATH_MENU: MenuConfig = MenuConfig {
-    choices: &["Replay\0", "Menu\0", "Quit game\0"],
+    choices: &[T!("Replay"), T!("Menu"), T!("Quit game")],
     rect_margins: (20, 10),
     dimensions: (CASE_SIZE * (PLAYFIELD_WIDTH + 2), CASE_SIZE * 10),
     offset: (0, 60),
@@ -433,11 +437,11 @@ pub fn game(
                 }
                 if death {
                     delete_save("tetris", None); // Deletes record immediately
-                    draw_centered_string(" GAME OVER \0", 10, true, &COLOR_CONFIG, true);
+                    draw_centered_string(T!(" GAME OVER "), 10, true, &COLOR_CONFIG, true);
                     if score > *high_score {
                         *high_score = score;
                         draw_centered_string(
-                            " NEW HIGH SCORE! \0",
+                            T!(" NEW HIGH SCORE! "),
                             10 + LARGE_CHAR_HEIGHT + 2,
                             true,
                             &COLOR_CONFIG,
@@ -445,7 +449,7 @@ pub fn game(
                         );
                     }
                     let mut action = selection(&COLOR_CONFIG, &DEATH_MENU, false);
-                    if action == 2 && !confirm_dialog("Quit game?\0", &COLOR_CONFIG) {
+                    if action == 2 && !confirm_dialog(T!("Quit game?"), &COLOR_CONFIG) {
                         action = 1; // not quitting: back to the Tetris menu
                     }
                     // Ensure the save is deleted regardless of selection option chosen
@@ -534,7 +538,7 @@ pub fn game(
             // Quit game asks first; saying no comes back to the pause menu
             let action = loop {
                 let a = pause_menu(&COLOR_CONFIG, 0);
-                if a != 2 || confirm_dialog("Quit game?\0", &COLOR_CONFIG) {
+                if a != 2 || confirm_dialog(T!("Quit game?"), &COLOR_CONFIG) {
                     break a;
                 }
                 redraw();

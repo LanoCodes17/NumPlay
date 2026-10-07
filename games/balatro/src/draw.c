@@ -27,6 +27,11 @@ void keycap(int x, int y, const char *label) {
 void button(int x, int y, int w, int h, C c, const char *label, int flags, int focused, int enabled) {
   if (!enabled) c = C_INACTIVE;
   if (focused) x += focus_shake;
+#if NP_TEXT_EXTRA
+  /* a translation wider than the button: the next size that fits */
+  if ((flags & (T_LARGE | T_MED)) && g_textw(label, flags) > w - 4)
+    flags = (flags & ~(T_LARGE | T_MED | T_COND)) | text_fit(label, w - 4, flags);
+#endif
   if (focused) g_rrect(x - 2, y - 2, w + 4, h + 5, 5, C_WHITE);
   panel(x, y, w, h, 4, c, 2);
   g_text_box(label, x, y, w, h, flags | T_SHADOW, enabled ? C_WHITE : HEXC(0xBBBBBB));
@@ -188,13 +193,13 @@ void draw_blind_chip(int b, int x, int y, int scale) {
 }
 
 /* ------------------------------------------------------------ descriptions */
-static char vars[6][24];
+static char vars[6][NP_TEXT_EXTRA ? 40 : 24];
 
 static void v_int(int k, long v) { fmt_int(vars[k], v); }
 static void v_num(int k, double v) { fmt_short(vars[k], v); }
 static void v_str(int k, const char *s) {
   int i = 0;
-  for (; s[i] && i < 23; i++) vars[k][i] = s[i];
+  for (; s[i] && i < (int)sizeof vars[0] - 1; i++) vars[k][i] = s[i];
   vars[k][i] = 0;
 }
 static const char *hand_name(int h) { return hand_names[h]; }
@@ -215,7 +220,7 @@ static void joker_vars(int id, const joker_t *j) {
   switch (id) {
     case J_JOKER: v_int(0, 4); break;
     case J_GREEDY_JOKER: case J_LUSTY_JOKER: case J_WRATHFUL_JOKER: case J_GLUTTENOUS_JOKER: {
-      static const char *const s[4] = {"Diamond", "Heart", "Spade", "Club"};
+      static const char *const s[4] = {T("Diamond"), T("Heart"), T("Spade"), T("Club")};
       v_int(0, 3);
       v_str(1, s[id - J_GREEDY_JOKER]);
       break;
@@ -247,10 +252,10 @@ static void joker_vars(int id, const joker_t *j) {
       v_int(0, 4), v_int(1, 5);
       int rem = j ? (5 - 1 - (R.hands_played - j->b)) % 6 : 5;
       if (rem < 0) rem += 6;
-      if (rem == 0) v_str(2, "Active!");
+      if (rem == 0) v_str(2, T("Active!"));
       else {
         char *o = fmt_int(vars[2], rem);
-        str_cat(o, " remaining");
+        str_cat(o, T(" remaining"));
       }
       break;
     }
@@ -272,7 +277,7 @@ static void joker_vars(int id, const joker_t *j) {
     case J_SPACE: v_num(0, p), v_int(1, 4); break;
     case J_EGG: v_int(0, 3); break;
     case J_BURGLAR: v_int(0, 3); break;
-    case J_BLACKBOARD: v_int(0, 3), v_str(1, "Spades"), v_str(2, "Clubs"); break;
+    case J_BLACKBOARD: v_int(0, 3), v_str(1, T("Spades")), v_str(2, T("Clubs")); break;
     case J_RUNNER: v_int(0, a), v_int(1, 15); break;
     case J_ICE_CREAM: v_int(0, j ? a : 100), v_int(1, 5); break;
     case J_BLUE_JOKER: v_int(0, 2), v_int(1, 2 * (R.phase == PH_ROUND ? R.ndeck : 52)); break;
@@ -317,7 +322,7 @@ static void joker_vars(int id, const joker_t *j) {
     case J_LUCKY_CAT: v_num(0, 0.25), v_num(1, x); break;
     case J_BASEBALL: v_num(0, 1.5); break;
     case J_BULL: v_int(0, 2), v_int(1, 2 * (R.money > 0 ? R.money : 0)); break;
-    case J_DIET_COLA: v_str(0, "Double Tag"); break;
+    case J_DIET_COLA: v_str(0, T("Double Tag")); break;
     case J_TRADING: v_int(0, 3); break;
     case J_FLASH: v_int(0, 2), v_int(1, a); break;
     case J_POPCORN: v_int(0, j ? a : 20), v_int(1, 4); break;
@@ -390,8 +395,8 @@ static const uint8_t planet_hand[12] = {H_PAIR, H_THREE_KIND, H_FULL_HOUSE, H_FO
 static const uint8_t lchips5[12] = {10, 8, 7, 8, 6, 5, 3, 6, 4, 4, 3, 2}, lmult[12] = {3, 4, 3, 4, 3, 2, 2, 3, 2, 1, 1, 1};
 
 static void cons_vars(int id) {
-  static const char *const enh[] = {"Lucky Card", "Mult Card", "Bonus Card", "Wild Card", "Steel Card", "Glass Card",
-                                    "Gold Card", "Stone Card"};
+  static const char *const enh[] = {T("Lucky Card"), T("Mult Card"), T("Bonus Card"), T("Wild Card"),
+                                    T("Steel Card"), T("Glass Card"), T("Gold Card"), T("Stone Card")};
   switch (id) {
     case C_MAGICIAN: v_int(0, 2), v_str(1, enh[0]); break;
     case C_EMPRESS: v_int(0, 2), v_str(1, enh[1]); break;
@@ -411,10 +416,10 @@ static void cons_vars(int id) {
       v_int(0, 50), v_int(1, m > 50 ? 50 : m);
       break;
     }
-    case C_STAR: v_int(0, 3), v_str(1, "Diamonds"); break;
-    case C_MOON: v_int(0, 3), v_str(1, "Clubs"); break;
-    case C_SUN: v_int(0, 3), v_str(1, "Hearts"); break;
-    case C_WORLD: v_int(0, 3), v_str(1, "Spades"); break;
+    case C_STAR: v_int(0, 3), v_str(1, T("Diamonds")); break;
+    case C_MOON: v_int(0, 3), v_str(1, T("Clubs")); break;
+    case C_SUN: v_int(0, 3), v_str(1, T("Hearts")); break;
+    case C_WORLD: v_int(0, 3), v_str(1, T("Spades")); break;
     case C_FAMILIAR: v_int(0, 3); break;
     case C_GRIM: v_int(0, 2); break;
     case C_INCANTATION: v_int(0, 4); break;
@@ -445,7 +450,7 @@ static void other_vars(int kind, int id, const void *extra) {
       case TAG_JUGGLE: v_int(0, 3); break;
       case TAG_TOP_UP: v_int(0, 2); break;
       case TAG_SKIP: v_int(0, 5), v_int(1, (R.skips + 1) * 5); break;
-      case TAG_ORBITAL: v_str(0, orb >= 0 ? hand_name(orb) : "[poker hand]"), v_int(1, 3); break;
+      case TAG_ORBITAL: v_str(0, orb >= 0 ? hand_name(orb) : T("[poker hand]")), v_int(1, 3); break;
       case TAG_ECONOMY: v_int(0, 40); break;
     }
   } else if (kind == TK_BLIND) {
@@ -498,7 +503,7 @@ void desc_text(char *out, int maxlen, int kind, int id, const void *extra) {
     /* the game shows a random number flickering here */
     char *o = str_cat(out, TC_MULT "+");
     o = fmt_int(o, (long)((g_time / 90) * 7 % 24));
-    str_cat(o, TC_RESET " Mult");
+    str_cat(o, T("\020 Mult"));
     return;
   }
   if (kind == TK_BLIND && id == BL_WHEEL) {
@@ -516,7 +521,7 @@ void desc_text(char *out, int maxlen, int kind, int id, const void *extra) {
 }
 
 /* ------------------------------------------------------------ info box */
-static const char *const rarity_name[5] = {"", "Common", "Uncommon", "Rare", "Legendary"};
+static const char *const rarity_name[5] = {"", T("Common"), T("Uncommon"), T("Rare"), T("Legendary")};
 static const C rarity_col[5] = {0, HEXC(0x009DFF), HEXC(0x4BC292), HEXC(0xFE5F55), HEXC(0xB26CBB)};
 
 /* the coloured pill under an info box (rarity, set, edition) */
@@ -529,37 +534,46 @@ static void badge(int cx, int y, const char *label, C col, int w) {
 /* box: name, description on white, badges. Anchor: the item's rectangle
  * (x, y top, w width). The box goes below it, or above when there is no room. */
 void draw_tooltip_for(int kind, int id, int ed, const void *extra, int ax, int ay, int aw) {
-  static char d[200], d2[120];
+  static char d[NP_TEXT_EXTRA ? 320 : 200], d2[NP_TEXT_EXTRA ? 200 : 120];
   const char *name = tname(kind, id);
-  char namebuf[40];
+  char namebuf[NP_TEXT_EXTRA ? 64 : 40];
   d[0] = 0, d2[0] = 0;
   if (kind == TK_CARD) {
     /* playing card: "+11 chips" and its enhancement / seal */
     const vcard_t *c = (const vcard_t *)extra;
     char *o = namebuf;
-    if (c->enh == E_STONE) o = str_cat(o, "Stone Card");
+    if (c->enh == E_STONE) o = str_cat(o, T("Stone Card"));
+#if NP_TEXT_EXTRA
+    else /* "Ace of Spades", in the translation's order: %1 the rank, %2 the suit */
+      for (const char *p = T("%1 of %2"); *p; p++)
+        if (p[0] == '%' && (p[1] == '1' || p[1] == '2'))
+          o = str_cat(o, *++p == '1' ? rank_names[c->rank] : suit_names_plural[c->suit & 3]);
+        else
+          *o++ = *p, *o = 0;
+#else
     else {
       o = str_cat(o, rank_names[c->rank]);
       o = str_cat(o, " of ");
       o = str_cat(o, suit_names_plural[c->suit & 3]);
     }
+#endif
     name = namebuf;
     o = d;
-    if (c->flags & CF_DEBUFF) o = str_cat(o, TC_MULT "Debuffed" TC_RESET "\nScores no chips\nand all abilities\nare disabled");
+    if (c->flags & CF_DEBUFF) o = str_cat(o, T("\003Debuffed\020\nScores no chips\nand all abilities\nare disabled"));
     else {
       if (c->enh != E_STONE) {
         o = str_cat(o, TC_CHIPS "+");
         o = fmt_int(o, card_chip_nominal(c->rank));
-        o = str_cat(o, TC_RESET " chips");
+        o = str_cat(o, T("\020 chips"));
       }
       int extra_chips = c->perma + (c->enh == E_BONUS ? 30 : 0);
       if (extra_chips) {
         o = str_cat(o, d[0] ? "\n" TC_CHIPS "+" : TC_CHIPS "+");
         o = fmt_int(o, extra_chips);
-        o = str_cat(o, TC_RESET " extra chips");
+        o = str_cat(o, T("\020 extra chips"));
       }
       if (c->enh && c->enh != E_BONUS) {
-        char t[120];
+        char t[NP_TEXT_EXTRA ? 200 : 120];
         desc_text(t, sizeof t, TK_ENH, c->enh, 0);
         if (d[0]) o = str_cat(o, "\n");
         o = str_cat(o, t);
@@ -590,23 +604,23 @@ void draw_tooltip_for(int kind, int id, int ed, const void *extra, int ax, int a
     if (me >= 0 && me < R.njokers) {
       int t = id == J_BRAINSTORM ? 0 : me + 1;
       int ok = t < R.njokers && t != me && joker_info[R.jokers[t].id].bp;
-      bl[nb] = ok ? "compatible" : "incompatible", bc[nb++] = ok ? C_GREEN : C_RED;
+      bl[nb] = ok ? T("compatible") : T("incompatible"), bc[nb++] = ok ? C_GREEN : C_RED;
     }
   }
   if (kind == TK_JOKER) bl[nb] = rarity_name[joker_info[id].rarity], bc[nb++] = rarity_col[joker_info[id].rarity];
   if (kind == TK_CONS) {
     int set = id <= C_WORLD ? 0 : id <= C_ERIS ? 1 : 2;
-    bl[nb] = set == 0 ? "Tarot" : set == 1 ? "Planet" : "Spectral";
+    bl[nb] = set == 0 ? T("Tarot") : set == 1 ? T("Planet") : T("Spectral");
     bc[nb++] = set == 0 ? C_TAROT : set == 1 ? C_PLANET : C_SPECTRAL;
   }
-  if (kind == TK_VOUCHER) bl[nb] = "Voucher", bc[nb++] = HEXC(0xFD682B);
+  if (kind == TK_VOUCHER) bl[nb] = T("Voucher"), bc[nb++] = HEXC(0xFD682B);
   if (ed && nb < 3) bl[nb] = tname(TK_EDITION, ed), bc[nb++] = ed == ED_NEG ? HEXC(0x2A2A2A) : C_EDITION;
   int bw = 0;
   for (int i = 0; i < nb; i++)
     if (g_textw(bl[i], F_LABEL) + 14 > bw) bw = g_textw(bl[i], F_LABEL) + 14;
   if (bw < 48) bw = 48;
   /* heights: frame 3, name 15, white boxes (lines x 10 + 5), badges 13 each */
-  int boxh = lines ? lines * 10 + 5 : 0, boxh2 = lines2 ? lines2 * 10 + 5 : 0;
+  int boxh = lines ? lines * LINE_H + 5 : 0, boxh2 = lines2 ? lines2 * LINE_H + 5 : 0;
   int h = 3 + 15 + boxh + (lines2 ? boxh2 + 3 : 0) + (nb ? 3 + nb * (BADGE_H + 2) : 0) + 3;
   int x = ax + aw / 2 - w / 2;
   if (x < SIDE_W + 1) x = SIDE_W + 1;
@@ -643,6 +657,54 @@ void draw_tooltip_for(int kind, int id, int ed, const void *extra, int ax, int a
   for (int i = 0; i < nb; i++, yy += BADGE_H + 2) badge(x + w / 2, yy, bl[i], bc[i], bw);
 }
 
+#if NP_TEXT_EXTRA
+/* the length of the Chinese letter at s, or 0 */
+static int wide_at(const char *s) {
+  if ((unsigned char)*s < 0xC0) return 0;
+  const char *q = s;
+  return np_utf8(&q) >= 0x2E80 ? (int)(q - s) : 0;
+}
+
+/* re-flows a text to a width (colour codes kept, lines joined); a line may also break after a
+   Chinese letter, and a Chinese letter joins the next one without a space */
+void wrap_text(char *out, int maxlen, const char *in, int width, int flags) {
+  char word[48];
+  int n = 0, line_w = 0, space_w = g_textw(" x", flags) - g_textw("x", flags), prev_wide = 0;
+  const char *p = in;
+  while (*p && n < maxlen - 1) {
+    int gap = 0, nl = 0;
+    for (; *p == ' ' || *p == '\n'; p++) gap |= *p == ' ', nl = 1;
+    if (!*p) break;
+    int k = 0, wide = wide_at(p);
+    if (wide) {
+      while (k < wide) word[k++] = *p++;
+    } else
+      while (*p && *p != ' ' && *p != '\n' && !wide_at(p)) {
+        int len = 1;
+        if ((unsigned char)*p >= 0xC0) {
+          const char *q = p;
+          np_utf8(&q);
+          len = (int)(q - p);
+        }
+        if (k + len > 47) break;
+        while (len--) word[k++] = *p++;
+      }
+    word[k] = 0;
+    int ww = g_textw(word, flags), space = line_w > 0 && (gap || (nl && !wide && !prev_wide));
+    if (line_w > 0 && line_w + (space ? space_w : 0) + ww > width) {
+      out[n++] = '\n';
+      line_w = 0;
+    } else if (space) {
+      out[n++] = ' ';
+      line_w += space_w;
+    }
+    for (int i = 0; i < k && n < maxlen - 1; i++) out[n++] = word[i];
+    line_w += ww;
+    prev_wide = wide;
+  }
+  out[n] = 0;
+}
+#else
 /* re-flows a text to a width (colour codes kept, lines joined) */
 void wrap_text(char *out, int maxlen, const char *in, int width, int flags) {
   char word[48];
@@ -667,3 +729,4 @@ void wrap_text(char *out, int maxlen, const char *in, int width, int flags) {
   }
   out[n] = 0;
 }
+#endif

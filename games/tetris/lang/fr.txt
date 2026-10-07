@@ -1,0 +1,32 @@
+# Tetris in French: the English text as in the source, a tab, the translation (see tools/lang.py).
+# The calculator's font: 32 big or 45 small letters across; the panels' labels 8 big ones.
+NEXT	SUIVANT
+HOLD	RÉSERVE
+BEST	RECORD
+SCORE	SCORE
+LEVEL	NIVEAU
+LINES	LIGNES
+\n                HOW TO PLAY\n\n    - <LEFT> and <RIGHT> to move\n    - <DOWN> for soft drop\n    - <UP> for hard drop\n    - <OK> & <TOOLBOX> to rotate left and right\n    - <BACKSPACE> (<clear>) to hold the tetri\n    - <BACK> to pause\n\n    Every full line disappears\n    Get more points by clearing\n      multiple lines at once !\n    The level increases every 10 lines.\n    You lose when the stack reaches the top. \n    Hold the tetri to keep it for later !                                 	\n               COMMENT JOUER\n\n    - <GAUCHE> et <DROITE> : déplacer\n    - <BAS> : descente rapide\n    - <HAUT> : chute directe\n    - <OK> et <BOÎTE À OUTILS> : tourner\n    - <EFFACER> (<clear>) : réserver\n    - <RETOUR> : pause\n\n    Une ligne pleine disparaît.\n    Plus de points en effaçant\n      plusieurs lignes d'un coup !\n    Le niveau monte toutes les 10 lignes.\n    Perdu si la pile atteint le haut.\n    Réserve une pièce pour plus tard !
+Ghost Piece	Pièce fantôme
+Yes	Oui
+No	Non
+Starting Level	Niveau de départ
+High Score	Meilleur score
+Replay	Rejouer
+Menu	Menu
+Quit game	Quitter
+ GAME OVER 	 PERDU ! 
+ NEW HIGH SCORE! 	 RECORD BATTU ! 
+Quit game?	Quitter ?
+Current Score	Score actuel
+Current Level	Niveau actuel
+Play	Jouer
+Settings	Réglages
+How to Play	Comment jouer
+Exit	Quitter
+Continue	Continuer
+New Game	Nouvelle partie
+Overwrite save?	Écraser la partie ?
+Resume	Reprendre
+Menu : <Back>  	Menu : <Retour>  
+SETTINGS	RÉGLAGES

@@ -1,0 +1,763 @@
+# Balatro in French: the English text as in the source, a tab, the translation (see tools/lang.py).
+# Names and descriptions (src/texts.h) in the game's markup: {C:mult}...{} a colour, #1# a value;
+# other texts: \004 and the like are colour codes (src/gfx.h). Mult is Multi, Chips Jetons, as in the
+# game in French. Tooltip lines stay short (about 30 letters); buttons are small.
+Joker	Joker
+{C:mult}+#1#{} Mult	{C:mult}+#1#{} Multi
+Greedy Joker	Joker avide
+Played cards with\n{C:attention}#2#{} suit give\n{C:mult}+#1#{} Mult when scored	Les cartes jouées de\n{C:attention}#2#{} donnent\n{C:mult}+#1#{} Multi quand elles comptent
+Lusty Joker	Joker lubrique
+Played cards with\n{C:mult}#2#{} suit give\n{C:mult}+#1#{} Mult when scored	Les cartes jouées de\n{C:mult}#2#{} donnent\n{C:mult}+#1#{} Multi quand elles comptent
+Wrathful Joker	Joker courroucé
+Played cards with\n{C:spades}#2#{} suit give\n{C:mult}+#1#{} Mult when scored	Les cartes jouées de\n{C:spades}#2#{} donnent\n{C:mult}+#1#{} Multi quand elles comptent
+Gluttonous Joker	Joker glouton
+Jolly Joker	Joker jovial
+{C:mult}+#1#{} Mult if played\nhand contains\na {C:attention}#2#	{C:mult}+#1#{} Multi si la main\njouée contient\n{C:attention}#2#
+Zany Joker	Joker loufoque
+Mad Joker	Joker fou
+Crazy Joker	Joker dingue
+Droll Joker	Joker drôle
+Sly Joker	Joker sournois
+{C:chips}+#1#{} Chips if played\nhand contains\na {C:attention}#2#	{C:chips}+#1#{} Jetons si la main\njouée contient\n{C:attention}#2#
+Wily Joker	Joker rusé
+Clever Joker	Joker malin
+Devious Joker	Joker retors
+Crafty Joker	Joker astucieux
+Half Joker	Demi-joker
+{C:mult}+#1#{} Mult if played\nhand contains\n{C:attention}#2#{} or fewer cards	{C:mult}+#1#{} Multi si la main\njouée contient\n{C:attention}#2#{} cartes ou moins
+Joker Stencil	Joker pochoir
+{X:mult,C:white} X1 {} Mult for each\nempty {C:attention}Joker{} slot\nJoker Stencil included\n{C:inactive}(Currently {X:mult,C:white} X#1# {C:inactive})	{X:mult,C:white} X1 {} Multi par\nemplacement de {C:attention}Joker{} vide\n(Joker pochoir compris)\n{C:inactive}(Actuellement {X:mult,C:white} X#1# {C:inactive})
+Four Fingers	Quatre doigts
+All {C:attention}Flushes{} and\n{C:attention}Straights{} can be\nmade with {C:attention}4{} cards	Les {C:attention}Couleurs{} et\n{C:attention}Quintes{} peuvent se\nfaire avec {C:attention}4{} cartes
+Mime	Mime
+Retrigger all\ncard {C:attention}held in\n{C:attention}hand{} abilities	Redéclenche les\ncapacités des cartes\n{C:attention}en main
+Credit Card	Carte de crédit
+Go up to\n{C:mult}-$#1#{} in debt	Endettement possible\njusqu'à {C:mult}-$#1#
+Ceremonial Dagger	Dague cérémonielle
+When {C:attention}Blind{} is selected,\ndestroy Joker to the right\nand permanently add {C:attention}double\nits sell value to this {C:mult}Mult\n{C:inactive}(Currently {C:mult}+#1#{C:inactive} Mult)	Quand une {C:attention}Blind{} est choisie,\ndétruit le Joker à droite et\najoute {C:attention}le double{} de sa valeur\nde vente à ce {C:mult}Multi\n{C:inactive}(Actuellement {C:mult}+#1#{C:inactive} Multi)
+Banner	Bannière
+{C:chips}+#1#{} Chips for\neach remaining\n{C:attention}discard	{C:chips}+#1#{} Jetons par\n{C:attention}défausse{} restante
+Mystic Summit	Sommet mystique
+{C:mult}+#1#{} Mult when\n{C:attention}#2#{} discards\nremaining	{C:mult}+#1#{} Multi quand il\nreste {C:attention}#2#{} défausse
+Marble Joker	Joker de marbre
+Adds one {C:attention}Stone{} card\nto deck when\n{C:attention}Blind{} is selected	Ajoute une carte de\n{C:attention}pierre{} au jeu quand\nune {C:attention}Blind{} est choisie
+Loyalty Card	Carte de fidélité
+{X:mult,C:white} X#1# {} Mult every\n{C:attention}#2#{} hands played\n{C:inactive}#3#	{X:mult,C:white} X#1# {} Multi toutes\nles {C:attention}#2#{} mains jouées\n{C:inactive}#3#
+8 Ball	Boule 8
+{C:green}#1# in #2#{} chance for each\nplayed {C:attention}8{} to create a\n{C:tarot}Tarot{} card when scored\n{C:inactive}(Must have room)	Chaque {C:attention}8{} joué a {C:green}#1# chance\nsur #2#{} de créer une carte\n{C:tarot}Tarot{} quand il compte\n{C:inactive}(Place requise)
+Misprint	Erreur d'impression
+Dusk	Crépuscule
+Retrigger all played\ncards in {C:attention}final\n{C:attention}hand{} of round	Redéclenche toutes les\ncartes jouées lors de la\n{C:attention}dernière main{} de la manche
+Raised Fist	Poing levé
+Adds {C:attention}double{} the rank\nof {C:attention}lowest{} ranked card\nheld in hand to Mult	Ajoute au Multi {C:attention}le double\nde la valeur de la carte\nen main la {C:attention}plus faible
+Chaos the Clown	Chaos le clown
+{C:attention}#1#{} free {C:green}Reroll\nper shop	{C:attention}#1#{} {C:green}relance{} gratuite\npar boutique
+Fibonacci	Fibonacci
+Each played {C:attention}Ace{},\n{C:attention}2{}, {C:attention}3{}, {C:attention}5{}, or {C:attention}8{} gives\n{C:mult}+#1#{} Mult when scored	Chaque {C:attention}As{}, {C:attention}2{}, {C:attention}3{},\n{C:attention}5{} ou {C:attention}8{} joué donne\n{C:mult}+#1#{} Multi quand il compte
+Steel Joker	Joker d'acier
+Gives {X:mult,C:white} X#1# {} Mult\nfor each {C:attention}Steel Card\nin your {C:attention}full deck\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	Donne {X:mult,C:white} X#1# {} Multi\npar {C:attention}carte d'acier\ndu {C:attention}jeu complet\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
+Scary Face	Visage effrayant
+Played {C:attention}face{} cards\ngive {C:chips}+#1#{} Chips\nwhen scored	Les {C:attention}figures{} jouées\ndonnent {C:chips}+#1#{} Jetons\nquand elles comptent
+Abstract Joker	Joker abstrait
+{C:mult}+#1#{} Mult for\neach {C:attention}Joker{} card\n{C:inactive}(Currently {C:mult}+#2#{C:inactive} Mult)	{C:mult}+#1#{} Multi par\ncarte {C:attention}Joker\n{C:inactive}(Actuellement {C:mult}+#2#{C:inactive} Multi)
+Delayed Gratification	Gratification différée
+Earn {C:money}$#1#{} per {C:attention}discard{} if\nno discards are used\nby end of the round	Gagne {C:money}$#1#{} par {C:attention}défausse\nsi aucune n'est utilisée\navant la fin de la manche
+Hack	Hack
+Retrigger\neach played\n{C:attention}2{}, {C:attention}3{}, {C:attention}4{}, or {C:attention}5{}	Redéclenche chaque\n{C:attention}2{}, {C:attention}3{}, {C:attention}4{} ou {C:attention}5{} joué
+Pareidolia	Paréidolie
+All cards are\nconsidered\n{C:attention}face{} cards	Toutes les cartes\nsont des {C:attention}figures
+Gros Michel	Gros Michel
+{C:mult}+#1#{} Mult\n{C:green}#2# in #3#{} chance this\ncard is destroyed\nat end of round	{C:mult}+#1#{} Multi\n{C:green}#2# chance sur #3#{} d'être\ndétruite en fin de manche
+Even Steven	Steven le pair
+Played cards with\n{C:attention}even{} rank give\n{C:mult}+#1#{} Mult when scored\n{C:inactive}(10, 8, 6, 4, 2)	Les cartes jouées de\nvaleur {C:attention}paire{} donnent\n{C:mult}+#1#{} Multi quand elles comptent\n{C:inactive}(10, 8, 6, 4, 2)
+Odd Todd	Todd l'impair
+Played cards with\n{C:attention}odd{} rank give\n{C:chips}+#1#{} Chips when scored\n{C:inactive}(A, 9, 7, 5, 3)	Les cartes jouées de\nvaleur {C:attention}impaire{} donnent\n{C:chips}+#1#{} Jetons quand elles comptent\n{C:inactive}(A, 9, 7, 5, 3)
+Scholar	Érudit
+Played {C:attention}Aces{}\ngive {C:chips}+#2#{} Chips\nand {C:mult}+#1#{} Mult\nwhen scored	Les {C:attention}As{} joués\ndonnent {C:chips}+#2#{} Jetons\net {C:mult}+#1#{} Multi\nquand ils comptent
+Business Card	Carte de visite
+Played {C:attention}face{} cards have\na {C:green}#1# in #2#{} chance to\ngive {C:money}$2{} when scored	Les {C:attention}figures{} jouées ont\n{C:green}#1# chance sur #2#{} de\ndonner {C:money}$2{} quand elles comptent
+Supernova	Supernova
+Adds the number of times\n{C:attention}poker hand{} has been\nplayed this run to Mult	Ajoute au Multi le nombre\nde fois où cette {C:attention}main\nde poker{} a été jouée
+Ride the Bus	Prendre le bus
+This Joker gains {C:mult}+#1#{} Mult\nper {C:attention}consecutive{} hand\nplayed without a\nscoring {C:attention}face{} card\n{C:inactive}(Currently {C:mult}+#2#{C:inactive} Mult)	Ce Joker gagne {C:mult}+#1#{} Multi\npar main {C:attention}consécutive{} jouée\nsans {C:attention}figure{} qui compte\n{C:inactive}(Actuellement {C:mult}+#2#{C:inactive} Multi)
+Space Joker	Joker de l'espace
+{C:green}#1# in #2#{} chance to\nupgrade level of\nplayed {C:attention}poker hand{}	{C:green}#1# chance sur #2#{} d'améliorer\nle niveau de la {C:attention}main\nde poker{} jouée
+Egg	Œuf
+Gains {C:money}$#1#{} of\n{C:attention}sell value{} at\nend of round	Gagne {C:money}$#1#{} de\n{C:attention}valeur de vente{} en\nfin de manche
+Burglar	Cambrioleur
+When {C:attention}Blind{} is selected,\ngain {C:chips}+#1#{} Hands and\n{C:attention}lose all discards	Quand une {C:attention}Blind{} est choisie,\ngagne {C:chips}+#1#{} mains et\n{C:attention}perd toutes les défausses
+Blackboard	Tableau noir
+{X:mult,C:white} X#1# {} Mult if all\ncards held in hand\nare {C:spades}#2#{} or {C:attention}#3#{}	{X:mult,C:white} X#1# {} Multi si toutes\nles cartes en main sont\ndes {C:spades}#2#{} ou des {C:attention}#3#{}
+Runner	Coureur
+Gains {C:chips}+#2#{} Chips\nif played hand\ncontains a {C:attention}Straight{}\n{C:inactive}(Currently {C:chips}+#1#{C:inactive} Chips)	Gagne {C:chips}+#2#{} Jetons\nsi la main jouée\ncontient une {C:attention}Quinte\n{C:inactive}(Actuellement {C:chips}+#1#{C:inactive} Jetons)
+Ice Cream	Crème glacée
+{C:chips}+#1#{} Chips\n{C:chips}-#2#{} Chips for\nevery hand played	{C:chips}+#1#{} Jetons\n{C:chips}-#2#{} Jetons par\nmain jouée
+DNA	ADN
+If {C:attention}first hand{} of round\nhas only {C:attention}1{} card, add a\npermanent copy to deck\nand draw it to {C:attention}hand	Si la {C:attention}première main{} de la\nmanche n'a qu'{C:attention}1{} carte, en\najoute une copie au jeu\net la pioche en {C:attention}main
+Splash	Éclaboussure
+Every {C:attention}played card\ncounts in scoring	Chaque {C:attention}carte jouée\ncompte dans le score
+Blue Joker	Joker bleu
+{C:chips}+#1#{} Chips for each\nremaining card in {C:attention}deck\n{C:inactive}(Currently {C:chips}+#2#{C:inactive} Chips)	{C:chips}+#1#{} Jetons par carte\nrestante dans le {C:attention}jeu\n{C:inactive}(Actuellement {C:chips}+#2#{C:inactive} Jetons)
+Sixth Sense	Sixième sens
+If {C:attention}first hand{} of round is\na single {C:attention}6{}, destroy it and\ncreate a {C:spectral}Spectral{} card\n{C:inactive}(Must have room)	Si la {C:attention}première main{} de la\nmanche est un seul {C:attention}6{}, le\ndétruit et crée une carte\n{C:spectral}Spectrale\n{C:inactive}(Place requise)
+Constellation	Constellation
+This Joker gains\n{X:mult,C:white} X#1# {} Mult every time\na {C:planet}Planet{} card is used\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	Ce Joker gagne\n{X:mult,C:white} X#1# {} Multi chaque fois\nqu'une carte {C:planet}Planète{} est utilisée\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
+Hiker	Randonneur
+Every played {C:attention}card{}\npermanently gains\n{C:chips}+#1#{} Chips when scored	Chaque {C:attention}carte{} jouée\ngagne définitivement\n{C:chips}+#1#{} Jetons quand elle compte
+Faceless Joker	Joker sans visage
+Earn {C:money}$#1#{} if {C:attention}#2#{} or\nmore {C:attention}face cards{}\nare discarded\nat the same time	Gagne {C:money}$#1#{} si {C:attention}#2#{} ou\nplus {C:attention}figures{} sont\ndéfaussées en même temps
+Green Joker	Joker vert
+{C:mult}+#1#{} Mult per hand played\n{C:mult}-#2#{} Mult per discard\n{C:inactive}(Currently {C:mult}+#3#{C:inactive} Mult)	{C:mult}+#1#{} Multi par main jouée\n{C:mult}-#2#{} Multi par défausse\n{C:inactive}(Actuellement {C:mult}+#3#{C:inactive} Multi)
+Superposition	Superposition
+Create a {C:tarot}Tarot{} card if\npoker hand contains an\n{C:attention}Ace{} and a {C:attention}Straight{}\n{C:inactive}(Must have room)	Crée une carte {C:tarot}Tarot{} si\nla main contient un {C:attention}As\net une {C:attention}Quinte\n{C:inactive}(Place requise)
+To Do List	Liste de tâches
+Earn {C:money}$#1#{} if {C:attention}poker hand{}\nis a {C:attention}#2#{},\npoker hand changes\nat end of round	Gagne {C:money}$#1#{} si la {C:attention}main\nde poker{} est : {C:attention}#2#{},\nla main change en\nfin de manche
+Cavendish	Cavendish
+{X:mult,C:white} X#1# {} Mult\n{C:green}#2# in #3#{} chance this\ncard is destroyed\nat end of round	{X:mult,C:white} X#1# {} Multi\n{C:green}#2# chance sur #3#{} d'être\ndétruite en fin de manche
+Card Sharp	Tricheur
+{X:mult,C:white} X#1# {} Mult if played\n{C:attention}poker hand{} has already\nbeen played this round	{X:mult,C:white} X#1# {} Multi si la {C:attention}main\nde poker{} jouée a déjà\nété jouée cette manche
+Red Card	Carton rouge
+This Joker gains\n{C:mult}+#1#{} Mult when any\n{C:attention}Booster Pack{} is skipped\n{C:inactive}(Currently {C:mult}+#2#{C:inactive} Mult)	Ce Joker gagne\n{C:mult}+#1#{} Multi quand un\n{C:attention}paquet booster{} est passé\n{C:inactive}(Actuellement {C:mult}+#2#{C:inactive} Multi)
+Madness	Folie
+When {C:attention}Small Blind{} or {C:attention}Big Blind{}\nis selected, gain {X:mult,C:white} X#1# {} Mult\nand {C:attention}destroy{} a random Joker\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	Quand la {C:attention}petite{} ou la {C:attention}grosse\nblind{} est choisie, gagne {X:mult,C:white} X#1# {} Multi\net {C:attention}détruit{} un Joker au hasard\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
+Square Joker	Joker carré
+This Joker gains {C:chips}+#2#{} Chips\nif played hand has\nexactly {C:attention}4{} cards\n{C:inactive}(Currently {C:chips}#1#{C:inactive} Chips)	Ce Joker gagne {C:chips}+#2#{} Jetons\nsi la main jouée a\nexactement {C:attention}4{} cartes\n{C:inactive}(Actuellement {C:chips}#1#{C:inactive} Jetons)
+Singance	Séance
+If {C:attention}poker hand{} is a\n{C:attention}#1#{}, create a\nrandom {C:spectral}Spectral{} card\n{C:inactive}(Must have room)	Si la {C:attention}main de poker\nest : {C:attention}#1#{}, crée une\ncarte {C:spectral}Spectrale{} au hasard\n{C:inactive}(Place requise)
+Riff-Raff	Racaille
+When {C:attention}Blind{} is selected,\ncreate {C:attention}#1# {C:chips}Common{C:attention} Jokers\n{C:inactive}(Must have room)	Quand une {C:attention}Blind{} est choisie,\ncrée {C:attention}#1#{} Jokers {C:chips}communs\n{C:inactive}(Place requise)
+Vampire	Vampire
+This Joker gains {X:mult,C:white} X#1# {} Mult\nper scoring {C:attention}Enhanced card{} played,\nremoves card {C:attention}Enhancement\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	Ce Joker gagne {X:mult,C:white} X#1# {} Multi\npar {C:attention}carte améliorée{} jouée\nqui compte, et lui retire\nson {C:attention}amélioration\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
+Shortcut	Raccourci
+Allows {C:attention}Straights{} to be\nmade with gaps of {C:attention}1 rank\n{C:inactive}(ex: {C:attention}10 8 6 5 3{C:inactive})	Les {C:attention}Quintes{} peuvent\nsauter {C:attention}1 valeur\n{C:inactive}(ex. : {C:attention}10 8 6 5 3{C:inactive})
+Hologram	Hologramme
+This Joker gains {X:mult,C:white} X#1# {} Mult\nevery time a {C:attention}playing card{}\nis added to your deck\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	Ce Joker gagne {X:mult,C:white} X#1# {} Multi\nchaque fois qu'une {C:attention}carte\nà jouer{} est ajoutée au jeu\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
+Vagabond	Vagabond
+Create a {C:tarot}Tarot{} card\nif hand is played\nwith {C:money}$#1#{} or less	Crée une carte {C:tarot}Tarot\nsi la main est jouée\navec {C:money}$#1#{} ou moins
+Baron	Baron
+Each {C:attention}King{}\nheld in hand\ngives {X:mult,C:white} X#1# {} Mult	Chaque {C:attention}Roi\nen main donne\n{X:mult,C:white} X#1# {} Multi
+Cloud 9	Nuage 9
+Earn {C:money}$#1#{} for each\n{C:attention}9{} in your {C:attention}full deck\nat end of round\n{C:inactive}(Currently {C:money}$#2#{}{C:inactive})	Gagne {C:money}$#1#{} par {C:attention}9\ndu {C:attention}jeu complet{} en\nfin de manche\n{C:inactive}(Actuellement {C:money}$#2#{}{C:inactive})
+Rocket	Fusée
+Earn {C:money}$#1#{} at end of round\nPayout increases by {C:money}$#2#{}\nwhen {C:attention}Boss Blind{} is defeated	Gagne {C:money}$#1#{} en fin de manche\nLe gain augmente de {C:money}$#2#\nquand la {C:attention}Blind de boss\nest vaincue
+Obelisk	Obélisque
+This Joker gains {X:mult,C:white} X#1# {} Mult\nper {C:attention}consecutive{} hand played\nwithout playing your\nmost played {C:attention}poker hand\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	Ce Joker gagne {X:mult,C:white} X#1# {} Multi\npar main {C:attention}consécutive{} jouée\nsans jouer ta {C:attention}main\nde poker{} la plus jouée\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
+Midas Mask	Masque de Midas
+All played {C:attention}face{} cards\nbecome {C:attention}Gold{} cards\nwhen scored	Les {C:attention}figures{} jouées\ndeviennent des cartes\n{C:attention}dorées{} quand elles comptent
+Luchador	Luchador
+Sell this card to\ndisable the current\n{C:attention}Boss Blind{}	Vends cette carte pour\ndésactiver la {C:attention}Blind\nde boss{} en cours
+Photograph	Photographie
+First played {C:attention}face\ncard gives {X:mult,C:white} X#1# {} Mult\nwhen scored	La première {C:attention}figure\njouée donne {X:mult,C:white} X#1# {} Multi\nquand elle compte
+Gift Card	Carte cadeau
+Add {C:money}$#1#{} of {C:attention}sell value\nto every {C:attention}Joker{} and\n{C:attention}Consumable{} card at\nend of round	Ajoute {C:money}$#1#{} de {C:attention}valeur\nde vente{} à chaque {C:attention}Joker\net {C:attention}consommable{} en\nfin de manche
+Turtle Bean	Haricot tortue
+{C:attention}+#1#{} hand size,\nreduces by\n{C:mult}#2#{} every round	{C:attention}+#1#{} taille de main,\ndiminue de {C:mult}#2#\nà chaque manche
+Erosion	Érosion
+{C:mult}+#1#{} Mult for each\ncard below {C:attention}#3#{}\nin your full deck\n{C:inactive}(Currently {C:mult}+#2#{C:inactive} Mult)	{C:mult}+#1#{} Multi par carte\nsous les {C:attention}#3#{} du\njeu complet\n{C:inactive}(Actuellement {C:mult}+#2#{C:inactive} Multi)
+Reserved Parking	Stationnement réservé
+Each {C:attention}face{} card\nheld in hand has\na {C:green}#2# in #3#{} chance\nto give {C:money}$#1#{}	Chaque {C:attention}figure{} en main\na {C:green}#2# chance sur #3#\nde donner {C:money}$#1#
+Mail-In Rebate	Remise par courrier
+Earn {C:money}$#1#{} for each\ndiscarded {C:attention}#2#{}, rank\nchanges every round	Gagne {C:money}$#1#{} par {C:attention}#2#\ndéfaussé, la valeur\nchange à chaque manche
+To the Moon	Jusqu'à la Lune
+Earn an extra {C:money}$#1#{} of\n{C:attention}interest{} for every {C:money}$5{} you\nhave at end of round	Gagne {C:money}$#1#{} d'{C:attention}intérêts\nen plus pour chaque {C:money}$5\nen fin de manche
+Hallucination	Hallucination
+{C:green}#1# in #2#{} chance to create\na {C:tarot}Tarot{} card when any\n{C:attention}Booster Pack{} is opened\n{C:inactive}(Must have room)	{C:green}#1# chance sur #2#{} de créer\nune carte {C:tarot}Tarot{} quand un\n{C:attention}paquet booster{} est ouvert\n{C:inactive}(Place requise)
+Fortune Teller	Diseuse de bonne aventure
+{C:mult}+#1#{} Mult per {C:tarot}Tarot{}\ncard used this run\n{C:inactive}(Currently {C:mult}+#2#{C:inactive})	{C:mult}+#1#{} Multi par carte\n{C:tarot}Tarot{} utilisée dans la partie\n{C:inactive}(Actuellement {C:mult}+#2#{C:inactive})
+Juggler	Jongleur
+{C:attention}+#1#{} hand size	{C:attention}+#1#{} taille de main
+Drunkard	Ivrogne
+{C:mult}+#1#{} discard\neach round	{C:mult}+#1#{} défausse\npar manche
+Stone Joker	Joker de pierre
+Gives {C:chips}+#1#{} Chips for\neach {C:attention}Stone Card\nin your {C:attention}full deck\n{C:inactive}(Currently {C:chips}+#2#{C:inactive} Chips)	Donne {C:chips}+#1#{} Jetons par\n{C:attention}carte de pierre\ndu {C:attention}jeu complet\n{C:inactive}(Actuellement {C:chips}+#2#{C:inactive} Jetons)
+Golden Joker	Joker doré
+Earn {C:money}$#1#{} at\nend of round	Gagne {C:money}$#1#{} en\nfin de manche
+Lucky Cat	Chat porte-bonheur
+This Joker gains {X:mult,C:white} X#1# {} Mult\nevery time a {C:attention}Lucky{} card\n{C:green}successfully{} triggers\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	Ce Joker gagne {X:mult,C:white} X#1# {} Multi\nchaque fois qu'une carte\n{C:attention}chanceuse{} se déclenche\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
+Baseball Card	Carte de baseball
+{C:green}Uncommon{} Jokers\neach give {X:mult,C:white} X#1# {} Mult	Chaque Joker {C:green}peu commun\ndonne {X:mult,C:white} X#1# {} Multi
+Bull	Taureau
+{C:chips}+#1#{} Chips for\neach {C:money}$1{} you have\n{C:inactive}(Currently {C:chips}+#2#{C:inactive} Chips)	{C:chips}+#1#{} Jetons par\n{C:money}$1{} possédé\n{C:inactive}(Actuellement {C:chips}+#2#{C:inactive} Jetons)
+Diet Cola	Soda light
+Sell this card to\ncreate a free\n{C:attention}#1#	Vends cette carte pour\nobtenir gratuitement\nun {C:attention}#1#
+Trading Card	Carte à échanger
+If {C:attention}first discard{} of round\nhas only {C:attention}1{} card, destroy\nit and earn {C:money}$#1#	Si la {C:attention}première défausse{} de\nla manche n'a qu'{C:attention}1{} carte,\nla détruit et gagne {C:money}$#1#
+Flash Card	Carte flash
+This Joker gains {C:mult}+#1#{} Mult\nper {C:attention}reroll{} in the shop\n{C:inactive}(Currently {C:mult}+#2#{C:inactive} Mult)	Ce Joker gagne {C:mult}+#1#{} Multi\npar {C:attention}relance{} en boutique\n{C:inactive}(Actuellement {C:mult}+#2#{C:inactive} Multi)
+Popcorn	Pop-corn
+{C:mult}+#1#{} Mult\n{C:mult}-#2#{} Mult per\nround played	{C:mult}+#1#{} Multi\n{C:mult}-#2#{} Multi par\nmanche jouée
+Spare Trousers	Pantalon de rechange
+This Joker gains {C:mult}+#1#{} Mult\nif played hand contains\na {C:attention}#2#\n{C:inactive}(Currently {C:mult}+#3#{C:inactive} Mult)	Ce Joker gagne {C:mult}+#1#{} Multi\nsi la main jouée\ncontient {C:attention}#2#\n{C:inactive}(Actuellement {C:mult}+#3#{C:inactive} Multi)
+Ancient Joker	Joker antique
+Each played card with\n{C:attention}#2#{} suit gives\n{X:mult,C:white} X#1# {} Mult when scored,\nsuit changes at end of round	Chaque carte jouée de\n{C:attention}#2#{} donne {X:mult,C:white} X#1# {} Multi\nquand elle compte, la couleur\nchange en fin de manche
+Ramen	Ramen
+{X:mult,C:white} X#1# {} Mult,\nloses {X:mult,C:white} X#2# {} Mult\nper {C:attention}card{} discarded	{X:mult,C:white} X#1# {} Multi,\nperd {X:mult,C:white} X#2# {} Multi\npar {C:attention}carte{} défaussée
+Walkie Talkie	Talkie-walkie
+Each played {C:attention}10{} or {C:attention}4\ngives {C:chips}+#1#{} Chips and\n{C:mult}+#2#{} Mult when scored	Chaque {C:attention}10{} ou {C:attention}4{} joué\ndonne {C:chips}+#1#{} Jetons et\n{C:mult}+#2#{} Multi quand il compte
+Seltzer	Eau gazeuse
+Retrigger all\ncards played for\nthe next {C:attention}#1#{} hands	Redéclenche toutes\nles cartes jouées pendant\nles {C:attention}#1#{} prochaines mains
+Castle	Château
+This Joker gains {C:chips}+#1#{} Chips\nper discarded {C:attention}#2#{} card,\nsuit changes every round\n{C:inactive}(Currently {C:chips}+#3#{C:inactive} Chips)	Ce Joker gagne {C:chips}+#1#{} Jetons\npar carte de {C:attention}#2#{} défaussée,\nla couleur change à chaque manche\n{C:inactive}(Actuellement {C:chips}+#3#{C:inactive} Jetons)
+Smiley Face	Visage souriant
+Played {C:attention}face{} cards\ngive {C:mult}+#1#{} Mult\nwhen scored	Les {C:attention}figures{} jouées\ndonnent {C:mult}+#1#{} Multi\nquand elles comptent
+Campfire	Feu de camp
+This Joker gains {X:mult,C:white}X#1#{} Mult\nfor each card {C:attention}sold{}, resets\nwhen {C:attention}Boss Blind{} is defeated\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	Ce Joker gagne {X:mult,C:white}X#1#{} Multi\npar carte {C:attention}vendue{}, remis à\nzéro quand la {C:attention}Blind de boss\nest vaincue\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
+Golden Ticket	Ticket doré
+Played {C:attention}Gold{} cards\nearn {C:money}$#1#{} when scored	Les cartes {C:attention}dorées{} jouées\nrapportent {C:money}$#1#{} quand\nelles comptent
+Mr. Bones	M. Os
+Prevents Death\nif chips scored\nare at least {C:attention}25%\nof required chips\n{C:mult}self destructs{}	Évite la défaite si\nles jetons marqués font\nau moins {C:attention}25%{} des jetons\nrequis, puis {C:mult}s'autodétruit
+Acrobat	Acrobate
+{X:mult,C:white} X#1# {} Mult on {C:attention}final\n{C:attention}hand{} of round	{X:mult,C:white} X#1# {} Multi lors de la\n{C:attention}dernière main{} de la manche
+Sock and Buskin	Socque et cothurne
+Retrigger all\nplayed {C:attention}face{} cards	Redéclenche toutes\nles {C:attention}figures{} jouées
+Swashbuckler	Bretteur
+Adds the sell value\nof all other owned\n{C:attention}Jokers{} to Mult\n{C:inactive}(Currently {C:mult}+#1#{C:inactive} Mult)	Ajoute au Multi la valeur\nde vente de tous tes\nautres {C:attention}Jokers\n{C:inactive}(Actuellement {C:mult}+#1#{C:inactive} Multi)
+Troubadour	Troubadour
+{C:attention}+#1#{} hand size,\n{C:chips}-#2#{} hand each round	{C:attention}+#1#{} taille de main,\n{C:chips}-#2#{} main par manche
+Certificate	Certificat
+When round begins,\nadd a random {C:attention}playing\n{C:attention}card{} with a random\n{C:attention}seal{} to your hand	Au début de la manche,\najoute à ta main une {C:attention}carte\n{C:attention}à jouer{} au hasard avec\nun {C:attention}sceau{} au hasard
+Smeared Joker	Joker barbouillé
+{C:mult}Hearts{} and {C:attention}Diamonds\ncount as the same suit,\n{C:spades}Spades{} and {C:attention}Clubs\ncount as the same suit	Les {C:mult}Cœurs{} et {C:attention}Carreaux\ncomptent comme une même\ncouleur, les {C:spades}Piques{} et\n{C:attention}Trèfles{} aussi
+Throwback	Rétro
+{X:mult,C:white} X#1# {} Mult for each\n{C:attention}Blind{} skipped this run\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	{X:mult,C:white} X#1# {} Multi par\n{C:attention}Blind{} passée dans la partie\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
+Hanging Chad	Bulletin troué
+Retrigger {C:attention}first{} played\ncard used in scoring\n{C:attention}#1#{} additional times	Redéclenche {C:attention}#1#{} fois de plus\nla {C:attention}première{} carte jouée\nqui compte
+Rough Gem	Gemme brute
+Played cards with\n{C:attention}Diamond{} suit earn\n{C:money}$#1#{} when scored	Les cartes jouées de\n{C:attention}Carreau{} rapportent\n{C:money}$#1#{} quand elles comptent
+Bloodstone	Héliotrope
+{C:green}#1# in #2#{} chance for\nplayed cards with\n{C:mult}Heart{} suit to give\n{X:mult,C:white} X#3# {} Mult when scored	Les cartes jouées de\n{C:mult}Cœur{} ont {C:green}#1# chance\nsur #2#{} de donner {X:mult,C:white} X#3# {} Multi\nquand elles comptent
+Arrowhead	Pointe de flèche
+Played cards with\n{C:spades}Spade{} suit give\n{C:chips}+#1#{} Chips when scored	Les cartes jouées de\n{C:spades}Pique{} donnent\n{C:chips}+#1#{} Jetons quand elles comptent
+Onyx Agate	Agate onyx
+Played cards with\n{C:attention}Club{} suit give\n{C:mult}+#1#{} Mult when scored	Les cartes jouées de\n{C:attention}Trèfle{} donnent\n{C:mult}+#1#{} Multi quand elles comptent
+Glass Joker	Joker de verre
+This Joker gains {X:mult,C:white} X#1# {} Mult\nfor every {C:attention}Glass Card\nthat is destroyed\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	Ce Joker gagne {X:mult,C:white} X#1# {} Multi\npar {C:attention}carte de verre\ndétruite\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
+Showman	Showman
+{C:attention}Joker{}, {C:tarot}Tarot{}, {C:planet}Planet{},\nand {C:spectral}Spectral{} cards may\nappear multiple times	Les cartes {C:attention}Joker{}, {C:tarot}Tarot{},\n{C:planet}Planète{} et {C:spectral}Spectrales\npeuvent apparaître\nplusieurs fois
+Flower Pot	Pot de fleurs
+{X:mult,C:white} X#1# {} Mult if poker\nhand contains a\n{C:attention}Diamond{} card, {C:attention}Club{} card,\n{C:mult}Heart{} card, and {C:spades}Spade{} card	{X:mult,C:white} X#1# {} Multi si la main\ncontient une carte de\n{C:attention}Carreau{}, de {C:attention}Trèfle{},\nde {C:mult}Cœur{} et de {C:spades}Pique
+Blueprint	Plan
+Copies ability of\n{C:attention}Joker{} to the right	Copie la capacité\ndu {C:attention}Joker{} à droite
+Wee Joker	Mini-joker
+This Joker gains\n{C:chips}+#2#{} Chips when each\nplayed {C:attention}2{} is scored\n{C:inactive}(Currently {C:chips}+#1#{C:inactive} Chips)	Ce Joker gagne\n{C:chips}+#2#{} Jetons quand\nchaque {C:attention}2{} joué compte\n{C:inactive}(Actuellement {C:chips}+#1#{C:inactive} Jetons)
+Merry Andy	Joyeux Andy
+{C:mult}+#1#{} discards\neach round,\n{C:mult}#2#{} hand size	{C:mult}+#1#{} défausses\npar manche,\n{C:mult}#2#{} taille de main
+Oops! All 6s	Oups ! Que des 6
+Doubles all {C:attention}listed\n{C:green}probabilities\n{C:inactive}(ex: {C:green}1 in 3{C:inactive} -> {C:green}2 in 3{C:inactive})	Double toutes les\n{C:green}probabilités{} indiquées\n{C:inactive}(ex. : {C:green}1 sur 3{C:inactive} -> {C:green}2 sur 3{C:inactive})
+The Idol	L'Idole
+Each played {C:attention}#2#\nof {C:attention}#3#{} gives\n{X:mult,C:white} X#1# {} Mult when scored\nCard changes every round	Chaque {C:attention}#2#\nde {C:attention}#3#{} joué donne\n{X:mult,C:white} X#1# {} Multi quand il compte\nLa carte change à chaque manche
+Seeing Double	Double vue
+{X:mult,C:white} X#1# {} Mult if played\nhand has a scoring\n{C:attention}Club{} card and a scoring\ncard of any other {C:attention}suit	{X:mult,C:white} X#1# {} Multi si la main\njouée a une carte de\n{C:attention}Trèfle{} qui compte et une\nautre {C:attention}couleur{} qui compte
+Matador	Matador
+Earn {C:money}$#1#{} if played\nhand triggers the\n{C:attention}Boss Blind{} ability	Gagne {C:money}$#1#{} si la main\njouée déclenche la capacité\nde la {C:attention}Blind de boss
+Hit the Road	En route
+This Joker gains {X:mult,C:white} X#1# {} Mult\nfor every {C:attention}Jack{}\ndiscarded this round\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	Ce Joker gagne {X:mult,C:white} X#1# {} Multi\npar {C:attention}Valet{} défaussé\npendant cette manche\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
+The Duo	Le Duo
+{X:mult,C:white} X#1# {} Mult if played\nhand contains\na {C:attention}#2#	{X:mult,C:white} X#1# {} Multi si la main\njouée contient\n{C:attention}#2#
+The Trio	Le Trio
+The Family	La Famille
+The Order	L'Ordre
+The Tribe	La Tribu
+Stuntman	Cascadeur
+{C:chips}+#1#{} Chips,\n{C:attention}-#2#{} hand size	{C:chips}+#1#{} Jetons,\n{C:attention}-#2#{} taille de main
+Invisible Joker	Joker invisible
+After {C:attention}#1#{} rounds,\nsell this card to\n{C:attention}Duplicate{} a random Joker\n{C:inactive}(Currently {C:attention}#2#{C:inactive}/#1#)	Après {C:attention}#1#{} manches,\nvends cette carte pour\n{C:attention}dupliquer{} un Joker au hasard\n{C:inactive}(Actuellement {C:attention}#2#{C:inactive}/#1#)
+Brainstorm	Remue-méninges
+Copies the ability\nof leftmost {C:attention}Joker	Copie la capacité\ndu {C:attention}Joker{} le plus à gauche
+Satellite	Satellite
+Earn {C:money}$#1#{} at end of\nround per unique {C:planet}Planet\ncard used this run\n{C:inactive}(Currently {C:money}$#2#{C:inactive})	Gagne {C:money}$#1#{} en fin de manche\npar carte {C:planet}Planète{} différente\nutilisée dans la partie\n{C:inactive}(Actuellement {C:money}$#2#{C:inactive})
+Shoot the Moon	Viser la Lune
+Each {C:attention}Queen{}\nheld in hand\ngives {C:mult}+#1#{} Mult	Chaque {C:attention}Dame\nen main donne\n{C:mult}+#1#{} Multi
+Driver's License	Permis de conduire
+{X:mult,C:white} X#1# {} Mult if you have\nat least {C:attention}16{} Enhanced\ncards in your full deck\n{C:inactive}(Currently {C:attention}#2#{C:inactive})	{X:mult,C:white} X#1# {} Multi si le jeu\ncomplet a au moins {C:attention}16\ncartes améliorées\n{C:inactive}(Actuellement {C:attention}#2#{C:inactive})
+Cartomancer	Cartomancien
+Create a {C:tarot}Tarot{} card\nwhen {C:attention}Blind{} is selected\n{C:inactive}(Must have room)	Crée une carte {C:tarot}Tarot\nquand une {C:attention}Blind{} est choisie\n{C:inactive}(Place requise)
+Astronomer	Astronome
+All {C:planet}Planet{} cards and\n{C:planet}Celestial Packs{} in\nthe shop are {C:attention}free	Les cartes {C:planet}Planète{} et\n{C:planet}paquets Céleste{} de\nla boutique sont {C:attention}gratuits
+Burnt Joker	Joker brûlé
+Upgrade the level of\nthe first {C:attention}discarded\npoker hand each round	Améliore le niveau de\nla première {C:attention}main défaussée\nde chaque manche
+Bootstraps	Tirant de botte
+{C:mult}+#1#{} Mult for every\n{C:money}$#2#{} you have\n{C:inactive}(Currently {C:mult}+#3#{C:inactive} Mult)	{C:mult}+#1#{} Multi pour chaque\ntranche de {C:money}$#2#{} possédée\n{C:inactive}(Actuellement {C:mult}+#3#{C:inactive} Multi)
+Canio	Canio
+This Joker gains {X:mult,C:white} X#1# {} Mult\nwhen a {C:attention}face{} card\nis destroyed\n{C:inactive}(Currently {X:mult,C:white} X#2# {C:inactive} Mult)	Ce Joker gagne {X:mult,C:white} X#1# {} Multi\nquand une {C:attention}figure{}\nest détruite\n{C:inactive}(Actuellement {X:mult,C:white} X#2# {C:inactive} Multi)
+Triboulet	Triboulet
+Played {C:attention}Kings{} and\n{C:attention}Queens{} each give\n{X:mult,C:white} X#1# {} Mult when scored	Les {C:attention}Rois{} et {C:attention}Dames\njoués donnent chacun\n{X:mult,C:white} X#1# {} Multi quand ils comptent
+Yorick	Yorick
+This Joker gains\n{X:mult,C:white} X#1# {} Mult every {C:attention}#2#{C:inactive} [#3#]{}\ncards discarded\n{C:inactive}(Currently {X:mult,C:white} X#4# {C:inactive} Mult)	Ce Joker gagne\n{X:mult,C:white} X#1# {} Multi toutes les {C:attention}#2#{C:inactive} [#3#]{}\ncartes défaussées\n{C:inactive}(Actuellement {X:mult,C:white} X#4# {C:inactive} Multi)
+Chicot	Chicot
+Disables effect of\nevery {C:attention}Boss Blind	Désactive l'effet de\nchaque {C:attention}Blind de boss
+Perkeo	Perkeo
+Creates a {C:dark_edition}Negative{} copy of\n{C:attention}1{} random {C:attention}consumable{}\ncard in your possession\nat the end of the {C:attention}shop	Crée une copie {C:dark_edition}négative\nd'{C:attention}1{} {C:attention}consommable{} au hasard\nen ta possession à la\nfin de la {C:attention}boutique
+The Fool	Le Mat
+Creates the last\n{C:tarot}Tarot{} or {C:planet}Planet{} card\nused during this run\n{C:tarot}The Fool excluded	Crée la dernière carte\n{C:tarot}Tarot{} ou {C:planet}Planète{}\nutilisée dans la partie\n{C:tarot}Le Mat exclu
+The Magician	Le Bateleur
+Enhances {C:attention}#1#{}\nselected cards to\n{C:attention}#2#s	Améliore {C:attention}#1#{} cartes\nchoisies en\n{C:attention}#2#
+The High Priestess	La Papesse
+Creates up to {C:attention}#1#\nrandom {C:planet}Planet{} cards\n{C:inactive}(Must have room)	Crée jusqu'à {C:attention}#1#\ncartes {C:planet}Planète{} au hasard\n{C:inactive}(Place requise)
+The Empress	L'Impératrice
+Enhances {C:attention}#1#\nselected cards to\n{C:attention}#2#s	Améliore {C:attention}#1#\ncartes choisies en\n{C:attention}#2#
+The Emperor	L'Empereur
+Creates up to {C:attention}#1#\nrandom {C:tarot}Tarot{} cards\n{C:inactive}(Must have room)	Crée jusqu'à {C:attention}#1#\ncartes {C:tarot}Tarot{} au hasard\n{C:inactive}(Place requise)
+The Hierophant	Le Pape
+The Lovers	L'Amoureux
+Enhances {C:attention}#1#{} selected\ncard into a\n{C:attention}#2#	Améliore {C:attention}#1#{} carte\nchoisie en\n{C:attention}#2#
+The Chariot	Le Chariot
+Justice	La Justice
+The Hermit	L'Ermite
+Doubles money\n{C:inactive}(Max of {C:money}$#1#{C:inactive})	Double ton argent\n{C:inactive}(Max. {C:money}$#1#{C:inactive})
+The Wheel of Fortune	La Roue de Fortune
+{C:green}#1# in #2#{} chance to add\n{C:dark_edition}Foil{}, {C:dark_edition}Holographic{}, or\n{C:dark_edition}Polychrome{} edition\nto a random {C:attention}Joker	{C:green}#1# chance sur #2#{} d'ajouter\nl'édition {C:dark_edition}métallisée{},\n{C:dark_edition}holographique{} ou {C:dark_edition}polychrome\nà un {C:attention}Joker{} au hasard
+Strength	La Force
+Increases rank of\nup to {C:attention}#1#{} selected\ncards by {C:attention}1	Augmente de {C:attention}1{} la\nvaleur d'au plus\n{C:attention}#1#{} cartes choisies
+The Hanged Man	Le Pendu
+Destroys up to\n{C:attention}#1#{} selected cards	Détruit jusqu'à\n{C:attention}#1#{} cartes choisies
+Death	La Mort
+Select {C:attention}#1#{} cards,\nconvert the {C:attention}left{} card\ninto the {C:attention}right{} card\n{C:inactive}(Drag to rearrange)	Choisis {C:attention}#1#{} cartes,\nla carte de {C:attention}gauche\ndevient celle de {C:attention}droite\n{C:inactive}(Glisse pour réordonner)
+Temperance	Tempérance
+Gives the total sell\nvalue of all current\nJokers {C:inactive}(Max of {C:money}$#1#{C:inactive})\n{C:inactive}(Currently {C:money}$#2#{C:inactive})	Donne la valeur de vente\ntotale de tes Jokers\n{C:inactive}(Max. {C:money}$#1#{C:inactive})\n{C:inactive}(Actuellement {C:money}$#2#{C:inactive})
+The Devil	Le Diable
+The Tower	La Maison Dieu
+The Star	L'Étoile
+Converts up to\n{C:attention}#1#{} selected cards\nto {C:attention}#2#{}	Convertit jusqu'à\n{C:attention}#1#{} cartes choisies\nen {C:attention}#2#{}
+The Moon	La Lune
+The Sun	Le Soleil
+Judgement	Le Jugement
+Creates a random\n{C:attention}Joker{} card\n{C:inactive}(Must have room)	Crée une carte\n{C:attention}Joker{} au hasard\n{C:inactive}(Place requise)
+The World	Le Monde
+Mercury	Mercure
+({C:attention}lvl.#1#){} Level up\n{C:attention}#2#\n{C:mult}+#3#{} Mult and\n{C:chips}+#4#{} chips	({C:attention}niv. #1#){} Améliore\n{C:attention}#2#\n{C:mult}+#3#{} Multi et\n{C:chips}+#4#{} Jetons
+Venus	Vénus
+Earth	Terre
+Mars	Mars
+Jupiter	Jupiter
+Saturn	Saturne
+Uranus	Uranus
+Neptune	Neptune
+Pluto	Pluton
+Planet X	Planète X
+Ceres	Cérès
+Eris	Éris
+Familiar	Familier
+Destroy {C:attention}1{} random\ncard in your hand, add\n{C:attention}#1#{} random {C:attention}Enhanced face\n{C:attention}cards{} to your hand	Détruit {C:attention}1{} carte au hasard\nde ta main, ajoute {C:attention}#1#\n{C:attention}figures améliorées\nau hasard à ta main
+Grim	Faucheuse
+Destroy {C:attention}1{} random\ncard in your hand,\nadd {C:attention}#1#{} random {C:attention}Enhanced\n{C:attention}Aces{} to your hand	Détruit {C:attention}1{} carte au hasard\nde ta main, ajoute {C:attention}#1#\n{C:attention}As améliorés{} au hasard\nà ta main
+Incantation	Incantation
+Destroy {C:attention}1{} random\ncard in your hand, add {C:attention}#1#\nrandom {C:attention}Enhanced numbered\n{C:attention}cards{} to your hand	Détruit {C:attention}1{} carte au hasard\nde ta main, ajoute {C:attention}#1#\n{C:attention}cartes numérotées améliorées\nau hasard à ta main
+Talisman	Talisman
+Add a {C:attention}Gold Seal{}\nto {C:attention}1{} selected\ncard in your hand	Ajoute un {C:attention}sceau doré\nà {C:attention}1{} carte choisie\nde ta main
+Aura	Aura
+Add {C:dark_edition}Foil{}, {C:dark_edition}Holographic{},\nor {C:dark_edition}Polychrome{} effect to\n{C:attention}1{} selected card in hand	Ajoute l'effet {C:dark_edition}métallisé{},\n{C:dark_edition}holographique{} ou {C:dark_edition}polychrome\nà {C:attention}1{} carte choisie en main
+Wraith	Spectre
+Creates a random\n{C:mult}Rare{C:attention} Joker{},\nsets money to {C:money}$0	Crée un {C:attention}Joker {C:mult}rare\nau hasard, met ton\nargent à {C:money}$0
+Sigil	Sigille
+Converts all cards\nin hand to a single\nrandom {C:attention}suit	Convertit toutes les cartes\nen main en une seule\n{C:attention}couleur{} au hasard
+Ouija	Ouija
+Converts all cards\nin hand to a single\nrandom {C:attention}rank\n{C:mult}-1{} hand size	Convertit toutes les cartes\nen main en une seule\n{C:attention}valeur{} au hasard\n{C:mult}-1{} taille de main
+Ectoplasm	Ectoplasme
+Add {C:dark_edition}Negative{} to\na random {C:attention}Joker,\n{C:mult}-#1#{} hand size	Ajoute {C:dark_edition}négatif{} à\nun {C:attention}Joker{} au hasard,\n{C:mult}-#1#{} taille de main
+Immolate	Immolation
+Destroys {C:attention}#1#{} random\ncards in hand,\ngain {C:money}$#2#	Détruit {C:attention}#1#{} cartes\nau hasard en main,\ngagne {C:money}$#2#
+Ankh	Ânkh
+Create a copy of a\nrandom {C:attention}Joker{}, destroy\nall other Jokers	Crée une copie d'un\n{C:attention}Joker{} au hasard, détruit\ntous les autres Jokers
+Deja Vu	Déjà vu
+Add a {C:mult}Red Seal{}\nto {C:attention}1{} selected\ncard in your hand	Ajoute un {C:mult}sceau rouge\nà {C:attention}1{} carte choisie\nde ta main
+Hex	Maléfice
+Add {C:dark_edition}Polychrome{} to a\nrandom {C:attention}Joker{}, destroy\nall other Jokers	Ajoute {C:dark_edition}polychrome{} à un\n{C:attention}Joker{} au hasard, détruit\ntous les autres Jokers
+Trance	Transe
+Add a {C:chips}Blue Seal{}\nto {C:attention}1{} selected\ncard in your hand	Ajoute un {C:chips}sceau bleu\nà {C:attention}1{} carte choisie\nde ta main
+Medium	Médium
+Add a {C:tarot}Purple Seal{}\nto {C:attention}1{} selected\ncard in your hand	Ajoute un {C:tarot}sceau violet\nà {C:attention}1{} carte choisie\nde ta main
+Cryptid	Cryptide
+Create {C:attention}#1#{} copies of\n{C:attention}1{} selected card\nin your hand	Crée {C:attention}#1#{} copies de\n{C:attention}1{} carte choisie\nde ta main
+The Soul	L'Âme
+Creates a\n{C:tarot}Legendary{} Joker\n{C:inactive}(Must have room)	Crée un Joker\n{C:tarot}légendaire\n{C:inactive}(Place requise)
+Black Hole	Trou noir
+Upgrade every\n{C:tarot}poker hand\nby {C:attention}1{} level	Améliore chaque\n{C:tarot}main de poker\nde {C:attention}1{} niveau
+Overstock	Surstock
+{C:attention}+1{} card slot\navailable in shop	{C:attention}+1{} emplacement de\ncarte en boutique
+Clearance Sale	Liquidation totale
+All cards and packs in\nshop are {C:attention}#1#%{} off	Toutes les cartes et\npaquets de la boutique\nsont à {C:attention}-#1#%
+Hone	Affûtage
+{C:dark_edition}Foil{}, {C:dark_edition}Holographic{}, and\n{C:dark_edition}Polychrome{} cards\nappear {C:attention}#1#X{} more often	Les cartes {C:dark_edition}métallisées{},\n{C:dark_edition}holographiques{} et {C:dark_edition}polychromes\napparaissent {C:attention}#1#X{} plus souvent
+Reroll Surplus	Surplus de relances
+Rerolls cost\n{C:money}$#1#{} less	Les relances coûtent\n{C:money}$#1#{} de moins
+Crystal Ball	Boule de cristal
+{C:attention}+1{} consumable slot	{C:attention}+1{} emplacement\nde consommable
+Telescope	Télescope
+{C:attention}Celestial Packs{} always\ncontain the {C:planet}Planet{}\ncard for your most\nplayed {C:attention}poker hand	Les {C:attention}paquets Céleste{} contiennent\ntoujours la carte {C:planet}Planète\nde ta {C:attention}main de poker\nla plus jouée
+Grabber	Grappin
+Permanently\ngain {C:chips}+#1#{} hand\nper round	Gagne définitivement\n{C:chips}+#1#{} main\npar manche
+Wasteful	Gaspilleur
+Permanently\ngain {C:mult}+#1#{} discard\neach round	Gagne définitivement\n{C:mult}+#1#{} défausse\npar manche
+Tarot Merchant	Marchand de tarots
+{C:tarot}Tarot{} cards appear\n{C:attention}#1#X{} more frequently\nin the shop	Les cartes {C:tarot}Tarot{} apparaissent\n{C:attention}#1#X{} plus souvent\nen boutique
+Planet Merchant	Marchand de planètes
+{C:planet}Planet{} cards appear\n{C:attention}#1#X{} more frequently\nin the shop	Les cartes {C:planet}Planète{} apparaissent\n{C:attention}#1#X{} plus souvent\nen boutique
+Seed Money	Capital de départ
+Raise the cap on\ninterest earned in\neach round to {C:money}$#1#{}	Augmente le plafond\ndes intérêts gagnés par\nmanche à {C:money}$#1#{}
+Blank	Vierge
+{C:inactive}Does nothing?	{C:inactive}Ne fait rien ?
+Magic Trick	Tour de magie
+{C:attention}Playing cards{} can\nbe purchased\nfrom the {C:attention}shop	Les {C:attention}cartes à jouer{} peuvent\nêtre achetées en\n{C:attention}boutique
+Hieroglyph	Hiéroglyphe
+{C:attention}-#1#{} Ante,\n{C:chips}-#1#{} hand\neach round	{C:attention}-#1#{} Ante,\n{C:chips}-#1#{} main\npar manche
+Director's Cut	Version longue
+Reroll Boss Blind\n{C:attention}1{} time per Ante,\n{C:money}$#1#{} per roll	Relance la Blind de boss\n{C:attention}1{} fois par Ante,\n{C:money}$#1#{} par relance
+Paint Brush	Pinceau
+Overstock Plus	Surstock plus
+Liquidation	Liquidation
+Glow Up	Relooking
+Reroll Glut	Excès de relances
+Omen Globe	Globe des présages
+{C:spectral}Spectral{} cards may\nappear in any of\nthe {C:attention}Arcana Packs	Les cartes {C:spectral}Spectrales{} peuvent\napparaître dans les\n{C:attention}paquets Arcanes
+Observatory	Observatoire
+{C:planet}Planet{} cards in your\n{C:attention}consumable{} area give\n{X:mult,C:white} X#1# {} Mult for their\nspecified {C:attention}poker hand	Les cartes {C:planet}Planète{} de ta zone\nde {C:attention}consommables{} donnent\n{X:mult,C:white} X#1# {} Multi pour leur\n{C:attention}main de poker
+Nacho Tong	Pince à nachos
+Recyclomancy	Recyclomancie
+Tarot Tycoon	Magnat des tarots
+Planet Tycoon	Magnat des planètes
+Money Tree	Arbre à argent
+Antimatter	Antimatière
+{C:dark_edition}+1{} Joker Slot	{C:dark_edition}+1{} emplacement de Joker
+Illusion	Illusion
+{C:attention}Playing cards{} in shop\nmay have an {C:attention}Enhancement{},\n{C:dark_edition}Edition{}, and/or a {C:attention}Seal{}	Les {C:attention}cartes à jouer{} en boutique\npeuvent avoir une {C:attention}amélioration{},\nune {C:dark_edition}édition{} ou un {C:attention}sceau
+Petroglyph	Pétroglyphe
+{C:attention}-#1#{} Ante,\n{C:mult}-#1#{} discard\neach round	{C:attention}-#1#{} Ante,\n{C:mult}-#1#{} défausse\npar manche
+Retcon	Retcon
+Reroll Boss Blind\n{C:attention}unlimited{} times,\n{C:money}$#1#{} per roll	Relance la Blind de boss\nde façon {C:attention}illimitée{},\n{C:money}$#1#{} par relance
+Palette	Palette
+Uncommon Tag	Badge peu commun
+Shop has a free\n{C:green}Uncommon Joker	La boutique a un\nJoker {C:green}peu commun{} gratuit
+Rare Tag	Badge rare
+Shop has a free\n{C:mult}Rare Joker	La boutique a un\nJoker {C:mult}rare{} gratuit
+Negative Tag	Badge négatif
+Next base edition shop\nJoker is free and\nbecomes {C:dark_edition}Negative	Le prochain Joker de base\nen boutique est gratuit\net devient {C:dark_edition}négatif
+Foil Tag	Badge métallisé
+Next base edition shop\nJoker is free and\nbecomes {C:dark_edition}Foil	Le prochain Joker de base\nen boutique est gratuit\net devient {C:dark_edition}métallisé
+Holographic Tag	Badge holographique
+Next base edition shop\nJoker is free and\nbecomes {C:dark_edition}Holographic	Le prochain Joker de base\nen boutique est gratuit\net devient {C:dark_edition}holographique
+Polychrome Tag	Badge polychrome
+Next base edition shop\nJoker is free and\nbecomes {C:dark_edition}Polychrome	Le prochain Joker de base\nen boutique est gratuit\net devient {C:dark_edition}polychrome
+Investment Tag	Badge d'investissement
+After defeating\nthe Boss Blind,\ngain {C:money}$#1#	Après avoir vaincu\nla Blind de boss,\ngagne {C:money}$#1#
+Voucher Tag	Badge de bon
+Adds one {C:attention}Voucher\nto the next shop	Ajoute un {C:attention}bon\nà la prochaine boutique
+Boss Tag	Badge de boss
+Rerolls the\n{C:attention}Boss Blind	Relance la\n{C:attention}Blind de boss
+Standard Tag	Badge standard
+Gives a free\n{C:attention}Mega Standard Pack	Donne un {C:attention}méga\npaquet standard{} gratuit
+Charm Tag	Badge charme
+Gives a free\n{C:tarot}Mega Arcana Pack	Donne un {C:tarot}méga\npaquet Arcanes{} gratuit
+Meteor Tag	Badge météore
+Gives a free\n{C:planet}Mega Celestial Pack	Donne un {C:planet}méga\npaquet Céleste{} gratuit
+Buffoon Tag	Badge bouffon
+Gives a free\n{C:attention}Mega Buffoon Pack	Donne un {C:attention}méga\npaquet bouffon{} gratuit
+Handy Tag	Badge pratique
+Gives {C:money}$#1#{} per played\n{C:chips}hand{} this run\n{C:inactive}(Will give {C:money}$#2#{C:inactive})	Donne {C:money}$#1#{} par {C:chips}main\njouée{} dans la partie\n{C:inactive}(Donnera {C:money}$#2#{C:inactive})
+Garbage Tag	Badge poubelle
+Gives {C:money}$#1#{} per unused\n{C:mult}discard{} this run\n{C:inactive}(Will give {C:money}$#2#{C:inactive})	Donne {C:money}$#1#{} par {C:mult}défausse\nnon utilisée{} dans la partie\n{C:inactive}(Donnera {C:money}$#2#{C:inactive})
+Ethereal Tag	Badge éthéré
+Gives a free\n{C:spectral}Spectral Pack	Donne un {C:spectral}paquet\nspectral{} gratuit
+Coupon Tag	Badge coupon
+Initial cards and\nbooster packs in next\nshop are free	Les premières cartes et\nles paquets de la prochaine\nboutique sont gratuits
+Double Tag	Badge double
+Gives a copy of the\nnext selected {C:attention}Tag{}\n{C:attention}Double Tag excluded	Donne une copie du\nprochain {C:attention}badge{} choisi\n{C:attention}Badge double exclu
+Juggle Tag	Badge jonglage
+{C:attention}+#1#{} hand size\nnext round	{C:attention}+#1#{} taille de main\nla manche suivante
+D6 Tag	Badge D6
+Rerolls in next shop\nstart at {C:money}$0	Les relances de la prochaine\nboutique commencent à {C:money}$0
+Top-up Tag	Badge recharge
+Create up to {C:attention}#1#\n{C:chips}Common{} Jokers\n{C:inactive}(Must have room)	Crée jusqu'à {C:attention}#1#\nJokers {C:chips}communs\n{C:inactive}(Place requise)
+Speed Tag	Badge vitesse
+Gives {C:money}$#1#{} per skipped\nBlind this run\n{C:inactive}(Will give {C:money}$#2#{C:inactive})	Donne {C:money}$#1#{} par Blind\npassée dans la partie\n{C:inactive}(Donnera {C:money}$#2#{C:inactive})
+Orbital Tag	Badge orbital
+Upgrade {C:attention}#1#\nby {C:attention}#2# levels	Améliore {C:attention}#1#\nde {C:attention}#2# niveaux
+Economy Tag	Badge économie
+Doubles your money\n{C:inactive}(Max of {C:money}$#1#{C:inactive})	Double ton argent\n{C:inactive}(Max. {C:money}$#1#{C:inactive})
+Small Blind	Petite blind
+Big Blind	Grosse blind
+The Ox	Le Bœuf
+Playing a #1#\nsets money to $0	Jouer {C:attention}#1#\nmet ton argent à $0
+The House	La Maison
+First hand is\ndrawn face down	La première main est\npiochée face cachée
+The Club	Le Trèfle
+All Club cards\nare debuffed	Toutes les cartes de\nTrèfle sont affaiblies
+The Fish	Le Poisson
+Cards drawn face down\nafter each hand played	Les cartes piochées après\nchaque main jouée sont\nface cachée
+The Window	La Fenêtre
+All Diamond cards\nare debuffed	Toutes les cartes de\nCarreau sont affaiblies
+The Hook	Le Crochet
+Discards 2 random\ncards per hand played	Défausse 2 cartes au hasard\npar main jouée
+The Manacle	Les Menottes
+-1 Hand Size	-1 taille de main
+The Wall	Le Mur
+Extra large blind	Blind très grosse
+The Wheel	La Roue
+ in 7 cards get\ndrawn face down	 carte sur 7 est\npiochée face cachée
+The Arm	Le Bras
+Decrease level of\nplayed poker hand	Baisse le niveau de\nla main de poker jouée
+The Psychic	Le Médium
+Must play 5 cards	Il faut jouer 5 cartes
+The Goad	L'Aiguillon
+All Spade cards\nare debuffed	Toutes les cartes de\nPique sont affaiblies
+The Water	L'Eau
+Start with\n0 discards	Commence avec\n0 défausse
+The Serpent	Le Serpent
+After Play or Discard,\nalways draw 3 cards	Après avoir joué ou défaussé,\npioche toujours 3 cartes
+The Pillar	Le Pilier
+Cards played previously\nthis Ante are debuffed	Les cartes déjà jouées\npendant cette Ante\nsont affaiblies
+The Eye	L'Œil
+No repeat hand\ntypes this round	Pas deux fois le même\ntype de main cette manche
+The Mouth	La Bouche
+Play only 1 hand\ntype this round	Un seul type de main\npeut être joué cette manche
+The Plant	La Plante
+All face cards\nare debuffed	Toutes les figures\nsont affaiblies
+The Needle	L'Aiguille
+Play only 1 hand	Une seule main à jouer
+The Head	La Tête
+All Heart cards\nare debuffed	Toutes les cartes de\nCœur sont affaiblies
+The Tooth	La Dent
+Lose $1 per\ncard played	Perds $1 par\ncarte jouée
+The Mark	La Marque
+All face cards are\ndrawn face down	Toutes les figures sont\npiochées face cachée
+The Flint	Le Silex
+Base Chips and\nMult are halved	Les Jetons et le Multi\nde base sont divisés par 2
+Crimson Heart	Cœur cramoisi
+One random Joker\ndisabled every hand	Un Joker au hasard est\ndésactivé à chaque main
+Cerulean Bell	Cloche céruléenne
+Forces 1 card to\nalways be selected	Force 1 carte à être\ntoujours choisie
+Amber Acorn	Gland ambré
+Flips and shuffles\nall Joker cards	Retourne et mélange\ntous les Jokers
+Verdant Leaf	Feuille verdoyante
+All cards debuffed\nuntil 1 Joker sold	Toutes les cartes sont\naffaiblies jusqu'à la\nvente d'1 Joker
+Violet Vessel	Vase violet
+Very large blind	Blind gigantesque
+Bonus Card	Carte bonus
+Mult Card	Carte multi
+Wild Card	Carte sauvage
+Can be used\nas any suit	Compte comme\nn'importe quelle couleur
+Glass Card	Carte de verre
+{X:mult,C:white} X#1# {} Mult\n{C:green}#2# in #3#{} chance to\ndestroy card	{X:mult,C:white} X#1# {} Multi\n{C:green}#2# chance sur #3#{} de\ndétruire la carte
+Steel Card	Carte d'acier
+{X:mult,C:white} X#1# {} Mult\nwhile this card\nstays in hand	{X:mult,C:white} X#1# {} Multi\ntant que cette carte\nreste en main
+Stone Card	Carte de pierre
+{C:chips}+#1#{} Chips\nno rank or suit	{C:chips}+#1#{} Jetons\nsans valeur ni couleur
+Gold Card	Carte dorée
+{C:money}$#1#{} if this\ncard is held in hand\nat end of round	{C:money}$#1#{} si cette carte\nest en main en\nfin de manche
+Lucky Card	Carte chanceuse
+{C:green}#1# in #3#{} chance\nfor {C:mult}+#2#{} Mult\n{C:green}#1# in #5#{} chance\nto win {C:money}$#4#	{C:green}#1# chance sur #3#{} de\ndonner {C:mult}+#2#{} Multi\n{C:green}#1# chance sur #5#{} de\ngagner {C:money}$#4#
+Foil	Métallisé
+{C:chips}+#1#{} chips	{C:chips}+#1#{} Jetons
+Holographic	Holographique
+Polychrome	Polychrome
+{X:mult,C:white} X#1# {} Mult	{X:mult,C:white} X#1# {} Multi
+Negative	Négatif
+{C:dark_edition}+#1#{} Joker slot	{C:dark_edition}+#1#{} emplacement de Joker
+Gold Seal	Sceau doré
+Earn {C:money}$3{} when this\ncard is played\nand scores	Gagne {C:money}$3{} quand cette\ncarte est jouée\net compte
+Red Seal	Sceau rouge
+Retrigger this\ncard {C:attention}1{} time	Redéclenche cette\ncarte {C:attention}1{} fois
+Blue Seal	Sceau bleu
+Creates the {C:planet}Planet{} card\nfor final played {C:attention}poker hand{}\nof round if {C:attention}held{} in hand\n{C:inactive}(Must have room)	Crée la carte {C:planet}Planète\nde la dernière {C:attention}main de poker\njouée de la manche si la\ncarte est {C:attention}en main\n{C:inactive}(Place requise)
+Purple Seal	Sceau violet
+Creates a {C:tarot}Tarot{} card\nwhen {C:attention}discarded\n{C:inactive}(Must have room)	Crée une carte {C:tarot}Tarot\nquand elle est {C:attention}défaussée\n{C:inactive}(Place requise)
+Arcana Pack	Paquet Arcanes
+Choose {C:attention}#1#{} of up to\n{C:attention}#2#{C:tarot} Tarot{} cards to\nbe used immediately	Choisis {C:attention}#1#{} parmi jusqu'à\n{C:attention}#2#{C:tarot} cartes Tarot{} à\nutiliser immédiatement
+Jumbo Arcana Pack	Paquet Arcanes jumbo
+Mega Arcana Pack	Méga paquet Arcanes
+Celestial Pack	Paquet Céleste
+Choose {C:attention}#1#{} of up to\n{C:attention}#2#{C:planet} Planet{} cards to\nbe used immediately	Choisis {C:attention}#1#{} parmi jusqu'à\n{C:attention}#2#{C:planet} cartes Planète{} à\nutiliser immédiatement
+Jumbo Celestial Pack	Paquet Céleste jumbo
+Mega Celestial Pack	Méga paquet Céleste
+Standard Pack	Paquet standard
+Choose {C:attention}#1#{} of up to\n{C:attention}#2#{C:attention} Playing{} cards to\nadd to your deck	Choisis {C:attention}#1#{} parmi jusqu'à\n{C:attention}#2#{C:attention} cartes à jouer{} à\najouter à ton jeu
+Jumbo Standard Pack	Paquet standard jumbo
+Mega Standard Pack	Méga paquet standard
+Buffoon Pack	Paquet bouffon
+Choose {C:attention}#1#{} of up to\n{C:attention}#2#{C:attention} Joker{} cards	Choisis {C:attention}#1#{} parmi jusqu'à\n{C:attention}#2#{C:attention} cartes Joker
+Jumbo Buffoon Pack	Paquet bouffon jumbo
+Mega Buffoon Pack	Méga paquet bouffon
+Spectral Pack	Paquet spectral
+Choose {C:attention}#1#{} of up to\n{C:attention}#2#{C:spectral} Spectral{} cards to\nbe used immediately	Choisis {C:attention}#1#{} parmi jusqu'à\n{C:attention}#2#{C:spectral} cartes Spectrales{} à\nutiliser immédiatement
+Jumbo Spectral Pack	Paquet spectral jumbo
+Mega Spectral Pack	Méga paquet spectral
+Red Deck	Jeu rouge
+{C:mult}+#1#{} discard\nevery round	{C:mult}+#1#{} défausse\npar manche
+Jack	Valet
+Queen	Dame
+King	Roi
+Ace	As
+Spade	Pique
+Heart	Cœur
+Club	Trèfle
+Diamond	Carreau
+Spades	Piques
+Hearts	Cœurs
+Clubs	Trèfles
+Diamonds	Carreaux
+ Mult	 Multi
+Active!	Actif !
+ remaining	 restantes
+[poker hand]	[main de poker]
+\020 Mult	\020 Multi
+Common	Commun
+Uncommon	Peu commun
+Rare	Rare
+Legendary	Légendaire
+%1 of %2	%1 de %2
+\003Debuffed\020\nScores no chips\nand all abilities\nare disabled	\003Affaiblie\020\nNe donne aucun jeton\net toutes ses capacités\nsont désactivées
+\020 chips	\020 jetons
+\020 extra chips	\020 jetons en plus
+compatible	compatible
+incompatible	incompatible
+Tarot	Tarot
+Planet	Planète
+Spectral	Spectrale
+Voucher	Bon
+PLAY	JOUER
+OPTIONS	OPTIONS
+QUIT	QUITTER
+CREDITS	CRÉDITS
+New Run	Nouvelle partie
+Continue	Continuer
+\003+1\020 discard\nevery round	\003+1\020 défausse\npar manche
+Round	Manche
+Ante	Ante
+Money	Argent
+Best Hand	Meilleure main
+White Stake	Mise blanche
+Base Difficulty	Difficulté de base
+Wins \004	Victoires \004
+\001   Best Ante \004	\001   Meilleure ante \004
+\001   Best Hand \003	\001   Meilleure main \003
+Seed \004	Graine \004
+CONTINUE	CONTINUER
+Back	Retour
+\004Arrows\020  move between cards, Jokers, buttons\n\004OK\020  select a card, or pick a Joker/item and\n     choose \006Sell\020, \003Use\020, \005Buy\020...\n\004EXE\020  \002Play Hand\020      \004DEL\020  \003Discard\020\n\004shift\020  sort the hand by rank or suit\n\004alpha\020 + \004left/right\020  move a Joker or card\n\004toolbox\020  Run Info      \004var\020  view deck\n\004back\020  back / Options     \004home\020  save, quit\nHold \004OK\020 or \004EXE\020 to speed up scoring.\n\nPlay poker hands: score = \002Chips\020 x \003Mult\020.\nBeat each Blind's score before your\nhands run out. Buy Jokers in the shop\nand beat the Ante 8 Boss Blind to win!	\004Flèches\020  aller entre cartes, Jokers et boutons\n\004OK\020  choisir une carte, ou prendre un Joker/objet\n     puis \006Vendre\020, \003Utiliser\020, \005Acheter\020...\n\004EXE\020  \002Jouer la main\020      \004DEL\020  \003Défausser\020\n\004shift\020  trier la main par valeur ou couleur\n\004alpha\020 + \004gauche/droite\020  déplacer un Joker ou une carte\n\004Boîte à outils\020  Infos partie    \004var\020  voir le jeu\n\004Retour\020  retour / Options    \004Accueil\020  sauver, quitter\nMaintiens \004OK\020 ou \004EXE\020 pour accélérer le score.\n\nJoue des mains de poker : score = \002Jetons\020 x \003Multi\020.\nBats le score de chaque Blind avant d'être\nà court de mains. Achète des Jokers en boutique\net bats la Blind de boss de l'Ante 8 pour gagner !
+How to play	Comment jouer
+Credits	Crédits
+Inspired by \004Balatro\020 by LocalThunk.\nNot affiliated with LocalThunk or Playstack.\n\nCard, Joker and interface art adapted\nfrom Balatro by LocalThunk.\nRules and card texts follow the game.\nFont: \004m6x11\020 by Daniel Linssen.\n\nMade by \004Mason Chen\020 as part of NumPlay.\n\nPlease support the original game!	Inspiré de \004Balatro\020 de LocalThunk.\nSans lien avec LocalThunk ni Playstack.\n\nImages des cartes, Jokers et interface\nadaptées de Balatro de LocalThunk.\nRègles et textes des cartes comme le jeu.\nPolice : \004m6x11\020 de Daniel Linssen.\n\nFait par \004Mason Chen\020 pour NumPlay.\n\nSoutiens le jeu original !
+Game Speed	Vitesse du jeu
+How to Play	Comment jouer
+Main Menu	Menu principal
+Options	Options
+Game Speed < 	Vitesse < 
+New run?	Nouvelle partie ?
+The current run will be lost.	La partie en cours sera perdue.
+Yes	Oui
+No	Non
+Poker Hands	Mains de poker
+Blinds	Blinds
+Vouchers	Bons
+lvl.	niv.
+Score at least	Score minimum
+Reward:	Gain :
+No Vouchers redeemed yet	Aucun bon utilisé pour l'instant
+left/right: tabs     back: close	gauche/droite : onglets     retour : fermer
+Remaining	Restantes
+Full Deck	Jeu complet
+Play Hand	Jouer\nla main
+Sort Hand	Trier la main
+Rank	Rang
+Suit	Coul.
+Discard	Défausser
+SELL\n	VENDRE\n
+USE	UTILISER
+Select	Choisir
+Defeated	Vaincue
+Skipped	Passée
+Upcoming	À venir
+or	ou
+Skip Blind	Passer\nla blind
+Reroll Boss\n$10	Relance boss\n$10
+Cash Out: 	Encaisser : 
+Remaining Hands ($1 each)	Mains restantes ($1 chacune)
+Defeat the Boss Blind	Vaincre la Blind de boss
+ interest per $5 (	 d'intérêt par $5 (
+ max)	 max)
+Next\nRound	Manche\nsuivante
+Reroll	Relancer
+ANTE 	ANTE 
+ VOUCHER	 : BON
+REDEEM	ÉCHANGER
+OPEN	OUVRIR
+BUY	ACHETER
+BUY\n& USE	ACHETER\n& UTILISER
+Choose 	Choisis 
+Skip	Passer
+SELECT	CHOISIR
+Better luck\nnext time!	Plus de chance\nla prochaine fois !
+Don't give up!	N'abandonne pas !
+So close!	Si près !
+The house\nalways wins...	La banque\ngagne toujours...
+You did it!	Tu as réussi !
+Unbelievable!	Incroyable !
+A true\ncard shark!	Un vrai\nas des cartes !
+YOU WIN!	VICTOIRE !
+GAME OVER	PARTIE PERDUE
+Ante \004	Ante \004
+\001    Round \004	\001    Manche \004
+Most Played Hand	Main la plus jouée
+Cards Played	Cartes jouées
+Cards Discarded	Cartes défaussées
+Cards Purchased	Cartes achetées
+Times Rerolled	Relances
+Seed	Graine
+Endless\nMode	Mode\nsans fin
+New\nRun	Nouvelle\npartie
+Main\nMenu	Menu\nprincipal
+Mult	Multi
++3 Hand Size	+3 taille de main
+Debuffed	Affaiblie
+Again!	Encore !
+X2 Mult	X2 Multi
++10 Mult	+10 Multi
+X1.5 Mult	X1.5 Multi
+Not Allowed!	Interdit !
++1 Tarot	+1 Tarot
+Saved by Mr. Bones	Sauvé par M. Os
++1 Planet	+1 Planète
+Nope!	Raté !
+Improve your run!	Améliore ta partie !
+to earn	pour gagner
+Choose your\nnext Blind	Choisis ta\nprochaine Blind
+Round\nscore	Score
+Run\nInfo	Infos\npartie
+Hands	Mains
+Discards	Défausses
+Upgrade!	Amélioré !
+Reset	Réinit.
+Saved!	Sauvé !
+Eaten!	Mangé !
+Extinct!	Éteint !
+Safe!	Sauf !
+Melted!	Fondu !
+Drank!	Bu !
++1 Spectral	+1 Spectrale
+Copied!	Copié !
+Gold	Or
+Level Up!	Niveau sup. !
+Value Up!	Valeur sup. !
+Boss Disabled!	Boss désactivé !
+Duplicated!	Dupliqué !
++2 Mult	+2 Multi
++3 Mult	+3 Multi
++3 Hands	+3 mains
++2 Jokers	+2 Jokers
++1 Stone	+1 pierre
+-X0.01 Mult	-X0.01 Multi
+-1 Mult	-1 Multi
+-4 Mult	-4 Multi
++1 Mult	+1 Multi
+Flush Five	Quintuple couleur
+Flush House	Full couleur
+Five of a Kind	Quintuple
+Straight Flush	Quinte flush
+Four of a Kind	Carré
+Full House	Full
+Flush	Couleur
+Straight	Quinte
+Three of a Kind	Brelan
+Two Pair	Double paire
+Pair	Paire
+High Card	Carte haute

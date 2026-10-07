@@ -42,10 +42,17 @@ void ev_setd(ev_t *e, double v) { memcpy(e->p.w, &v, sizeof v); }
 static void copy(ev_t *e, const char *s) {
   int i = 0;
   while (s && s[i]) i++;
+#if NP_TEXT_EXTRA
+  static const char suf[] = T(" Mult");
+  const int ls = sizeof suf - 1;
+  if (i > 11 && i - ls <= 11 && !memcmp(s + i - ls, suf, ls)) {
+#else
+  const int ls = 5;
   if (i > 11 && i - 5 <= 11 && s[i - 5] == ' ' && s[i - 4] == 'M' && s[i - 1] == 't') {
+#endif
     /* a number and " Mult" (built in a buffer): keep the number, flag the suffix */
     int k;
-    for (k = 0; k < i - 5; k++) e->txt[k] = s[k];
+    for (k = 0; k < i - ls; k++) e->txt[k] = s[k];
     e->txt[k] = 0;
     e->c |= 1;
     return;

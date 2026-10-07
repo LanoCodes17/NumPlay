@@ -5,6 +5,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../../common/np_text.h"
 
 /* Colours the main menu cycles through and the level select page tints. */
 static const uint8_t page_colors[9][3] = {
@@ -107,7 +108,7 @@ static void main_activate(int id) {
 static void main_draw(void) {
   scene_draw();
   gfx_layer_draw(160, 38, 256, rgb(215, 255, 100), rgb(70, 180, 10), 256);
-  gfx_text_center(FONT_SMALL, 160, 62, "NUMWORKS EDITION", rgb(255, 255, 255), rgb(200, 230, 255), 230);
+  gfx_text_center(FONT_SMALL, 160, 62, T("NUMWORKS EDITION"), rgb(255, 255, 255), rgb(200, 230, 255), 230);
   ui_sprite(SPR_BTN_GARAGE, 62, 118, btn_scale(0), 256);
   ui_sprite(SPR_BTN_PLAY, 160, 114, btn_scale(1), 256);
   ui_sprite(SPR_BTN_CREATOR, 258, 118, btn_scale(2), 256);
@@ -118,7 +119,7 @@ static void main_draw(void) {
 
 /* ------------------------------------------------------------ popups */
 
-static const char *const option_names[6] = {"SHOW PERCENT", "PROGRESS BAR", "AUTO CHECKPOINTS", "LOW DETAIL", "SHOW FPS", "NO SHAKE"};
+static const char *const option_names[6] = {T("SHOW PERCENT"), T("PROGRESS BAR"), T("AUTO CHECKPOINTS"), T("LOW DETAIL"), T("SHOW FPS"), T("NO SHAKE")};
 static const uint8_t option_bits[6] = {OPT_PERCENT, OPT_BAR, OPT_AUTOCHECK, OPT_LOWDETAIL, OPT_FPS, OPT_NOSHAKE};
 
 static void popup_tick(void) {
@@ -156,32 +157,32 @@ static void popup_draw(void) {
   else ui_window_brown(160 - w / 2, 120 - h / 2, w, h);
   if (s < 0.85f) return;
   if (popup == POP_SETTINGS) {
-    ui_title(FONT_BIG, 160, 44, "SETTINGS");
+    ui_title(FONT_BIG, 160, 44, T("SETTINGS"));
     for (int i = 0; i < 6; i++) {
       int y = 66 + i * 23;
       bool on = (progress.options & option_bits[i]) != 0, focus = popup_sel == i;
       ui_checkbox(92, y, on, focus ? 1.15f + 0.03f * sinf(app.t * 6) : 1.0f);
       gfx_text(FONT_SMALL, 108, y + 4, option_names[i], focus ? GOLD_TOP : 0xffff, focus ? GOLD_BOTTOM : 0xffff, 256);
     }
-    gfx_text_center(FONT_SMALL, 160, 208, "OK: TOGGLE    BACK: SAVE", rgb(255, 230, 190), rgb(255, 230, 190), 220);
+    gfx_text_center(FONT_SMALL, 160, 208, T("OK: TOGGLE    BACK: SAVE"), rgb(255, 230, 190), rgb(255, 230, 190), 220);
   } else if (popup == POP_STATS) {
-    ui_title(FONT_BIG, 160, 44, "STATS");
+    ui_title(FONT_BIG, 160, 44, T("STATS"));
     unsigned completed = 0, stars = 0, coins = 0;
     for (int i = 0; i < LEVEL_COUNT; i++) {
       if (progress.lv[i].normal >= 100) { completed++; stars += level_defs[i].stars; }
       coins += (unsigned)__builtin_popcount(progress.lv[i].coins);
     }
-    stat_row(74, "TOTAL JUMPS", progress.jumps, -1);
-    stat_row(98, "TOTAL ATTEMPTS", progress.attempts, -1);
-    stat_row(122, "COMPLETED LEVELS", completed, -1);
-    stat_row(146, "STARS", stars, SPR_STAR_UI);
-    stat_row(170, "SECRET COINS", coins, SPR_COIN_UI);
+    stat_row(74, T("TOTAL JUMPS"), progress.jumps, -1);
+    stat_row(98, T("TOTAL ATTEMPTS"), progress.attempts, -1);
+    stat_row(122, T("COMPLETED LEVELS"), completed, -1);
+    stat_row(146, T("STARS"), stars, SPR_STAR_UI);
+    stat_row(170, T("SECRET COINS"), coins, SPR_COIN_UI);
   } else {
     static const char *const pages[2][8] = {
-      {"HOW TO PLAY", "OK, EXE OR UP: JUMP", "HOLD TO KEEP JUMPING OR TO FLY", "TAP IN MID AIR ON AN ORB", "BACK: PAUSE    HOME: SAVE AND QUIT",
-       "PRACTICE: 0 PLACES A CHECKPOINT", "BACKSPACE REMOVES THE LAST ONE", "START PRACTICE FROM THE PAUSE MENU"},
-      {"LEVEL EDITOR", "ARROWS: MOVE    OK: USE TOOL", "0: BUILD / EDIT / DELETE", "+ -  OR TOOLBOX: PICK OBJECT", "SHIFT: ROTATE    XNT: COPY",
-       "ALPHA: UNDO    BACKSPACE: ERASE", "VAR: SAVE    LN: LEVEL SETTINGS", "EXE: PLAYTEST    BACK: EXIT"}};
+      {T("HOW TO PLAY"), T("OK, EXE OR UP: JUMP"), T("HOLD TO KEEP JUMPING OR TO FLY"), T("TAP IN MID AIR ON AN ORB"), T("BACK: PAUSE    HOME: SAVE AND QUIT"),
+       T("PRACTICE: 0 PLACES A CHECKPOINT"), T("BACKSPACE REMOVES THE LAST ONE"), T("START PRACTICE FROM THE PAUSE MENU")},
+      {T("LEVEL EDITOR"), T("ARROWS: MOVE    OK: USE TOOL"), T("0: BUILD / EDIT / DELETE"), T("+ -  OR TOOLBOX: PICK OBJECT"), T("SHIFT: ROTATE    XNT: COPY"),
+       T("ALPHA: UNDO    BACKSPACE: ERASE"), T("VAR: SAVE    LN: LEVEL SETTINGS"), T("EXE: PLAYTEST    BACK: EXIT")}};
     ui_title(FONT_BIG, 160, 44, pages[help_page][0]);
     for (int i = 1; i < 8; i++) gfx_text_center(FONT_SMALL, 160, 58 + i * 18, pages[help_page][i], 0xffff, 0xffff, 256);
     ui_nav_dots(160, 206, 2, help_page);
@@ -230,9 +231,9 @@ static void level_page(int page, int dx) {
   gfx_sprite(SPR_STAR_UI, cx + 107, 49, 0, 0xffff, 256, BLEND_NORMAL);
   for (int k = 0; k < 3; k++)
     gfx_sprite((s->coins >> k & 1) ? SPR_COIN_UI : SPR_COIN_UI_EMPTY, cx + 72 + k * 17, 108, 0, 0xffff, 256, BLEND_NORMAL);
-  ui_title(FONT_SMALL, cx, 138, "NORMAL MODE");
+  ui_title(FONT_SMALL, cx, 138, T("NORMAL MODE"));
   ui_progress_bar(cx, 149, 220, 14, s->normal, rgb(0, 255, 0), true);
-  ui_title(FONT_SMALL, cx, 173, "PRACTICE MODE");
+  ui_title(FONT_SMALL, cx, 173, T("PRACTICE MODE"));
   ui_progress_bar(cx, 184, 220, 14, s->practice, rgb(0, 255, 255), true);
 }
 
@@ -278,14 +279,14 @@ static void garage_tick(void) {
 static void garage_draw(void) {
   ui_gradient_bg(rgb(170, 170, 170));
   gfx_sprite(SPR_ARROW_BACK, 22, 26, 0, 0xffff, 256, BLEND_NORMAL);
-  ui_title(FONT_BIG, 160, 30, "ICON KIT");
+  ui_title(FONT_BIG, 160, 30, T("ICON KIT"));
   /* preview on a small floor */
   gfx_round_rect(70, 84, 180, 4, 2, 0, 90);
   float bob = 0;
   scene_draw_player_icon(MODE_CUBE, 124, 64 + bob, 0, 1.6f, app_p1(), app_p2(), false, 256);
   scene_draw_player_icon(MODE_SHIP, 204, 66, 0, 1.3f, app_p1(), app_p2(), false, 256);
-  ui_text_button(118, 108, 84, 22, "COLOR 1", app.garage_tab == 0 ? BTN_GREEN : BTN_GRAY, app.row == 0 && app.garage_tab == 0 ? 1.08f : 1);
-  ui_text_button(202, 108, 84, 22, "COLOR 2", app.garage_tab == 1 ? BTN_GREEN : BTN_GRAY, app.row == 0 && app.garage_tab == 1 ? 1.08f : 1);
+  ui_text_button(118, 108, 84, 22, T("COLOR 1"), app.garage_tab == 0 ? BTN_GREEN : BTN_GRAY, app.row == 0 && app.garage_tab == 0 ? 1.08f : 1);
+  ui_text_button(202, 108, 84, 22, T("COLOR 2"), app.garage_tab == 1 ? BTN_GREEN : BTN_GRAY, app.row == 0 && app.garage_tab == 1 ? 1.08f : 1);
   int cur = app.garage_tab == 0 ? progress.color1 : progress.color2;
   for (int i = 0; i < 42; i++) {
     int x = 13 + (i % 14) * 21, y = 128 + (i / 14) * 22;
@@ -309,12 +310,12 @@ static void garage_draw(void) {
 /* ------------------------------------------------------------ loading */
 
 static const char *const tips[] = {
-  "LISTEN TO THE MUSIC TO HELP TIME YOUR JUMPS", "BACK FOR MORE ARE YA?", "USE PRACTICE MODE TO LEARN THE LAYOUT OF A LEVEL",
-  "IF AT FIRST YOU DON'T SUCCEED, TRY, TRY AGAIN...", "CUSTOMIZE YOUR CHARACTER'S ICON AND COLOR!",
-  "SPIKES ARE NOT YOUR FRIENDS. DON'T FORGET TO JUMP", "BUILD YOUR OWN LEVELS USING THE LEVEL EDITOR",
-  "CAN YOU BEAT THEM ALL?", "PRO TIP: DON'T CRASH", "HOLD DOWN TO KEEP JUMPING", "PRO TIP: JUMP",
-  "PLAY, CRASH, RINSE AND REPEAT", "ONLY ONE BUTTON REQUIRED TO CRASH", "IT'S ALL IN THE TIMING", "FAKE SPIKES ARE FAKE",
-  "WHERE DID I PUT THAT COIN...", "CALCULATING CHANCE OF SUCCESS", "LOADING WILL BE FINISHED... SOON"};
+  T("LISTEN TO THE MUSIC TO HELP TIME YOUR JUMPS"), T("BACK FOR MORE ARE YA?"), T("USE PRACTICE MODE TO LEARN THE LAYOUT OF A LEVEL"),
+  T("IF AT FIRST YOU DON'T SUCCEED, TRY, TRY AGAIN..."), T("CUSTOMIZE YOUR CHARACTER'S ICON AND COLOR!"),
+  T("SPIKES ARE NOT YOUR FRIENDS. DON'T FORGET TO JUMP"), T("BUILD YOUR OWN LEVELS USING THE LEVEL EDITOR"),
+  T("CAN YOU BEAT THEM ALL?"), T("PRO TIP: DON'T CRASH"), T("HOLD DOWN TO KEEP JUMPING"), T("PRO TIP: JUMP"),
+  T("PLAY, CRASH, RINSE AND REPEAT"), T("ONLY ONE BUTTON REQUIRED TO CRASH"), T("IT'S ALL IN THE TIMING"), T("FAKE SPIKES ARE FAKE"),
+  T("WHERE DID I PUT THAT COIN..."), T("CALCULATING CHANCE OF SUCCESS"), T("LOADING WILL BE FINISHED... SOON")};
 static int tip;
 
 static void loading_draw(void) {
@@ -336,14 +337,29 @@ static void loading_draw(void) {
     gfx_text_center(FONT_SMALL, 160, 170, t0, 0xffff, 0xffff, 256);
     return;
   }
-  int n = (int)strlen(t0), cut = -1;
+  int n = (int)strlen(t0), cut = -1, skip = 1;
+#if NP_TEXT_EXTRA
+  /* (or after a Chinese letter, unless punctuation follows it) */
+  for (const char *q = t0; *q;) {
+    int at = (int)(q - t0), sk = 1;
+    uint32_t c = np_utf8(&q);
+    if (c != ' ') at = -1;
+    if (c >= 0x2E80 && *q) {
+      const char *r = q;
+      uint32_t d = np_utf8(&r);
+      if (!(d >= 0x3000 && d < 0x3040) && !(d >= 0xFF00 && d < 0xFF66)) at = (int)(q - t0), sk = 0;
+    }
+    if (at >= 0 && (cut < 0 || abs(at - n / 2) < abs(cut - n / 2))) cut = at, skip = sk;
+  }
+#else
   for (int i = 0; i < n; i++)
     if (t0[i] == ' ' && (cut < 0 || abs(i - n / 2) < abs(cut - n / 2))) cut = i;
-  char line[64];
+#endif
+  char line[NP_TEXT_EXTRA ? 128 : 64];
   memcpy(line, t0, (size_t)cut);
   line[cut] = 0;
   gfx_text_center(FONT_SMALL, 160, 166, line, 0xffff, 0xffff, 256);
-  gfx_text_center(FONT_SMALL, 160, 180, t0 + cut + 1, 0xffff, 0xffff, 256);
+  gfx_text_center(FONT_SMALL, 160, 180, t0 + cut + skip, 0xffff, 0xffff, 256);
 }
 
 /* ------------------------------------------------------------ dispatch */

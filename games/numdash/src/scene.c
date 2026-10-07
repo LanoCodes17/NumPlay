@@ -2,6 +2,7 @@
 #include "fx.h"
 #include <math.h>
 #include <string.h>
+#include "../../common/np_text.h"
 
 #define PX (2.0f / 3.0f)       /* screen pixels per GD unit */
 #define FADE_W 75.0f
@@ -768,8 +769,10 @@ static void draw_attempt(void) {
   if (O.editor || !O.attempt) return;
   float sx = wx_to_sx(G, O.attempt_x);
   if (sx < -200 || sx > 520) return;
-  char buf[24] = "ATTEMPT ";
-  gfx_format_uint(buf + 8, O.attempt);
+  char buf[32];
+  int n = (int)strlen(T("ATTEMPT "));
+  memcpy(buf, T("ATTEMPT "), (size_t)n);
+  gfx_format_uint(buf + n, O.attempt);
   int base = (int)floorf(wy_to_sy(G, O.attempt_y) + fonts[FONT_HUGE].cap / 2 + .5f);
   gfx_text_center(FONT_HUGE, (int)sx, base, buf, 0xffff, 0xffff, 256);
 }

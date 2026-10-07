@@ -1,6 +1,7 @@
 #include "gfx.h"
 #include <math.h>
 #include <string.h>
+#include "../../common/np_text.h"
 
 uint16_t gfx_strip[GFX_W * STRIP_H] __attribute__((aligned(8)));
 int gfx_y0 = 0, gfx_y1 = STRIP_H;
@@ -549,13 +550,83 @@ static int glyph_of(int font, int ch) {
   unsigned g = font_charmap[ch - 32];
   return g == 255 ? -1 : (int)g;
 }
+#if NP_TEXT_EXTRA
+/* Language builds (np_text.h): letters the font lacks are glyphs made here, a bit a pixel in
+ * x_rows, then outlined, shadowed and filled as the font's own: an accent over the plain capital
+ * (a cedilla under it), 5 x 2 pixels each k x k, and the letters of the 12-pixel font (Chinese),
+ * each pixel s x s, centred on the capitals. */
+static Sprite x_spr;
+static uint64_t x_rows[56];
+static void x_plot(int x, int y, void *ctx) {
+  (void)ctx;
+  if (x >= 0 && x < 48 && y >= 0 && y < 56) x_rows[y] |= (uint64_t)1 << x;
+}
+static int x_scale(const Font *f) { return (f->cap + 6) / 12; } /* 1, 1, 2 */
+static int x_k(const Font *f) { return (f->cap + 3) / 7; }      /* 1, 2, 3 */
+/* The next letter of a line: the font's glyph *g (-1: none) with the accent *acc, or else *cp,
+   a letter of the 12-pixel font (0: none). A ligature's second letter waits in second. */
+typedef struct {
+  const char *s;
+  char second;
+} x_iter;
+static bool x_next(x_iter *it, int font, int *g, int *acc, uint32_t *cp) {
+  uint32_t c;
+  *acc = 0, *cp = 0;
+  if (it->second) {
+    c = (uint8_t)it->second, it->second = 0;
+  } else {
+    if (!*it->s || *it->s == '\n') return false;
+    c = np_utf8(&it->s);
+  }
+  if (c >= 0x80) {
+    char b, b2;
+    *acc = np_latin(c, &b, &b2);
+    if (!b) {
+      *g = -1, *cp = np_xglyph(c) ? c : 0;
+      return true;
+    }
+    it->second = b2, c = (uint8_t)b;
+  }
+  *g = glyph_of(font, (int)c);
+  return true;
+}
+static int x_adv(const Font *f, int g, uint32_t cp) {
+  return g >= 0 ? f->advance[g] : cp ? np_xadvance(cp, x_scale(f)) + f->outline : f->cap / 2;
+}
+/* x_spr: the accent acc of the glyph b, or the letter cp */
+static const Sprite *x_glyph(const Font *f, int acc, const Sprite *b, uint32_t cp) {
+  memset(x_rows, 0, sizeof x_rows);
+  if (cp) {
+    int s = x_scale(f);
+    np_xdraw(cp, 0, 0, s, x_plot, 0);
+    x_spr.w = x_spr.h = (uint16_t)(12 * s);
+    x_spr.ax = 0, x_spr.ay = (int16_t)((f->cap + 12 * s + 1) / 2);
+  } else {
+    int k = x_k(f);
+    np_accent(acc, 0, 0, k, x_plot, 0);
+    x_spr.w = (uint16_t)(5 * k), x_spr.h = (uint16_t)(2 * k);
+    x_spr.ax = (int16_t)(b->ax - (b->w - 5 * k) / 2);
+    /* k pixels over the capital; a cedilla under its outline */
+    x_spr.ay = (int16_t)(acc == NP_ACC_CEDIL ? -f->outline : f->cap + 3 * k);
+  }
+  return &x_spr;
+}
+#endif
+
 int gfx_text_width(int font, const char *s) {
   const Font *f = &fonts[font];
   int w = 0;
+#if NP_TEXT_EXTRA
+  x_iter it = {s, 0};
+  int g, acc;
+  uint32_t cp;
+  while (x_next(&it, font, &g, &acc, &cp)) w += x_adv(f, g, cp);
+#else
   for (; *s && *s != '\n'; s++) {
     int g = glyph_of(font, (unsigned char)*s);
     w += g < 0 ? f->cap / 2 : f->advance[g];
   }
+#endif
   return w + f->outline * 2;
 }
 
@@ -582,8 +653,15 @@ static void glyph_rows(const Sprite *s, int r, int ew, int eh, int k0, int k1) {
     memset(row, 0, (size_t)ew);
     int v = k - r;
     if (v >= 0 && v < s->h) {
-      const uint8_t *src = data + v * stride;
-      for (int u = 0; u < s->w; u++) row[u + r] = (u & 1) ? src[u >> 1] >> 4 : src[u >> 1] & 15;
+#if NP_TEXT_EXTRA
+      if (s == &x_spr) {
+        for (int u = 0; u < s->w; u++) row[u + r] = x_rows[v] >> u & 1 ? 15 : 0;
+      } else
+#endif
+      {
+        const uint8_t *src = data + v * stride;
+        for (int u = 0; u < s->w; u++) row[u + r] = (u & 1) ? src[u >> 1] >> 4 : src[u >> 1] & 15;
+      }
     }
     uint8_t *h1 = g_h1[k];
     for (int i = 0; i < ew; i++) {
@@ -631,8 +709,7 @@ static void glyph_rows(const Sprite *s, int r, int ew, int eh, int k0, int k1) {
 
 /* Draw one glyph: shadow, outline then gradient fill. Only rows inside the
  * current strip are computed. */
-static void draw_glyph(const Font *f, int spr, int x, int baseline, color_t top, color_t bottom, unsigned alpha) {
-  const Sprite *s = &sprites[spr];
+static void draw_glyph(const Font *f, const Sprite *s, int x, int baseline, color_t top, color_t bottom, unsigned alpha) {
   int r = f->outline, gx = x - s->ax, gy = baseline - s->ay;
   int sdx = f->sdx > 0 ? f->sdx : 0, sdy = f->sdy > 0 ? f->sdy : 0;
   int ex0 = gx - r, ey0 = gy - r, ew = s->w + 2 * r + sdx, eh = s->h + 2 * r + sdy;
@@ -671,12 +748,29 @@ void gfx_text(int font, int x, int baseline, const char *s, color_t top, color_t
   const Font *f = &fonts[font];
   if (baseline + f->cap < gfx_y0 - 8 || baseline - 2 * f->cap > gfx_y1 + 8 || !alpha) return;
   x += f->outline;
+#if NP_TEXT_EXTRA
+  x_iter it = {s, 0};
+  int g, acc;
+  uint32_t cp;
+  while (x_next(&it, font, &g, &acc, &cp)) {
+    if (g > 0) { /* (0 is the space) an accent over the letter first: the letter's outline goes over its shadow */
+      const Sprite *b = &sprites[f->base + g];
+      if (acc && acc != NP_ACC_CEDIL) draw_glyph(f, x_glyph(f, acc, b, 0), x, baseline, top, bottom, alpha);
+      draw_glyph(f, b, x, baseline, top, bottom, alpha);
+      if (acc == NP_ACC_CEDIL) draw_glyph(f, x_glyph(f, acc, b, 0), x, baseline, top, bottom, alpha);
+    } else if (cp) {
+      draw_glyph(f, x_glyph(f, 0, 0, cp), x, baseline, top, bottom, alpha);
+    }
+    x += x_adv(f, g, cp);
+  }
+#else
   for (; *s && *s != '\n'; s++) {
     int g = glyph_of(font, (unsigned char)*s);
     if (g < 0) { x += f->cap / 2; continue; }
-    if (*s != ' ') draw_glyph(f, f->base + g, x, baseline, top, bottom, alpha);
+    if (*s != ' ') draw_glyph(f, &sprites[f->base + g], x, baseline, top, bottom, alpha);
     x += f->advance[g];
   }
+#endif
 }
 void gfx_text_center(int font, int cx, int baseline, const char *s, color_t top, color_t bottom, unsigned alpha) {
   gfx_text(font, cx - gfx_text_width(font, s) / 2, baseline, s, top, bottom, alpha);
@@ -716,6 +810,27 @@ void gfx_layer_line_color(int line, color_t top, color_t bottom) {
   tl_custom[line] = true;
 }
 
+/* A glyph into the layer, its pen at (pen, base) */
+static void layer_glyph(const Sprite *sp, int r, int pen, int base) {
+  int bw = sp->w + 2 * r, bh = sp->h + 2 * r;
+  if (bw > GB_W || bh > GB_H) return;
+  glyph_rows(sp, r, bw, bh, 0, bh);
+  int ox = pen - sp->ax - r, oy = base - sp->ay - r;
+  for (int k = 0; k < bh; k++) {
+    int y = oy + k;
+    if (y < 0 || y >= tl_h) continue;
+    for (int i = 0; i < bw; i++) {
+      int x = ox + i;
+      if (x < 0 || x >= tl_w) continue;
+      uint8_t *d = &tl_buf[y * TL_W + x];
+      unsigned fo = *d >> 4, oo = *d & 15, fn = g_cov[k][i], on = g_dil[k][i];
+      if (fn > fo) fo = fn;
+      if (on > oo) oo = on;
+      *d = (uint8_t)(fo << 4 | oo);
+    }
+  }
+}
+
 void gfx_layer_build(int font, const char *s) {
   const Font *f = &fonts[font];
   int r = f->outline, line_h = f->cap + f->cap / 2 + 2 * r + 2;
@@ -729,41 +844,52 @@ void gfx_layer_build(int font, const char *s) {
     while (*q && *q != '\n') q++;
     if (*q) q++;
   }
+  int xm = 0; /* room over the first line for its accents and taller letters */
+#if NP_TEXT_EXTRA
+  {
+    x_iter it = {s, 0};
+    int g, acc;
+    uint32_t cp;
+    while (x_next(&it, font, &g, &acc, &cp)) {
+      int up = acc && acc != NP_ACC_CEDIL ? 3 * x_k(f) - 1 : cp ? (f->cap + 12 * x_scale(f) + 1) / 2 - f->cap - 1 : 0;
+      if (up > xm) xm = up;
+    }
+  }
+#endif
   tl_w = maxw + f->sdx + 2 < TL_W ? maxw + f->sdx + 2 : TL_W;
-  tl_h = lines * line_h + f->sdy < TL_H ? lines * line_h + f->sdy : TL_H;
+  tl_h = lines * line_h + f->sdy + xm < TL_H ? lines * line_h + f->sdy + xm : TL_H;
   tl_font = font;
   tl_lines = lines;
   memset(tl_custom, 0, sizeof(tl_custom));
   memset(tl_buf, 0, sizeof(tl_buf));
   q = s;
   for (int l = 0; l < lines; l++) {
-    int w = gfx_text_width(font, q), pen = (tl_w - w) / 2 + r, base = l * line_h + r + f->cap + 1;
+    int w = gfx_text_width(font, q), pen = (tl_w - w) / 2 + r, base = l * line_h + r + f->cap + 1 + xm;
     tl_line_top[l] = base - f->cap;
     tl_line_cap[l] = f->cap;
+#if NP_TEXT_EXTRA
+    x_iter it = {q, 0};
+    int g, acc;
+    uint32_t cp;
+    while (x_next(&it, font, &g, &acc, &cp)) {
+      if (g > 0) {
+        const Sprite *b = &sprites[f->base + g];
+        layer_glyph(b, r, pen, base);
+        if (acc) layer_glyph(x_glyph(f, acc, b, 0), r, pen, base);
+      } else if (cp) {
+        layer_glyph(x_glyph(f, 0, 0, cp), r, pen, base);
+      }
+      pen += x_adv(f, g, cp);
+    }
+    q = it.s;
+#else
     for (; *q && *q != '\n'; q++) {
       int g = glyph_of(font, (unsigned char)*q);
       if (g < 0) { pen += f->cap / 2; continue; }
-      const Sprite *sp = &sprites[f->base + g];
-      int bw = sp->w + 2 * r, bh = sp->h + 2 * r;
-      if (*q != ' ' && bw <= GB_W && bh <= GB_H) {
-        glyph_rows(sp, r, bw, bh, 0, bh);
-        int ox = pen - sp->ax - r, oy = base - sp->ay - r;
-        for (int k = 0; k < bh; k++) {
-          int y = oy + k;
-          if (y < 0 || y >= tl_h) continue;
-          for (int i = 0; i < bw; i++) {
-            int x = ox + i;
-            if (x < 0 || x >= tl_w) continue;
-            uint8_t *d = &tl_buf[y * TL_W + x];
-            unsigned fo = *d >> 4, oo = *d & 15, fn = g_cov[k][i], on = g_dil[k][i];
-            if (fn > fo) fo = fn;
-            if (on > oo) oo = on;
-            *d = (uint8_t)(fo << 4 | oo);
-          }
-        }
-      }
+      if (*q != ' ') layer_glyph(&sprites[f->base + g], r, pen, base);
       pen += f->advance[g];
     }
+#endif
     if (*q) q++;
   }
   tl_ox = tl_w / 2;

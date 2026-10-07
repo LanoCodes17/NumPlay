@@ -6,6 +6,7 @@
 #include "ui.h"
 #include <math.h>
 #include <string.h>
+#include "../../common/np_text.h"
 
 enum { PAUSE_PRACTICE, PAUSE_RESUME, PAUSE_MENU, PAUSE_REPLAY };
 enum { POP_NONE, POP_COMPLETE, POP_NEWBEST };
@@ -37,9 +38,9 @@ static bool stars_new;
 static int msg_index;
 
 static const char *const complete_msgs[] = {
-  "AWESOME!", "GOOD JOB!", "WELL DONE!", "IMPRESSIVE!", "AMAZING!", "INCREDIBLE!", "SKILLFUL!", "BRILLIANT!",
-  "NOT BAD!", "WARP SPEED!", "CHALLENGE BREAKER!", "REFLEX MASTER!", "I AM SPEECHLESS...", "YOU ARE... THE ONE!",
-  "HOW IS THIS POSSIBLE!?", "YOU BEAT ME..."};
+  T("AWESOME!"), T("GOOD JOB!"), T("WELL DONE!"), T("IMPRESSIVE!"), T("AMAZING!"), T("INCREDIBLE!"), T("SKILLFUL!"), T("BRILLIANT!"),
+  T("NOT BAD!"), T("WARP SPEED!"), T("CHALLENGE BREAKER!"), T("REFLEX MASTER!"), T("I AM SPEECHLESS..."), T("YOU ARE... THE ONE!"),
+  T("HOW IS THIS POSSIBLE!?"), T("YOU BEAT ME...")};
 
 static color_t white_if_black(color_t c) { return c == 0 ? 0xffff : c; }
 
@@ -138,10 +139,12 @@ static void on_death(void) {
       if (pct > s->practice) s->practice = (uint8_t)pct;
     } else if (pct > s->normal) {
       s->normal = (uint8_t)pct;
-      char buf[24] = "NEW BEST!\n";
-      int n = gfx_format_uint(buf + 10, (unsigned long)pct);
-      buf[10 + n] = '%';
-      buf[11 + n] = 0;
+      char buf[48];
+      int m = (int)strlen(T("NEW BEST!\n"));
+      memcpy(buf, T("NEW BEST!\n"), (size_t)m);
+      int n = gfx_format_uint(buf + m, (unsigned long)pct);
+      buf[m + n] = '%';
+      buf[m + n + 1] = 0;
       gfx_layer_build(FONT_HUGE, buf);
       gfx_layer_line_color(0, rgb(255, 255, 110), rgb(255, 140, 0));
       gfx_layer_line_color(1, 0xffff, 0xffff);
@@ -292,7 +295,7 @@ static void complete_update(float dt) {
     phase2 = true;
     rays_fading = true;
     rays_fade_t = 0;
-    gfx_layer_build(FONT_HUGE, app.practice ? "PRACTICE COMPLETE!" : "LEVEL COMPLETE!");
+    gfx_layer_build(FONT_HUGE, app.practice ? T("PRACTICE COMPLETE!") : T("LEVEL COMPLETE!"));
     popup = POP_COMPLETE;
     popup_t = 0;
     fx_circle_world(wx, wy, CE_WALL2, c1);
@@ -434,9 +437,9 @@ static void pause_draw(void) {
   ui_window_dark(10, 8, 300, 224, 130);
   ui_title(FONT_BIG, 160, 34, app.L.name);
   const LevelStat *s = &progress.lv[app.level];
-  ui_title(FONT_SMALL, 160, 56, "NORMAL MODE");
+  ui_title(FONT_SMALL, 160, 56, T("NORMAL MODE"));
   ui_progress_bar(160, 67, 210, 14, app.testing ? 0 : s->normal, rgb(0, 255, 0), true);
-  ui_title(FONT_SMALL, 160, 90, "PRACTICE MODE");
+  ui_title(FONT_SMALL, 160, 90, T("PRACTICE MODE"));
   ui_progress_bar(160, 101, 210, 14, app.testing ? 0 : s->practice, rgb(0, 255, 255), true);
   unsigned nc = level_coins();
   if (nc && !app.testing)
@@ -446,9 +449,9 @@ static void pause_draw(void) {
   ui_sprite(SPR_BTN_RESUME, 130, 176, sel_scale(PAUSE_RESUME, app.sel), 256);
   ui_sprite(SPR_BTN_MENU, 204, 176, sel_scale(PAUSE_MENU, app.sel), 256);
   ui_sprite(SPR_BTN_REPLAY, 268, 176, sel_scale(PAUSE_REPLAY, app.sel), 256);
-  static const char *const hints[4] = {"PRACTICE MODE", "RESUME", "MENU", "RESTART"};
+  static const char *const hints[4] = {T("PRACTICE MODE"), T("RESUME"), T("MENU"), T("RESTART")};
   const char *h = hints[app.sel];
-  if (app.sel == PAUSE_PRACTICE && app.practice) h = "NORMAL MODE";
+  if (app.sel == PAUSE_PRACTICE && app.practice) h = T("NORMAL MODE");
   gfx_text_center(FONT_SMALL, 160, 222, h, rgb(255, 255, 140), rgb(255, 200, 0), 256);
 }
 
@@ -473,19 +476,21 @@ static void end_draw(void) {
   draw_chain(256, -8, top + 6);
   ui_window_navy(26, top, 268, 204);
   y -= 6;
-  if (app.practice) gfx_text_center(FONT_BIG, 160, y - 66, "PRACTICE COMPLETE!", rgb(170, 255, 255), rgb(0, 200, 255), 256);
-  else gfx_text_center(FONT_BIG, 160, y - 66, "LEVEL COMPLETE!", rgb(210, 255, 90), rgb(60, 200, 0), 256);
+  if (app.practice) gfx_text_center(FONT_BIG, 160, y - 66, T("PRACTICE COMPLETE!"), rgb(170, 255, 255), rgb(0, 200, 255), 256);
+  else gfx_text_center(FONT_BIG, 160, y - 66, T("LEVEL COMPLETE!"), rgb(210, 255, 90), rgb(60, 200, 0), 256);
   char buf[32];
   int n;
-  memcpy(buf, "ATTEMPTS: ", 10);
-  gfx_format_uint(buf + 10, app.attempt);
+  n = (int)strlen(T("ATTEMPTS: "));
+  memcpy(buf, T("ATTEMPTS: "), (size_t)n);
+  gfx_format_uint(buf + n, app.attempt);
   ui_gold(FONT_BIG, 160, y - 42, buf);
-  memcpy(buf, "JUMPS: ", 7);
-  gfx_format_uint(buf + 7, app.session_jumps);
+  n = (int)strlen(T("JUMPS: "));
+  memcpy(buf, T("JUMPS: "), (size_t)n);
+  gfx_format_uint(buf + n, app.session_jumps);
   ui_gold(FONT_BIG, 160, y - 24, buf);
   unsigned secs = app.session_ticks / ND_HZ;
-  memcpy(buf, "TIME: ", 6);
-  n = 6;
+  n = (int)strlen(T("TIME: "));
+  memcpy(buf, T("TIME: "), (size_t)n);
   if (secs >= 3600) { n += gfx_format_uint(buf + n, secs / 3600); buf[n++] = ':'; }
   buf[n++] = (char)('0' + secs / 600 % 6);
   buf[n++] = (char)('0' + secs / 60 % 10);
@@ -496,8 +501,8 @@ static void end_draw(void) {
   ui_gold(FONT_BIG, 160, y - 6, buf);
   unsigned nc = level_coins();
   if (app.practice) {
-    ui_title(FONT_SMALL, 160, y + 14, "WELL DONE... NOW TRY TO COMPLETE");
-    ui_title(FONT_SMALL, 160, y + 26, "IT WITHOUT ANY CHECKPOINTS!");
+    ui_title(FONT_SMALL, 160, y + 14, T("WELL DONE... NOW TRY TO COMPLETE"));
+    ui_title(FONT_SMALL, 160, y + 26, T("IT WITHOUT ANY CHECKPOINTS!"));
   } else if (nc && !app.testing) {
     for (unsigned i = 0; i < nc; i++) {
       int x = 160 + ((int)i * 2 - (int)nc + 1) * 22;

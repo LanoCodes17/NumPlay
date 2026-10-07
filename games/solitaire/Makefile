@@ -6,7 +6,7 @@ CC = arm-none-eabi-gcc
 NWLINK ?= npx --yes -- nwlink@1.0.0
 BUILD_DIR = output
 SRC = src/main.c
-HEADERS = ../common/epsilon_app.h ../common/epsilon_files.h ../common/jump.h
+HEADERS = ../common/epsilon_app.h ../common/epsilon_files.h ../common/jump.h ../common/np_text.h
 
 CFLAGS = -std=c11 $(shell $(NWLINK) eadk-cflags-device)
 CFLAGS += -Os -Wall -Wextra -Wno-unused-parameter -fno-math-errno -fsingle-precision-constant

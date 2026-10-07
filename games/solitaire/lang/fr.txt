@@ -1,0 +1,57 @@
+# Solitaire in French: the English text as in the source, a tab, the translation (see tools/lang.py).
+# The calculator's fonts: 7 pixels a letter (10 for titles). NEW and UNDO are under the deck: 6 letters at most.
+Score	Score
+Moves	Coups
+NEW	DONNE
+UNDO	ANNUL.
+No more passes	Plus de tours
+Nothing to undo	Rien à annuler
+Draw a card	Pioche une carte
+No more moves	Plus aucun coup
+Hint	Indice
+Not there	Pas ici
+Yes	Oui
+No	Non
+OK	OK
+Resume	Reprendre
+Restart	Recommencer
+New game	Nouvelle partie
+Quit game	Quitter
+Nothing to play	Rien à monter
+Paused	Pause
+Solitaire	Solitaire
+Quit game?	Quitter le jeu ?
+# "Time: 95 seconds\nMoves: 120\nScore: 4100\n\nPlay again?"
+Time: 	Temps : 
+ seconds\nMoves: 	 secondes\nCoups : 
+\nScore: 	\nScore : 
+\n\nPlay again?	\n\nRejouer ?
+You win!	Gagné !
+Options	Options
+Stats	Stats
+Help	Aide
+Choose your difficulty	Choisis la difficulté
+HARD	DIFFICILE
+EASY	FACILE
+Continue	Continuer
+Standard	Standard
+Vegas	Vegas
+None	Aucun
+Timed game	Chronométré
+Keep score	Score cumulé
+Scoring	Points
+Game	Partie
+Card back	Dos des cartes
+# the statistics, one after the other: "Games played: 12\nGames won: 5 (41%)\nStreak: 1   Best: 3\n..."
+Games played: 	Parties jouées : 
+\nGames won: 	\nParties gagnées : 
+%)	 %)
+\nStreak: 	\nSérie : 
+   Best: 	   Record : 
+\nBest time: 	\nMeilleur temps : 
+\nBest score: 	\nMeilleur score : 
+\nVegas bank: 	\nBanque Vegas : 
+Statistics	Statistiques
+How to play	Comment jouer
+# (the keys line up: 11 letters for a key)
+Build the four suits up, ace to\nking, on the right. In the columns,\ngo down, alternating red and black.\nOK         Pick up, put down\nOK twice   Send to its foundation\nUp, Down   Pick more or fewer\nEXE        Draw from the deck\nToolbox    Play all you can up\nBackspace  Undo      Shift  Hint	Monte les quatre couleurs de l'as\nau roi, à droite. Dans les colonnes,\ndescends en alternant rouge et noir.\nOK         Prendre, poser\nOK 2 fois  Vers sa fondation\nHaut, Bas  Plus ou moins de cartes\nEXE        Piocher\nOutils     Tout monter\nEffacer    Annuler   Shift  Indice

@@ -15,6 +15,7 @@
 #include <stdint.h>
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
+#include "../../common/np_text.h"
 
 #ifdef __ELF__ /* app name and API level, for the calculator's installer */
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "Pac-Man";
@@ -128,8 +129,52 @@ static int slen(const char *s) {
   while (s[n]) n++;
   return n;
 }
-static int tw(const char *s, int k) { return slen(s) * 7 * k - k; }
+/* Language builds: a letter of a translation at x (draw 0: only its advance). An accented one is
+   the plain capital with its accent (np_text.h) just over it, in the font's two-pixel columns
+   (under it, a cedilla); others (Chinese) come from the 12-pixel font, as tall as the capitals. */
+typedef struct {
+  int x, y, k;
+  color c;
+} xpen_t;
+static void xcol(int i, int j, void *ctx) {
+  const xpen_t *p = ctx;
+  fill(p->x + i * p->k, p->y + j * p->k, 2 * p->k, p->k, p->c);
+}
+static void xpix(int i, int j, void *ctx) {
+  const xpen_t *p = ctx;
+  fill(p->x + i * p->k, p->y + j * p->k, p->k, p->k, p->c);
+}
+static int xletter(uint32_t cp, int x, int y, int k, color c, int draw) {
+  char b = (char)cp, b2 = 0;
+  int acc = cp >= 0x80 ? np_latin(cp, &b, &b2) : 0, w = 0;
+  if (cp >= 0x80 && !b) {
+    int s = (7 * k + 6) / 12, top = y + (7 * k - 12 * s) / 2;
+    xpen_t p = {x, top, s, c};
+    if (draw && hits(x, top, 12 * s, 12 * s)) np_xdraw(cp, 0, 0, 1, xpix, &p);
+    return np_xadvance(cp, s);
+  }
+  for (; b; b = b2, b2 = 0, acc = 0, x += 7 * k, w += 7 * k) {
+    if (b >= 'a' && b <= 'z') b -= 32; /* (capitals only) */
+    if (!draw) continue;
+    glyph(b, x, y, k, c);
+    xpen_t p = {x, acc == NP_ACC_CEDIL ? y + 7 * k : y - 3 * k, k, c};
+    np_accent(acc, 0, 0, 1, xcol, &p);
+  }
+  return w;
+}
+static int tw(const char *s, int k) {
+  if (NP_TEXT_EXTRA) {
+    int w = 0;
+    while (*s) w += xletter(np_utf8(&s), 0, 0, k, 0, 0);
+    return w - k;
+  }
+  return slen(s) * 7 * k - k;
+}
 static void text(const char *s, int x, int y, int k, color c) {
+  if (NP_TEXT_EXTRA) {
+    while (*s) x += xletter(np_utf8(&s), x, y, k, c, 1);
+    return;
+  }
   for (; *s; s++, x += 7 * k) glyph(*s, x, y, k, c);
 }
 static void ctext(const char *s, int cx, int y, int k, color c) { text(s, cx - tw(s, k) / 2, y, k, c); }
@@ -322,10 +367,10 @@ static struct {
   uint8_t dots[32]; /* the dots and energizers left, in reading order */
 } S, saved;
 #define SAVE_NAME "pacman.sav"
-static const char *const speed_names[3] = {"SLOW", "NORMAL", "FAST"};
+static const char *const speed_names[3] = {T("SLOW"), T("NORMAL"), T("FAST")};
 static const uint8_t speed_mul[3] = {16, 20, 25};
 static const uint8_t lives_opt[4] = {1, 2, 3, 5};
-static const char *const buffer_names[5] = {"STRICT", "SNAPPY", "NORMAL", "FORGIVING", "INFINITE"};
+static const char *const buffer_names[5] = {T("STRICT"), T("SNAPPY"), T("NORMAL"), T("FORGIVING"), T("INFINITE")};
 static const uint8_t buffer_ticks[5] = {0, 6, 15, 25, 255};
 static const uint16_t bonus_at[4] = {10000, 15000, 20000, 0};
 
@@ -718,10 +763,10 @@ static void game_scene(void) {
   if (cx0 < MX || cx1 > MX + MW) { /* the sides: scores, lives, fruit (the latest at the right) */
     if (phase != PH_PLAY || ticks & 16) text("1UP", 21, 12, 1, WHITE);
     rtext(score ? num(score) : "00", 48, 21, 1, WHITE);
-    ctext("HIGH", 289, 12, 1, WHITE);
-    ctext("SCORE", 289, 21, 1, WHITE);
+    ctext(T("HIGH"), 289, 12, 1, WHITE);
+    ctext(T("SCORE"), 289, 21, 1, WHITE);
     if (S.best) rtext(num(S.best), 306, 30, 1, WHITE);
-    if (cheat) ctext("CHEAT", 289, 46, 1, RED);
+    if (cheat) ctext(T("CHEAT"), 289, 46, 1, RED);
     for (int i = 0, n = lives_shown(); i < n && i < 8; i++) pac_draw(10 + i % 4 * 14, 222 - i / 4 * 14, LEFT, 3, 0);
     for (int i = 0, l = level; l > 0 && i < 7; i++, l--) fruit_draw(303 - i % 4 * 14, 216 - i / 4 * 14, fruit_of(l));
   }
@@ -759,9 +804,9 @@ static void game_scene(void) {
   }
   if (pop_t) mini(pop_v, MX + pop_x, MY + pop_y - 2, pop_c);
   cx0 = s0, cx1 = s1;
-  if (ready_shown()) ctext("READY!", MX + 98, MY + 119, 1, YELLOW);
-  if (phase == PH_START) ctext("PLAYER ONE", MX + 98, MY + 77, 1, CYAN);
-  if (phase == PH_OVER) ctext("GAME  OVER", MX + 98, MY + 119, 1, RED);
+  if (ready_shown()) ctext(T("READY!"), MX + 98, MY + 119, 1, YELLOW);
+  if (phase == PH_START) ctext(T("PLAYER ONE"), MX + 98, MY + 77, 1, CYAN);
+  if (phase == PH_OVER) ctext(T("GAME  OVER"), MX + 98, MY + 119, 1, RED);
   if (paused) box_draw();
 }
 
@@ -905,9 +950,9 @@ static bool step(void) {
   return false;
 }
 
-static const char *const yes_no[2] = {"NO", "YES"};
+static const char *const yes_no[2] = {T("NO"), T("YES")};
 static int play(void) {
-  static const char *const pause_items[3] = {"RESUME", "RESTART", "QUIT GAME"};
+  static const char *const pause_items[3] = {T("RESUME"), T("RESTART"), T("QUIT GAME")};
   static int16_t orect[7][4];
   static uint32_t sig[8];
   uint32_t last = eadk_timing_millis(), acc = 0;
@@ -922,8 +967,8 @@ static int play(void) {
     if ((hit & K_BACK) && phase != PH_OVER) {
       int c = 0;
       do /* "Quit game?": No goes back to the pause menu */
-        c = menu_box("PAUSED", pause_items, 3, c);
-      while (c == 2 && !quit && menu_box("QUIT GAME?", yes_no, 2, 0) != 1);
+        c = menu_box(T("PAUSED"), pause_items, 3, c);
+      while (c == 2 && !quit && menu_box(T("QUIT GAME?"), yes_no, 2, 0) != 1);
       if (quit || c == 2) { /* Quit game: back to NumPlay (or the calculator) */
         keep_game();
         quit = true;
@@ -978,7 +1023,8 @@ static int play(void) {
       if (s[4] != sig[4])
         for (int i = 0; i < 4; i++) refresh(MX + (i & 1 ? 26 : 1) * 7, MY + (i & 2 ? 23 : 3) * 7, 7, 7);
       if (s[5] != sig[5]) refresh(MX, MY, MW, MH);
-      if (s[6] != sig[6]) refresh(MX + 60, MY + 77, 76, 49);
+      if (s[6] != sig[6]) /* (wider and taller for translations: their accents, Chinese) */
+        refresh(MX + 60 - 20 * NP_TEXT_EXTRA, MY + 77 - 3 * NP_TEXT_EXTRA, 76 + 40 * NP_TEXT_EXTRA, 49 + 6 * NP_TEXT_EXTRA);
       if (phase == PH_CUT) refresh(MX, CUT_Y - 14, MW, 28);
     }
     for (int i = 0; i < 8; i++) sig[i] = s[i];
@@ -1028,7 +1074,7 @@ static int game(bool resume) {
 static int sel, osel;
 static uint16_t tt; /* the title's clock, in ticks */
 
-static const char *const title_items[3] = {"PLAY", "CONTINUE", "OPTIONS"};
+static const char *const title_items[3] = {T("PLAY"), T("CONTINUE"), T("OPTIONS")};
 
 /* the attract chase: Pac-Man runs from the ghosts, eats the energizer and
    turns the tables; each ghost he catches stops the chase for a moment, its
@@ -1118,11 +1164,11 @@ static void logo_draw(void) {
 }
 
 static void title_scene(void) {
-  static const char *const names[4] = {"-SHADOW    \"BLINKY\"", "-SPEEDY    \"PINKY\"", "-BASHFUL   \"INKY\"",
-                                       "-POKEY     \"CLYDE\""};
+  static const char *const names[4] = {T("-SHADOW    \"BLINKY\""), T("-SPEEDY    \"PINKY\""), T("-BASHFUL   \"INKY\""),
+                                       T("-POKEY     \"CLYDE\"")};
   fill(cx0, cy0, cx1 - cx0, cy1 - cy0, BLACK);
   logo_draw();
-  ctext("CHARACTER / NICKNAME", 160, 58, 1, WHITE);
+  ctext(T("CHARACTER / NICKNAME"), 160, 58, 1, WHITE);
   for (int i = 0; i < 4; i++) {
     ghost_draw(88, 76 + i * 14, ghost_col[i], RIGHT, LOOK_NORMAL, 0);
     text(names[i], 102, 73 + i * 14, 1, ghost_col[i]);
@@ -1135,28 +1181,29 @@ static void title_scene(void) {
   lane_draw();
   if (S.best) { /* HIGH SCORE and the score, centred together */
     char *n = num(S.best);
-    int x = 160 - ((11 + slen(n)) * 7 - 1) / 2;
-    text("HIGH SCORE", x, 214, 1, WHITE);
-    text(n, x + 77, 214, 1, WHITE);
+    int w = NP_TEXT_EXTRA ? tw(T("HIGH SCORE"), 1) + 8 : 77, x = 160 - (w + slen(n) * 7 - 1) / 2;
+    text(T("HIGH SCORE"), x, 214, 1, WHITE);
+    text(n, x + w, 214, 1, WHITE);
   }
-  ctext("BASED ON TATONE26'S VERSION", 160, 228, 1, GREY);
+  ctext(T("BASED ON TATONE26'S VERSION"), 160, 228, 1, GREY);
   if (paused) box_draw(); /* "Quit game?" */
 }
 
-static const char *const opt_names[6] = {"GAME SPEED", "LIVES", "BUFFER", "START LEVEL", "BONUS LIFE", "NO COLLISIONS"};
+static const char *const opt_names[6] = {T("GAME SPEED"), T("LIVES"), T("BUFFER"), T("START LEVEL"), T("BONUS LIFE"),
+                                         T("NO COLLISIONS")};
 static const char *opt_value(int i) {
   switch (i) {
     case 0: return speed_names[S.speed];
     case 1: return num(lives_opt[S.lives]);
     case 2: return buffer_names[S.buffer];
     case 3: return num(S.start);
-    case 4: return S.bonus == 3 ? "NONE" : num(bonus_at[S.bonus]);
-    default: return S.cheat ? "ON" : "OFF";
+    case 4: return S.bonus == 3 ? T("NONE") : num(bonus_at[S.bonus]);
+    default: return S.cheat ? T("ON") : T("OFF");
   }
 }
 static void options_scene(void) {
   fill(cx0, cy0, cx1 - cx0, cy1 - cy0, BLACK);
-  ctext("OPTIONS", 160, 10, 2, YELLOW);
+  ctext(T("OPTIONS"), 160, 10, 2, YELLOW);
   for (int i = 0; i < 6; i++) {
     int y = 38 + i * 26;
     bool on = i == osel;
@@ -1171,11 +1218,11 @@ static void options_scene(void) {
     rtext(v, 292, y, 2, c);
     if (i == 3) fruit_draw(292 - tw(v, 2) - (on ? 34 : 16), y + 1, fruit_of(S.start));
   }
-  static const char *const help[6] = {"HOW FAST EVERYTHING MOVES", "PAC-MEN TO START WITH",
-                                      "HOW LONG A TURN WAITS FOR A GAP", "LATER LEVELS ARE FASTER",
-                                      "THE SCORE FOR AN EXTRA PAC-MAN", "GHOSTS CANNOT CATCH YOU: NO HIGH SCORE"};
+  static const char *const help[6] = {T("HOW FAST EVERYTHING MOVES"), T("PAC-MEN TO START WITH"),
+                                      T("HOW LONG A TURN WAITS FOR A GAP"), T("LATER LEVELS ARE FASTER"),
+                                      T("THE SCORE FOR AN EXTRA PAC-MAN"), T("GHOSTS CANNOT CATCH YOU: NO HIGH SCORE")};
   ctext(help[osel], 160, 200, 1, osel == 5 ? RED : WHITE);
-  ctext("LEFT/RIGHT: CHANGE    BACK: DONE", 160, 222, 1, GREY);
+  ctext(T("LEFT/RIGHT: CHANGE    BACK: DONE"), 160, 222, 1, GREY);
 }
 
 static void options(void) {
@@ -1198,8 +1245,10 @@ static void options(void) {
     }
     tt++;
     eadk_display_wait_for_vblank();
-    if (was != osel) refresh(0, 36 + was * 26, 320, 18), refresh(0, 198, 320, 11); /* the help line */
-    if (was != osel || lr) refresh(0, 36 + osel * 26, 320, 18);
+    if (was != osel) /* (a bit higher for translations: their accents) */
+      refresh(0, 36 - 4 * NP_TEXT_EXTRA + was * 26, 320, 18 + 4 * NP_TEXT_EXTRA),
+          refresh(0, 198 - 2 * NP_TEXT_EXTRA, 320, 11 + 4 * NP_TEXT_EXTRA); /* the help line */
+    if (was != osel || lr) refresh(0, 36 - 4 * NP_TEXT_EXTRA + osel * 26, 320, 18 + 4 * NP_TEXT_EXTRA);
     else refresh(6, 39 + osel * 26, 14, 14); /* the cursor's mouth */
     frame_end();
   }
@@ -1222,10 +1271,10 @@ int main(void) {
     if (quit) break;
     if (hit & (K_UP | K_DOWN)) {
       do sel = (sel + (hit & K_UP ? 2 : 1)) % 3; while (sel == 1 && !S.has);
-      refresh(96, 130, 136, 54);
+      refresh(96, 130, 136 + 88 * NP_TEXT_EXTRA, 54); /* (longer words in translations) */
     }
     if (hit & K_BACK) { /* "Quit game?" from the title */
-      if (menu_box("QUIT GAME?", yes_no, 2, 0) == 1) break;
+      if (menu_box(T("QUIT GAME?"), yes_no, 2, 0) == 1) break;
       full = true;
       continue;
     }

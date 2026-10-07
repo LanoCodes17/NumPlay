@@ -1,0 +1,58 @@
+# Snake in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+Fruit	水果
+Mode	模式
+Count	数量
+Speed	速度
+Size	大小
+Color	颜色
+Theme	主题
+Apple	苹果
+Banana	香蕉
+Pineapple	菠萝
+Grapes	葡萄
+Strawberry	草莓
+Cherries	樱桃
+Classic	经典
+Wall	墙壁
+Portal	传送门
+Cheese	奶酪
+Borderless	无边界
+Twin	双蛇
+Winged	飞翼
+Yin Yang	阴阳
+Statue	雕像
+Light	灯光
+Magnet	磁铁
+Peaceful	和平
+Normal	普通
+Fast	快速
+Slow	慢速
+Small	小
+Large	大
+Blue	蓝色
+Purple	紫色
+Pink	粉色
+Orange	橙色
+Yellow	黄色
+Teal	青色
+White	白色
+Black	黑色
+Day	白天
+Night	夜晚
+Snow	雪地
+Volcano	火山
+You win!	你赢了！
+New best!	新纪录！
+Play	开始
+Settings	设置
+Based on Tatone26's version	基于 Tatone26 的版本
+: 	：
+Shuffle	随机
+Reset	重置
+Paused	暂停
+Resume	继续
+Restart	重新开始
+Quit game	退出游戏
+Quit game?	退出游戏？
+No	否
+Yes	是

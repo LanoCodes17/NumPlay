@@ -1,0 +1,59 @@
+# Minesweeper in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+# The calculator's small font: a Chinese letter takes two cells of 7 pixels.
+ s	秒
+Minesweeper	扫雷
+Continue	继续
+Beginner	初级
+Intermediate	中级
+Expert	高级
+Custom...	自定义...
+Options...	选项...
+Help	帮助
+ mines	 颗雷
+Start	开始
+Resume	继续
+New game	新游戏
+Quit game	退出游戏
+Yes	是
+No	否
+New best time!	新纪录！
+You win!	你赢了！
+Time 	用时 
+Won 	胜场 
+ of 	 / 
+Open every square without a mine.	打开所有没有雷的方块。
+A number counts the mines around it.	数字表示周围的雷数。
+Arrows, 8 4 6 2	方向键、8 4 6 2
+Move (wraps around)	移动（可循环）
+OK, EXE, 5	OK、EXE、5
+Open	打开
+OK on a number	在数字上按 OK
+Open all around it	打开周围
+Backspace, Shift, 0	退格、Shift、0
+Flag	插旗
+Back	返回
+Pause	暂停
+Original by Robert Donner & Curt Johnson	原作：Robert Donner 和 Curt Johnson
+OK	OK
+Marks (?)	问号标记 (?)
+No guessing	无需猜测
+Open an area first	首次打开一片
+Cursor wraps around	光标循环
+Flag, then ?, then nothing:	旗子、问号、再取消：
+for squares you are unsure of.	用于不确定的方块。
+Every field can be cleared	每局都能
+by logic alone.	只靠推理解开。
+The first square opens an area.	第一下打开一片区域。
+Off: only safe, like Windows.	关闭：只保证安全，同 Windows。
+Off: the cursor stops at	关闭：光标停在
+the edges of the field.	雷区边缘。
+Options	选项
+Always on with no guessing.	无需猜测时始终开启。
+OK: on/off     Back: done	OK：开/关   返回：完成
+Height:	高度：
+Width:	宽度：
+Mines:	雷数：
+Custom Field	自定义雷区
+Cancel	取消
+Arrows: change	方向键：调整
+Quit game?	退出游戏？

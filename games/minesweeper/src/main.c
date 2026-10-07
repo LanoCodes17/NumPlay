@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
+#include "../../common/np_text.h"
 
 #ifdef __ELF__ /* app name and API level, for the calculator's installer */
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "Minesweeper";
@@ -101,11 +102,7 @@ static void around(int x, int y, int w, int h, int X, int Y, int W, int H, color
 static void text(const char *s, int x, int y, color fg, color bg) {
   eadk_display_draw_string(s, (eadk_point_t){(uint16_t)x, (uint16_t)y}, false, fg, bg);
 }
-static int slen(const char *s) {
-  int n = 0;
-  while (s[n]) n++;
-  return n;
-}
+static int slen(const char *s) { return np_text_cells(s); } /* (Chinese letters take two cells) */
 static void centered(const char *s, int cx, int y, color fg, color bg) { text(s, cx - slen(s) * 7 / 2, y, fg, bg); }
 static char *num(char *o, int v) {
   char t[8];
@@ -126,7 +123,7 @@ static char *secs(char *o, int t) {
   o = num(o, t / 10);
   *o++ = '.';
   o = num(o, t % 10);
-  return cat(o, " s");
+  return cat(o, T(" s"));
 }
 
 /* ------------------------------------------------------------------ pictures */
@@ -621,9 +618,9 @@ static void update(int l, int r, int f) {
 static void draw_game(void) {
   if (framed) {
     around(0, 0, 320, 240, wx, wy, ww, wh, TEAL);
-    window(wx, wy, ww, wh, "Minesweeper", 3);
+    window(wx, wy, ww, wh, T("Minesweeper"), 3);
   } else {
-    caption(0, 0, 320, "Minesweeper", 3);
+    caption(0, 0, 320, T("Minesweeper"), 3);
   }
   int cx = framed ? wx + 4 : 0, cy = framed ? wy + 22 : 18, cw = framed ? ww - 8 : 320, ch = framed ? wh - 26 : 222;
   int split = hy + HH, fw = bw * cs + 6, fh = bh * cs + 6;
@@ -759,7 +756,8 @@ static void move_to(int i) {
 enum { S_TITLE, S_GAME };
 enum { D_NONE, D_PAUSE, D_QUIT, D_WIN, D_HELP, D_OPTIONS, D_CUSTOM };
 static int scr, dlg, sel, stack[3][2], depth; /* the dialogs under the open one */
-static const char *const names[] = {"Continue", "Beginner", "Intermediate", "Expert", "Custom...", "Options...", "Help"};
+static const char *const names[] = {T("Continue"), T("Beginner"), T("Intermediate"), T("Expert"), T("Custom..."), T("Options..."),
+                                    T("Help")};
 static int first, nitems; /* the title's rows are names[first..6]: Continue only with a game */
 
 /* the title: a window on the desktop, its menu under the counters */
@@ -777,9 +775,9 @@ static void size_note(char *o, int w, int h) {
 static void title_row(int k) {
   int id = k + first, w = V.cw, h = V.ch;
   char size[12] = "", note[12] = "";
-  if (id == 0) w = V.gw, h = V.gh, cat(num(note, (int)(elapsed / 1000) + 1), " s");
+  if (id == 0) w = V.gw, h = V.gh, cat(num(note, (int)(elapsed / 1000) + 1), T(" s"));
   else if (id < 4) w = levels[id - 1][0], h = levels[id - 1][1], V.best[id - 1] && secs(note, V.best[id - 1]);
-  else if (id == 4) cat(num(note, V.cmines), " mines");
+  else if (id == 4) cat(num(note, V.cmines), T(" mines"));
   if (id < 5) size_note(size, w, h);
   row(TX + 8, title_y(k), TW - 16, names[id], size, note, k == sel, id && id - 1 == V.diff && id < 5);
 }
@@ -796,7 +794,7 @@ static void draw_title(void) {
   first = !V.gw, nitems = 7 - first;
   int th = title_y(nitems) + 10 - TY;
   around(0, 0, 320, 216, TX, TY, TW, th, TEAL);
-  window(TX, TY, TW, th, "Minesweeper", 3);
+  window(TX, TY, TW, th, T("Minesweeper"), 3);
   hx = TX + 12, hy = TY + 28, hw = TW - 24;
   around(wx0, wy0, TW - 8, th - 26, hx, hy, hw, HH, GRAY);
   panel();
@@ -808,23 +806,28 @@ static void draw_title(void) {
   fill(0, 216, 320, 1, GRAY);
   fill(0, 217, 320, 1, WHITE);
   fill(0, 218, 320, 22, GRAY);
-  raised(2, 220, 56, 18);
-  fill(4, 222, 52, 14, GRAY);
+  int sw = NP_TEXT_EXTRA ? 26 + slen(T("Start")) * 7 : 56; /* (the Start button fits its label) */
+  if (sw < 56) sw = 56;
+  raised(2, 220, sw, 18);
+  fill(4, 222, sw - 4, 14, GRAY);
   static const color logo[4] = {RGB(0xFF0000), RGB(0x00A000), RGB(0x0000FF), RGB(0xFFD000)};
   for (int q = 0; q < 4; q++) fill(7 + (q & 1) * 6, 223 + (q >> 1) * 6, 5, 5, logo[q]);
-  text("Start", 21, 222, BLACK, GRAY);
-  edge(fill, 62, 220, 130, 18, 1, BLACK, WHITE);
-  edge(fill, 63, 221, 128, 16, 1, DARK, GRAY);
-  fill(64, 222, 126, 14, RGB(0xD8D8D8));
-  text("Minesweeper", 70, 222, BLACK, RGB(0xD8D8D8));
+  text(T("Start"), 21, 222, BLACK, GRAY);
+  int tx = sw + 6; /* the window's button, after it */
+  edge(fill, tx, 220, 192 - tx, 18, 1, BLACK, WHITE);
+  edge(fill, tx + 1, 221, 190 - tx, 16, 1, DARK, GRAY);
+  fill(tx + 2, 222, 188 - tx, 14, RGB(0xD8D8D8));
+  text(T("Minesweeper"), tx + 8, 222, BLACK, RGB(0xD8D8D8));
   title_counters(F_SMILE);
 }
 
 /* the dialogs; after a key only what changes is redrawn (whole is false) */
 static bool whole;
 static void draw_pause(void) {
-  static const char *const p[4] = {"Resume", "New game", "Help", "Quit game"};
+  static const char *const p[4] = {T("Resume"), T("New game"), T("Help"), T("Quit game")};
   int x = wx + (framed ? 4 : 0) + 2, y = wy + (framed ? 22 : 18), w = 118;
+  for (int k = 0; NP_TEXT_EXTRA && k < 4; k++) /* (wider for longer words) */
+    if (slen(p[k]) * 7 + 30 > w) w = slen(p[k]) * 7 + 30;
   raised(x, y, w, 4 * 17 + 5 + 6);
   edge(fill, x + 2, y + 2, w - 4, 4 * 17 + 5 + 2, 1, GRAY, GRAY);
   for (int k = 0; k < 4; k++) row(x + 3, y + 3 + k * 17 + (k > 2) * 5, w - 6, p[k], 0, 0, k == sel, false);
@@ -832,7 +835,7 @@ static void draw_pause(void) {
 }
 static void draw_ask(const char *q) {
   if (whole) {
-    dialog(200, 100, "Minesweeper");
+    dialog(200, 100, T("Minesweeper"));
     pw = 26;
     pfill(0, 0, 26, 26, GRAY);
     for (int j = 0; j < 26; j++)
@@ -844,25 +847,25 @@ static void draw_ask(const char *q) {
     text("?", wx0 + 22, wy0 + 15, RGB(0x0000FF), WHITE);
     text(q, wx0 + 50, wy0 + 16, BLACK, GRAY);
   }
-  button(wx0 + 34, wy0 + 46, 56, 22, "Yes", sel == 0);
-  button(wx0 + 102, wy0 + 46, 56, 22, "No", sel == 1);
+  button(wx0 + 34, wy0 + 46, 56, 22, T("Yes"), sel == 0);
+  button(wx0 + 102, wy0 + 46, 56, 22, T("No"), sel == 1);
 }
 static void draw_win(void) {
   char s[40], *o;
-  dialog(230, 118, "Minesweeper");
+  dialog(230, 118, T("Minesweeper"));
   pw = 34;
   pfill(0, 0, 34, 34, GRAY);
   face(0, 0, 2, F_COOL);
   push(wx0 + 10, wy0 + 12, 34);
-  text(new_best ? "New best time!" : "You win!", wx0 + 56, wy0 + 8, BLACK, GRAY);
-  o = cat(s, "Time ");
+  text(new_best ? T("New best time!") : T("You win!"), wx0 + 56, wy0 + 8, BLACK, GRAY);
+  o = cat(s, T("Time "));
   secs(o, last_time);
   text(s, wx0 + 56, wy0 + 26, BLACK, GRAY);
   int lv = level();
   if (lv < 3) {
-    o = cat(s, "Won ");
+    o = cat(s, T("Won "));
     o = num(o, V.won[lv]);
-    o = cat(o, " of ");
+    o = cat(o, T(" of "));
     num(o, V.played[lv]);
     text(s, wx0 + 56, wy0 + 44, BLACK, GRAY);
   }
@@ -870,53 +873,56 @@ static void draw_win(void) {
 }
 static void draw_help(void) {
   static const char *const lines[12] = {
-    "Open every square without a mine.", "A number counts the mines around it.",
-    "Arrows, 8 4 6 2",  "Move (wraps around)",
-    "OK, EXE, 5",       "Open",
-    "OK on a number",   "Open all around it",
-    "Backspace, Shift, 0", "Flag",
-    "Back",             "Pause",
+    T("Open every square without a mine."), T("A number counts the mines around it."),
+    T("Arrows, 8 4 6 2"),  T("Move (wraps around)"),
+    T("OK, EXE, 5"),       T("Open"),
+    T("OK on a number"),   T("Open all around it"),
+    T("Backspace, Shift, 0"), T("Flag"),
+    T("Back"),             T("Pause"),
   };
-  dialog(304, 224, "Help");
+  dialog(304, 224, T("Help"));
   text(lines[0], wx0 + 8, wy0 + 6, BLACK, GRAY);
   text(lines[1], wx0 + 8, wy0 + 22, BLACK, GRAY);
   for (int k = 1; k < 6; k++) {
     text(lines[2 * k], wx0 + 8, wy0 + 28 + k * 18, BLACK, GRAY);
     text(lines[2 * k + 1], wx0 + 150, wy0 + 28 + k * 18, NAVY, GRAY);
   }
-  text("Original by Robert Donner & Curt Johnson", wx0 + 8, wy0 + 142, BLACK, GRAY);
-  button(wx0 + 114, wy0 + 170, 68, 22, "OK", true);
+  text(T("Original by Robert Donner & Curt Johnson"), wx0 + 8, wy0 + 142, BLACK, GRAY);
+  button(wx0 + 114, wy0 + 170, 68, 22, T("OK"), true);
 }
-static const char *const OPTS[4] = {"Marks (?)", "No guessing", "Open an area first", "Cursor wraps around"};
+static const char *const OPTS[4] = {T("Marks (?)"), T("No guessing"), T("Open an area first"), T("Cursor wraps around")};
 static const char *const HINTS[4][2] = {
-  {"Flag, then ?, then nothing:", "for squares you are unsure of."},
-  {"Every field can be cleared", "by logic alone."},
-  {"The first square opens an area.", "Off: only safe, like Windows."},
-  {"Off: the cursor stops at", "the edges of the field."},
+  {T("Flag, then ?, then nothing:"), T("for squares you are unsure of.")},
+  {T("Every field can be cleared"), T("by logic alone.")},
+  {T("The first square opens an area."), T("Off: only safe, like Windows.")},
+  {T("Off: the cursor stops at"), T("the edges of the field.")},
 };
 /* the options on, as the rows show them (the last two are kept inverted) */
 static bool opt_on(int k) { return (V.opts >> k & 1) ^ (k >= 2); }
 static void draw_options(void) {
-  if (whole) dialog(252, 172, "Options");
+  if (whole) dialog(252, 172, T("Options"));
   for (int k = 0; k < 4; k++) row(wx0 + 8, wy0 + 8 + k * 18, 228, OPTS[k], 0, 0, k == sel, opt_on(k));
   bool forced = sel == 2 && (V.opts & O_SURE);
   fill(wx0 + 8, wy0 + 88, 228, 32, GRAY);
   text(HINTS[sel][0], wx0 + 12, wy0 + 88, BLACK, GRAY);
-  text(forced ? "Always on with no guessing." : HINTS[sel][1], wx0 + 12, wy0 + 104, forced ? NAVY : BLACK, GRAY);
-  if (whole) text("OK: on/off     Back: done", wx0 + 12, wy0 + 126, BLACK, GRAY);
+  text(forced ? T("Always on with no guessing.") : HINTS[sel][1], wx0 + 12, wy0 + 104, forced ? NAVY : BLACK, GRAY);
+  if (whole) text(T("OK: on/off     Back: done"), wx0 + 12, wy0 + 126, BLACK, GRAY);
 }
 static int cf[3]; /* the custom field: height, width, mines */
 static void draw_custom(void) {
-  static const char *const f[3] = {"Height:", "Width:", "Mines:"};
+  static const char *const f[3] = {T("Height:"), T("Width:"), T("Mines:")};
+  int bx = 66; /* the boxes, after the longest label */
+  for (int k = 0; NP_TEXT_EXTRA && k < 3; k++)
+    if (12 + slen(f[k]) * 7 + 4 > bx) bx = 12 + slen(f[k]) * 7 + 4;
   if (whole) {
-    dialog(220, 136, "Custom Field");
+    dialog(220, 136, T("Custom Field"));
     for (int k = 0; k < 3; k++) text(f[k], wx0 + 12, wy0 + 12 + k * 26, BLACK, GRAY);
-    button(wx0 + 136, wy0 + 10, 64, 22, "OK", true);
-    button(wx0 + 136, wy0 + 40, 64, 22, "Cancel", false);
-    text("Arrows: change", wx0 + 12, wy0 + 88, BLACK, GRAY);
+    button(wx0 + 136, wy0 + 10, 64, 22, T("OK"), true);
+    button(wx0 + 136, wy0 + 40, 64, 22, T("Cancel"), false);
+    text(T("Arrows: change"), wx0 + 12, wy0 + 88, BLACK, GRAY);
   }
   for (int k = 0; k < 3; k++) {
-    int x = wx0 + 66, y = wy0 + 9 + k * 26;
+    int x = wx0 + bx, y = wy0 + 9 + k * 26;
     char s[6];
     bool on = k == sel;
     sunken(x, y, 50, 20);
@@ -930,7 +936,7 @@ static void draw_dialog(bool all) {
   whole = all;
   switch (dlg) {
     case D_PAUSE: draw_pause(); break;
-    case D_QUIT: draw_ask("Quit game?"); break;
+    case D_QUIT: draw_ask(T("Quit game?")); break;
     case D_WIN: draw_win(); break;
     case D_HELP: draw_help(); break;
     case D_OPTIONS: draw_options(); break;

@@ -105,6 +105,13 @@ out = run(["--chapter", "1", "--room", "1"], 300, "200-201:p,215-216:d,230-231:o
 s = session(out)
 check(s and s[3] == 1, f"Retry did not count a death: {s}")
 
+# 3A's start room (s3): onto the porch roof, up the posts with spikes on top (climbing on stops below them, as the
+# game's LedgeBlocker makes it), over them to the key, then through the locked door into the lobby
+out = run(["--chapter", "7", "--room", "s3", "--nowipe"], 780,
+          "10-90:r,58-70:j,100-110:j,108-112:u,108-109:x,116-133:r,150-160:j,150-182:l,150-345:g,184-249:u,250-262:j,"
+          "250-300:l,264-265:x,302-330:u,332-344:j,332-346:l,400-415:l,440-760:r,523-535:j", what="3A's key and locked door")
+check("room 0x-a " in out and " deaths 0 " in out, f"3A's start room was not crossed with its key: {out[-160:]}")
+
 # a chapter's end: its screen, then the chapter select
 out = run(["--chapter", "1", "--room", "1"], 500, "400-401:o", env={"COMPLETE_AT": "60"}, what="a chapter's end")
 

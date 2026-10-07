@@ -259,6 +259,7 @@ static const EntClass SPIKES = {.size = sizeof(Spikes), .name = "spikes", .rende
                                 .kind = KIND_PCOLLIDE | KIND_STATICMOVER | KIND_SPIKES,
                                 .more = &(const EntMore){.sm_riding = spikes_riding,
                                                          .sm_shake = spikes_sm_shake, .sm_enable = spikes_sm_enable}};
+bool spikes_ledge(const Ent *e) { return e->cls == &SPIKES && ST(e, Spikes)->dir != DIR_DOWN; }
 
 static void new_spikes(const EData *d, int dir) {
   int size;

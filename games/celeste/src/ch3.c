@@ -1080,6 +1080,18 @@ static void ts_on_player(Ent *e, Player *p) {
     }
   }
 }
+/* LedgeBlocker(UpSafeBlockCheck / SideSafeBlockCheck): a tendril out (Lerp 1) a hop ahead (up), or beside her (sides) */
+bool tspikes_ledge(const Ent *e, const Ent *pe, int facing) {
+  if (e->cls != &TSPIKES_CLASS) return false;
+  TSpikes *s = ST(e, TSpikes);
+  int mn, mx;
+  if (s->dir == TS_DOWN) return false;
+  if (s->dir == TS_UP) mn = (int)((e_left(pe) + 8 * facing - e_left(e)) / 4), mx = (int)((e_right(pe) + 8 * facing - e_left(e)) / 4);
+  else mn = (int)((e_top(pe) - e_top(e)) / 4), mx = (int)((e_bottom(pe) - e_top(e)) / 4);
+  for (int i = mn < 0 ? 0 : mn; i <= mx && i < s->n; i++)
+    if (ts_lerp[s->first + i] >= 255) return true;
+  return false;
+}
 static bool ts_player_check(Ent *e, TSpikes *s, int i) {
   Player *p = level_player();
   if (!p || !collide_ent_at(e, e->x, e->y, p->ent)) return false;

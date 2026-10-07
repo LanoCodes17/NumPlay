@@ -38,7 +38,7 @@ ifeq ($(PLATFORM),device)
 	$(Q) arm-none-eabi-strip --strip-unneeded -R .comment $@
 endif
 
-$(BUILD_DIR)/%.o: src/%.c src/*.h | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: src/%.c src/*.h ../common/np_text.h | $(BUILD_DIR)
 	@echo "CC      $<"
 	$(Q) $(CC) $(CFLAGS) -c $< -o $@
 

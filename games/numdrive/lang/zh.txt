@@ -1,0 +1,21 @@
+# NumDrive in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+# The levels' names (in the level pack) stay as they are.
+Level 	关卡 
+Drive silly cars at high	驾驶滑稽的汽车
+speeds in dangerous	在危险地形上飞驰。
+terrain. Oh, and you	哦对了，你没法转向。
+can't steer. Good luck!	祝你好运！
+Inspired by Drive Mad	灵感来自 Drive Mad
+Made by Mason Chen	由 Mason Chen 制作
+Good game	干得漂亮
+Terminated	失败了
+Retry	重试
+Restart	重来
+Resume	继续
+Next Level	下一关
+Levels	关卡
+Quit game	退出游戏
+Quit game?	退出游戏？
+You can come back anytime.	随时欢迎回来。
+Yes	是
+No	否

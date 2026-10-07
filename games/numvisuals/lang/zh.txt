@@ -1,0 +1,33 @@
+# NumVisuals in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+Aurora	极光
+Sunset Drive	落日公路
+Plasma	等离子
+Pastel	粉彩
+Lava Lamp	熔岩灯
+Warp	曲速
+Tunnel	隧道
+Fire	火焰
+Ocean	海洋
+Bokeh	光斑
+Code Rain	代码雨
+None	无
+Clock	时钟
+Stopwatch	秒表
+Timer	计时器
+Counter	计数器
+Text	文字
+OK: change  BACK: menu	OK：更改  返回：菜单
+OK: go/stop  \x7f: reset	OK：开始/暂停  \x7f：归零
+OK: +1  -: -1  \x7f: 0	OK：+1  -：-1  \x7f：清零
+BACK: menu	返回：菜单
+BACKGROUND	背景
+ADD-ON	小组件
+OK: add-ons  BACK: quit	OK：小组件  返回：退出
+OK: choose  BACK: back	OK：选择  返回：背景
+SET THE TIME	设置时间
+SET THE TIMER	设置计时器
+TYPE YOUR TEXT	输入文字
+ALPHA: letters  OK: done	ALPHA：字母  OK：完成
+12-hour	12小时制
+24-hour	24小时制
+ARROWS: set  OK: done	方向键：调整  OK：完成

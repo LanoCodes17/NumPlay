@@ -820,8 +820,10 @@ void hero_draw(void) {
   /* HeroLight: a child glow in the room's hero light color (SceneManager), blended as linear light */
   const float *hl = g_room.h->hero_light;
   Inst li;
-  sprite_inst(SPRITE_HERO_LIGHT, h->body.x, h->body.y - 0.6f, 0.004f + 0.0312f, 1, 1,
-              gfx_dyn_tint(1, (uint8_t)(hl[0] * 255), (uint8_t)(hl[1] * 255), (uint8_t)(hl[2] * 255), (uint8_t)(hl[3] * 255)), &li);
+  /* (clamped: Greenpath's green is 1.0074, and 256 in a byte is 0: a pink glow, not a green one) */
+  uint8_t c[4];
+  for (int k = 0; k < 4; k++) c[k] = hl[k] >= 1 ? 255 : hl[k] <= 0 ? 0 : (uint8_t)(hl[k] * 255);
+  sprite_inst(SPRITE_HERO_LIGHT, h->body.x, h->body.y - 0.6f, 0.004f + 0.0312f, 1, 1, gfx_dyn_tint(1, c[0], c[1], c[2], c[3]), &li);
   li.flags = (uint8_t)((li.flags & ~F_BLEND) | BL_LINEARLIGHT);
   gfx_actor(&li, SORT_KEY(0, 0));
   if (h->hidden) return;

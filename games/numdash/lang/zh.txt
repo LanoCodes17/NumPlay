@@ -1,0 +1,161 @@
+# NumDash in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+# Chinese letters come from the 12-pixel font, outlined like the game's capitals (twice as big in the
+# biggest letters). Level names stay as in the original game.
+NUMWORKS EDITION	NUMWORKS 版
+SHOW PERCENT	显示百分比
+PROGRESS BAR	进度条
+AUTO CHECKPOINTS	自动检查点
+LOW DETAIL	低画质
+SHOW FPS	显示 FPS
+NO SHAKE	关闭震动
+SETTINGS	设置
+OK: TOGGLE    BACK: SAVE	OK：开关    返回：保存
+STATS	统计
+TOTAL JUMPS	总跳跃次数
+TOTAL ATTEMPTS	总尝试次数
+COMPLETED LEVELS	已完成关卡
+STARS	星星
+SECRET COINS	秘密金币
+HOW TO PLAY	玩法
+OK, EXE OR UP: JUMP	OK、EXE 或上：跳跃
+HOLD TO KEEP JUMPING OR TO FLY	按住可连续跳跃或飞行
+TAP IN MID AIR ON AN ORB	在空中碰到跳球时按键
+BACK: PAUSE    HOME: SAVE AND QUIT	返回：暂停    主页：保存并退出
+PRACTICE: 0 PLACES A CHECKPOINT	练习模式：0 放置检查点
+BACKSPACE REMOVES THE LAST ONE	退格删除最后一个
+START PRACTICE FROM THE PAUSE MENU	在暂停菜单中开始练习
+LEVEL EDITOR	关卡编辑器
+ARROWS: MOVE    OK: USE TOOL	方向键：移动    OK：使用工具
+0: BUILD / EDIT / DELETE	0：放置 / 编辑 / 删除
++ -  OR TOOLBOX: PICK OBJECT	+ - 或工具箱：选择物体
+SHIFT: ROTATE    XNT: COPY	SHIFT：旋转    XNT：复制
+ALPHA: UNDO    BACKSPACE: ERASE	ALPHA：撤销    退格：删除
+VAR: SAVE    LN: LEVEL SETTINGS	VAR：保存    LN：关卡设置
+EXE: PLAYTEST    BACK: EXIT	EXE：试玩    返回：退出
+NORMAL MODE	普通模式
+PRACTICE MODE	练习模式
+ICON KIT	图标
+COLOR 1	颜色 1
+COLOR 2	颜色 2
+# the tips while a level loads (one line: 23 letters at most)
+LISTEN TO THE MUSIC TO HELP TIME YOUR JUMPS	跟着音乐的节奏起跳
+BACK FOR MORE ARE YA?	又回来了？
+USE PRACTICE MODE TO LEARN THE LAYOUT OF A LEVEL	用练习模式熟悉关卡布局
+IF AT FIRST YOU DON'T SUCCEED, TRY, TRY AGAIN...	一次不行，就再试一次……
+CUSTOMIZE YOUR CHARACTER'S ICON AND COLOR!	自定义你的图标和颜色！
+SPIKES ARE NOT YOUR FRIENDS. DON'T FORGET TO JUMP	尖刺不是你的朋友。别忘了跳！
+BUILD YOUR OWN LEVELS USING THE LEVEL EDITOR	用关卡编辑器做你自己的关卡
+CAN YOU BEAT THEM ALL?	你能全部通关吗？
+PRO TIP: DON'T CRASH	高手提示：别撞上
+HOLD DOWN TO KEEP JUMPING	按住就能连续跳跃
+PRO TIP: JUMP	高手提示：跳
+PLAY, CRASH, RINSE AND REPEAT	开玩，撞死，再来一遍
+ONLY ONE BUTTON REQUIRED TO CRASH	只需一个键就能撞死
+IT'S ALL IN THE TIMING	关键在于时机
+FAKE SPIKES ARE FAKE	假尖刺是假的
+WHERE DID I PUT THAT COIN...	那枚金币放哪儿了……
+CALCULATING CHANCE OF SUCCESS	正在计算成功率
+LOADING WILL BE FINISHED... SOON	马上就加载好了……
+# "ATTEMPT 12" in the level
+ATTEMPT 	尝试 
+# a level complete
+AWESOME!	太棒了！
+GOOD JOB!	干得好！
+WELL DONE!	做得好！
+IMPRESSIVE!	厉害！
+AMAZING!	惊人！
+INCREDIBLE!	难以置信！
+SKILLFUL!	技术高超！
+BRILLIANT!	精彩！
+NOT BAD!	还不错！
+WARP SPEED!	光速！
+CHALLENGE BREAKER!	挑战终结者！
+REFLEX MASTER!	反应大师！
+I AM SPEECHLESS...	我无话可说……
+YOU ARE... THE ONE!	你就是……天选之人！
+HOW IS THIS POSSIBLE!?	这怎么可能！？
+YOU BEAT ME...	你赢了……
+NEW BEST!\n	新纪录！\n
+PRACTICE COMPLETE!	练习完成！
+LEVEL COMPLETE!	关卡完成！
+RESUME	继续
+MENU	菜单
+RESTART	重新开始
+ATTEMPTS: 	尝试次数：
+JUMPS: 	跳跃次数：
+TIME: 	用时：
+# two lines in English, too close together for Chinese letters: all on the first
+WELL DONE... NOW TRY TO COMPLETE	做得好！现在试试不用检查点通关！
+IT WITHOUT ANY CHECKPOINTS!	
+# the level editor
+MY LEVEL 1	我的关卡 1
+MY LEVEL 2	我的关卡 2
+MY LEVEL 3	我的关卡 3
+BLUE	蓝色
+PINK	粉色
+GREEN	绿色
+RED	红色
+OCEAN	海蓝
+PURPLE	紫色
+VIOLET	紫罗兰
+LIME	青柠
+PLUM	梅紫
+OBJECT LIMIT REACHED	物体数量已达上限
+NOTHING TO UNDO	没有可撤销的
+LEVEL CLEARED	关卡已清空
+SAVE FAILED - STORAGE FULL	保存失败：存储已满
+NOT SAVED - STORAGE FULL	未保存：存储已满
+LEVEL SAVED	关卡已保存
+# the editor's keys: a key, then what it does, on one line (96 pixels for both)
+HOME	主页
+QUIT	退出
+ARROWS	方向键
+MOVE	移动
+ROTATE	旋转
+UNDO	撤销
+COPY BLOCK	复制物体
+CHANGE MODE	切换模式
+USE THE MODE	使用模式
+BACK	返回
+SAVE, LEAVE	保存离开
+SAVE	保存
+TOOLBOX	工具箱
+NEXT BLOCK	下一个
+BACKSPACE	退格
+DELETE	删除
+PREV BLOCK	上一个
+PLAYTEST	试玩
+EDITOR KEYS	编辑器按键
+OK: GOT IT	OK：知道了
+BUILD	放置
+EDIT	编辑
+ROT 0	旋转 0
+ROT 90	旋转 90
+ROT 180	旋转 180
+ROT 270	旋转 270
+LEVEL SETTINGS	关卡设置
+COLORS	颜色
+START MODE	初始形态
+CLEAR LEVEL	清空关卡
+SHIP	飞船
+CUBE	方块
+SURE?	确定？
+CLEAR	清空
+LEFT RIGHT: CHANGE    BACK: CLOSE	左右：调整    返回：关闭
+UNSAVED	未保存
+EXE: PLAYTEST	EXE：试玩
+LN: SETTINGS	LN：设置
+THIS LEVEL IS EMPTY	这个关卡是空的
+MY LEVELS	我的关卡
+ OBJECTS	 个物体
+PLAY	开始
+UP DOWN: LEVEL    LEFT RIGHT: EDIT / PLAY	上下：选关卡    左右：编辑 / 开始
+KEYS	按键
+LEVEL DATA INVALID	关卡数据无效
+SAVE DATA UNREADABLE	存档无法读取
+CANCEL	取消
+YES	确定
+OK	OK
+QUIT GAME	退出游戏
+# (one line: two would be too close for Chinese letters)
+ARE YOU SURE YOU\nWANT TO QUIT?	确定要退出吗？

@@ -3,6 +3,7 @@
 #include "ui.h"
 #include <math.h>
 #include <string.h>
+#include "../../common/np_text.h"
 
 App app;
 Progress progress;
@@ -48,7 +49,7 @@ static void enter(Screen s) {
   app.row = 0;
   app.press_id = -1;
   if (s == SCR_PLAY && !play_start(app.level, app.practice, app.testing)) {
-    app_notice("LEVEL DATA INVALID");
+    app_notice(T("LEVEL DATA INVALID"));
     s = app.screen = app.testing ? SCR_EDITOR : app.level < LEVEL_COUNT ? SCR_SELECT : SCR_CREATOR;
   }
   if (s == SCR_EDITOR) editor_open(app.slot);
@@ -68,7 +69,7 @@ void app_init(void) {
   rng ^= platform_random() | 1;
   if (!save_load_all(&progress, custom_meta)) {
     size_t size;
-    if (platform_storage(&size)) app_notice("SAVE DATA UNREADABLE");
+    if (platform_storage(&size)) app_notice(T("SAVE DATA UNREADABLE"));
   }
   app.level = progress.last_level < LEVEL_COUNT ? progress.last_level : 0;
   app.select_page = app.level;
@@ -123,23 +124,23 @@ static void dialog_draw(void) {
   /* message, split on '\n' */
   const char *p = app.dialog_text;
   int y = 110;
-  char line[48];
+  char line[NP_TEXT_EXTRA ? 96 : 48]; /* (a Chinese letter takes three bytes) */
   while (p && *p) {
     int n = 0;
-    while (*p && *p != '\n' && n < 47) line[n++] = *p++;
+    while (*p && *p != '\n' && n < (int)sizeof line - 1) line[n++] = *p++;
     line[n] = 0;
     if (*p == '\n') p++;
     ui_title(FONT_SMALL, 160, y, line);
     y += 13;
   }
   if (app.dialog == DLG_QUIT) {
-    ui_text_button(118, 154, 76, 26, "CANCEL", BTN_GREEN, dialog_sel == 0 ? 1.1f : 1.0f);
-    ui_text_button(202, 154, 60, 26, "YES", BTN_GREEN, dialog_sel == 1 ? 1.1f : 1.0f);
+    ui_text_button(118, 154, 76, 26, T("CANCEL"), BTN_GREEN, dialog_sel == 0 ? 1.1f : 1.0f);
+    ui_text_button(202, 154, 60, 26, T("YES"), BTN_GREEN, dialog_sel == 1 ? 1.1f : 1.0f);
   } else {
-    ui_text_button(160, 154, 60, 26, "OK", BTN_GREEN, 1.1f);
+    ui_text_button(160, 154, 60, 26, T("OK"), BTN_GREEN, 1.1f);
   }
 }
-void app_dialog_quit(void) { dialog_open(DLG_QUIT, "QUIT GAME", "ARE YOU SURE YOU\nWANT TO QUIT?"); }
+void app_dialog_quit(void) { dialog_open(DLG_QUIT, T("QUIT GAME"), T("ARE YOU SURE YOU\nWANT TO QUIT?")); }
 void app_dialog_info(const char *title, const char *text) { dialog_open(DLG_INFO, title, text); }
 
 /* ------------------------------------------------------------ main hooks */

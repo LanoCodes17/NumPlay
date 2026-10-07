@@ -1,7 +1,10 @@
 use heapless::Vec;
-use numworks_utils::storage::{
-    save::{GameSave, SaveField, MAX_SAVE_FIELDS},
-    MAX_STORAGE_VALUES,
+use numworks_utils::{
+    storage::{
+        save::{GameSave, SaveField, MAX_SAVE_FIELDS},
+        MAX_STORAGE_VALUES,
+    },
+    T,
 };
 
 use crate::{
@@ -38,13 +41,13 @@ impl GameSave for TetrisSave {
     fn describe_fields(&self) -> Vec<SaveField, MAX_SAVE_FIELDS> {
         let mut fields = Vec::new();
         let _ = fields.push(SaveField {
-            name: "Current Score\0",
+            name: T!("Current Score"),
             min: 0,
             max: 999999,
             value: self.raw[20],
         });
         let _ = fields.push(SaveField {
-            name: "Current Level\0",
+            name: T!("Current Level"),
             min: 1,
             max: 20,
             value: (self.raw[21] & 0xFFFF),

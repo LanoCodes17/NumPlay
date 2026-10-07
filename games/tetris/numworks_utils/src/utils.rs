@@ -27,12 +27,26 @@ pub fn get_centered_text_x_coordo(string: &str, large: bool) -> u16 {
     }
 }
 
+/// The cells a text takes in the calculator's fixed-width font. In a language build (see build.rs),
+/// an accented letter takes one and a Chinese one two (NumPlay draws those in two cells).
+pub fn text_cells(string: &str) -> u16 {
+    if cfg!(np_text_extra) {
+        string
+            .chars()
+            .filter(|c| *c >= ' ')
+            .map(|c| if c as u32 >= 0x2E80 { 2 } else { 1 })
+            .sum()
+    } else {
+        string
+            .chars()
+            .filter(|p| p.is_ascii_alphanumeric() || *p == ' ' || p.is_ascii_punctuation())
+            .count() as u16
+    }
+}
+
 /// Returns the size IN PIXELS, on the screen, of the given string
 pub fn get_string_pixel_size(string: &str, large: bool) -> u16 {
-    string
-        .chars()
-        .filter(|p| p.is_ascii_alphanumeric() || *p == ' ' || p.is_ascii_punctuation())
-        .count() as u16
+    text_cells(string)
         * (if large {
             LARGE_CHAR_WIDTH
         } else {

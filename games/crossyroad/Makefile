@@ -14,7 +14,7 @@ DEVICE_CFLAGS = -std=c11 -mthumb -mfloat-abi=hard -mcpu=cortex-m7 -mfpu=fpv5-sp-
   -I$(EADK_INC) -Os -Wall -g0 -fno-common \
   -fno-asynchronous-unwind-tables -fno-unwind-tables -fsingle-precision-constant -fno-math-errno -ffreestanding -fno-tree-loop-distribute-patterns \
   -flto -fno-fat-lto-objects -fwhole-program -fvisibility=internal -fno-reorder-blocks -fno-schedule-insns2 -fno-ipa-sra \
-  -fno-caller-saves -fno-thread-jumps -fno-optimize-sibling-calls
+  -fno-caller-saves -fno-thread-jumps -fno-optimize-sibling-calls -ffixed-r9
 DEVICE_LDFLAGS = -Wl,--relocatable -nostartfiles -nostdlib -Wl,-e,main \
   -Wl,-u,eadk_app_name -Wl,-u,eadk_app_icon -Wl,-u,eadk_api_level -Wl,--gc-sections \
   -flinker-output=nolto-rel -Tsrc/nwa.ld

@@ -1,0 +1,9 @@
+# Crossy Road in French: the English text as in the source, a tab, the translation (see tools/lang.py).
+# The game's blocky font has the digits and A C D E G I L M N O P Q R S T U W Y ? (and V, in a
+# language build); other letters come from the 12-pixel font.
+NEW TOP	NOUVEAU RECORD
+QUIT GAME	QUITTER
+QUIT GAME?	QUITTER ?
+NO	NON
+YES	OUI
+TOP 	RECORD 

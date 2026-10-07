@@ -5,6 +5,13 @@
 #include <stdint.h>
 
 #if PLATFORM_DEVICE && !defined(HOST)
+// On the calculator a reserved register holds the address of the game's state (see State
+// below): declared before any function, the headers' too.
+register struct State *g9 __asm__("r9");
+#endif
+#include "../../common/np_text.h"
+
+#if PLATFORM_DEVICE && !defined(HOST)
 // Freestanding build: the tiny libc subset the compiler may call.
 __attribute__((used, externally_visible)) void *memset(void *d, int c, size_t n) {
   uint8_t *p = d;
@@ -145,13 +152,18 @@ struct Rom {
   uint8_t obstacle_pct[12];
   uint8_t kinds[4];
   int8_t dx[4], dz[4];
-  char font_chars[30];
-  uint8_t font_w[29];
-  uint16_t font[29][10];
+  // (a language build has a V too, for French)
+  char font_chars[NP_TEXT_EXTRA ? 31 : 30];
+  uint8_t font_w[NP_TEXT_EXTRA ? 30 : 29];
+  uint16_t font[NP_TEXT_EXTRA ? 30 : 29][10];
   uint16_t hand_ol[14], hand_in[14];
   char save_name[15];
-  char s_crossy[7], s_road[5], s_new_top[8];
-  char s_quit[10], s_quit_q[11], s_no[3], s_yes[4];
+  char s_crossy[7], s_road[5];
+#if NP_TEXT_EXTRA
+  char s_new_top[24], s_quit[24], s_quit_q[24], s_no[8], s_yes[8];
+#else
+  char s_new_top[8], s_quit[10], s_quit_q[11], s_no[3], s_yes[4];
+#endif
 };
 
 struct State {
@@ -195,9 +207,8 @@ struct State {
 };
 
 #if PLATFORM_DEVICE && !defined(HOST)
-// On the calculator a reserved register holds its address.
+// On the calculator g9 (the register declared at the top) holds its address.
 static struct State state_mem;
-register struct State *g9 __asm__("r9");
 #define G (*g9)
 #else
 static struct State G;
@@ -426,8 +437,16 @@ static const struct Rom rom_init = {
   .dz = {1, 0, -1, 0},
   // Font: the original's blocky digits (decoded from the game) and matching
   // capitals. 10 rows; bit 11 is the leftmost column.
+#if NP_TEXT_EXTRA
+  .font_chars = "0123456789ACDEGILMNOPQRSTUWY?V",
+#else
   .font_chars = "0123456789ACDEGILMNOPQRSTUWY?",
-  .font_w = {10, 5, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 10, 12, 10, 10, 10, 10, 10, 10, 10, 10, 12, 10, 10},
+#endif
+  .font_w = {10, 5, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 4, 10, 12, 10, 10, 10, 10, 10, 10, 10, 10, 12, 10, 10,
+#if NP_TEXT_EXTRA
+             10,
+#endif
+  },
   .font = {
     GLYPH(0x1FE, 0x3FF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3FF, 0x1FE),  // 0
     GLYPH(0x3C0, 0x3E0, 0x1E0, 0x1E0, 0x1E0, 0x1E0, 0x1E0, 0x1E0, 0x1E0, 0x1E0),  // 1
@@ -458,6 +477,9 @@ static const struct Rom rom_init = {
     {0xF0F, 0xF0F, 0xF0F, 0xF6F, 0xF6F, 0xFFF, 0xFFF, 0xF9F, 0xF0F, 0xF0F},  // W
     GLYPH(0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3FF, 0x1FE, 0x078, 0x078, 0x078, 0x078),  // Y
     GLYPH(0x1FE, 0x3FF, 0x00F, 0x00F, 0x07E, 0x078, 0x078, 0x000, 0x078, 0x078),  // ?
+#if NP_TEXT_EXTRA
+    GLYPH(0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x3CF, 0x1CE, 0x1CE, 0x0FC, 0x0FC, 0x078),  // V
+#endif
   },
   // Pixel-art pointing hand (tap hint), 12x14: outline and fill masks.
   .hand_ol = {0x0E0, 0x1B0, 0x1B0, 0x1BE, 0x1B5, 0x7B5, 0x9D5, 0x8C1,
@@ -467,11 +489,11 @@ static const struct Rom rom_init = {
   .save_name = "crossyroad.sav",
   .s_crossy = "CROSSY",
   .s_road = "ROAD",
-  .s_new_top = "NEW TOP",
-  .s_quit = "QUIT GAME",
-  .s_quit_q = "QUIT GAME?",
-  .s_no = "NO",
-  .s_yes = "YES",
+  .s_new_top = T("NEW TOP"),
+  .s_quit = T("QUIT GAME"),
+  .s_quit_q = T("QUIT GAME?"),
+  .s_no = T("NO"),
+  .s_yes = T("YES"),
 };
 #endif
 
@@ -1593,10 +1615,41 @@ static NOINLINE int glyph_index(char ch) {
   return -1;
 }
 
+#if NP_TEXT_EXTRA
+// A letter of a translation the font has no glyph for: *s at its first byte, left at its last.
+// Returns the glyph of its plain letter (*acc its accent, see np_latin()), -1 for a space, or -2:
+// it comes from the 12-pixel font (games/common/np_text.h).
+static int xletter(const char **s, uint32_t *cp, int *acc) {
+  const char *q = *s;
+  char base = 0, second;
+  *cp = np_utf8(&q);
+  *s = q - 1;
+  *acc = *cp >= 0x80 ? np_latin(*cp, &base, &second) : 0;
+  if (base == ' ') return -1;
+  int g = base ? glyph_index(base) : -1;
+  return g < 0 ? -2 : g;
+}
+
+// one pixel of the 12-pixel font or of an accent, a sc x sc square grown like the font's runs
+typedef struct { int x, y, sc, c, gl, gt, gr, gb; } XPlot;
+static void xplot(int x, int y, void *ctx) {
+  XPlot *p = ctx;
+  fill_rect(p->x + x * p->sc - p->gl, p->y + y * p->sc - p->gt, p->sc + p->gl + p->gr, p->sc + p->gt + p->gb, p->c);
+}
+#endif
+
 static int text_width(const char *s, int sc) {
   int w = 0;
   for (; *s; s++) {
     int g = glyph_index(*s);
+#if NP_TEXT_EXTRA
+    uint32_t cp;
+    int acc;
+    if (g < 0 && *s != ' ' && (g = xletter(&s, &cp, &acc)) == -2) {
+      w += np_xadvance(cp, sc);
+      continue;
+    }
+#endif
     w += (g < 0 ? 4 : font_w[g] + 2) * sc;
   }
   return w - 2 * sc;
@@ -1609,6 +1662,20 @@ static void draw_text_x(int x, int y, const char *s, int sc, int c, int shear, i
   int cx = 0;
   for (; *s; s++) {
     int g = glyph_index(*s);
+#if NP_TEXT_EXTRA
+    uint32_t cp;
+    int acc = 0;
+    if (g < 0 && *s != ' ' && (g = xletter(&s, &cp, &acc)) == -2) {
+      // (its line of 12 pixels centred on the font's 10)
+      XPlot p = {x + cx * sc, y - sc, sc, c, gl, gt, gr, gb};
+      cx += np_xdraw(cp, 0, 0, 1, xplot, &p);
+      continue;
+    }
+    if (acc) {  // over the capital, a row above it
+      XPlot p = {x + (cx + (font_w[g] - 5) / 2) * sc, y - 3 * sc, sc, c, gl, gt, gr, gb};
+      np_accent(acc, 0, acc == NP_ACC_CEDIL ? 13 : 0, 1, xplot, &p);
+    }
+#endif
     if (g < 0) {
       cx += 4;
       continue;
@@ -1770,8 +1837,8 @@ static void render(void) {
       int x = -90 + (int)(t * 96);
       if (new_top) text_ol(x, 42, str_new_top, 1, C_WHITE);
       else {
-        char tb[20] = "TOP ";
-        itoa_(top_score, tb + 4);
+        char tb[NP_TEXT_EXTRA ? 40 : 20] = T("TOP ");
+        itoa_(top_score, tb + sizeof T("TOP ") - 1);
         text_ol(x, 42, tb, 1, C_WHITE);
       }
       float u = clampf((st_time - 0.3f) * 5, 0, 1);

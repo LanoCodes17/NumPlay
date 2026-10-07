@@ -1,0 +1,23 @@
+# 2048 in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+You win!	你赢了！
+Game over!	游戏结束！
+Paused	暂停
+Quit game?	退出游戏？
+Keep going	继续
+Try again	再来一局
+Undo	撤销
+Resume	继续
+New game	新游戏
+Quit game	退出游戏
+No	否
+Yes	是
+SCORE	分数
+BEST	最高分
+New best!	新纪录！
+\x7f Undo	\x7f 撤销
+~ Menu	~ 菜单
+Join the numbers and get to the 	合并数字，拼出 
+512 tile!	512 方块！
+2048 tile!	2048 方块！
+Continue	继续游戏
+Game by Gabriele Cirulli  -  based on Tatone26's version	原作 Gabriele Cirulli  -  改编自 Tatone26 的版本

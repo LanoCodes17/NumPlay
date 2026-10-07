@@ -1,0 +1,23 @@
+# 2048 in French: the English text as in the source, a tab, the translation (see tools/lang.py).
+You win!	Gagné !
+Game over!	Perdu !
+Paused	Pause
+Quit game?	Quitter ?
+Keep going	Continuer
+Try again	Rejouer
+Undo	Annuler
+Resume	Reprendre
+New game	Nouvelle partie
+Quit game	Quitter
+No	Non
+Yes	Oui
+SCORE	SCORE
+BEST	MEILLEUR
+New best!	Record !
+\x7f Undo	\x7f Annuler
+~ Menu	~ Menu
+Join the numbers and get to the 	Fusionne les nombres jusqu'à la 
+512 tile!	tuile 512 !
+2048 tile!	tuile 2048 !
+Continue	Continuer
+Game by Gabriele Cirulli  -  based on Tatone26's version	Jeu de Gabriele Cirulli  -  d'après la version de Tatone26

@@ -291,6 +291,8 @@ Champion Island needs Epsilon 25.2 or newer. To see your calculator's model and 
 
 **NumPlay-French.nwa** and **NumPlay-Chinese.nwa** are NumPlay with every game in French or in Chinese (simplified). Install them like NumPlay.nwa, instead of it. Your progress is the same in every language.
 
+A few things stay in English: logos and words drawn into pictures, level names, the calculator's key names, NumBlocks' commands, and Portal Returns' chamber stories. Celeste, Hollow Knight and Champion Island come in English only.
+
 ### On Upsilon
 
 Upsilon is custom software for the N0110 and N0115. It gives apps less memory than the calculator's own software, so **NumPlay-Upsilon.nwa** has the 13 games that fit: Crossy Road, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, 2048, Minesweeper, Block Breaker and NumVisuals.

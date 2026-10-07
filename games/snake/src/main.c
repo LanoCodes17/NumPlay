@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
+#include "../../common/np_text.h"
 
 #ifdef __ELF__ /* app name and API level, for the calculator's installer */
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "Snake";
@@ -839,11 +840,7 @@ static void darkness(void) {
 
 /* ------------------------------------------------------------------ text and panels */
 static int pass, ty0, ty1; /* 0: shapes into buf; 1: the text whose last row is in ty0..ty1 */
-static int slen(const char *s) {
-  int n = 0;
-  while (s[n]) n++;
-  return n;
-}
+static int slen(const char *s) { return np_text_cells(s); } /* (Chinese letters take two cells) */
 static void lab(const char *s, int x, int y, int large, color fg, color bg) {
   int b = y + (large ? 17 : 13);
   if (pass && b >= ty0 && b < ty1) eadk_display_draw_string(s, (eadk_point_t){(uint16_t)x, (uint16_t)y}, large, fg, bg);
@@ -898,15 +895,16 @@ static void button(const char *s, int x, int y, int w, int h, bool on, int ic) {
   clab(s, tx, y + (h - 18) / 2, 1, WHITE, c);
 }
 
-static const char *const ROWS[NOPT] = {"Fruit", "Mode", "Count", "Speed", "Size", "Color", "Theme"};
+static const char *const ROWS[NOPT] = {T("Fruit"), T("Mode"), T("Count"), T("Speed"), T("Size"), T("Color"), T("Theme")};
 static const char *const NAMES[] = {
-  "Apple", "Banana", "Pineapple", "Grapes", "Strawberry", "Cherries",
-  "Classic", "Wall", "Portal", "Cheese", "Borderless", "Twin", "Winged", "Yin Yang", "Statue", "Light", "Magnet", "Peaceful",
+  T("Apple"), T("Banana"), T("Pineapple"), T("Grapes"), T("Strawberry"), T("Cherries"),
+  T("Classic"), T("Wall"), T("Portal"), T("Cheese"), T("Borderless"), T("Twin"), T("Winged"), T("Yin Yang"), T("Statue"),
+  T("Light"), T("Magnet"), T("Peaceful"),
   "1", "3", "5",
-  "Normal", "Fast", "Slow",
-  "Normal", "Small", "Large",
-  "Blue", "Purple", "Pink", "Orange", "Yellow", "Teal", "White", "Black",
-  "Day", "Night", "Snow", "Volcano",
+  T("Normal"), T("Fast"), T("Slow"),
+  T("Normal"), T("Small"), T("Large"),
+  T("Blue"), T("Purple"), T("Pink"), T("Orange"), T("Yellow"), T("Teal"), T("White"), T("Black"),
+  T("Day"), T("Night"), T("Snow"), T("Volcano"),
 };
 static const char *name_of(int o, int v) {
   int b = 0;
@@ -939,12 +937,12 @@ static void title_card(void) {
   clab(t, 124, Y + 40, 1, WHITE, C_CARD);
   itoa(t, *best());
   clab(t, 196, Y + 40, 1, WHITE, C_CARD);
-  if (played && (won || newbest)) clab(won ? "You win!" : "New best!", 150, Y + 62, 0, RGB(0xFFF59D), C_CARD);
+  if (played && (won || newbest)) clab(won ? T("You win!") : T("New best!"), 150, Y + 62, 0, RGB(0xFFF59D), C_CARD);
 }
 
 /* the band on top, and the panel of the moment */
 static void ui(void) {
-  char t[24];
+  char t[NP_TEXT_EXTRA ? 48 : 24]; /* (a setting and its value: longer in other languages) */
   if (!pass) fruit(V.opt[O_FRUIT], 14, 12, 20), trophy(84, 13, 0.95f, c_bar);
   itoa(t, score);
   lab(t, 28, 3, 1, WHITE, c_bar);
@@ -964,18 +962,18 @@ static void ui(void) {
     case S_TITLE:
       if (!pass) dim();
       title_card();
-      button("Play", 62, 160, 195, 26, sel == 0, 1);
-      button("Settings", 62, 192, 195, 26, sel == 1, 2);
+      button(T("Play"), 62, 160, 195, 26, sel == 0, 1);
+      button(T("Settings"), 62, 192, 195, 26, sel == 1, 2);
       if (!pass) box(62, 223, 195, 16, 8, mix(0, c_bar, 18));
-      clab("Based on Tatone26's version", 160, 224, 0, RGB(0xC8D6BE), mix(0, c_bar, 18));
+      clab(T("Based on Tatone26's version"), 160, 224, 0, RGB(0xC8D6BE), mix(0, c_bar, 18));
       break;
     case S_SET: {
       const int X = 24, Y = 28, W = 272;
       if (!pass) dim();
       card(X, Y, W, 172);
-      cat(cat(cat(t, ROWS[row < NOPT ? row : 0]), ": "), name_of(row < NOPT ? row : 0, V.opt[row < NOPT ? row : 0]));
+      cat(cat(cat(t, ROWS[row < NOPT ? row : 0]), T(": ")), name_of(row < NOPT ? row : 0, V.opt[row < NOPT ? row : 0]));
       if (row < NOPT) clab(t, 160, Y + 5, 1, WHITE, C_CARD);
-      else clab("Settings", 160, Y + 5, 1, WHITE, C_CARD);
+      else clab(T("Settings"), 160, Y + 5, 1, WHITE, C_CARD);
       if (!pass) {
         blob(X + 14, Y + 14, X + 24, Y + 14, 1.3f, 1.3f, WHITE);
         blob(X + 14, Y + 14, X + 19, Y + 9, 1.3f, 1.3f, WHITE), blob(X + 14, Y + 14, X + 19, Y + 19, 1.3f, 1.3f, WHITE);
@@ -992,24 +990,24 @@ static void ui(void) {
           }
         }
       }
-      static const char *const B[3] = {"Play", "Shuffle", "Reset"};
+      static const char *const B[3] = {T("Play"), T("Shuffle"), T("Reset")};
       for (int i = 0; i < 3; i++) button(B[i], 24 + i * 94, 208, 84, 26, row == NOPT && sel == i, i ? i + 2 : 1);
       break;
     }
     case S_PAUSE:
       if (!pass) dim();
       card(70, 44, 180, 164);
-      clab("Paused", 160, 56, 1, WHITE, C_CARD);
-      button("Resume", 86, 88, 148, 28, sel == 0, 1);
-      button("Restart", 86, 124, 148, 28, sel == 1, 0);
-      button("Quit game", 86, 160, 148, 28, sel == 2, 0);
+      clab(T("Paused"), 160, 56, 1, WHITE, C_CARD);
+      button(T("Resume"), 86, 88, 148, 28, sel == 0, 1);
+      button(T("Restart"), 86, 124, 148, 28, sel == 1, 0);
+      button(T("Quit game"), 86, 160, 148, 28, sel == 2, 0);
       break;
     case S_QUIT:
       if (!pass) dim();
       card(76, 72, 168, 104);
-      clab("Quit game?", 160, 88, 1, WHITE, C_CARD);
-      button("No", 92, 128, 60, 28, sel == 0, 0);
-      button("Yes", 168, 128, 60, 28, sel == 1, 0);
+      clab(T("Quit game?"), 160, 88, 1, WHITE, C_CARD);
+      button(T("No"), 92, 128, 60, 28, sel == 0, 0);
+      button(T("Yes"), 168, 128, 60, 28, sel == 1, 0);
       break;
   }
 }

@@ -1,0 +1,62 @@
+# Snake in French: the English text as in the source, a tab, the translation (see tools/lang.py).
+Fruit	Fruit
+Mode	Mode
+Count	Nombre
+Speed	Vitesse
+Size	Taille
+Color	Couleur
+Theme	Thème
+Apple	Pomme
+Banana	Banane
+Pineapple	Ananas
+Grapes	Raisin
+Strawberry	Fraise
+Cherries	Cerises
+Classic	Classique
+Wall	Mur
+Portal	Portail
+Cheese	Fromage
+Borderless	Sans bords
+Twin	Jumeaux
+Winged	Ailé
+Yin Yang	Yin Yang
+Statue	Statue
+Light	Lumière
+Magnet	Aimant
+Peaceful	Paisible
+# (a speed and a size: both feminine, "Vitesse : Normale", "Taille : Normale")
+Normal	Normale
+Fast	Rapide
+Slow	Lente
+Small	Petite
+Large	Grande
+Blue	Bleu
+Purple	Violet
+Pink	Rose
+Orange	Orange
+Yellow	Jaune
+Teal	Turquoise
+White	Blanc
+Black	Noir
+Day	Jour
+Night	Nuit
+Snow	Neige
+Volcano	Volcan
+You win!	Gagné !
+New best!	Record !
+Play	Jouer
+Settings	Réglages
+Based on Tatone26's version	D'après Tatone26
+# between a setting and its value
+: 	 : 
+# (the three buttons under the settings are narrow: 6 letters at most)
+Shuffle	Hasard
+Reset	Défaut
+Paused	Pause
+Resume	Reprendre
+Restart	Recommencer
+Quit game	Quitter
+# (the card is narrow)
+Quit game?	Quitter ?
+No	Non
+Yes	Oui

@@ -1,0 +1,55 @@
+# Solitaire in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+# The calculator's fonts: a Chinese letter takes two cells.
+Score	得分
+Moves	步数
+NEW	新局
+UNDO	撤销
+No more passes	不能再翻牌了
+Nothing to undo	没有可撤销的
+Draw a card	翻一张牌
+No more moves	无路可走了
+Hint	提示
+Not there	不能放这里
+Yes	是
+No	否
+OK	OK
+Resume	继续
+Restart	重新开始
+New game	新游戏
+Quit game	退出游戏
+Nothing to play	没有可收的牌
+Paused	暂停
+Solitaire	纸牌接龙
+Quit game?	退出游戏？
+Time: 	用时：
+ seconds\nMoves: 	 秒\n步数：
+\nScore: 	\n得分：
+\n\nPlay again?	\n\n再玩一局？
+You win!	你赢了！
+Options	选项
+Stats	统计
+Help	帮助
+Choose your difficulty	选择难度
+HARD	困难
+EASY	简单
+Continue	继续
+Standard	标准
+Vegas	维加斯
+None	无
+Timed game	计时
+Keep score	累计得分
+Scoring	计分
+Game	游戏
+Card back	牌背
+Games played: 	已玩局数：
+\nGames won: 	\n胜局：
+%)	%)
+\nStreak: 	\n连胜：
+   Best: 	   最佳：
+\nBest time: 	\n最快用时：
+\nBest score: 	\n最高分：
+\nVegas bank: 	\n维加斯累计：
+Statistics	统计
+How to play	玩法
+# (the keys line up: 11 cells for a key, a Chinese letter takes two)
+Build the four suits up, ace to\nking, on the right. In the columns,\ngo down, alternating red and black.\nOK         Pick up, put down\nOK twice   Send to its foundation\nUp, Down   Pick more or fewer\nEXE        Draw from the deck\nToolbox    Play all you can up\nBackspace  Undo      Shift  Hint	把四种花色从 A 到 K\n依次叠到右边。各列中按\n红黑相间、从大到小排列。\nOK         拿起、放下\nOK 两次    送到右边\n上、下     多拿或少拿\nEXE        从牌堆翻牌\n工具箱     收起所有能收的牌\n退格       撤销      Shift  提示

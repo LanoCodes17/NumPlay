@@ -1631,10 +1631,19 @@ static int xletter(const char **s, uint32_t *cp, int *acc) {
 }
 
 // one pixel of the 12-pixel font or of an accent, a sc x sc square grown like the font's runs
-typedef struct { int x, y, sc, c, gl, gt, gr, gb; } XPlot;
+typedef struct { int x, y, sc, c, gl, gt, gr, gb; void *owner; } XPlot;
 static void xplot(int x, int y, void *ctx) {
   XPlot *p = ctx;
+#if PLATFORM_DEVICE && !defined(HOST)
+  // NumPlay's text functions call this, and their code may use r9 for themselves: the game's
+  // state goes back in it for the drawing, and theirs after.
+  struct State *theirs = g9;
+  g9 = p->owner;
+#endif
   fill_rect(p->x + x * p->sc - p->gl, p->y + y * p->sc - p->gt, p->sc + p->gl + p->gr, p->sc + p->gt + p->gb, p->c);
+#if PLATFORM_DEVICE && !defined(HOST)
+  g9 = theirs;
+#endif
 }
 #endif
 
@@ -1667,12 +1676,12 @@ static void draw_text_x(int x, int y, const char *s, int sc, int c, int shear, i
     int acc = 0;
     if (g < 0 && *s != ' ' && (g = xletter(&s, &cp, &acc)) == -2) {
       // (its line of 12 pixels centred on the font's 10)
-      XPlot p = {x + cx * sc, y - sc, sc, c, gl, gt, gr, gb};
+      XPlot p = {x + cx * sc, y - sc, sc, c, gl, gt, gr, gb, &G};
       cx += np_xdraw(cp, 0, 0, 1, xplot, &p);
       continue;
     }
     if (acc) {  // over the capital, a row above it
-      XPlot p = {x + (cx + (font_w[g] - 5) / 2) * sc, y - 3 * sc, sc, c, gl, gt, gr, gb};
+      XPlot p = {x + (cx + (font_w[g] - 5) / 2) * sc, y - 3 * sc, sc, c, gl, gt, gr, gb, &G};
       np_accent(acc, 0, acc == NP_ACC_CEDIL ? 13 : 0, 1, xplot, &p);
     }
 #endif

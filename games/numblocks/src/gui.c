@@ -104,6 +104,57 @@ static const uint8_t sym_bits[5][8] = {{0x00, 0x3F, 0x12, 0x12, 0x12, 0x12, 0x21
                                        {0x00, 0x04, 0x00, 0x1F, 0x00, 0x04, 0x00, 0x00}};
 static const uint8_t sym_w[5] = {7, 8, 9, 6, 6};
 static int char_w(int c) { return c >= 1 && c <= 5 ? sym_w[c - 1] : c >= 32 && c < 127 ? font_w[c - 32] : 0; }
+#if NP_TEXT_EXTRA
+/* Other languages: an accented letter is the font's own with np_accent() in the two rows over lowercase letters
+ * (a capital under it as a small capital: its rows 0, 1, 2, 4 and 6), a cedilla under it; an accented i three
+ * columns wide, as Minecraft's are; œ and æ two letters sharing a column. Chinese comes from the 12-pixel font
+ * (11 pixels tall), its line's top 2 pixels over the text's; a Chinese build's lines are further apart (TALL). */
+#define TALL ((uint8_t)T("Done")[0] >= 0xE0)
+static uint16_t pen;
+static void pen_px(int x, int y, void *ctx) {
+  if (y >= clip_y0 && y < clip_y1 && (unsigned)x < SCREEN_W) row_at(y)[x] = pen;
+}
+static void glyph(int c, int x, int y, int scale, bool small, int from) {
+  static const int8_t small_rows[8] = {-1, -1, 0, 1, 2, 4, 6, 7};
+  const uint8_t *g = c < 32 ? sym_bits[c - 1] : font_bits + (c - 32) * 8;
+  for (int j = 0; j < 8; j++) {
+    int r = small ? small_rows[j] : j;
+    if (r < from) continue;
+    for (int k = 0; k < 8; k++)
+      if (g[r] >> k & 1)
+        for (int a = 0; a < scale * scale; a++) pen_px(x + k * scale + a % scale, y + j * scale + a / scale, 0);
+  }
+}
+/* draws (if draw) the next letter of *s at (x, y) in pen, each font pixel scale x scale; returns its advance */
+static int letter(const char **s, int x, int y, int scale, bool draw) {
+  uint32_t cp = np_utf8(s);
+  char b = (char)cp, b2 = 0;
+  int acc = 0;
+  if (cp >= 0x80 && (acc = np_latin(cp, &b, &b2), !b)) {
+    if (draw) np_xdraw(cp, x, y - 2 * scale, scale, pen_px, 0);
+    return np_xadvance(cp, scale);
+  }
+  if (!char_w((uint8_t)b)) return 0;
+  bool over = acc && acc != NP_ACC_CEDIL, thin = acc && (b == 'i' || b == 'I');
+  int w = b == 'i' && acc ? 4 : char_w((uint8_t)b), lig = (b2 | 32) == 'e' ? 2 : 0;
+  if (draw) {
+    glyph(b, b == 'i' && acc ? x + scale : x, y, scale, over && b >= 'A' && b <= 'Z', b == 'i' && acc);
+    np_accent(acc, thin ? x - scale : x, acc == NP_ACC_CEDIL ? y + 7 * scale : y, scale, pen_px, 0);
+    if (b2) glyph(b2, x + (w - lig) * scale, y, scale, false, 0);
+  }
+  return (w + (b2 ? char_w((uint8_t)b2) - lig : 0)) * scale;
+}
+int text_width(const char *s) {
+  int w = 0;
+  while (*s) w += letter(&s, 0, 0, 1, false);
+  return w;
+}
+static void glyphs(const char *s, int x, int y, uint16_t col, int scale) {
+  pen = col;
+  while (*s) x += letter(&s, x, y, scale, true);
+}
+#else
+#define TALL 0
 int text_width(const char *s) {
   int w = 0;
   for (; *s; s++) w += char_w((unsigned char)*s);
@@ -126,16 +177,17 @@ static void glyphs(const char *s, int x, int y, uint16_t col, int scale) {
     x += char_w(c) * scale;
   }
 }
+#endif
 /* drawStringWithShadow: the shadow is the colour at a quarter, one pixel down and right */
 static void text(const char *s, int x, int y, uint16_t col, bool shadow) {
-  if (y + 9 <= clip_y0 || y >= clip_y1) return;
+  if (y + (NP_TEXT_EXTRA ? 11 : 9) <= clip_y0 || y - (NP_TEXT_EXTRA ? 2 : 0) >= clip_y1) return;
   if (shadow) glyphs(s, x + 1, y + 1, (uint16_t)((col >> 2) & 0x39E7), 1);
   glyphs(s, x, y, col, 1);
 }
 static void text_center(const char *s, int cx, int y, uint16_t col) { text(s, cx - text_width(s) / 2, y, col, true); }
 static void text_big(const char *s, int cx, int y, uint16_t col, int scale) {
   int w = text_width(s) * scale;
-  if (y + 9 * scale <= clip_y0 || y >= clip_y1) return;
+  if (y + (NP_TEXT_EXTRA ? 11 : 9) * scale <= clip_y0 || y - (NP_TEXT_EXTRA ? 2 * scale : 0) >= clip_y1) return;
   glyphs(s, cx - w / 2 + scale, y + scale, (uint16_t)((col >> 2) & 0x39E7), scale);
   glyphs(s, cx - w / 2, y, col, scale);
 }
@@ -209,6 +261,19 @@ static int chat_age(int i) { return (uint16_t)(chat_clock - ((uint8_t)chat[i + 1
 
 /* how much of s fits on a line w pixels wide: up to a space if it can (FontRenderer.sizeStringToWidth) */
 static int wrap_len(const char *s, int w) {
+#if NP_TEXT_EXTRA /* (by letter; a line may end after a Chinese one too) */
+  int x = 0, sp = -1;
+  const char *p = s;
+  while (*p) {
+    int i = (int)(p - s);
+    bool wide = (uint8_t)*p >= 0xE0;
+    if (*p == ' ') sp = i;
+    x += letter(&p, 0, 0, 1, false);
+    if (x > w) return sp > 0 ? sp : i > 0 ? i : (int)(p - s);
+    if (wide) sp = (int)(p - s);
+  }
+  return (int)(p - s);
+#else
   int x = 0, i = 0, sp = -1;
   for (; s[i]; i++) {
     if (s[i] == ' ') sp = i;
@@ -216,16 +281,18 @@ static int wrap_len(const char *s, int w) {
     if (x > w) return sp > 0 ? sp : i > 0 ? i : 1;
   }
   return i;
+#endif
 }
 
 /* GuiNewChat.drawChat: the newest at the bottom, 9 pixels a line on a dark band; each fades out after
  * 10 seconds (10 lines at most), or with the chat open all of them (20 lines) */
+#define CHAT_H (TALL ? 12 : 9)   /* a line's height */
 static void chat_lines(void) {
   bool open = gui == GUI_CHAT;
-  if (SCREEN_H - 28 - (open ? 20 : 10) * 9 >= clip_y1 || SCREEN_H - 28 <= clip_y0) return;
+  if (SCREEN_H - 28 - (open ? 20 : 10) * CHAT_H >= clip_y1 || SCREEN_H - 28 <= clip_y0) return;
   int at[64], n = 0;
   for (int i = 0; i < chat_used && n < 64; i += chat_size(i)) at[n++] = i;
-  int line = 0, most = open ? 20 : 10;
+  int line = 0, most = open ? (TALL ? 15 : 20) : 10;
   for (int m = n - 1; m >= 0 && line < most; m--) {
     int age = chat_age(at[m]), a = 32;
     if (!open) {
@@ -243,14 +310,14 @@ static void chat_lines(void) {
       if (*s == ' ') s++;
     }
     for (int j = k - 1; j >= 0 && line < most; j--, line++) {
-      int y = SCREEN_H - 28 - line * 9;
-      if (y <= clip_y0 || y - 9 >= clip_y1) continue;
-      tint_rect(2, y - 9, SCREEN_W - 2, 9, 0, a / 2);
+      int y = SCREEN_H - 28 - line * CHAT_H;
+      if (y <= clip_y0 || y - CHAT_H >= clip_y1) continue;
+      tint_rect(2, y - CHAT_H, SCREEN_W - 2, CHAT_H, 0, a / 2);
       if (a > 3) {
-        char t[64];
-        int l = ll[j] < 63 ? ll[j] : 63;
+        char t[NP_TEXT_EXTRA ? 96 : 64];
+        int l = ll[j] < (int)sizeof t - 1 ? ll[j] : (int)sizeof t - 1;
         memcpy(t, ls[j], (size_t)l), t[l] = 0;
-        text(t, 2, y - 8, chat_col[(int)chat[at[m]]], true);
+        text(t, 2, y - 8 - (TALL ? 1 : 0), chat_col[(int)chat[at[m]]], true);
       }
     }
   }
@@ -483,6 +550,33 @@ static const uint16_t tab_icon[12] = {B_BRICKS, B_PEONY_LOWER, I_REDSTONE, B_RAI
 #define TAB_SEARCH 5
 static char csearch[16];   /* Search Items: what is typed (GuiContainerCreative.searchField) */
 /* an item whose name has what is typed in it (updateCreativeSearch) */
+#if NP_TEXT_EXTRA
+/* (other languages: accented letters found by their plain letter; and by Minecraft's name, typed with spaces for
+ * its _, as letters typed can't be Chinese ones) */
+static bool has(const char *n) {
+  for (; *n; n++) {
+    const char *p = n;
+    int k = 0;
+    for (; csearch[k] && *p; k++) {
+      uint32_t c = np_utf8(&p);
+      char b = (char)c, b2;
+      if (c >= 0x80) np_latin(c, &b, &b2);
+      if (((b == '_' ? ' ' : b) | 32) != csearch[k]) break;
+    }
+    if (!csearch[k]) return true;
+  }
+  return false;
+}
+static bool found(int id) {
+  if (!csearch[0] || has(item_label(id))) return true;
+  for (int g = 0; g < n_give; g++)
+    if (give_id[g] == id) {
+      int k = give_key[g] >> 4;
+      return has(k < 256 ? mc_block_name[k] : mc_item_name[k - 256]);
+    }
+  return false;
+}
+#else
 static bool found(int id) {
   const char *n = item_label(id);
   for (; *n; n++) {
@@ -492,6 +586,7 @@ static bool found(int id) {
   }
   return !csearch[0];
 }
+#endif
 static int tab_count(void) {
   int n = tab_start[ctab + 1] - tab_start[ctab];
   if (ctab != TAB_SEARCH || !csearch[0]) return n;
@@ -843,7 +938,7 @@ static void move_cursor(int dx, int dy) {
 /* ---------------------------------------------------------------- menus
  * GuiMainMenu, GuiSelectWorld, GuiCreateWorld, GuiYesNo, GuiOptions,
  * GuiIngameMenu, GuiGameOver: their buttons where 1.8 puts them. */
-typedef struct { int16_t x, y, w; uint8_t on, id; char label[32]; } Button;
+typedef struct { int16_t x, y, w; uint8_t on, id; char label[NP_TEXT_EXTRA ? 48 : 32]; } Button;
 static Button buttons[12];
 static int nbuttons, bcur;
 enum { B_NO, B_SINGLE, B_OPTIONS, B_QUITAPP, B_PLAY, B_CREATE, B_DELETE, B_CANCEL, B_MODE, B_SEED, B_DOCREATE,
@@ -926,7 +1021,10 @@ static void field_input(void) {
     else if (k <= 3) f_sel = false;   /* (the arrows) */
     else if (k == RK_BACKSPACE) {
       if (f_sel) t[n = 0] = 0, f_sel = false;
-      else if (n > 0) t[--n] = 0;
+      else if (n > 0) {
+        while (NP_TEXT_EXTRA && n > 1 && (t[n - 1] & 0xC0) == 0x80) n--;   /* (a whole letter) */
+        t[--n] = 0;
+      }
     } else if (k == RK_OK || k == RK_EXE || k == RK_BACK) {
       if (gui == GUI_RENAME && k != RK_BACK && name_text[0]) {
         /* (OK in the rename screen's field: rename, as Enter does) */
@@ -1068,8 +1166,8 @@ static void chat_input(void) {
 static void chat_screen(void) {
   if (clip_y0 < 22) {
     tint_rect(0, 0, SCREEN_W, 22, 0, 16);
-    text_center("alpha: abc/123   shift: Abc   toolbox: finish the word", SCREEN_W / 2, 2, RGB(0xA0, 0xA0, 0xA0));
-    text_center("x,n,t  :     var  _     x10^x  ~     ans  space     0  @", SCREEN_W / 2, 12, RGB(0xA0, 0xA0, 0xA0));
+    text_center(T("alpha: abc/123   shift: Abc   toolbox: finish the word"), SCREEN_W / 2, 2, RGB(0xA0, 0xA0, 0xA0));
+    text_center(T("x,n,t  :     var  _     x10^x  ~     ans  space     0  @"), SCREEN_W / 2, 12, RGB(0xA0, 0xA0, 0xA0));
   }
   if (clip_y1 <= SCREEN_H - 14) return;
   tint_rect(2, SCREEN_H - 14, SCREEN_W - 4, 12, 0, 16);
@@ -1085,7 +1183,7 @@ static void add_button(int x, int y, int w, int on, int id, const char *label) {
   Button *b = &buttons[nbuttons++];
   *b = (Button){(int16_t)x, (int16_t)y, (int16_t)w, (uint8_t)on, (uint8_t)id, {0}};
   int i = 0;
-  for (; label[i] && i < 31; i++) b->label[i] = label[i];
+  for (; label[i] && i < (int)sizeof b->label - 1; i++) b->label[i] = label[i];
   b->label[i] = 0;
 }
 static void cat(char *d, const char *a, const char *b) {
@@ -1097,92 +1195,92 @@ static void cat(char *d, const char *a, const char *b) {
 static void menu(int screen) {
   nbuttons = 0;
   int w = SCREEN_W, h = SCREEN_H;
-  char t[40];
+  char t[NP_TEXT_EXTRA ? 64 : 40];
   switch (screen) {
     case GUI_TITLE: {
       int j = h / 4 + 48;
-      add_button(w / 2 - 100, j, 200, 1, B_SINGLE, "Singleplayer");
-      add_button(w / 2 - 100, j + 24, 200, 0, B_NO, "Multiplayer");
-      add_button(w / 2 - 100, j + 72 + 12 - 24, 98, 1, B_OPTIONS, "Options...");
-      add_button(w / 2 + 2, j + 72 + 12 - 24, 98, 1, B_QUITAPP, "Quit Game");
+      add_button(w / 2 - 100, j, 200, 1, B_SINGLE, T("Singleplayer"));
+      add_button(w / 2 - 100, j + 24, 200, 0, B_NO, T("Multiplayer"));
+      add_button(w / 2 - 100, j + 72 + 12 - 24, 98, 1, B_OPTIONS, T("Options..."));
+      add_button(w / 2 + 2, j + 72 + 12 - 24, 98, 1, B_QUITAPP, T("Quit Game"));
       break;
     }
     case GUI_WORLDS: {
       bool any = nworlds > 0;
-      add_button(w / 2 - 154, h - 52, 150, any, B_PLAY, "Play Selected World");
-      add_button(w / 2 + 4, h - 52, 150, world_free_slot() != 0, B_CREATE, "Create New World");
-      add_button(w / 2 - 154, h - 28, 72, any, B_RENAME, "Rename");
-      add_button(w / 2 - 76, h - 28, 72, any, B_DELETE, "Delete");
-      add_button(w / 2 + 4, h - 28, 72, any && world_free_slot() != 0, B_RECREATE, "Re-Create");
-      add_button(w / 2 + 82, h - 28, 72, 1, B_CANCEL, "Cancel");
+      add_button(w / 2 - 154, h - 52, 150, any, B_PLAY, T("Play Selected World"));
+      add_button(w / 2 + 4, h - 52, 150, world_free_slot() != 0, B_CREATE, T("Create New World"));
+      add_button(w / 2 - 154, h - 28, 72, any, B_RENAME, T("Rename"));
+      add_button(w / 2 - 76, h - 28, 72, any, B_DELETE, T("Delete"));
+      add_button(w / 2 + 4, h - 28, 72, any && world_free_slot() != 0, B_RECREATE, T("Re-Create"));
+      add_button(w / 2 + 82, h - 28, 72, 1, B_CANCEL, T("Cancel"));
       break;
     }
     case GUI_CREATE:
       add_button(w / 2 - 100, 60, 200, 1, B_NAME, name_text);   /* (drawn as a field) */
-      cat(t, "Game Mode: ", create_mode ? "Creative" : "Survival");
+      cat(t, T("Game Mode: "), create_mode ? T("Creative") : T("Survival"));
       add_button(w / 2 - 155, 100, 150, 1, B_MODE, t);
-      cat(t, "Allow Cheats: ", create_cheats ? "ON" : "OFF");
+      cat(t, T("Allow Cheats: "), create_cheats ? T("ON") : T("OFF"));
       add_button(w / 2 + 5, 100, 150, 1, B_CHEATS, t);
-      cat(t, "Seed: ", seed_text[0] ? seed_text : (field == F_SEED ? "" : "(random)"));
+      cat(t, T("Seed: "), seed_text[0] ? seed_text : (field == F_SEED ? "" : T("(random)")));
       add_button(w / 2 - 100, 146, 200, 1, B_SEED, t);
-      cat(t, "World Type: ", create_type == WT_FLAT ? "Superflat" : "Default");
+      cat(t, T("World Type: "), create_type == WT_FLAT ? T("Superflat") : T("Default"));
       add_button(w / 2 - 100, 182, 200, 1, B_TYPE, t);
-      add_button(w / 2 - 155, h - 28, 150, 1, B_DOCREATE, "Create New World");
-      add_button(w / 2 + 5, h - 28, 150, 1, B_CANCEL, "Cancel");
+      add_button(w / 2 - 155, h - 28, 150, 1, B_DOCREATE, T("Create New World"));
+      add_button(w / 2 + 5, h - 28, 150, 1, B_CANCEL, T("Cancel"));
       break;
     case GUI_RENAME:
       /* GuiRenameWorld */
       add_button(w / 2 - 100, 60, 200, 1, B_NAME, name_text);
-      add_button(w / 2 - 100, h / 4 + 96 + 12, 200, name_text[0] != 0, B_DORENAME, "Rename");
-      add_button(w / 2 - 100, h / 4 + 120 + 12, 200, 1, B_CANCEL, "Cancel");
+      add_button(w / 2 - 100, h / 4 + 96 + 12, 200, name_text[0] != 0, B_DORENAME, T("Rename"));
+      add_button(w / 2 - 100, h / 4 + 120 + 12, 200, 1, B_CANCEL, T("Cancel"));
       break;
     case GUI_CONFIRM:
-      add_button(w / 2 - 155, h / 6 + 96, 150, 1, B_DODELETE, "Delete");
-      add_button(w / 2 + 5, h / 6 + 96, 150, 1, B_CANCEL, "Cancel");
+      add_button(w / 2 - 155, h / 6 + 96, 150, 1, B_DODELETE, T("Delete"));
+      add_button(w / 2 + 5, h / 6 + 96, 150, 1, B_CANCEL, T("Cancel"));
       break;
     case GUI_OPTIONS: {
-      static const char *const diff[4] = {"Peaceful", "Easy", "Normal", "Hard"};
-      cat(t, "Difficulty: ", diff[opt.difficulty & 3]);
+      static const char *const diff[4] = {T("Peaceful"), T("Easy"), T("Normal"), T("Hard")};
+      cat(t, T("Difficulty: "), diff[opt.difficulty & 3]);
       add_button(w / 2 - 155, h / 6 - 12, 150, 1, B_DIFF, t);
-      cat(t, "Graphics: ", opt.fancy ? "Fancy" : "Fast");
+      cat(t, T("Graphics: "), opt.fancy ? T("Fancy") : T("Fast"));
       add_button(w / 2 + 5, h / 6 - 12, 150, 1, B_GFX, t);
       char n[8];
       number(opt.look, n);
-      cat(t, "Look Speed: ", n);
+      cat(t, T("Look Speed: "), n);
       int k = (int)strlen(t);
       t[k] = '%', t[k + 1] = 0;
       add_button(w / 2 - 155, h / 6 + 12, 150, 1, B_LOOK, t);
-      cat(t, "Clouds: ", opt.clouds ? "ON" : "OFF");
+      cat(t, T("Clouds: "), opt.clouds ? T("ON") : T("OFF"));
       add_button(w / 2 + 5, h / 6 + 12, 150, 1, B_CLOUDS, t);
-      cat(t, "View Bobbing: ", opt.bobbing ? "ON" : "OFF");
+      cat(t, T("View Bobbing: "), opt.bobbing ? T("ON") : T("OFF"));
       add_button(w / 2 - 155, h / 6 + 36, 150, 1, B_BOB, t);
-      add_button(w / 2 + 5, h / 6 + 36, 150, 1, B_CONTROLS, "Controls...");
-      add_button(w / 2 - 100, h / 6 + 168, 200, 1, B_DONE, "Done");
+      add_button(w / 2 + 5, h / 6 + 36, 150, 1, B_CONTROLS, T("Controls..."));
+      add_button(w / 2 - 100, h / 6 + 168, 200, 1, B_DONE, T("Done"));
       break;
     case GUI_CONTROLS:
-      add_button(w / 2 - 100, h - 22, 200, 1, B_CONTROLS_DONE, "Done");
+      add_button(w / 2 - 100, h - 22, 200, 1, B_CONTROLS_DONE, T("Done"));
       break;
     }
     case GUI_PAUSE:
-      add_button(w / 2 - 100, h / 4 + 24 - 16, 200, 1, B_BACK_GAME, "Back to Game");
-      add_button(w / 2 - 100, h / 4 + 48 - 16, 98, 0, B_NO, "Achievements");
-      add_button(w / 2 + 2, h / 4 + 48 - 16, 98, 0, B_NO, "Statistics");
-      add_button(w / 2 - 100, h / 4 + 96 - 16, 98, 1, B_OPTIONS, "Options...");
-      add_button(w / 2 + 2, h / 4 + 96 - 16, 98, !lan_open, B_LAN, "Open to LAN");
-      add_button(w / 2 - 100, h / 4 + 120 - 16, 200, 1, B_SAVEQUIT, "Save and Quit to Title");
+      add_button(w / 2 - 100, h / 4 + 24 - 16, 200, 1, B_BACK_GAME, T("Back to Game"));
+      add_button(w / 2 - 100, h / 4 + 48 - 16, 98, 0, B_NO, T("Achievements"));
+      add_button(w / 2 + 2, h / 4 + 48 - 16, 98, 0, B_NO, T("Statistics"));
+      add_button(w / 2 - 100, h / 4 + 96 - 16, 98, 1, B_OPTIONS, T("Options..."));
+      add_button(w / 2 + 2, h / 4 + 96 - 16, 98, !lan_open, B_LAN, T("Open to LAN"));
+      add_button(w / 2 - 100, h / 4 + 120 - 16, 200, 1, B_SAVEQUIT, T("Save and Quit to Title"));
       break;
     case GUI_LAN:
       /* GuiShareToLan */
-      cat(t, "Game Mode: ", lan_mode ? "Creative" : "Survival");
+      cat(t, T("Game Mode: "), lan_mode ? T("Creative") : T("Survival"));
       add_button(w / 2 - 155, 100, 150, 1, B_LAN_MODE, t);
-      cat(t, "Allow Cheats: ", lan_allow ? "ON" : "OFF");
+      cat(t, T("Allow Cheats: "), lan_allow ? T("ON") : T("OFF"));
       add_button(w / 2 + 5, 100, 150, 1, B_LAN_CHEATS, t);
-      add_button(w / 2 - 155, h - 28, 150, 1, B_LAN_START, "Start LAN World");
-      add_button(w / 2 + 5, h - 28, 150, 1, B_CANCEL, "Cancel");
+      add_button(w / 2 - 155, h - 28, 150, 1, B_LAN_START, T("Start LAN World"));
+      add_button(w / 2 + 5, h - 28, 150, 1, B_CANCEL, T("Cancel"));
       break;
     case GUI_DEATH:
-      add_button(w / 2 - 100, h / 4 + 72, 200, 1, B_RESPAWN, "Respawn");
-      add_button(w / 2 - 100, h / 4 + 96, 200, 1, B_TITLE, "Title screen");
+      add_button(w / 2 - 100, h / 4 + 72, 200, 1, B_RESPAWN, T("Respawn"));
+      add_button(w / 2 - 100, h / 4 + 96, 200, 1, B_TITLE, T("Title screen"));
       break;
   }
   if (bcur >= nbuttons || !buttons[bcur].on)
@@ -1228,14 +1326,14 @@ static void press(int id) {
       create_mode = 0, create_type = WT_DEFAULT;
       create_cheats = cheats_set = false;
       seed_text[0] = 0;
-      world_unique_name("New World", name_text);
+      world_unique_name(T("New World"), name_text);
       gui_menu(GUI_CREATE);
       break;
     case B_RECREATE: {
       /* GuiCreateWorld.func_146318_a: a new world as the selected one began, "Copy of" its name */
       if (!selected(&wi)) break;
       char n[WORLD_NAME + 9];
-      cat(n, "Copy of ", wi.name);
+      cat(n, T("Copy of "), wi.name);
       n[WORLD_NAME] = 0;
       world_unique_name(n, name_text);
       create_mode = wi.mode;
@@ -1417,6 +1515,10 @@ static void dirt_background(void) {
 /* ---------------------------------------------------------------- the key sheet */
 /* a key's name, a character after ^ raised (x^y) */
 static void key_text(const char *s, int cx, int y, uint16_t col) {
+  if (NP_TEXT_EXTRA && !strchr(s, '^')) {
+    text(s, cx - text_width(s) / 2, y, col, true);
+    return;
+  }
   int w = 0;
   for (const char *c = s; *c; c++) w += *c == '^' ? 0 : char_w((unsigned char)*c);
   int x = cx - w / 2;
@@ -1458,25 +1560,25 @@ static void arrow_pad(int cx, int cy, int r) {
     fill(cx - r + 3 + i, cy - i, 1, 2 * i, 0xFFFF);
     fill(cx + r - 4 - i, cy - i, 1, 2 * i, 0xFFFF);
   }
-  text_center("Look", cx, cy - 4, RGB(0xFF, 0xFF, 0xA0));
+  text_center(T("Look"), cx, cy - 4, RGB(0xFF, 0xFF, 0xA0));
 }
 /* ---------------------------------------------------------------- the keys (KeyBinding) */
 typedef struct { uint32_t bit; uint8_t key; const char *name, *what; } Action;
 /* (what: the key sheet's word for it; key: where it starts) */
 static const Action actions[N_ACTIONS] = {
-    {K_ATTACK, 4, "Attack/Destroy", "Mine, attack"}, {0, 20, "Pick Block", "Pick block"},
-    {K_USE, 5, "Use Item/Place Block", "Place, use"}, {K_DROP, 14, "Drop Item", "Drop"},
-    {K_SLOT1, 42, "Hotbar Slot 1", "Slot 1"}, {K_SLOT1 << 1, 43, "Hotbar Slot 2", "Slot 2"},
-    {K_SLOT1 << 2, 44, "Hotbar Slot 3", "Slot 3"}, {K_SLOT1 << 3, 36, "Hotbar Slot 4", "Slot 4"},
-    {K_SLOT1 << 4, 37, "Hotbar Slot 5", "Slot 5"}, {K_SLOT1 << 5, 38, "Hotbar Slot 6", "Slot 6"},
-    {K_SLOT1 << 6, 30, "Hotbar Slot 7", "Slot 7"}, {K_SLOT1 << 7, 31, "Hotbar Slot 8", "Slot 8"},
-    {K_SLOT1 << 8, 32, "Hotbar Slot 9", "Slot 9"}, {K_INV, 15, "Inventory", "Inventory"},
-    {K_PAUSE, 51, "Pause", "Pause"}, {K_JUMP, 12, "Jump", "Jump"}, {K_SNEAK, 13, "Sneak", "Sneak"},
-    {K_SPRINT, 17, "Sprint", "Sprint"}, {K_STRAFE_L, 27, "Strafe Left", "Left"},
-    {K_STRAFE_R, 29, "Strafe Right", "Right"}, {K_BACKW, 28, "Walk Backwards", "Backward"},
-    {K_FWD, 22, "Walk Forwards", "Forward"}, {K_CHAT, 39, "Open Chat", "Chat"},
-    {K_COMMAND, 40, "Open Command", "Command"}};
-static const char *const categories[5] = {"Gameplay", "Inventory", "Miscellaneous", "Movement", "Multiplayer"};
+    {K_ATTACK, 4, T("Attack/Destroy"), T("Mine, attack")}, {0, 20, T("Pick Block"), T("Pick block")},
+    {K_USE, 5, T("Use Item/Place Block"), T("Place, use")}, {K_DROP, 14, T("Drop Item"), T("Drop")},
+    {K_SLOT1, 42, T("Hotbar Slot 1"), T("Slot 1")}, {K_SLOT1 << 1, 43, T("Hotbar Slot 2"), T("Slot 2")},
+    {K_SLOT1 << 2, 44, T("Hotbar Slot 3"), T("Slot 3")}, {K_SLOT1 << 3, 36, T("Hotbar Slot 4"), T("Slot 4")},
+    {K_SLOT1 << 4, 37, T("Hotbar Slot 5"), T("Slot 5")}, {K_SLOT1 << 5, 38, T("Hotbar Slot 6"), T("Slot 6")},
+    {K_SLOT1 << 6, 30, T("Hotbar Slot 7"), T("Slot 7")}, {K_SLOT1 << 7, 31, T("Hotbar Slot 8"), T("Slot 8")},
+    {K_SLOT1 << 8, 32, T("Hotbar Slot 9"), T("Slot 9")}, {K_INV, 15, T("Inventory"), T("Inventory")},
+    {K_PAUSE, 51, T("Pause"), T("Pause")}, {K_JUMP, 12, T("Jump"), T("Jump")}, {K_SNEAK, 13, T("Sneak"), T("Sneak")},
+    {K_SPRINT, 17, T("Sprint"), T("Sprint")}, {K_STRAFE_L, 27, T("Strafe Left"), T("Left")},
+    {K_STRAFE_R, 29, T("Strafe Right"), T("Right")}, {K_BACKW, 28, T("Walk Backwards"), T("Backward")},
+    {K_FWD, 22, T("Walk Forwards"), T("Forward")}, {K_CHAT, 39, T("Open Chat"), T("Chat")},
+    {K_COMMAND, 40, T("Open Command"), T("Command")}};
+static const char *const categories[5] = {T("Gameplay"), T("Inventory"), T("Miscellaneous"), T("Movement"), T("Multiplayer")};
 static const uint8_t category_at[5] = {A_ATTACK, A_DROP, A_PAUSE, A_JUMP, A_CHAT};
 
 void keys_reset(void) {
@@ -1503,12 +1605,12 @@ uint32_t keys_of(uint64_t raw) {
 /* the key's name, as the calculator writes it */
 static const char *key_name(int k) {
   static const char *const names[52] = {
-      [4] = "OK", [5] = "Back", [12] = "shift", [13] = "alpha", [14] = "x,n,t", [15] = "var", [16] = "toolbox",
+      [4] = "OK", [5] = T("Back"), [12] = "shift", [13] = "alpha", [14] = "x,n,t", [15] = "var", [16] = T("toolbox"),
       [17] = "\3", [18] = "e^x", [19] = "ln", [20] = "log", [21] = "i", [22] = ",", [23] = "x^y", [24] = "sin",
       [25] = "cos", [26] = "tan", [27] = "\1", [28] = "\2", [29] = "x^2", [30] = "7", [31] = "8", [32] = "9",
       [33] = "(", [34] = ")", [36] = "4", [37] = "5", [38] = "6", [39] = "\4", [40] = "\5", [42] = "1", [43] = "2",
       [44] = "3", [45] = "+", [46] = "-", [48] = "0", [49] = ".", [50] = "x10^x", [51] = "ans"};
-  return k < 52 && names[k] ? names[k] : "NONE";
+  return k < 52 && names[k] ? names[k] : T("NONE");
 }
 static const char *action_on(int k) {
   for (int a = 0; a < N_ACTIONS; a++)
@@ -1517,35 +1619,35 @@ static const char *action_on(int k) {
 }
 
 static void key_sheet(void) {
-  text_center("Controls", SCREEN_W / 2, 4, 0xFFFF);
+  text_center(T("Controls"), SCREEN_W / 2, 4, 0xFFFF);
   arrow_pad(40, 45, 27);
-  key(130, 30, 60, "Home", "Save, quit");
+  key(130, 30, 60, T("Home"), T("Save, quit"));
   key(236, 14, 80, "OK", action_on(4));
-  key(236, 46, 80, "Back", action_on(5));
+  key(236, 46, 80, T("Back"), action_on(5));
   /* the three rows under them, as on the calculator (the two left columns narrower) */
   for (int r = 0; r < 3; r++)
     for (int c = 0; c < 6; c++) {
       int k = 12 + r * 6 + c;
-      key(c < 2 ? 5 + c * 37 : 79 + (c - 2) * 60, 80 + r * 32, c < 2 ? 34 : 57, key_name(k), action_on(k));
+      key(c < 2 ? 5 + c * 37 : 79 + (c - 2) * 60, (TALL ? 76 : 80) + r * 32, c < 2 ? 34 : 57, key_name(k), action_on(k));
     }
   /* the keys set further down, in words */
-  char line[2][72];
+  char line[2][NP_TEXT_EXTRA ? 128 : 72];
   int n = 0, len = 0;
   line[0][0] = line[1][0] = 0;
   bool digits = true;
   for (int a = A_SLOT1; a < A_SLOT1 + 9; a++) digits &= opt.keys[a] == actions[a].key;
   for (int a = -1; a <= N_ACTIONS && n < 2; a++) {
-    char t[32];
+    char t[NP_TEXT_EXTRA ? 64 : 32];
     if (a == -1) {
       if (!digits) continue;
-      strcpy(t, "1 to 9: hotbar slot.");
-    } else if (a == N_ACTIONS) strcpy(t, "EXE: as OK.");
+      strcpy(t, T("1 to 9: hotbar slot."));
+    } else if (a == N_ACTIONS) strcpy(t, T("EXE: as OK."));
     else {
       int k = opt.keys[a];
       if ((digits && a >= A_SLOT1 && a < A_SLOT1 + 9) || k == 4 || k == 5 || (k >= 12 && k < 30) || k > 51) continue;
-      cat(t, key_name(k), ": ");
-      cat(t + strlen(t), actions[a].what, ".");
-      for (char *c = t + strlen(key_name(k)) + 2; *c; c++)
+      cat(t, key_name(k), T(": "));
+      cat(t + strlen(t), actions[a].what, T("."));
+      for (char *c = t + strlen(key_name(k)) + strlen(T(": ")); *c; c++)
         if (*c >= 'A' && *c <= 'Z') *c = (char)(*c - 'A' + 'a');
     }
     if (len && text_width(line[n]) + text_width(t) + 12 > SCREEN_W - 8) {
@@ -1556,12 +1658,13 @@ static void key_sheet(void) {
     strcat(line[n], t);
     len++;
   }
-  static const char *const notes[3] = {"Forward twice: sprint.   Jump twice: fly (Creative).",
-                                       "Menus: OK takes or puts, EXE one, shift+OK moves.",
-                                       "Hold OK and move over slots to spread a stack out."};
+  static const char *const notes[3] = {T("Forward twice: sprint.   Jump twice: fly (Creative)."),
+                                       T("Menus: OK takes or puts, EXE one, shift+OK moves."),
+                                       T("Hold OK and move over slots to spread a stack out.")};
   int rows = line[1][0] ? 2 : 1;
-  for (int i = 0; i < rows; i++) text_center(line[i], SCREEN_W / 2, 177 + i * 10, 0xFFFF);
-  for (int i = 0; i + rows < 4; i++) text_center(notes[i], SCREEN_W / 2, 177 + (i + rows) * 10, 0xFFFF);
+  int y0 = TALL ? 171 : 177, dy = TALL ? 12 : 10;   /* (Chinese letters 11 pixels tall: the keys a little higher) */
+  for (int i = 0; i < rows; i++) text_center(line[i], SCREEN_W / 2, y0 + i * dy, 0xFFFF);
+  for (int i = 0; i + rows < 4; i++) text_center(notes[i], SCREEN_W / 2, y0 + (i + rows) * dy, 0xFFFF);
 }
 
 /* GuiControls: the actions by category, each with its key and Reset; Done and Reset Keys under them */
@@ -1574,8 +1677,8 @@ static int krow_of(int a) {
 }
 static void keys_screen(void) {
   int w = SCREEN_W, h = SCREEN_H;
-  text_center("Controls", w / 2, 8, 0xFFFF);
-  Button b = {(int16_t)(w / 2 - 100), 18, 200, 1, 0, "Key Sheet..."};
+  text_center(T("Controls"), w / 2, 8, 0xFFFF);
+  Button b = {(int16_t)(w / 2 - 100), 18, 200, 1, 0, T("Key Sheet...")};
   button(&b, ksel == -1);
   /* the label column: as wide as the widest label */
   int lw = 0;
@@ -1606,15 +1709,15 @@ static void keys_screen(void) {
         text(">", x + 105 + 37 - nw - 6, y + 6, 0xFFFF, true);
         text("<", x + 105 + 37 + nw, y + 6, 0xFFFF, true);
       }
-      Button rb = {(int16_t)(x + 190), (int16_t)y, 50, opt.keys[a] != actions[a].key, 0, "Reset"};
+      Button rb = {(int16_t)(x + 190), (int16_t)y, 50, opt.keys[a] != actions[a].key, 0, T("Reset")};
       button(&rb, ksel == a && kcol == 1);
     }
     a++;
   }
-  Button done = {(int16_t)(w / 2 - 155), (int16_t)(h - 29), 150, 1, 0, "Done"};
+  Button done = {(int16_t)(w / 2 - 155), (int16_t)(h - 29), 150, 1, 0, T("Done")};
   bool any = false;
   for (int a = 0; a < N_ACTIONS; a++) any |= opt.keys[a] != actions[a].key;
-  Button all = {(int16_t)(w / 2 + 5), (int16_t)(h - 29), 150, any, 0, "Reset Keys"};
+  Button all = {(int16_t)(w / 2 + 5), (int16_t)(h - 29), 150, any, 0, T("Reset Keys")};
   button(&done, ksel == N_ACTIONS && kcol == 0);
   button(&all, ksel == N_ACTIONS && kcol == 1);
 }
@@ -1679,13 +1782,13 @@ static void menu_screen(void) {
       logo(30);
       splash("Also try Minecraft!", w / 2 + 72, 72, 1.25f + 0.08f * fabsf(sinf((frame_no % 60) * 0.1047f)));
       text("NumBlocks 1.0", 2, h - 10, 0xFFFF, true);
-      text("Inspired by Minecraft, not affiliated with Mojang",
-           w - text_width("Inspired by Minecraft, not affiliated with Mojang") - 2, h - 20, 0xFFFF, true);
-      text("Made by Mason Chen as part of NumPlay", w - text_width("Made by Mason Chen as part of NumPlay") - 2, h - 10,
+      text(T("Inspired by Minecraft, not affiliated with Mojang"),
+           w - text_width(T("Inspired by Minecraft, not affiliated with Mojang")) - 2, h - (TALL ? 24 : 20), 0xFFFF, true);
+      text(T("Made by Mason Chen as part of NumPlay"), w - text_width(T("Made by Mason Chen as part of NumPlay")) - 2, h - 10,
            0xFFFF, true);
       break;
     case GUI_WORLDS: {
-      text_center("Select World", w / 2, 20, 0xFFFF);
+      text_center(T("Select World"), w / 2, 20, 0xFFFF);
       /* GuiSlot: 36 pixels a world, the selected one framed */
       int first = wsel > 3 ? wsel - 3 : 0;
       for (int k = first; k < nworlds && k < first + 4; k++) {
@@ -1699,52 +1802,52 @@ static void menu_screen(void) {
         text(wi.name, x + 2, y + 1, 0xFFFF, true);
         char f[4] = {'n', 'b', (char)('0' + wlist[k]), 0};
         text(f, x + 2, y + 12, RGB(0x80, 0x80, 0x80), true);
-        char m[24];
-        cat(m, wi.mode == 1 ? "Creative Mode" : "Survival Mode", wi.cheats ? ", Cheats" : "");
+        char m[NP_TEXT_EXTRA ? 48 : 24];
+        cat(m, wi.mode == 1 ? T("Creative Mode") : T("Survival Mode"), wi.cheats ? T(", Cheats") : "");
         text(m, x + 2, y + 22, RGB(0x80, 0x80, 0x80), true);
       }
-      if (!nworlds) text_center("No worlds yet", w / 2, 60, RGB(0x80, 0x80, 0x80));
-      char t[40], n[12];
+      if (!nworlds) text_center(T("No worlds yet"), w / 2, 60, RGB(0x80, 0x80, 0x80));
+      char t[NP_TEXT_EXTRA ? 64 : 40], n[12];
       number((int)(plat_storage_free() / 1024), n);
-      cat(t, "Storage free: ", n);
-      cat(t + strlen(t), " KB", "");
+      cat(t, T("Storage free: "), n);
+      cat(t + strlen(t), T(" KB"), "");
       text_center(t, w / 2, h - 63, RGB(0x80, 0x80, 0x80));
       break;
     }
     case GUI_CREATE:
-      text_center("Create New World", w / 2, 20, 0xFFFF);
-      text("World Name", w / 2 - 100, 47, RGB(0xA0, 0xA0, 0xA0), true);
-      text_center(create_mode ? "Unlimited resources, free flying and" : "Search for resources, crafting, gain",
+      text_center(T("Create New World"), w / 2, 20, 0xFFFF);
+      text(T("World Name"), w / 2 - 100, 47, RGB(0xA0, 0xA0, 0xA0), true);
+      text_center(create_mode ? T("Unlimited resources, free flying and") : T("Search for resources, crafting, gain"),
                   w / 2, 122, RGB(0xA0, 0xA0, 0xA0));
-      text_center(create_mode ? "destroy blocks instantly" : "levels, health and hunger", w / 2, 134,
+      text_center(create_mode ? T("destroy blocks instantly") : T("levels, health and hunger"), w / 2, 134,
                   RGB(0xA0, 0xA0, 0xA0));
-      text_center(field ? "alpha: letters or digits, shift: capitals, OK: done" : "Leave blank for a random seed",
+      text_center(field ? T("alpha: letters or digits, shift: capitals, OK: done") : T("Leave blank for a random seed"),
                   w / 2, 169, RGB(0xA0, 0xA0, 0xA0));
       break;
     case GUI_RENAME:
-      text_center("Rename World", w / 2, 20, 0xFFFF);
-      text("Enter Name", w / 2 - 100, 47, RGB(0xA0, 0xA0, 0xA0), true);
-      if (field) text_center("alpha: letters or digits, shift: capitals, OK: done", w / 2, 90, RGB(0xA0, 0xA0, 0xA0));
+      text_center(T("Rename World"), w / 2, 20, 0xFFFF);
+      text(T("Enter Name"), w / 2 - 100, 47, RGB(0xA0, 0xA0, 0xA0), true);
+      if (field) text_center(T("alpha: letters or digits, shift: capitals, OK: done"), w / 2, 90, RGB(0xA0, 0xA0, 0xA0));
       break;
     case GUI_CONFIRM: {
       WorldInfo wi;
-      char t[64];
-      text_center("Are you sure you want to delete this world?", w / 2, 70, 0xFFFF);
-      cat(t, "'", nworlds && world_info(wlist[wsel], &wi) ? wi.name : "");
-      cat(t + strlen(t), "' will be lost forever! (A long time!)", "");
+      char t[NP_TEXT_EXTRA ? 96 : 64];
+      text_center(T("Are you sure you want to delete this world?"), w / 2, 70, 0xFFFF);
+      cat(t, T("'"), nworlds && world_info(wlist[wsel], &wi) ? wi.name : "");
+      cat(t + strlen(t), T("' will be lost forever! (A long time!)"), "");
       text_center(t, w / 2, 90, 0xFFFF);
       break;
     }
-    case GUI_OPTIONS: text_center("Options", w / 2, 15, 0xFFFF); break;
+    case GUI_OPTIONS: text_center(T("Options"), w / 2, 15, 0xFFFF); break;
     case GUI_CONTROLS: key_sheet(); break;
-    case GUI_PAUSE: text_center("Game menu", w / 2, 40, 0xFFFF); break;
+    case GUI_PAUSE: text_center(T("Game menu"), w / 2, 40, 0xFFFF); break;
     case GUI_LAN:
-      text_center("LAN World", w / 2, 50, 0xFFFF);
-      text_center("Settings for Other Players", w / 2, 82, 0xFFFF);
+      text_center(T("LAN World"), w / 2, 50, 0xFFFF);
+      text_center(T("Settings for Other Players"), w / 2, 82, 0xFFFF);
       break;
     case GUI_LOADING:
-      text_center("Loading world", w / 2, h / 2 - 50, 0xFFFF);
-      text_center("Building terrain", w / 2, h / 2 - 20, 0xFFFF);
+      text_center(T("Loading world"), w / 2, h / 2 - 50, 0xFFFF);
+      text_center(T("Building terrain"), w / 2, h / 2 - 20, 0xFFFF);
       break;
   }
   for (int i = 0; i < nbuttons; i++)
@@ -1877,7 +1980,7 @@ void gui_input(uint32_t keys, uint32_t pressed) {
 /* ---------------------------------------------------------------- drawing a screen */
 static void tooltip(const char *s, int x, int y) {
   /* GuiScreen.drawHoveringText: dark violet box with a blue to purple frame */
-  int w = text_width(s), h = 8;
+  int w = text_width(s), h = TALL ? 11 : 8;
   x += 12, y -= 12;
   if (x + w + 4 > SCREEN_W) x = SCREEN_W - w - 4;
   if (y < 4) y = 4;
@@ -1890,7 +1993,7 @@ static void tooltip(const char *s, int x, int y) {
   fill(x + w + 2, y - 2, 1, h + 4, RGB(0x28, 0, 0x7F));
   fill(x - 3, y - 3, w + 6, 1, RGB(0x50, 0, 0xFF));
   fill(x - 3, y + h + 2, w + 6, 1, RGB(0x28, 0, 0x7F));
-  text(s, x, y, 0xFFFF, true);
+  text(s, x, y + (TALL ? 2 : 0), 0xFFFF, true);
 }
 
 static void container(void) {
@@ -1920,17 +2023,17 @@ static void container(void) {
   switch (gui) {
     case GUI_INVENTORY:
       sprite(SP_STEVE, px + 51 - 13, py + 75 - 54 + 2);
-      text("Crafting", px + 86, py + 16, label, false);
+      text(T("Crafting"), px + 86, py + 16, label, false);
       for (int i = 0; i < 4; i++)
         if (!pl.armor[3 - i].id) sprite(SP_SLOT_HELMET + i, px + 8, py + 8 + i * 18);
       break;
     case GUI_CRAFTING:
-      text("Crafting", px + 28, py + 6, label, false);
-      text("Inventory", px + 8, py + panel_h - 96 + 2, label, false);
+      text(T("Crafting"), px + 28, py + 6, label, false);
+      text(T("Inventory"), px + 8, py + panel_h - 96 + 2, label, false);
       break;
     case GUI_FURNACE: {
-      text("Furnace", px + 88 - text_width("Furnace") / 2, py + 6, label, false);
-      text("Inventory", px + 8, py + panel_h - 96 + 2, label, false);
+      text(T("Furnace"), px + 88 - text_width(T("Furnace")) / 2, py + 6, label, false);
+      text(T("Inventory"), px + 8, py + panel_h - 96 + 2, label, false);
       if (furnace->burn > 0) {
         int k = furnace->burn * 13 / (furnace->burn_max ? furnace->burn_max : 200);
         sprite_part(SP_FLAME, px + 56, py + 36 + 12 - k, 0, 12 - k, 14, k + 1);
@@ -1940,8 +2043,8 @@ static void container(void) {
       break;
     }
     case GUI_CHEST:
-      text("Chest", px + 8, py + 6, label, false);
-      text("Inventory", px + 8, py + panel_h - 96 + 2, label, false);
+      text(T("Chest"), px + 8, py + 6, label, false);
+      text(T("Inventory"), px + 8, py + panel_h - 96 + 2, label, false);
       break;
   }
   bool spread = drag && ndragged > 1;
@@ -2019,10 +2122,16 @@ void hud_strip(uint16_t *buf, int y0, int rows) {
         uint16_t *d = row_at(y);
         for (int x = 0; x < SCREEN_W; x++) d[x] = blend(d[x], k, a);
       }
-      text_big("You died!", SCREEN_W / 2, 60 / 2 * 2, 0xFFFF, 2);
+      text_big(T("You died!"), SCREEN_W / 2, 60 / 2 * 2, 0xFFFF, 2);
+#if NP_TEXT_EXTRA
+      char b[40], n[12];
+      number(pl.xp_total, n);
+      cat(b, T("Score: "), n);
+#else
       char b[24] = "Score: ", n[12];
       number(pl.xp_total, n);
       memcpy(b + 7, n, strlen(n) + 1);
+#endif
       text_center(b, SCREEN_W / 2, 100, 0xFFFF);
       for (int i = 0; i < nbuttons; i++) button(&buttons[i], i == bcur);
       break;

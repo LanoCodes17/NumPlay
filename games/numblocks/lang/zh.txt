@@ -1,0 +1,226 @@
+# NumBlocks in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+# Minecraft's own Simplified Chinese where it has one (zh_CN), shorter where a button or a key is narrow.
+# ---- menus
+Done	完成
+Singleplayer	单人游戏
+Multiplayer	多人游戏
+Options...	选项...
+Quit Game	退出游戏
+Play Selected World	进入选中的世界
+Create New World	创建新的世界
+Rename	重命名
+Delete	删除
+Re-Create	重新创建
+Cancel	取消
+Game Mode: 	游戏模式：
+Creative	创造
+Survival	生存
+Allow Cheats: 	允许作弊：
+ON	开
+OFF	关
+Seed: 	种子：
+(random)	(随机)
+World Type: 	世界类型：
+Superflat	超平坦
+Default	默认
+Peaceful	和平
+Easy	简单
+Normal	普通
+Hard	困难
+Difficulty: 	难度：
+Graphics: 	图像品质：
+Fancy	高品质
+Fast	流畅
+Look Speed: 	灵敏度：
+Clouds: 	云：
+View Bobbing: 	视角摇晃：
+Controls...	按键控制...
+Back to Game	回到游戏
+Achievements	成就
+Statistics	统计信息
+Open to LAN	对局域网开放
+Save and Quit to Title	保存并退回到标题画面
+Start LAN World	创建局域网世界
+Respawn	重生
+Title screen	标题画面
+New World	新的世界
+Copy of 	副本 
+Select World	选择世界
+Creative Mode	创造模式
+Survival Mode	生存模式
+, Cheats	，作弊
+No worlds yet	还没有世界
+Storage free: 	剩余空间：
+ KB	 KB
+World Name	世界名称
+Unlimited resources, free flying and	无限的资源、自由地飞翔并且
+destroy blocks instantly	能够瞬间破坏方块
+Search for resources, crafting, gain	探索世界、收集资源、合成道具、
+levels, health and hunger	提高等级、补充体力和饥饿值
+alpha: letters or digits, shift: capitals, OK: done	alpha：字母/数字，shift：大写，OK：完成
+Leave blank for a random seed	留空以生成随机种子
+Rename World	重命名世界
+Enter Name	输入名称
+Are you sure you want to delete this world?	你确定要删除这个世界吗？
+'	“
+' will be lost forever! (A long time!)	”将会永久消失！（真的很久！）
+Options	选项
+Game menu	游戏菜单
+LAN World	局域网世界
+Settings for Other Players	其他玩家的设置
+Loading world	正在载入世界
+Building terrain	正在建立地形
+You died!	你死了！
+Score: 	分数：
+Inspired by Minecraft, not affiliated with Mojang	灵感来自Minecraft，与Mojang无关
+Made by Mason Chen as part of NumPlay	Mason Chen为NumPlay制作
+# ---- containers
+Crafting	合成
+Inventory	物品栏
+Furnace	熔炉
+Chest	箱子
+# ---- the chat
+alpha: abc/123   shift: Abc   toolbox: finish the word	alpha：abc/123   shift：Abc   工具箱：补全单词
+x,n,t  :     var  _     x10^x  ~     ans  space     0  @	x,n,t  :     var  _     x10^x  ~     ans  空格     0  @
+You can only sleep at night	你只能在夜间入睡
+You may not rest now, there are monsters nearby	你现在不能休息，周围有怪物在游荡
+# ---- the keys: names in Controls (Minecraft's), then the key sheet's words
+Controls	按键控制
+Key Sheet...	按键图...
+Reset	重置
+Reset Keys	全部重置
+Gameplay	游戏内容
+Miscellaneous	杂项
+Movement	移动
+Attack/Destroy	攻击/摧毁
+Mine, attack	挖掘、攻击
+Pick Block	选取方块
+Pick block	选取方块
+Use Item/Place Block	使用物品/放置方块
+Place, use	放置、使用
+Drop Item	丢弃物品
+Drop	丢弃
+Hotbar Slot 1	快捷栏1
+Hotbar Slot 2	快捷栏2
+Hotbar Slot 3	快捷栏3
+Hotbar Slot 4	快捷栏4
+Hotbar Slot 5	快捷栏5
+Hotbar Slot 6	快捷栏6
+Hotbar Slot 7	快捷栏7
+Hotbar Slot 8	快捷栏8
+Hotbar Slot 9	快捷栏9
+Slot 1	快捷栏1
+Slot 2	快捷栏2
+Slot 3	快捷栏3
+Slot 4	快捷栏4
+Slot 5	快捷栏5
+Slot 6	快捷栏6
+Slot 7	快捷栏7
+Slot 8	快捷栏8
+Slot 9	快捷栏9
+Pause	暂停
+Jump	跳跃
+Sneak	潜行
+Sprint	疾跑
+Strafe Left	向左平移
+Left	左移
+Strafe Right	向右平移
+Right	右移
+Walk Backwards	向后
+Backward	后退
+Walk Forwards	向前
+Forward	前进
+Open Chat	打开聊天栏
+Chat	聊天
+Open Command	输入命令
+Command	命令
+Look	视角
+Back	返回
+toolbox	工具箱
+NONE	无
+Home	主页
+Save, quit	保存退出
+1 to 9: hotbar slot.	1至9：快捷栏。
+EXE: as OK.	EXE：同OK。
+# (a key, these two, then what it does)
+: 	：
+.	。
+Forward twice: sprint.   Jump twice: fly (Creative).	连按前进：疾跑。   连按跳跃：飞行（创造模式）。
+Menus: OK takes or puts, EXE one, shift+OK moves.	菜单：OK拿取或放下，EXE放一个，shift+OK移动。
+Hold OK and move over slots to spread a stack out.	按住OK划过格子，可分散一组物品。
+# ---- the commands' answers (Minecraft's words: %s and %d take the same things in turn, strings and numbers apart)
+Usage: %s	用法：%s
+'%s' is not a valid number	'%s'不是有效的数字
+The number you have entered (%d) is too small, it must be at least %d	你输入的数字（%d）太小，至少需要为%d
+The number you have entered (%d) is too big, it must be at most %d	你输入的数字（%d）太大，最多只能为%d
+That player cannot be found	找不到该玩家
+Your game mode has been updated	你的游戏模式已被更新
+Set own game mode to %s	已将自己的游戏模式设为%s
+Set the time to %d	已将时间设为%d
+Added %d to the time	已将时间增加%d
+Time is %d	时间是%d
+Changing to clear weather	天气已变为晴天
+Changing to rainy weather	天气已变为雨天
+Changing to rain and thunder	天气已变为雷雨
+There is no such item with name %s	不存在名为%s的物品
+Given %s * %d to %s	已将%s * %d给予%s
+Teleported %s to %s	已将%s传送到%s
+Teleported Player to 	已将Player传送到
+Killed %s	已清除%s
+Set game difficulty to %s	已将游戏难度设为%s
+Set Player's spawn point to (	已将Player的出生点设为(
+Taken %d levels from %s	已从%s拿走%d级经验
+Given %d levels to %s	已给予%s %d级经验
+Cannot give player negative experience points	不能给予玩家负数的经验
+Given %d experience to %s	已给予%s %d点经验
+Could not clear the inventory of %s, no items to remove	无法清除%s的物品栏，没有可移除的物品
+Cleared the inventory of %s, removing %d items	已清除%s的物品栏，共移除%d个物品
+Couldn't take any effects from %s as they do not have any	无法移除%s的效果，因为其没有任何效果
+Took all effects from %s	已移除%s的所有效果
+There is no such mob effect with ID %d	不存在ID为%d的效果
+There is no such mob effect with ID %s	不存在ID为%s的效果
+# (an effect's name between these)
+Couldn't take 	无法移除Player的
+ from Player as they do not have the effect	效果，因为其没有该效果
+Took 	已移除Player的
+ from Player	效果
+Given 	已将
+ (ID 	(ID 
+) * 	) * 
+ to Player for 	给予Player，持续
+ seconds	秒
+Poison	中毒
+Hunger	饥饿
+Regeneration	生命恢复
+Cannot summon the object out of the world	无法在世界外生成实体
+Object successfully summoned	成功生成实体
+Unable to summon object	无法生成实体
+There is no such block with ID/name %s	不存在ID或名称为%s的方块
+Cannot place block outside of the world	无法在世界外放置方块
+The block couldn't be placed	无法放置方块
+Block placed	方块已放置
+No game rule called '%s' is available	没有名为'%s'的游戏规则
+Game rule has been updated	游戏规则已更新
+Unknown command. Try /help for a list of commands	未知的命令。输入/help查看命令列表
+--- Showing help page %d of %d (/help <page>) ---	--- 显示帮助第%d页，共%d页（/help <页码>）---
+Tip: Use the toolbox key while typing a command to auto-complete the command or its arguments	提示：输入命令时按工具箱键可自动补全命令或其参数
+You do not have permission to use this command	你没有使用此命令的权限
+Toggled downfall	已切换降水
+# ---- the commands' usage (their words, as typed, stay)
+/clear [player] [item] [data] [maxCount] [dataTag]	/clear [玩家] [物品] [数据值] [最大数量] [数据标签]
+/difficulty <new difficulty>	/difficulty <新难度>
+/effect <player> <effect> [seconds] [amplifier] [hideParticles] OR /effect <player> clear	/effect <玩家> <效果> [秒数] [等级] [隐藏粒子] 或 /effect <玩家> clear
+/gamemode <mode> [player]	/gamemode <模式> [玩家]
+/gamerule <rule name> [value]	/gamerule <规则名> [值]
+/give <player> <item> [amount] [data] [dataTag]	/give <玩家> <物品> [数量] [数据值] [数据标签]
+/help [page|command name]	/help [页码|命令名]
+/kill [player|entity]	/kill [玩家|实体]
+/me <action ...>	/me <动作 ...>
+/say <message ...>	/say <消息 ...>
+/setblock <x> <y> <z> <TileName> [dataValue] [oldBlockHandling] [dataTag]	/setblock <x> <y> <z> <方块名> [数据值] [旧方块处理] [数据标签]
+/spawnpoint [player] [<x> <y> <z>]	/spawnpoint [玩家] [<x> <y> <z>]
+/summon <EntityName> [x] [y] [z] [dataTag]	/summon <实体名> [x] [y] [z] [数据标签]
+/time <set|add|query> <value>	/time <set|add|query> <值>
+/tp [target player] <destination player> OR /tp [target player] <x> <y> <z> [<y-rot> <x-rot>]	/tp [目标玩家] <目的地玩家> 或 /tp [目标玩家] <x> <y> <z> [<y旋转> <x旋转>]
+/weather <clear|rain|thunder> [duration in seconds]	/weather <clear|rain|thunder> [持续秒数]
+/xp <amount> [player] OR /xp <amount>L [player]	/xp <数量> [玩家] 或 /xp <数量>L [玩家]

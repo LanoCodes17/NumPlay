@@ -112,6 +112,13 @@ out = run(["--chapter", "7", "--room", "s3", "--nowipe"], 780,
           "250-300:l,264-265:x,302-330:u,332-344:j,332-346:l,400-415:l,440-760:r,523-535:j", what="3A's key and locked door")
 check("room 0x-a " in out and " deaths 0 " in out, f"3A's start room was not crossed with its key: {out[-160:]}")
 
+# 5A's c-10: its two touch switches (below the middle cracked block, on top of it) open the temple gate (TouchSwitches)
+# up on the right, the way to c-12
+out = run(["--chapter", "13", "--room", "c-10", "--nowipe"], 520,
+          "10-90:r,18-24:j,110-124:j,126-130:u,126-127:x,136-158:r,180-183:l,190-204:j,206-210:u,206-207:x,216-235:r,"
+          "300-500:r,306-316:j,314-315:x,314-460:g,330-460:u", what="5A's c-10")
+check("room c-12 " in out and " deaths 0 " in out, f"5A's c-10 was not crossed (its touch switches' gate): {out[-160:]}")
+
 # a chapter's end: its screen, then the chapter select
 out = run(["--chapter", "1", "--room", "1"], 500, "400-401:o", env={"COMPLETE_AT": "60"}, what="a chapter's end")
 

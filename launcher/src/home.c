@@ -2,6 +2,7 @@
  * its neighbours peek in from the sides, and the card cycles through the
  * game's screenshots. The last card opens the settings. */
 #include "ui.h"
+#include "../../games/common/np_text.h"
 
 #define CARD_W 200
 #define CARD_H 152
@@ -37,8 +38,8 @@ static uint32_t item_color(int game, int which) {
   return which == 0 ? g->top : which == 1 ? g->bottom : g->accent;
 }
 
-static const char *item_title(int game) { return game < 0 ? "Settings" : np_games[game].title; }
-static const char *item_tagline(int game) { return game < 0 ? "Reset, uninstall, more" : np_games[game].tagline; }
+static const char *item_title(int game) { return game < 0 ? T("Settings") : np_games[game].title; }
+static const char *item_tagline(int game) { return game < 0 ? T("Reset, uninstall, more") : np_games[game].tagline; }
 
 static float absf(float v) { return v < 0 ? -v : v; }
 

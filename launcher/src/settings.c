@@ -4,6 +4,7 @@
 #include <string.h>
 #include "sys.h"
 #include "ui.h"
+#include "../../games/common/np_text.h"
 
 #define BG_TOP 0x3B4252
 #define BG_BOTTOM 0x171A21
@@ -24,7 +25,7 @@ static char *fmt_kb(char *out, uint32_t bytes) {
   while (kb /= 10);
   char *o = out;
   while (n) *o++ = t[--n];
-  strcpy(o, " KB");
+  strcpy(o, T(" KB"));
   return out;
 }
 
@@ -38,8 +39,8 @@ typedef struct {
   float cursor;       /* animated selection */
 } list_t;
 
-static const char *const secret_names[NP_SECRET_COUNT] = {"x,n,t key", "var key", "Toolbox key", "Pi key",
-                                                          "Square root key", "Menu: Examples"};
+static const char *const secret_names[NP_SECRET_COUNT] = {T("x,n,t key"), T("var key"), T("Toolbox key"), T("Pi key"),
+                                                          T("Square root key"), T("Menu: Examples")};
 
 static void build_rows(list_t *l) {
   l->n = l->ngames = 0;
@@ -88,12 +89,12 @@ static void list_scene(void *ctx) {
   gfx_vgrad(0, 0, SCREEN_W, SCREEN_H, BG_TOP, BG_BOTTOM);
   if (gfx_y0 < 44) {
     gfx_icon(&np_icon_back, 14, 17, 0xFFFF, 200);
-    gfx_text(&np_font_title, 36, 30, "Settings", 0xFFFF, 256);
+    gfx_text(&np_font_title, 36, 30, T("Settings"), 0xFFFF, 256);
     uint32_t total = 0;
     for (int i = 0; i < l->ngames; i++) total += np_game_size(l->game[i]);
     char kb[16];
     if (l->ngames) {
-      gfx_text_right(&np_font_small, SCREEN_W - 14, 20, "INSTALLED GAMES", 0xFFFF, 150);
+      gfx_text_right(&np_font_small, SCREEN_W - 14, 20, T("INSTALLED GAMES"), 0xFFFF, 150);
       gfx_text_right(&np_font_body, SCREEN_W - 14, 34, fmt_kb(kb, total), 0xFFFF, 230);
     }
   }
@@ -106,11 +107,11 @@ static void list_scene(void *ctx) {
     if (i >= l->n) {
       /* credits, under the last row */
       if (i != l->n) continue;
-      int w = gfx_text_width(&np_font_body, "Made with ") + 12 + gfx_text_width(&np_font_body, " by Mason Chen");
+      int w = gfx_text_width(&np_font_body, T("Made with ")) + 12 + gfx_text_width(&np_font_body, T(" by Mason Chen"));
       int x = 160 - w / 2;
-      x = gfx_text(&np_font_body, x, y + 20, "Made with ", 0xFFFF, 230);
+      x = gfx_text(&np_font_body, x, y + 20, T("Made with "), 0xFFFF, 230);
       gfx_icon(&np_icon_heart, x + 1, y + 12, gfx_rgb(DANGER), 256);
-      gfx_text(&np_font_body, x + 12, y + 20, " by Mason Chen", 0xFFFF, 230);
+      gfx_text(&np_font_body, x + 12, y + 20, T(" by Mason Chen"), 0xFFFF, 230);
       gfx_text_center(&np_font_small, 160, y + 36, "github.com/Mason363/NumPlay", 0xFFFF, 170);
       gfx_text_center(&np_font_small, 160, y + 50, "NumPlay " NP_VERSION, 0xFFFF, 120);
       continue;
@@ -124,30 +125,30 @@ static void list_scene(void *ctx) {
         gfx_text(&np_font_body, 60, y + 15, np_games[game].title, 0xFFFF, 256);
         gfx_text(&np_font_small, 60, y + 28, fmt_kb(kb, np_game_size(game)), 0xFFFF, 150);
         if (on) {
-          pill(SCREEN_W - 170, y + 7, 58, "Reset", l->action == 0, ACCENT);
+          pill(SCREEN_W - 170, y + 7, 58, T("Reset"), l->action == 0, ACCENT);
           pill(SCREEN_W - 104, y + 7, 86, "", l->action == 1, DANGER);
           gfx_icon(&np_icon_trash, SCREEN_W - 96, y + 9, 0xFFFF, l->action == 1 ? 256 : 190);
-          gfx_text(&np_font_small, SCREEN_W - 78, y + 21, "Uninstall", 0xFFFF, l->action == 1 ? 256 : 190);
+          gfx_text(&np_font_small, SCREEN_W - 78, y + 21, T("Uninstall"), 0xFFFF, l->action == 1 ? 256 : 190);
         }
         break;
       }
       case ROW_RESET_ALL:
-        row_text(y, "Reset all games", "Deletes the progress of every game", 256);
-        if (on) pill(SCREEN_W - 76, y + 7, 58, "Reset", true, ACCENT);
+        row_text(y, T("Reset all games"), T("Deletes the progress of every game"), 256);
+        if (on) pill(SCREEN_W - 76, y + 7, 58, T("Reset"), true, ACCENT);
         break;
       case ROW_DISGUISE:
-        row_text(y, "Start as Matrices", "A math app first; NumPlay opens in secret", 256);
+        row_text(y, T("Start as Matrices"), T("A math app first; NumPlay opens in secret"), 256);
         toggle(y, l->cfg.disguise, 256);
         break;
       case ROW_HINT: {
         int a = l->cfg.disguise ? 256 : 130;
-        row_text(y, "Show a hint", "Matrices names the secret, small and gray", a);
+        row_text(y, T("Show a hint"), T("Matrices names the secret, small and gray"), a);
         toggle(y, l->cfg.hint, a);
         break;
       }
       case ROW_SECRET: {
         int a = l->cfg.disguise ? 256 : 130;
-        row_text(y, "Secret way in", "Opens NumPlay from Matrices", a);
+        row_text(y, T("Secret way in"), T("Opens NumPlay from Matrices"), a);
         const char *v = secret_names[l->cfg.secret];
         int w = gfx_text_width(&np_font_small, v);
         gfx_text_right(&np_font_small, SCREEN_W - 32, y + 21, v, 0xFFFF, a);
@@ -178,12 +179,11 @@ typedef struct {
 static const char *error_text(int e) {
   switch (e) {
     case NP_UNINSTALL_UNSUPPORTED:
-      return "Your calculator's software doesn't allow apps to uninstall parts of themselves. Update it to Epsilon 21 or "
-             "newer at my.numworks.com, then try again.";
+      return T("Your calculator's software doesn't allow apps to uninstall parts of themselves. Update it to Epsilon 21 or newer at my.numworks.com, then try again.");
     case NP_UNINSTALL_BATTERY:
-      return "The battery is too low to safely erase flash memory. Plug in your calculator, then try again.";
+      return T("The battery is too low to safely erase flash memory. Plug in your calculator, then try again.");
     default:
-      return "Something went wrong while erasing. To be safe, reinstall NumPlay from my.numworks.com/apps.";
+      return T("Something went wrong while erasing. To be safe, reinstall NumPlay from my.numworks.com/apps.");
   }
 }
 
@@ -196,7 +196,7 @@ static void hold_button(const dialog_t *d, const char *label) {
     gfx_rrect(bx, by, bw, bh, bh / 2, gfx_rgb(DANGER), 256);
     int fill = (int)(bw * d->hold);
     if (fill > 0) gfx_rrect(bx, by, NP_MAX(fill, bh), bh, bh / 2, 0xFFFF, 110);
-    gfx_text_center(&np_font_body, bx + bw / 2, by + 18, d->hinted ? "Hold OK" : label, 0xFFFF, 256);
+    gfx_text_center(&np_font_body, bx + bw / 2, by + 18, d->hinted ? T("Hold OK") : label, 0xFFFF, 256);
   } else {
     gfx_rrect(bx, by, bw, bh, bh / 2, 0xFFFF, 40);
     gfx_text_center(&np_font_body, bx + bw / 2, by + 18, label, 0xFFFF, 200);
@@ -205,33 +205,33 @@ static void hold_button(const dialog_t *d, const char *label) {
 
 /* Reset and Reset all: a question (Cancel first, hold OK to reset), then done */
 static void reset_scene(dialog_t *d) {
-  const char *title = d->action == ACT_RESET_ALL ? "every game" : np_games[d->game].title;
-  char line[64], body[128];
+  const char *title = d->action == ACT_RESET_ALL ? T("every game") : np_games[d->game].title;
+  char line[128], body[384];
   if (d->stage == 2) {
     gfx_vgrad(0, 0, SCREEN_W, SCREEN_H, 0x1F5A3C, 0x0B1A12);
     gfx_circle(160, 74, 34, gfx_rgb(OK_GREEN), 256);
     gfx_icon(&np_icon_check, 145, 59, 0xFFFF, 256);
-    strcpy(line, d->action == ACT_RESET_ALL ? "Every game" : title);
-    strcat(line, d->action == ACT_RESET_ALL ? " was reset" : " was reset");
+    strcpy(line, d->action == ACT_RESET_ALL ? T("Every game") : title);
+    strcat(line, T(" was reset"));
     gfx_text_center(&np_font_title, 160, 142, line, 0xFFFF, 256);
-    gfx_text_center(&np_font_body, 160, 166, "Its progress starts over.", 0xFFFF, 200);
-    ui_button(110, 192, 100, 28, "OK", true, OK_GREEN, 256);
+    gfx_text_center(&np_font_body, 160, 166, T("Its progress starts over."), 0xFFFF, 200);
+    ui_button(110, 192, 100, 28, T("OK"), true, OK_GREEN, 256);
     return;
   }
   gfx_vgrad(0, 0, SCREEN_W, SCREEN_H, DANGER_TOP, DANGER_BOTTOM);
   gfx_icon(&np_icon_warning, 137, 14, 0xFFFF, 256);
-  strcpy(line, "Reset ");
+  strcpy(line, T("Reset "));
   strcat(line, title);
-  strcat(line, "?");
+  strcat(line, T("?"));
   gfx_text_center(&np_font_title, 160, 80, line, 0xFFFF, 256);
-  strcpy(body, "This deletes the saved progress of ");
+  strcpy(body, T("This deletes the saved progress of "));
   strcat(body, title);
-  strcat(body, ": best scores, unlocked levels and settings. You can't undo this.");
+  strcat(body, T(": best scores, unlocked levels and settings. You can't undo this."));
   int y = gfx_paragraph(&np_font_body, 160, 102, 280, 16, body, 0xFFFF, 240);
-  gfx_paragraph(&np_font_small, 160, y + 4, 290, 13, "Games stay installed, and levels you made in an editor are kept.",
+  gfx_paragraph(&np_font_small, 160, y + 4, 290, 13, T("Games stay installed, and levels you made in an editor are kept."),
                 0xFFFF, 170);
-  ui_button(38, 198, 110, 28, "Cancel", d->choice == 0, 0x555D70, 256);
-  hold_button(d, "Reset");
+  ui_button(38, 198, 110, 28, T("Cancel"), d->choice == 0, 0x555D70, 256);
+  hold_button(d, T("Reset"));
 }
 
 static void dialog_scene(void *ctx) {
@@ -241,55 +241,54 @@ static void dialog_scene(void *ctx) {
     return;
   }
   const np_game_t *g = &np_games[d->game];
-  char line[64];
+  char line[128];
   if (d->stage == 2) {
     gfx_vgrad(0, 0, SCREEN_W, SCREEN_H, 0x1F5A3C, 0x0B1A12);
     gfx_circle(160, 74, 34, gfx_rgb(OK_GREEN), 256);
     gfx_icon(&np_icon_check, 145, 59, 0xFFFF, 256);
     strcpy(line, g->title);
-    strcat(line, " was uninstalled");
+    strcat(line, T(" was uninstalled"));
     gfx_text_center(&np_font_title, 160, 142, line, 0xFFFF, 256);
     char kb[16];
     strcpy(line, fmt_kb(kb, d->freed));
-    strcat(line, " of flash memory freed");
+    strcat(line, T(" of flash memory freed"));
     gfx_text_center(&np_font_body, 160, 166, line, 0xFFFF, 200);
-    ui_button(110, 192, 100, 28, "OK", true, OK_GREEN, 256);
+    ui_button(110, 192, 100, 28, T("OK"), true, OK_GREEN, 256);
     return;
   }
   gfx_vgrad(0, 0, SCREEN_W, SCREEN_H, DANGER_TOP, DANGER_BOTTOM);
   gfx_icon(&np_icon_warning, 137, 14, 0xFFFF, 256);
   if (d->stage == 3) {
-    gfx_text_center(&np_font_title, 160, 84, "Couldn't uninstall", 0xFFFF, 256);
+    gfx_text_center(&np_font_title, 160, 84, T("Couldn't uninstall"), 0xFFFF, 256);
     gfx_paragraph(&np_font_body, 160, 112, 280, 17, error_text(d->error), 0xFFFF, 220);
-    ui_button(110, 196, 100, 28, "OK", true, DANGER, 256);
+    ui_button(110, 196, 100, 28, T("OK"), true, DANGER, 256);
     return;
   }
   if (d->stage == 1) {
-    strcpy(line, "Uninstalling ");
+    strcpy(line, T("Uninstalling "));
     strcat(line, g->title);
-    strcat(line, "...");
+    strcat(line, T("..."));
     gfx_text_center(&np_font_title, 160, 96, line, 0xFFFF, 256);
     gfx_rrect(40, 118, 240, 10, 5, 0xFFFF, 60);
     int w = (int)(240 * d->progress);
     if (w >= 10) gfx_rrect(40, 118, w, 10, 5, 0xFFFF, 256);
-    gfx_text_center(&np_font_body, 160, 152, "Don't turn off your calculator.", 0xFFFF, 200);
+    gfx_text_center(&np_font_body, 160, 152, T("Don't turn off your calculator."), 0xFFFF, 200);
     return;
   }
-  strcpy(line, "Uninstall ");
+  strcpy(line, T("Uninstall "));
   strcat(line, g->title);
-  strcat(line, "?");
+  strcat(line, T("?"));
   gfx_text_center(&np_font_title, 160, 80, line, 0xFFFF, 256);
-  char body[96];
-  strcpy(body, "This deletes ");
+  char body[384];
+  strcpy(body, T("This deletes "));
   strcat(body, g->title);
-  strcat(body, " and all of its saved progress. You can't undo this.");
+  strcat(body, T(" and all of its saved progress. You can't undo this."));
   int y = gfx_paragraph(&np_font_body, 160, 102, 280, 16, body, 0xFFFF, 240);
   gfx_paragraph(&np_font_small, 160, y + 4, 290, 13,
-                "To play it again, reinstall NumPlay from my.numworks.com/apps. Your other games keep their "
-                "progress.",
+                T("To play it again, reinstall NumPlay from my.numworks.com/apps. Your other games keep their progress."),
                 0xFFFF, 170);
-  ui_button(38, 198, 110, 28, "Cancel", d->choice == 0, 0x555D70, 256);
-  hold_button(d, "Uninstall");
+  ui_button(38, 198, 110, 28, T("Cancel"), d->choice == 0, 0x555D70, 256);
+  hold_button(d, T("Uninstall"));
 }
 
 static dialog_t *active_dialog;

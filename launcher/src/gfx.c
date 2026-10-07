@@ -1,5 +1,6 @@
 #include "gfx.h"
 #include <string.h>
+#include "../../games/common/np_text.h"
 
 color_t *gfx_buf;
 int gfx_y0, gfx_y1;
@@ -277,20 +278,58 @@ static const np_glyph_t *glyph(const np_font_t *f, char ch) {
   return i < f->count ? &f->glyphs[i] : &f->glyphs['?' - f->first];
 }
 
+/* Language builds (games/common/np_text.h): the letter at *s, *s moved past it; its glyph, or NULL
+ * for one of the 12-pixel font (Chinese) */
+static const np_glyph_t *glyph_at(const np_font_t *f, const char **s, uint32_t *cp) {
+  if (!NP_TEXT_EXTRA || (uint8_t)**s < 0x80) {
+    *cp = (uint8_t)**s;
+    return glyph(f, *(*s)++);
+  }
+  *cp = np_utf8(s);
+  for (int k = 0; k < np_font_extra_count; k++)
+    if (np_font_extra[k] == *cp) return &f->glyphs[95 + k];
+  return np_xglyph(*cp) ? NULL : &f->glyphs['?' - f->first];
+}
+/* the 12-pixel font's pixels: twice as big for the title font */
+static int xscale(const np_font_t *f) { return f->ascent >= 16 ? 2 : 1; }
+typedef struct {
+  color_t c;
+  int a;
+} xplot_t;
+static void xplot(int x, int y, void *ctx) {
+  const xplot_t *p = ctx;
+  if (x < 0 || x >= SCREEN_W || y < gfx_y0 || y >= gfx_y1) return;
+  color_t *q = px_at(x, y);
+  *q = gfx_mix(*q, p->c, NP_MIN((p->a * 32 + 60) / 120, 32));
+}
+
 int gfx_text(const np_font_t *f, int x, int baseline, const char *s, color_t c, int a) {
   int top = baseline - f->ascent, bottom = baseline + f->descent;
   bool visible = bottom > gfx_y0 && top < gfx_y1;
-  for (; *s; s++) {
-    const np_glyph_t *g = glyph(f, *s);
+  while (*s) {
+    uint32_t cp;
+    const np_glyph_t *g = glyph_at(f, &s, &cp);
+    if (!g) { /* (NP_TEXT_EXTRA only) */
+      xplot_t p = {c, a};
+      int sc = xscale(f);
+      x += visible ? np_xdraw(cp, x, baseline - 10 * sc, sc, xplot, &p) : np_xadvance(cp, sc);
+      continue;
+    }
     if (visible && g->w) gfx_mask(f->data + g->offset, g->w, g->h, x + g->x, baseline + g->y, c, a);
     x += g->advance;
   }
   return x;
 }
 
+static int advance_at(const np_font_t *f, const char **s) {
+  uint32_t cp;
+  const np_glyph_t *g = glyph_at(f, s, &cp);
+  return g ? g->advance : np_xadvance(cp, xscale(f));
+}
+
 int gfx_text_width(const np_font_t *f, const char *s) {
   int w = 0;
-  for (; *s; s++) w += glyph(f, *s)->advance;
+  while (*s) w += advance_at(f, &s);
   return w;
 }
 
@@ -305,16 +344,20 @@ void gfx_text_right(const np_font_t *f, int rx, int baseline, const char *s, col
 int gfx_paragraph(const np_font_t *f, int cx, int baseline, int width, int line, const char *s, color_t c, int a) {
   char buf[96];
   while (*s) {
-    /* take as many words as fit */
+    /* take as many words as fit (in Chinese, as many letters: a line may end after any of them) */
     int n = 0, last_space = -1, wpx = 0;
-    while (s[n] && s[n] != '\n' && n < (int)sizeof(buf) - 1) {
-      wpx += glyph(f, s[n])->advance;
-      if (s[n] == ' ') last_space = n;
+    while (s[n] && s[n] != '\n' && n < (int)sizeof(buf) - 4) {
+      const char *p = s + n;
+      uint32_t first = (uint8_t)*p;
+      wpx += advance_at(f, &p);
+      int len = (int)(p - (s + n));
+      if (first == ' ') last_space = n;
       if (wpx > width && last_space > 0) {
         n = last_space;
         break;
       }
-      n++;
+      if (NP_TEXT_EXTRA && first >= 0xE0 && wpx <= width) last_space = n + len; /* (after a Chinese letter) */
+      n += len;
     }
     memcpy(buf, s, (size_t)n);
     buf[n] = 0;

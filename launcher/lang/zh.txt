@@ -1,0 +1,100 @@
+# NumPlay's launcher in Chinese: the English text as in the source, a tab, the translation
+# (see tools/lang.py). The games' names and taglines come from games/games.json.
+Settings	设置
+Reset, uninstall, more	重置、卸载及更多
+Toolbox	工具箱
+Examples	示例
+MATRICES	矩阵
+Matrix	矩阵
+Results	结果
+Dimension	维数
+Determinant	行列式
+Trace	迹
+Inverse	逆矩阵
+Not invertible	不可逆
+Transpose	转置
+Identity matrix	单位矩阵
+Clear	清除
+Matrices	矩阵
+ KB	 KB
+x,n,t key	x,n,t 键
+var key	var 键
+Toolbox key	工具箱键
+Pi key	π 键
+Square root key	根号键
+Menu: Examples	菜单：示例
+INSTALLED GAMES	已安装的游戏
+Made with 	用
+ by Mason Chen	打造 · Mason Chen
+Reset	重置
+Uninstall	卸载
+Reset all games	重置所有游戏
+Deletes the progress of every game	删除所有游戏的进度
+Start as Matrices	以“矩阵”启动
+A math app first; NumPlay opens in secret	先显示数学应用，再秘密打开 NumPlay
+Show a hint	显示提示
+Matrices names the secret, small and gray	“矩阵”以灰色小字提示暗号
+Secret way in	秘密入口
+Opens NumPlay from Matrices	从“矩阵”打开 NumPlay
+Your calculator's software doesn't allow apps to uninstall parts of themselves. Update it to Epsilon 21 or newer at my.numworks.com, then try again.	你的计算器系统不允许应用卸载自身的一部分。请在 my.numworks.com 将系统更新到 Epsilon 21 或更高版本，然后重试。
+The battery is too low to safely erase flash memory. Plug in your calculator, then try again.	电量过低，无法安全擦除闪存。请给计算器充电，然后重试。
+Something went wrong while erasing. To be safe, reinstall NumPlay from my.numworks.com/apps.	擦除时出错。为安全起见，请在 my.numworks.com/apps 重新安装 NumPlay。
+Hold OK	按住 OK
+every game	所有游戏
+Every game	所有游戏
+ was reset	已重置
+Its progress starts over.	进度将从头开始。
+OK	确定
+Reset 	重置
+?	？
+This deletes the saved progress of 	这将删除
+: best scores, unlocked levels and settings. You can't undo this.	的存档：最高分、已解锁的关卡和设置。此操作无法撤销。
+Games stay installed, and levels you made in an editor are kept.	游戏仍会保留，你在编辑器中制作的关卡也会保留。
+Cancel	取消
+ was uninstalled	已卸载
+ of flash memory freed	 闪存已释放
+Couldn't uninstall	无法卸载
+Uninstalling 	正在卸载
+...	……
+Don't turn off your calculator.	请勿关闭计算器。
+Uninstall 	卸载
+This deletes 	这将删除
+ and all of its saved progress. You can't undo this.	及其所有存档。此操作无法撤销。
+To play it again, reinstall NumPlay from my.numworks.com/apps. Your other games keep their progress.	如需再次游玩，请在 my.numworks.com/apps 重新安装 NumPlay。其他游戏的进度会保留。
+Crossy Road	天天过马路
+Jump to the beat	踩着节拍跳跃
+Hop, dodge, survive	跳跃、闪避、活下去
+Mine, craft, survive	挖矿、合成、生存
+Drive, flip, finish	驾驶、翻转、冲线
+Balatro	小丑牌
+Poker hands, wild jokers	扑克牌型，狂野小丑
+Buckshot Roulette	恶魔轮盘
+You, the Dealer, one shotgun	你、庄家、一把霰弹枪
+Portal Returns	传送门归来
+Think with portals	用传送门思考
+Tetris	俄罗斯方块
+Stack and clear lines	堆叠并消除行
+Chess	国际象棋
+Bots, puzzles, 2 players	电脑对手、谜题、双人对战
+Flappy Bird	笨鸟先飞
+Flap through the pipes	拍着翅膀穿过水管
+Pac-Man	吃豆人
+Eat dots, dodge ghosts	吃豆子，躲幽灵
+Snake	贪吃蛇
+Eat apples, grow long	吃苹果，越长越长
+Connect Four	四子棋
+Four in a row wins	四子连线即获胜
+Solitaire	纸牌接龙
+The classic card game	经典纸牌游戏
+Slide, merge, reach 2048	滑动、合并、达到 2048
+Minesweeper	扫雷
+Clear the field, flag the mines	清理雷区，标出地雷
+Block Breaker	打砖块
+Break every brick	打碎每一块砖
+Backgrounds, clocks, timers	背景、时钟、计时器
+# (names that stay as they are)
+NumDash	NumDash
+NumBlocks	NumBlocks
+NumDrive	NumDrive
+2048	2048
+NumVisuals	NumVisuals

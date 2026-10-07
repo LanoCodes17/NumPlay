@@ -1,0 +1,101 @@
+# NumPlay's launcher in French: the English text as in the source, a tab, the translation
+# (see tools/lang.py). The games' names and taglines come from games/games.json.
+# Based on the French of Gabriel (Mason363/NumPlay#31).
+Settings	Réglages
+Reset, uninstall, more	Effacer, supprimer, plus
+Toolbox	Boîte à outils
+Examples	Exemples
+MATRICES	MATRICES
+Matrix	Matrice
+Results	Résultats
+Dimension	Dimension
+Determinant	Déterminant
+Trace	Trace
+Inverse	Inverse
+Not invertible	Non inversible
+Transpose	Transposée
+Identity matrix	Matrice identité
+Clear	Effacer
+Matrices	Matrices
+ KB	 Ko
+x,n,t key	touche x,n,t
+var key	touche var
+Toolbox key	touche Boîte à outils
+Pi key	touche Pi
+Square root key	touche racine carrée
+Menu: Examples	Menu : Exemples
+INSTALLED GAMES	JEUX INSTALLÉS
+Made with 	Fait avec 
+ by Mason Chen	 par Mason Chen
+Reset	Effacer
+Uninstall	Supprimer
+Reset all games	Tout effacer
+Deletes the progress of every game	Efface la progression de tous les jeux
+Start as Matrices	Démarrer en Matrices
+A math app first; NumPlay opens in secret	D'abord une app de maths, NumPlay en secret
+Show a hint	Afficher un indice
+Matrices names the secret, small and gray	Matrices indique le secret, en petit et gris
+Secret way in	Accès secret
+Opens NumPlay from Matrices	Ouvre NumPlay depuis Matrices
+Your calculator's software doesn't allow apps to uninstall parts of themselves. Update it to Epsilon 21 or newer at my.numworks.com, then try again.	Le logiciel de ta calculatrice ne permet pas aux apps de supprimer une partie d'elles-mêmes. Mets-le à jour vers Epsilon 21 ou plus récent sur my.numworks.com, puis réessaie.
+The battery is too low to safely erase flash memory. Plug in your calculator, then try again.	La batterie est trop faible pour effacer la mémoire flash sans risque. Branche ta calculatrice, puis réessaie.
+Something went wrong while erasing. To be safe, reinstall NumPlay from my.numworks.com/apps.	Un problème est survenu pendant l'effacement. Par sécurité, réinstalle NumPlay depuis my.numworks.com/apps.
+Hold OK	Maintiens OK
+every game	tous les jeux
+Every game	Tous les jeux
+ was reset	 : progression effacée
+Its progress starts over.	Tout repart de zéro.
+OK	OK
+Reset 	Effacer 
+?	 ?
+This deletes the saved progress of 	Cela efface la progression de 
+: best scores, unlocked levels and settings. You can't undo this.	 : meilleurs scores, niveaux débloqués et réglages. C'est définitif.
+Games stay installed, and levels you made in an editor are kept.	Les jeux restent installés, et les niveaux créés dans un éditeur sont gardés.
+Cancel	Annuler
+ was uninstalled	 : supprimé
+ of flash memory freed	 de mémoire flash libérés
+Couldn't uninstall	Suppression impossible
+Uninstalling 	Suppression de 
+...	...
+Don't turn off your calculator.	N'éteins pas ta calculatrice.
+Uninstall 	Supprimer 
+This deletes 	Cela supprime 
+ and all of its saved progress. You can't undo this.	 et toute sa progression. C'est définitif.
+To play it again, reinstall NumPlay from my.numworks.com/apps. Your other games keep their progress.	Pour y rejouer, réinstalle NumPlay depuis my.numworks.com/apps. Tes autres jeux gardent leur progression.
+Crossy Road	Crossy Road
+Jump to the beat	Saute en rythme
+Hop, dodge, survive	Saute, esquive, survis
+Mine, craft, survive	Mine, fabrique, survis
+Drive, flip, finish	Conduis, fais des saltos, arrive
+Balatro	Balatro
+Poker hands, wild jokers	Mains de poker, jokers fous
+Buckshot Roulette	Buckshot Roulette
+You, the Dealer, one shotgun	Toi, le croupier, un fusil
+Portal Returns	Portal Returns
+Think with portals	Pense avec les portails
+Tetris	Tetris
+Stack and clear lines	Empile et efface les lignes
+Chess	Échecs
+Bots, puzzles, 2 players	Bots, problèmes, 2 joueurs
+Flappy Bird	Flappy Bird
+Flap through the pipes	Vole entre les tuyaux
+Pac-Man	Pac-Man
+Eat dots, dodge ghosts	Mange les points, fuis les fantômes
+Snake	Snake
+Eat apples, grow long	Mange des pommes, grandis
+Connect Four	Puissance 4
+Four in a row wins	Quatre alignés pour gagner
+Solitaire	Solitaire
+The classic card game	Le jeu de cartes classique
+Slide, merge, reach 2048	Glisse, fusionne, atteins 2048
+Minesweeper	Démineur
+Clear the field, flag the mines	Déblaie le terrain, pose les drapeaux
+Block Breaker	Casse-briques
+Break every brick	Casse toutes les briques
+Backgrounds, clocks, timers	Fonds, horloges, minuteurs
+# (names that stay as they are)
+NumDash	NumDash
+NumBlocks	NumBlocks
+NumDrive	NumDrive
+2048	2048
+NumVisuals	NumVisuals

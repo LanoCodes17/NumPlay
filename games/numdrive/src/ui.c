@@ -124,7 +124,7 @@ void hud_draw(uint16_t *px, int y, int n) {
       static char buf[40];
       const char *nm = level.name;
       int i = 0;
-      const char *pre = "Level ";
+      const char *pre = T("Level ");
       while (*pre) buf[i++] = *pre++;
       int num = level_index + 1;
       if (num >= 100) buf[i++] = (char)('0' + num / 100);
@@ -289,8 +289,8 @@ static void add_run(const Font *f, int x, int baseline, const char *s, uint16_t 
   r->s = s;
 }
 
-static const char *const desc[] = {"Drive silly cars at high", "speeds in dangerous", "terrain. Oh, and you",
-                                   "can't steer. Good luck!"};
+static const char *const desc[] = {T("Drive silly cars at high"), T("speeds in dangerous"), T("terrain. Oh, and you"),
+                                   T("can't steer. Good luck!")};
 
 void card_setup(int kind, int lvl) {
   memset(&cd, 0, sizeof cd);
@@ -307,12 +307,13 @@ void card_setup(int kind, int lvl) {
     cd.box[1] = (Box){-91, 12, 44, 47, C_PANEL_D};
     cd.nbox = 2;
     cd.photo = (Box){44, -71, 91, 47, 0};
-    for (int i = 0; i < 4; i++) add_run(&font_s, -86, -58 + i * 10, desc[i], C_WHITE, false);
-    add_run(&font_s, -86, 4, "Inspired by Drive Mad", C_WHITE, false);
-    add_run(&font_s, -86, 24, "Made by Mason Chen", C_WHITE, false);
+    /* (in other languages, lines a little further apart: room for accents and Chinese letters) */
+    for (int i = 0; i < 4; i++) add_run(&font_s, -86, -58 + i * (NP_TEXT_EXTRA ? 12 : 10), desc[i], C_WHITE, false);
+    add_run(&font_s, -86, 4, T("Inspired by Drive Mad"), C_WHITE, false);
+    add_run(&font_s, -86, NP_TEXT_EXTRA ? 22 : 24, T("Made by Mason Chen"), C_WHITE, false);
     char *t = cd.txt[0];
     int n = lvl + 1, i = 0;
-    const char *pre = "Level ";
+    const char *pre = T("Level ");
     while (*pre) t[i++] = *pre++;
     if (n >= 100) t[i++] = (char)('0' + n / 100);
     if (n >= 10) t[i++] = (char)('0' + n / 10 % 10);
@@ -329,7 +330,7 @@ void card_setup(int kind, int lvl) {
     cd.cx = 160;
     cd.cy = 91;
     cd.photo = (Box){-59, -66, 59, 52, 0};
-    add_run(&font_m, 0, 69, kind == CARD_WIN ? "Good game" : "Terminated", C_CAPTION, true);
+    add_run(&font_m, 0, 69, kind == CARD_WIN ? T("Good game") : T("Terminated"), C_CAPTION, true);
   }
 }
 
@@ -339,6 +340,14 @@ int card_buttons(void) { return cd.kind == CARD_LOSE ? 1 : cd.kind == CARD_PAUSE
 static int run_texel(const Run *r, int x, int y) {
   if (y < 0 || y >= r->f->h) return 0;
   int pos = 0;
+#if NP_TEXT_EXTRA
+  for (const char *s = r->s; *s && pos <= x + 4;) {
+    Letter l = g_letter(r->f, &s);
+    int a = x >= pos - 3 && x < pos + l.adv + 3 ? g_letter_alpha(r->f, &l, x - pos, y) : 0;
+    if (a) return a;
+    pos += l.adv;
+  }
+#else
   for (const char *s = r->s; *s; s++) {
     const Glyph *g = font_glyph(r->f, (unsigned char)*s);
     if (!g) continue;
@@ -350,6 +359,7 @@ static int run_texel(const Run *r, int x, int y) {
     if (pos + 4 < x) continue;
     if (pos > x + 4) break;
   }
+#endif
   return 0;
 }
 
@@ -373,10 +383,11 @@ static float ease_back(float t) {
 /* buttons below the card */
 static void card_btns(int sel, int yb) {
   const int x0 = 89, w = 142, h = 30, r = 6;
+  const int iy = yb + 3 - 2 * NP_TEXT_EXTRA; /* the icons (in other languages a little higher, over Chinese letters) */
   if (cd.kind == CARD_LOSE) {
     g_button(x0, yb, w, h, r, C_BLUE, C_BLUE_D, 0);
-    g_icon(&ic_play, 160 - 6, yb + 3, C_WHITE, 32);
-    g_text_c(&font_s, 160, yb + 25 - font_s.base, "Retry", C_WHITE, 32);
+    g_icon(&ic_play, 160 - 6, iy, C_WHITE, 32);
+    g_text_c(&font_s, 160, yb + 25 - font_s.base, T("Retry"), C_WHITE, 32);
   } else {
     /* Restart (grey) | Resume or Next Level (blue), and Levels (grey) on the pause card */
     const bool paused = cd.kind == CARD_PAUSE;
@@ -395,15 +406,15 @@ static void card_btns(int sel, int yb) {
         else if (c != C_BLACK) p[x] = mix565(c, C_GRAY, 20);
       }
     }
-    g_icon(&ic_restart, xb + ws / 2 - 7, yb + 3, C_WHITE, 32);
-    g_text_c(&font_s, xb + ws / 2, yb + 25 - font_s.base, "Restart", C_WHITE, 32);
+    g_icon(&ic_restart, xb + ws / 2 - 7, iy, C_WHITE, 32);
+    g_text_c(&font_s, xb + ws / 2, yb + 25 - font_s.base, T("Restart"), C_WHITE, 32);
     int cx = xb + ws + (wb - ws - wl) / 2;
-    g_icon(&ic_play, cx - 7, yb + 3, C_WHITE, 32);
-    g_text_c(&font_s, cx, yb + 25 - font_s.base, paused ? "Resume" : "Next Level", C_WHITE, 32);
+    g_icon(&ic_play, cx - 7, iy, C_WHITE, 32);
+    g_text_c(&font_s, cx, yb + 25 - font_s.base, paused ? T("Resume") : T("Next Level"), C_WHITE, 32);
     if (paused) {
       int lx = xb + wb - wl / 2;
-      for (int k = 0; k < 4; k++) g_rect(lx - 6 + (k & 1) * 7, yb + 4 + (k >> 1) * 7, 5, 5, C_WHITE, 32);
-      g_text_c(&font_s, lx, yb + 25 - font_s.base, "Levels", C_WHITE, 32);
+      for (int k = 0; k < 4; k++) g_rect(lx - 6 + (k & 1) * 7, iy + 1 + (k >> 1) * 7, 5, 5, C_WHITE, 32);
+      g_text_c(&font_s, lx, yb + 25 - font_s.base, T("Levels"), C_WHITE, 32);
     }
     /* focus ring */
     if (sel != CARD_SEL_QUIT) {
@@ -416,10 +427,10 @@ static void card_btns(int sel, int yb) {
     }
   }
   /* Quit game, small, under the others (Down to reach it) */
-  int qw = g_text_w(&font_s, "Quit game") + 16, qy = yb + h + 5;
+  int qw = g_text_w(&font_s, T("Quit game")) + 16, qy = yb + h + 5;
   bool q = sel == CARD_SEL_QUIT;
   g_button(160 - qw / 2, qy, qw, 15, 5, q ? C_BLUE : C_GRAY, q ? C_BLUE_D : C_GRAY_D, q);
-  g_text_c(&font_s, 160, qy + 12 - font_s.base, "Quit game", C_WHITE, 32);
+  g_text_c(&font_s, 160, qy + 12 - font_s.base, T("Quit game"), C_WHITE, 32);
 }
 
 void card_draw(int anim, int sel, bool full) {
@@ -529,12 +540,27 @@ void levels_draw(int sel, int scroll) {
     for (int r = 0; r < n; r++) bg_row(buf + r * SCREEN_W, sy + r, 0, SCREEN_W);
     g_begin(buf, sy, n);
     if (sy < 40) {
+#if NP_TEXT_EXTRA /* a translation with letters the big font lacks: in the medium one (Chinese in the big one) */
+      const char *tl = T("Levels");
+      const Font *ft = &font_l;
+      for (const char *s = tl; *s;) {
+        Letter l = g_letter(ft, &s);
+        if (!l.g && (!l.x || l.x->cp < 0x2E80)) ft = &font_m;
+      }
+      int ty = 22 - ft->base;
+      for (int d = 0; d < 8; d++) {
+        static const int8_t o[8][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {1, 1}, {-1, 1}, {1, -1}};
+        g_text_c(ft, 160 + o[d][0], ty + o[d][1] + 1, tl, C_TITLE_O, 32);
+      }
+      g_text_c(ft, 160, ty, tl, C_WHITE, 32);
+#else
       int ty = 22 - font_l.base;
       for (int d = 0; d < 8; d++) {
         static const int8_t o[8][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {1, 1}, {-1, 1}, {1, -1}};
         g_text_c(&font_l, 160 + o[d][0], ty + o[d][1] + 1, "Levels", C_TITLE_O, 32);
       }
       g_text_c(&font_l, 160, ty, "Levels", C_WHITE, 32);
+#endif
     }
     for (int row = 0; row < 7; row++) {
       int ly = GY + row * PITCH;
@@ -583,13 +609,13 @@ void quit_draw(bool yes) {
     g_rrect(63, 75, 200, 94, 12, C_SHADOW, 13);
     g_rrect(59, 71, 202, 94, 13, C_BLACK, 32);
     g_rrect(60, 72, 200, 92, 12, C_WHITE, 32);
-    g_text_c(&font_m, 160, 100 - font_m.base, "Quit game?", C_OUTLINE, 32);
-    g_text_c(&font_s, 160, 116 - font_s.base, "You can come back anytime.", C_CAPTION, 32);
+    g_text_c(&font_m, 160, 100 - font_m.base, T("Quit game?"), C_OUTLINE, 32);
+    g_text_c(&font_s, 160, 116 - font_s.base, T("You can come back anytime."), C_CAPTION, 32);
     for (int k = 0; k < 2; k++) {
       bool on = k == yes;
       int x = k ? 170 : 80;
       g_button(x, 126, 70, 26, 6, on ? C_BLUE : C_GRAY, on ? C_BLUE_D : C_GRAY_D, on);
-      g_text_c(&font_s, x + 35, 126 + 17 - font_s.base, k ? "Yes" : "No", C_WHITE, 32);
+      g_text_c(&font_s, x + 35, 126 + 17 - font_s.base, k ? T("Yes") : T("No"), C_WHITE, 32);
     }
     plat_push(0, sy, SCREEN_W, n, buf);
   }

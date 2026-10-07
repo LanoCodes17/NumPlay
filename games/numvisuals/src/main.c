@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
+#include "../../common/np_text.h"
 
 #ifdef __ELF__ /* app name and API level, for the calculator's installer */
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "NumVisuals";
@@ -99,7 +100,6 @@ static const uint8_t font[96][5] = {
   {0x44,0x28,0x10,0x28,0x44},{0x0C,0x50,0x50,0x50,0x3C},{0x44,0x64,0x54,0x4C,0x44},{0x00,0x08,0x36,0x41,0x00},
   {0x00,0x00,0x7F,0x00,0x00},{0x00,0x41,0x36,0x08,0x00},{0x08,0x04,0x08,0x10,0x08},{0x08,0x1C,0x3E,0x3E,0x3E},
 };
-#define BKSP "\x7f"
 
 static void glyph(char ch, int x, int y, int k, color c, int a) {
   unsigned g = (uint8_t)ch - 32u;
@@ -123,6 +123,52 @@ static int slen(const char *s) {
   while (s[n]) n++;
   return n;
 }
+#if NP_TEXT_EXTRA
+/* Other languages: an accented letter is the font's own with np_accent() over it (a cedilla under it),
+   a Chinese one comes from the 12-pixel font at a whole scale near the text's size; squeeze brings the
+   letters of a text too long for the screen closer. */
+static int pen_x, pen_y, pen_k, pen_a, squeeze;
+static color pen_c;
+static void pen_dot(int i, int j, void *ctx) {
+  rect(pen_x + i * pen_k, pen_y + j * pen_k, pen_k, pen_k, pen_c, pen_a);
+}
+/* draws (or only measures, a < 0) the next letter of *s at x; returns its advance */
+static int letter(const char **s, int x, int y, int k, color c, int a) {
+  uint32_t cp = np_utf8(s);
+  char b = (char)cp, b2 = 0;
+  int acc = cp >= 0x80 ? np_latin(cp, &b, &b2) : 0, xs = (7 * k + 6) / 12;
+  pen_x = x, pen_y = y, pen_k = k, pen_c = c, pen_a = a;
+  if (!b) { /* in the middle of the capitals' height */
+    if (a >= 0) pen_y += (7 * k - 12 * xs) / 2, pen_k = xs, np_xdraw(cp, 0, 0, 1, pen_dot, 0);
+    return np_xadvance(cp, xs);
+  }
+  if (a >= 0) {
+    glyph(b, x, y, k, c, a);
+    if (b2) glyph(b2, x + 6 * k - squeeze, y, k, c, a);
+    /* over a capital, over a small letter (its top is row 2), or the cedilla under it */
+    np_accent(acc, 0, acc == NP_ACC_CEDIL ? 7 : b < 'a' ? -3 : -1, 1, pen_dot, 0);
+  }
+  return b2 ? 12 * k - 2 * squeeze : 6 * k - squeeze;
+}
+static int tw(const char *s, int k) {
+  int w = *s ? -k : 0;
+  while (*s) w += letter(&s, 0, 0, k, 0, -1);
+  return w;
+}
+/* white, with a soft shadow; from x */
+static void text(const char *s, int x, int y, int k, int a) {
+  if (y - 3 * k >= top + SH || y + 8 * k + 2 <= top) return;
+  for (int o = k / 3 + 1, pass = 0; pass < 2; pass++, o = 0) {
+    const char *p = s;
+    for (int x1 = x + o; *p;) x1 += letter(&p, x1, y + o, k, pass ? WHITE : 0, pass ? a : a * 3 / 8);
+  }
+}
+static void label(const char *s, int cx, int y, int k, int a) {
+  squeeze = tw(s, k) > 308 ? k / 2 : 0;
+  text(s, cx - tw(s, k) / 2, y, k, a);
+  squeeze = 0;
+}
+#else
 static int tw(const char *s, int k) { return slen(s) ? slen(s) * 6 * k - k : 0; }
 /* white, with a soft shadow; from x */
 static void text(const char *s, int x, int y, int k, int a) {
@@ -131,6 +177,7 @@ static void text(const char *s, int x, int y, int k, int a) {
     for (int i = 0; s[i]; i++) glyph(s[i], x + o + i * 6 * k, y + o, k, pass ? WHITE : 0, pass ? a : a * 3 / 8);
 }
 static void label(const char *s, int cx, int y, int k, int a) { text(s, cx - tw(s, k) / 2, y, k, a); }
+#endif
 /* a big line centred on (160, cy), with a smaller part after it, fitted to
    the screen */
 static void big(const char *s, const char *small, int cy, int k, int a) {
@@ -455,23 +502,23 @@ typedef struct {
   uint32_t pal[6];
 } bg_t;
 static const bg_t bgs[] = {
-  {"Aurora", 0, aurora_frame, aurora, 5, {0x02030C, 0x071A33, 0x0E6070, 0x33E8A0, 0xD2FFEA}},
-  {"Sunset Drive", 0, 0, synth, 4, {0x14002E, 0x55106E, 0xC72C79, 0xFF8A5B}},
-  {"Plasma", plasma_init, plasma_frame, plasma, 6, {0x1B0B3A, 0x6B1FA8, 0xFF3E8A, 0xFFC857, 0x2EC4B6, 0x1B0B3A}},
-  {"Pastel", pastel_init, plasma_frame, plasma, 6, {0xFFB3C7, 0xB9A2FF, 0x8FD8FF, 0x9EEDB6, 0xFFE08A, 0xFFB3C7}},
-  {"Lava Lamp", 0, lava_frame, lava, 5, {0x12061F, 0x4A0F3F, 0xB8233B, 0xFF7A2E, 0xFFE7A6}},
-  {"Warp", warp_init, warp_frame, warp, 3, {0x000004, 0x06061C, 0x140A2E}},
-  {"Tunnel", tunnel_init, 0, tunnel, 5, {0x00E5FF, 0x7A2BFF, 0xFF2BB1, 0x7A2BFF, 0x00E5FF}},
-  {"Fire", fire_init, fire_frame, flames, 5, {0x07050B, 0x4A0A0A, 0xC4260C, 0xFF8A1E, 0xFFF0B8}},
-  {"Ocean", 0, ocean_frame, ocean, 4, {0x0E1B45, 0x5A3C8C, 0xE9867A, 0xFFD6A0}},
-  {"Bokeh", bokeh_init, bokeh_frame, bokeh, 3, {0x0B0520, 0x250A33, 0x3A0F2E}},
-  {"Code Rain", rain_init, rain_frame, rain, 0, {0}},
+  {T("Aurora"), 0, aurora_frame, aurora, 5, {0x02030C, 0x071A33, 0x0E6070, 0x33E8A0, 0xD2FFEA}},
+  {T("Sunset Drive"), 0, 0, synth, 4, {0x14002E, 0x55106E, 0xC72C79, 0xFF8A5B}},
+  {T("Plasma"), plasma_init, plasma_frame, plasma, 6, {0x1B0B3A, 0x6B1FA8, 0xFF3E8A, 0xFFC857, 0x2EC4B6, 0x1B0B3A}},
+  {T("Pastel"), pastel_init, plasma_frame, plasma, 6, {0xFFB3C7, 0xB9A2FF, 0x8FD8FF, 0x9EEDB6, 0xFFE08A, 0xFFB3C7}},
+  {T("Lava Lamp"), 0, lava_frame, lava, 5, {0x12061F, 0x4A0F3F, 0xB8233B, 0xFF7A2E, 0xFFE7A6}},
+  {T("Warp"), warp_init, warp_frame, warp, 3, {0x000004, 0x06061C, 0x140A2E}},
+  {T("Tunnel"), tunnel_init, 0, tunnel, 5, {0x00E5FF, 0x7A2BFF, 0xFF2BB1, 0x7A2BFF, 0x00E5FF}},
+  {T("Fire"), fire_init, fire_frame, flames, 5, {0x07050B, 0x4A0A0A, 0xC4260C, 0xFF8A1E, 0xFFF0B8}},
+  {T("Ocean"), 0, ocean_frame, ocean, 4, {0x0E1B45, 0x5A3C8C, 0xE9867A, 0xFFD6A0}},
+  {T("Bokeh"), bokeh_init, bokeh_frame, bokeh, 3, {0x0B0520, 0x250A33, 0x3A0F2E}},
+  {T("Code Rain"), rain_init, rain_frame, rain, 0, {0}},
 };
 #define NBG (int)(sizeof bgs / sizeof bgs[0])
 
 /* ------------------------------------------------------------------ add-ons */
 enum { A_NONE, A_CLOCK, A_STOPWATCH, A_TIMER, A_COUNTER, A_TEXT, A_COUNT };
-static const char *const addon_names[A_COUNT] = {"None", "Clock", "Stopwatch", "Timer", "Counter", "Text"};
+static const char *const addon_names[A_COUNT] = {T("None"), T("Clock"), T("Stopwatch"), T("Timer"), T("Counter"), T("Text")};
 
 /* everything kept between visits (numvisuals.sav) */
 static struct {
@@ -601,10 +648,10 @@ static char event_char(int e) {
 
 static const char *hint(void) {
   switch (V.addon) {
-    case A_CLOCK: case A_TEXT: return "OK: change  BACK: menu";
-    case A_STOPWATCH: case A_TIMER: return "OK: go/stop  " BKSP ": reset";
-    case A_COUNTER: return "OK: +1  -: -1  " BKSP ": 0";
-    default: return "BACK: menu";
+    case A_CLOCK: case A_TEXT: return T("OK: change  BACK: menu");
+    case A_STOPWATCH: case A_TIMER: return T("OK: go/stop  \x7f: reset");
+    case A_COUNTER: return T("OK: +1  -: -1  \x7f: 0");
+    default: return T("BACK: menu");
   }
 }
 
@@ -618,14 +665,14 @@ static void ui_draw(void) {
     char n[8], *o = num(n, b ? V.bg + 1 : V.addon + 1);
     *o++ = '/';
     *num(o, b ? NBG : A_COUNT) = 0;
-    label(b ? "BACKGROUND" : "ADD-ON", 160, 8, 2, 26);
+    label(b ? T("BACKGROUND") : T("ADD-ON"), 160, 8, 2, 26);
     text(n, 8, 8, 2, 16);
     label(b ? cur->name : addon_names[V.addon], 160, 188, 3, 32);
     label("<", 14, 188, 3, 32);
     label(">", 306, 188, 3, 32);
-    label(b ? "OK: add-ons  BACK: quit" : "OK: choose  BACK: back", 160, 218, 2, 22);
+    label(b ? T("OK: add-ons  BACK: quit") : T("OK: choose  BACK: back"), 160, 218, 2, 22);
   } else if (mode == M_SET) {
-    static const char *const titles[3] = {"SET THE TIME", "SET THE TIMER", "TYPE YOUR TEXT"};
+    static const char *const titles[3] = {T("SET THE TIME"), T("SET THE TIMER"), T("TYPE YOUR TEXT")};
     bool blink = now % 1000 < 600;
     rect(0, 0, W, 28, 0, 10);
     rect(0, 206, W, 34, 0, 12);
@@ -636,7 +683,7 @@ static void ui_draw(void) {
       *o++ = blink ? '_' : ' ';
       *o = 0;
       big(s, "", 120, 9, 32);
-      label("ALPHA: letters  OK: done", 160, 216, 2, 22);
+      label(T("ALPHA: letters  OK: done"), 160, 216, 2, 22);
     } else {
       char s[8], *o = two(s, (unsigned)set_v[0]);
       *o++ = ':';
@@ -645,11 +692,11 @@ static void ui_draw(void) {
       text(s, x, 81, 10, 32);
       if (field < 2) rect(x + field * 180, 158, 110, 4, WHITE, blink ? 32 : 10);
       if (V.addon == A_CLOCK) {
-        const char *f = set_v[2] ? "12-hour" : "24-hour";
+        const char *f = set_v[2] ? T("12-hour") : T("24-hour");
         if (field == 2) rect(160 - tw(f, 2) / 2 - 10, 170, tw(f, 2) + 20, 22, WHITE, blink ? 10 : 6);
         label(f, 160, 174, 2, 32);
       }
-      label("ARROWS: set  OK: done", 160, 216, 2, 22);
+      label(T("ARROWS: set  OK: done"), 160, 216, 2, 22);
     }
   } else if (fade || toast) {
     rect(0, 196, W, 44, 0, 12 * (fade > toast ? fade : toast) / 32);

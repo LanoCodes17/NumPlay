@@ -1,0 +1,39 @@
+# Connect 4 in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+Resume	继续
+Undo move	悔棋
+Restart	重新开始
+Quit game	退出游戏
+P1	红方
+P2	黄方
+P3	绿方
+RED WINS!	红方获胜！
+YELLOW WINS!	黄方获胜！
+GREEN WINS!	绿方获胜！
+DRAW!	平局！
+YOU	你
+CPU 1	电脑1
+CPU 2	电脑2
+CPU	电脑
+YOU WIN!	你赢了！
+CPU 1 WINS	电脑1获胜
+CPU 2 WINS	电脑2获胜
+CPU WINS	电脑获胜
+OK: next round	OK：下一局
+PAUSED	暂停
+Quit game?	退出游戏？
+Yes	是
+No	否
+Opponent	对手
+Players	人数
+Level	难度
+Theme	主题
+Friend	好友
+Computer	电脑
+Weak	简单
+Normal	普通
+Strong	困难
+Light	浅色
+Dark	深色
+CONNECT	四子棋
+PLAY	开始
+Based on Tatone26's version	改编自 Tatone26 的版本

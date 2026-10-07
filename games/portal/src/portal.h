@@ -9,6 +9,7 @@
 #include <eadk.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include "../../common/np_text.h"
 
 typedef uint8_t u8;
 typedef int8_t s8;
@@ -30,6 +31,10 @@ void tile_draw(int t, int col, int row);
 void fill(int x, int y, int w, int h, u16 c);
 void cls(void);                             /* whole screen in the text background */
 int text(const char *s, int x2, int y);     /* returns the x after the text */
+#if NP_TEXT_EXTRA
+int letter(const char **s, int x2, int y, bool draw); /* the next letter of *s; returns the x after it */
+int text_w(const char *s);                  /* in 2 px units */
+#endif
 void glyph(char c, int x2, int y);
 int number(int v, int x2, int y);
 void sign_clip(int x0, int x1);             /* keep drawing off the hint sign (x0 == x1: off) */

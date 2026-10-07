@@ -87,6 +87,50 @@ int glyph_alpha(const Font *f, const Glyph *g, int x, int y) {
   return (f->data[g->off + (i >> 2)] >> ((i & 3) * 2)) & 3;
 }
 
+#if NP_TEXT_EXTRA
+Letter g_letter(const Font *f, const char **s) {
+  Letter l = {0};
+  uint32_t cp = np_utf8(s);
+  char b = (char)cp, b2 = 0;
+  if (cp >= 0x80) l.acc = np_latin(cp, &b, &b2);
+  if ((l.g = b ? font_glyph(f, (unsigned char)b) : 0)) {
+    l.g2 = b2 ? font_glyph(f, (unsigned char)b2) : 0;
+    l.adv = l.g->adv + (l.g2 ? l.g2->adv : 0);
+  } else if ((l.x = np_xglyph(cp))) {
+    l.acc = 0, l.xs = f->h > 28 ? 2 : 1, l.adv = l.x->adv * l.xs;
+  }
+  return l;
+}
+
+static void mark(int x, int y, void *ctx) { *(int *)ctx |= 1 << (y * 5 + x); }
+
+int g_letter_alpha(const Font *f, const Letter *l, int x, int y) {
+  if (l->x) { /* its 12 rows on the middle of the capitals */
+    int k = l->xs, dx = x - l->x->x * k, dy = y - ((f->cap_top + f->base) / 2 - 6 * k) - l->x->y * k;
+    if (dx < 0 || dy < 0 || dx >= l->x->w * k || dy >= l->x->h * k) return 0;
+    uint32_t bit = (uint32_t)l->x->off * 8 + dy / k * l->x->w + dx / k;
+    return np_xfont.rows[bit >> 3] >> (bit & 7) & 1 ? 3 : 0;
+  }
+  if (!l->g) return 0;
+  int a = glyph_alpha(f, l->g, x, y);
+  if (!a && l->g2) a = glyph_alpha(f, l->g2, x - l->g->adv, y);
+  if (!a && l->acc) { /* centred over the letter, a pixel above it, or the cedilla under the baseline */
+    int k = f->h > 28 ? 2 : 1, m = 0;
+    int dx = x - l->g->xoff - (l->g->w - 5 * k) / 2;
+    int dy = y - (l->acc == NP_ACC_CEDIL ? f->base : l->g->y0 - 2 * k - 1);
+    if (dx < 0 || dy < 0 || dx >= 5 * k || dy >= 2 * k) return 0;
+    np_accent(l->acc, 0, 0, 1, mark, &m);
+    a = m >> (dy / k * 5 + dx / k) & 1 ? 3 : 0;
+  }
+  return a;
+}
+
+int g_text_w(const Font *f, const char *s) {
+  int w = 0;
+  while (*s) w += g_letter(f, &s).adv;
+  return w;
+}
+#else
 int g_text_w(const Font *f, const char *s) {
   int w = 0;
   for (; *s; s++) {
@@ -95,6 +139,7 @@ int g_text_w(const Font *f, const char *s) {
   }
   return w;
 }
+#endif
 
 static void blit2(const uint8_t *data, int gw, int gh, int x, int y, uint16_t c, int a) {
   int ya = y < gc.y0 ? gc.y0 : y, yb = y + gh > gc.y1 ? gc.y1 : y + gh;
@@ -109,12 +154,25 @@ static void blit2(const uint8_t *data, int gw, int gh, int x, int y, uint16_t c,
 
 void g_text(const Font *f, int x, int y, const char *s, uint16_t c, int a) {
   if (y >= gc.y1 || y + f->h <= gc.y0) return;
+#if NP_TEXT_EXTRA
+  int ya = y < gc.y0 ? gc.y0 : y, yb = y + f->h > gc.y1 ? gc.y1 : y + f->h;
+  while (*s) {
+    Letter l = g_letter(f, &s);
+    for (int yy = ya; yy < yb; yy++)
+      for (int xx = -2; xx < l.adv + 3; xx++) {
+        int v = g_letter_alpha(f, &l, xx, yy - y);
+        if (v) put(x + xx, yy, c, v == 3 ? a : a * v / 3);
+      }
+    x += l.adv;
+  }
+#else
   for (; *s; s++) {
     const Glyph *g = font_glyph(f, (unsigned char)*s);
     if (!g) continue;
     if (g->w) blit2(f->data + g->off, g->w, g->h, x + g->xoff, y + g->y0, c, a);
     x += g->adv;
   }
+#endif
 }
 
 void g_text_c(const Font *f, int cx, int y, const char *s, uint16_t c, int a) {

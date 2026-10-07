@@ -9,7 +9,7 @@ CC = arm-none-eabi-gcc
 NWLINK = npx --yes -- nwlink@1.0.0
 BUILD_DIR = output
 SRC = src/main.c src/game.c src/gfx.c src/inflate.c src/libc.c
-HDR = src/portal.h src/assets.h src/inflate.h
+HDR = src/portal.h src/assets.h src/inflate.h ../common/np_text.h
 
 CFLAGS = -std=c99 $(shell $(NWLINK) eadk-cflags-device)
 CFLAGS += -Os -Wall -fno-math-errno -fno-tree-loop-distribute-patterns -fno-reorder-functions -flto-partition=one

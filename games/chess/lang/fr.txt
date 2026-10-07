@@ -1,0 +1,37 @@
+# Chess in French: the English text as in the source, a tab, the translation (see tools/lang.py).
+# Widths: menu buttons 14 big letters, pause menu 14, puzzle label over the panel 10 small ones,
+# Rematch/Menu buttons 8 big ones.
+Yes	Oui
+No	Non
+Quit game?	Quitter ?
+Play	Jouer
+Puzzles	Problèmes
+2 Players	2 joueurs
+Quit game	Quitter
+Mix	Mélange
+Mate in 1	Mat en 1
+Mate in 2	Mat en 2
+Mate in 3	Mat en 3
+Best move	Coup idéal
+ in a row	 de suite
+Rematch	Revanche
+Menu	Menu
+Checkmate	Échec et mat
+Stalemate	Pat
+50-move rule	Règle des 50 coups
+Repetition	Répétition
+Insufficient material	Matériel insuffisant
+Timeout	Temps écoulé
+Draw	Nulle
+You won	Tu as gagné
+Black won	Les Noirs gagnent
+White won	Les Blancs gagnent
+ won	 gagne
+Undo	Annuler
+Flip	Tourner
+Resign	Abandonner
+Agreement	Nulle acceptée
+Resignation	Abandon
+Hint	Indice
+Solution	Solution
+Next	Suivant

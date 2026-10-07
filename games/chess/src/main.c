@@ -3,6 +3,7 @@
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
 #include "../../common/jump.h"
+#include "../../common/np_text.h"
 #include "chess.h"
 #include "sprites.h"
 
@@ -80,10 +81,16 @@ static void text(const char *s, int x, int y, int big, C fg, C bg) {
   eadk_display_draw_string(s, (eadk_point_t){x, y}, big, fg, bg);
 }
 
-static void ctext(const char *s, int cx, int y, int big, C fg, C bg) {
+/* the cells a text takes: a letter each (two for a Chinese one, in a language build) */
+static int cells(const char *s) {
+  if (NP_TEXT_EXTRA) return np_text_cells(s);
   int n = 0;
   for (const char *c = s; *c; c++) n += (*c & 0xC0) != 0x80;
-  text(s, cx - n * (big ? 10 : 7) / 2, y, big, fg, bg);
+  return n;
+}
+
+static void ctext(const char *s, int cx, int y, int big, C fg, C bg) {
+  text(s, cx - cells(s) * (big ? 10 : 7) / 2, y, big, fg, bg);
 }
 
 static char *itoa(int v, char *o) {
@@ -192,7 +199,7 @@ static struct {
     int16_t x, y;
     uint8_t big, n;
     C fg, bg;
-    char s[16];
+    char s[NP_TEXT_EXTRA ? 40 : 16];
   } t[8];
 } W;
 
@@ -265,18 +272,16 @@ static void w_sprite(int pc, int X, int Y, int small) {
 
 static void w_text(const char *s, int x, int y, int big, C fg, C bg) {
   if (W.nt >= 8) return;
-  int k = W.nt++, n = 0;
-  strncpy(W.t[k].s, s, 15);
-  W.t[k].s[15] = 0;
-  for (const char *c = W.t[k].s; *c; c++) n += (*c & 0xC0) != 0x80;
+  int k = W.nt++, n;
+  strncpy(W.t[k].s, s, sizeof W.t[k].s - 1);
+  W.t[k].s[sizeof W.t[k].s - 1] = 0;
+  n = cells(W.t[k].s);
   W.t[k].x = (int16_t)x, W.t[k].y = (int16_t)y, W.t[k].big = (uint8_t)big, W.t[k].n = (uint8_t)n;
   W.t[k].fg = fg, W.t[k].bg = bg;
 }
 
 static void w_ctext(const char *s, int cx, int y, int big, C fg, C bg) {
-  int n = 0;
-  for (const char *c = s; *c; c++) n += (*c & 0xC0) != 0x80;
-  w_text(s, cx - n * (big ? 10 : 7) / 2, y, big, fg, bg);
+  w_text(s, cx - cells(s) * (big ? 10 : 7) / 2, y, big, fg, bg);
 }
 
 /* Sends the piece around its texts (rows without text in blocks), then the texts. */
@@ -477,7 +482,7 @@ static void quit_buttons(int yes, int first) {
   for (int k = 0; k < 2; k++) {
     C c = k == yes ? GREEN : CARD;
     w_rrect(50 + k * 74, 124, 66, 36, 8, c);
-    w_ctext(k ? "Yes" : "No", 83 + k * 74, 133, 1, WHITE, c);
+    w_ctext(k ? T("Yes") : T("No"), 83 + k * 74, 133, 1, WHITE, c);
   }
   w_end();
 }
@@ -485,7 +490,7 @@ static void quit_buttons(int yes, int first) {
 static int confirm_quit(void) {
   w_grab(40, 64, 160, 52);
   w_rrect(40, 64, 160, 112, 12, BG);
-  w_ctext("Quit game?", 120, 84, 1, WHITE, BG);
+  w_ctext(T("Quit game?"), 120, 84, 1, WHITE, BG);
   w_end();
   int yes = 0;
   quit_buttons(yes, 1);
@@ -498,7 +503,7 @@ static int confirm_quit(void) {
 }
 
 static int main_menu(int *i) {
-  static const char *const items[] = {"Play", "Puzzles", "2 Players"};
+  static const char *const items[] = {T("Play"), T("Puzzles"), T("2 Players")};
   static const uint8_t icons[] = {KNIGHT | BLACK, QUEEN | BLACK, KING};
   for (;;) {
     int k = list(items, icons, 3, 60, 200, 56, 14, i);
@@ -623,7 +628,7 @@ static void overlay_item(const char *const *items, int n, int y, int it, int on)
     int qy = y + n * 36 + 12;
     w_begin(70, qy, 100, 20, BG);
     w_rrect(70, qy, 100, 20, 7, c);
-    w_ctext("Quit game", 120, qy + 3, 0, on ? WHITE : RGB(0xDD, 0xDC, 0xDA), c);
+    w_ctext(T("Quit game"), 120, qy + 3, 0, on ? WHITE : RGB(0xDD, 0xDC, 0xDA), c);
   }
   w_end();
 }
@@ -651,6 +656,9 @@ static int overlay(const char *const *items, int n) {
 }
 
 /* --------------------------------------------------------------- Panel */
+
+/* the kinds of puzzles: their menu, and the label over the panel */
+static const char *const PUZ_KINDS[5] = {T("Mix"), T("Mate in 1"), T("Mate in 2"), T("Mate in 3"), T("Best move")};
 
 static const uint8_t START[7] = {0, 8, 2, 2, 2, 1, 0};
 static const uint8_t WORTH[7] = {0, 1, 3, 3, 5, 9, 0};
@@ -753,12 +761,10 @@ static void panel_items(void) {
     int s = !PZ.start.side;
     C bg = s ? RGB(0x10, 0x10, 0x10) : WHITE;
     w_rrect(244, 8, 72, 34, 8, bg);
-    char t[10] = "Mate in ";
-    t[8] = '0' + PZ.mate;
-    w_ctext(PZ.mate ? t : "Best move", 280, 18, 0, s ? WHITE : INK, bg);
+    w_ctext(PUZ_KINDS[PZ.mate ? PZ.mate : 4], 280, 18, 0, s ? WHITE : INK, bg);
     if (pstreak > 1) {
-      char k[12];
-      strcpy(itoa(pstreak, k), " in a row");
+      char k[NP_TEXT_EXTRA ? 32 : 12];
+      strcpy(itoa(pstreak, k), T(" in a row"));
       w_ctext(k, 280, 52, 0, DIM, BG);
     }
     rating_texts();
@@ -875,7 +881,7 @@ static int human(int e) {
 /* ---------------------------------------------------------------- Game */
 
 static void over_button(int k, int on) {
-  static const char *const b[2] = {"Rematch", "Menu"};
+  static const char *const b[2] = {T("Rematch"), T("Menu")};
   C c = on ? GREEN : CARD;
   w_begin(30 + k * 94, 130, 86, 38, BG);
   w_rrect(30 + k * 94, 130, 86, 38, 8, c);
@@ -912,7 +918,8 @@ static void undo(int n) {
 }
 
 static void game(int md) {
-  static const char *const why[] = {"", "Checkmate", "Stalemate", "50-move rule", "Repetition", "Insufficient material"};
+  static const char *const why[] = {"", T("Checkmate"), T("Stalemate"), T("50-move rule"), T("Repetition"),
+                                     T("Insufficient material")};
 again:
   mode = md;
   ch_reset();
@@ -938,17 +945,17 @@ again:
       int32_t before = tm[P.side];
       tm[P.side] -= now - last;
       last = now;
-      if (tm[P.side] <= 0) winner = !P.side, reason = "Timeout";
+      if (tm[P.side] <= 0) winner = !P.side, reason = T("Timeout");
       if (before / 100 != tm[P.side] / 100 && (tm[P.side] < 10000 || before / 1000 != tm[P.side] / 1000))
         clock_pill(P.side, (P.side == !flip) ? 6 : 200);
     } else {
       last = eadk_timing_millis();
     }
     if (reason) {
-      if (md == M_BOT) title = winner < 0 ? "Draw" : winner == pcol ? "You won" : BOTS[bot].name;
-      else title = winner < 0 ? "Draw" : winner ? "Black won" : "White won";
-      static char t[12];
-      if (md == M_BOT && winner >= 0 && winner != pcol) strcpy(strcpy(t, title) + strlen(title), " won"), title = t;
+      if (md == M_BOT) title = winner < 0 ? T("Draw") : winner == pcol ? T("You won") : BOTS[bot].name;
+      else title = winner < 0 ? T("Draw") : winner ? T("Black won") : T("White won");
+      static char t[NP_TEXT_EXTRA ? 40 : 12];
+      if (md == M_BOT && winner >= 0 && winner != pcol) strcpy(strcpy(t, title) + strlen(title), T(" won")), title = t;
       if (game_over(title, reason)) goto again;
       return;
     }
@@ -969,8 +976,8 @@ again:
       continue;
     }
     if (m == -1) {
-      static const char *const pb[] = {"Undo", "Flip", "Resign", "Menu"};
-      static const char *const p2[] = {"Undo", "Flip", "Draw", "Resign", "Menu"};
+      static const char *const pb[] = {T("Undo"), T("Flip"), T("Resign"), T("Menu")};
+      static const char *const p2[] = {T("Undo"), T("Flip"), T("Draw"), T("Resign"), T("Menu")};
       int k = md == M_BOT ? overlay(pb, 4) : overlay(p2, 5);
       if (md == M_BOT && k >= 2) k++;
       if (k == 0) {
@@ -982,13 +989,13 @@ again:
         autoflip = flip == P.side;
       }
       if (k == 2 || k == 3) {
-        title = k == 2 ? "Draw" : P.side ? "White won" : "Black won";
+        title = k == 2 ? T("Draw") : P.side ? T("White won") : T("Black won");
         if (md == M_BOT && k == 3) {
-          static char t[12];
-          strcpy(strcpy(t, BOTS[bot].name) + strlen(BOTS[bot].name), " won");
+          static char t[NP_TEXT_EXTRA ? 40 : 12];
+          strcpy(strcpy(t, BOTS[bot].name) + strlen(BOTS[bot].name), T(" won"));
           title = t;
         }
-        if (game_over(title, k == 2 ? "Agreement" : "Resignation")) goto again;
+        if (game_over(title, k == 2 ? T("Agreement") : T("Resignation"))) goto again;
         return;
       }
       if (k == 4) return;
@@ -1124,7 +1131,7 @@ static void puzzles(int kind) {
         m = human(e);
       }
       if (m == -1) {
-        static const char *const it[] = {"Hint", "Solution", "Next", "Menu"};
+        static const char *const it[] = {T("Hint"), T("Solution"), T("Next"), T("Menu")};
         int k = overlay(it, 4);
         draw_board();
         if (k == 3) return;
@@ -1186,8 +1193,7 @@ static void puzzles(int kind) {
 }
 
 static int puzzle_menu(int *i) {
-  static const char *const items[] = {"Mix", "Mate in 1", "Mate in 2", "Mate in 3", "Best move"};
-  return list(items, 0, 5, 70, 180, 38, 8, i);
+  return list(PUZ_KINDS, 0, 5, 70, 180, 38, 8, i);
 }
 
 int main(void) {

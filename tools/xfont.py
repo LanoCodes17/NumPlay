@@ -3,7 +3,7 @@
 
   xfont.py extract font.pcf assets/fonts/fusion-pixel-12px.bin
       Keeps the letters of GB2312 (simplified Chinese), CJK and fullwidth
-      punctuation from Fusion Pixel 12px (SIL Open Font License 1.1, see
+      punctuation, and Latin (ASCII, Latin-1, Latin Extended-A) from Fusion Pixel 12px (SIL Open Font License 1.1, see
       LICENSES/OFL-1.1-Fusion-Pixel.txt), in a small file committed with the
       sources: magic "NPXF", the count, then for each letter its code point
       (4 bytes), advance, x, y (from the top of a 12-pixel line), width, height
@@ -27,6 +27,8 @@ def wanted():
             except (UnicodeDecodeError, TypeError):
                 pass
     cps |= set(range(0x3000, 0x3040)) | set(range(0xFF00, 0xFFF0)) | set(range(0x2010, 0x2070))
+    # Latin too: for a game whose own font lacks letters a translation needs (np_xdraw draws them)
+    cps |= set(range(0x21, 0x7F)) | set(range(0xA1, 0x180))
     return cps
 
 
@@ -65,8 +67,8 @@ def table(font_path, out, texts):
     used = set()
     for t in texts:
         used |= {ord(c) for c in open(t, encoding="utf-8").read() if ord(c) >= 0x80}
-    # (Latin letters and the usual punctuation are drawn by the games' fonts: see np_latin)
-    cps = sorted(c for c in used if c in font and c >= 0x2100)
+    # every letter beyond ASCII the texts use, and the Latin ones too (for games whose font lacks some)
+    cps = sorted(c for c in used if c in font and (c >= 0x2100 or 0x21 <= c < 0x180))
     L = ["/* Made by tools/xfont.py from Fusion Pixel 12px (SIL Open Font License 1.1): the letters this",
          "   build's texts use that the games' fonts don't have. See games/common/np_text.h. */"]
     rows = bytearray()

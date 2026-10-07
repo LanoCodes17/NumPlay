@@ -164,7 +164,7 @@ def tree(code, out):
         if os.path.isdir(os.path.join(ROOT, nm)):
             os.symlink(os.path.join(ROOT, nm), os.path.join(out, nm))
     # fonts: the launcher's accented letters, and the 12-pixel font for the rest
-    text = "\n".join(used)
+    text = "\n".join(used) + "\n" + "".join(chr(c) for c in range(0x21, 0x7F))
     latin = sorted({ord(c) for c in text if 0x80 <= ord(c) < 0x180})
     # the launcher's own texts get Nunito's letters; the games draw theirs with accents (np_latin)
     if os.path.isdir(os.path.join(ROOT, "tools/.fonts")):

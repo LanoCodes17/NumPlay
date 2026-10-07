@@ -193,10 +193,14 @@ static void progress_line(int pack) {
   *o++ = '0' + done % 10;
   *o++ = '/';
   *o++ = '0' + total / 10, *o++ = '0' + total % 10;
-  strcpy(o, " COMPLETE");
-  fill(0, 212, 320, 8, screen_bg);
+  strcpy(o, T(" COMPLETE"));
+  fill(0, 212 - 3 * NP_TEXT_EXTRA, 320, 8 + 6 * NP_TEXT_EXTRA, screen_bg); /* (and accents, Chinese) */
+#if NP_TEXT_EXTRA
+  text(s, (160 - text_w(s)) / 2, 212);
+#else
   int len = (int)strlen(s);
   text(s, (160 - len * 5) / 2, 212);
+#endif
 }
 
 static void help(void);
@@ -209,10 +213,10 @@ static void custom_menu(void) {
   bool armed = false; /* 5 pressed once: the next 5 resets */
   for (;;) {
     if (redraw) {
-      item("PRELUDE", 0, true);
+      item(T("PRELUDE"), 0, true);
       selector(0x47, 0x42, save.level[1], true, is_done(1, save.level[1]));
-      fill(0x1D * 2, 0x8A, 320 - 0x1D * 2, 8, screen_bg);
-      text(armed ? "PRESS 5 AGAIN TO RESET" : "PRESS 5 TO RESET", 0x1D, 0x8A);
+      fill(0x1D * 2, 0x8A - 3 * NP_TEXT_EXTRA, 320 - 0x1D * 2, 8 + 6 * NP_TEXT_EXTRA, screen_bg);
+      text(armed ? T("PRESS 5 AGAIN TO RESET") : T("PRESS 5 TO RESET"), 0x1D, 0x8A);
       progress_line(1);
     }
     redraw = 1;
@@ -237,7 +241,7 @@ static void custom_menu(void) {
 }
 
 static void title(void) {
-  static const char *const items[] = {"LEVEL ", "CUSTOM", "COLOR", "HELP"};
+  static const char *const items[] = {T("LEVEL "), T("CUSTOM"), T("COLOR"), T("HELP")};
   int sel = 0;
   for (;;) {
     flush_keys(); /* keys still down from a chamber or a page are not presses */
@@ -278,7 +282,7 @@ static void title(void) {
 /* EB1D: the title art with RETURN / RESTART / QUIT.
  * Returns 0 to go on, 1 to quit to the title, 2 to restart the level. */
 int pause_menu(void) {
-  static const char *const items[] = {"RETURN", "RESTART", "QUIT"};
+  static const char *const items[] = {T("RETURN"), T("RESTART"), T("QUIT")};
   save_write();
   flush_keys(); /* the Back that opened the menu is not a press in it */
   title_art();
@@ -336,30 +340,31 @@ static void spr_x2(const u8 *s, int x, int y) {
 static bool help_page(int page) {
   cls();
   if (page == 0) {
-    static const char *const keys[][2] = {{"LEFT RIGHT", "RUN"}, {"UP", "JUMP"}, {"OK", "PICK UP / DROP"}, {"BACK", "PAUSE"}};
-    text("HOW TO PLAY", 5, 10);
+    static const char *const keys[][2] = {{T("LEFT RIGHT"), T("RUN")}, {T("UP"), T("JUMP")},
+                                               {T("OK"), T("PICK UP / DROP")}, {T("BACK"), T("PAUSE")}};
+    text(T("HOW TO PLAY"), 5, 10);
     for (int i = 0; i < 4; i++) {
       text(keys[i][0], 10, 30 + 16 * i);
-      text(keys[i][1], 75, 30 + 16 * i);
+      text(keys[i][1], NP_TEXT_EXTRA ? 80 : 75, 30 + 16 * i); /* (room for longer keys' names) */
     }
     static const char pad[] = "789456123";
     for (int i = 0; i < 9; i++) key_box(20 + (i % 3) * 26, 104 + (i / 3) * 26, pad[i], i == 4 ? pal[C_ORANGE] : pal[C_BLUE]);
-    text("1-9 SHOOT A", 55, 108);
-    text("PORTAL THAT WAY", 55, 124);
-    text("5 SWITCHES THE", 55, 148);
-    text("NEXT COLOR:", 55, 164);
+    text(T("1-9 SHOOT A"), 55, 108);
+    text(T("PORTAL THAT WAY"), 55, 124);
+    text(T("5 SWITCHES THE"), 55, 148);
+    text(T("NEXT COLOR:"), 55, 164);
     spr(SPT(0xE1FF), 0x71, 164);
-    text("REACH THE RIGHT SIDE", 5, 196);
-    text("OF EACH TEST CHAMBER.", 5, 212);
+    text(T("REACH THE RIGHT SIDE"), 5, 196);
+    text(T("OF EACH TEST CHAMBER."), 5, 212);
   } else {
-    text("TEST ELEMENTS", 5, 10);
+    text(T("TEST ELEMENTS"), 5, 10);
     static const char *const lines[][2] = {
-      {"BUTTON: STAND OR PUT A", "CUBE ON IT TO OPEN DOORS"},
-      {"CUBE: OK PICKS IT UP", "AND DROPS IT"},
-      {"FIZZLER: NO PORTALS", "OR CUBES GET THROUGH"},
-      {"ELECTRIC FIELDS AND", "SPIKES ARE DEADLY"},
-      {"GLASS: BEAMS GO THROUGH,", "YOU DO NOT"},
-      {"PELLET: DEADLY. GUIDE IT", "INTO A RECEIVER"},
+      {T("BUTTON: STAND OR PUT A"), T("CUBE ON IT TO OPEN DOORS")},
+      {T("CUBE: OK PICKS IT UP"), T("AND DROPS IT")},
+      {T("FIZZLER: NO PORTALS"), T("OR CUBES GET THROUGH")},
+      {T("ELECTRIC FIELDS AND"), T("SPIKES ARE DEADLY")},
+      {T("GLASS: BEAMS GO THROUGH,"), T("YOU DO NOT")},
+      {T("PELLET: DEADLY. GUIDE IT"), T("INTO A RECEIVER")},
     };
     for (int i = 0; i < 6; i++) {
       int y = 32 + i * 32;
@@ -375,7 +380,7 @@ static bool help_page(int page) {
       text(lines[i][1], 17, y + 12);
     }
   }
-  text("OK >", 0x8A, 226);
+  text(T("OK >"), 0x8A, 226);
   for (;;) {
     int k = wait_key();
     if (k == eadk_key_back) return false;
@@ -391,20 +396,20 @@ static void help(void) {
 
 static void credits(void) {
   static const char *const lines[] = {
-    "CREDITS",
-    " INSPIRED BY PORTAL RETURNS",
-    " BY MATEOCONLECHUGA. PORTAL",
-    " IS BY VALVE. NOT AFFILIATED",
-    " WITH EITHER OF THEM.",
-    " CHAMBERS: MATEOCONLECHUGA",
-    " SPRITES AND TILES: CKH4",
-    " PRELUDE: UNICORN, AFTER",
-    " BUILDERBOY'S PORTAL PRELUDE",
-    " ORIGINAL TESTERS: UNICORN,",
+    T("CREDITS"),
+    T(" INSPIRED BY PORTAL RETURNS"),
+    T(" BY MATEOCONLECHUGA. PORTAL"),
+    T(" IS BY VALVE. NOT AFFILIATED"),
+    T(" WITH EITHER OF THEM."),
+    T(" CHAMBERS: MATEOCONLECHUGA"),
+    T(" SPRITES AND TILES: CKH4"),
+    T(" PRELUDE: UNICORN, AFTER"),
+    T(" BUILDERBOY'S PORTAL PRELUDE"),
+    T(" ORIGINAL TESTERS: UNICORN,"),
     " JAMESV, RALPHW74, 123OUTERME",
     "",
-    " MADE BY MASON CHEN",
-    " AS PART OF NUMPLAY.",
+    T(" MADE BY MASON CHEN"),
+    T(" AS PART OF NUMPLAY."),
   };
   cls();
   for (unsigned i = 0; i < sizeof lines / sizeof *lines; i++) text(lines[i], 5, 8 + 16 * i);
@@ -416,9 +421,9 @@ static void credits(void) {
  * While it is up, the game draws around it (sign_clip). */
 static int hint_pending[8], nhints;
 static const char *const HINTS[] = {
-  "ARROWS: RUN, JUMP. EXIT RIGHT", "1-9: SHOOT A PORTAL THAT WAY", "5: SWITCH THE NEXT COLOR",
-  "OK: GRAB / DROP A CUBE", "BUTTONS OPEN DOORS WHILE HELD", "BLUE FIELDS ERASE PORTALS",
-  "RED FIELDS KILL: STAY CLEAR", "GUIDE PELLETS INTO RECEIVERS", "SPIKES KILL: STAY CLEAR",
+  T("ARROWS: RUN, JUMP. EXIT RIGHT"), T("1-9: SHOOT A PORTAL THAT WAY"), T("5: SWITCH THE NEXT COLOR"),
+  T("OK: GRAB / DROP A CUBE"), T("BUTTONS OPEN DOORS WHILE HELD"), T("BLUE FIELDS ERASE PORTALS"),
+  T("RED FIELDS KILL: STAY CLEAR"), T("GUIDE PELLETS INTO RECEIVERS"), T("SPIKES KILL: STAY CLEAR"),
 };
 
 /* hints 0-7 in save.hints, hint 8 in bit 1 of save.flags */
@@ -482,7 +487,11 @@ bool hint_tick(void (*restore)(void)) {
   hint_mark(hint_now);
   save_write();
   hint_t = 47 * 4;
+#if NP_TEXT_EXTRA
+  sign_w = text_w(HINTS[hint_now]) * 2 + 8;
+#else
   sign_w = (int)strlen(HINTS[hint_now]) * 10 + 8;
+#endif
   sign_x = sign_place(sign_w);
   sign_draw();
   return true;

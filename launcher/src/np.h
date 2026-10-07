@@ -85,6 +85,8 @@ typedef struct {
 } np_config_t;
 void np_config_load(np_config_t *c);
 bool np_config_save(const np_config_t *c);
+bool np_bg_load(int *mode);   /* the home screen's live background chosen last; false when none was saved */
+bool np_bg_save(int mode);
 /* A copy of every save in numplay_saves.py, a Python script: the only kind of
    file the NumWorks installer keeps when NumPlay is updated. */
 void np_progress_backup(void);

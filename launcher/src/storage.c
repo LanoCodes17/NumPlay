@@ -77,6 +77,21 @@ bool np_config_save(const np_config_t *c) {
   return ef_write(CONFIG_NAME, d, sizeof d);
 }
 
+/* Which live background of the home screen was chosen last (launcher/src/live.c). */
+#define BG_NAME "npbg.set"
+bool np_bg_load(int *mode) {
+  uint32_t len = 0;
+  const uint8_t *d = ef_read(BG_NAME, &len);
+  if (!d || len != 3 || d[0] != 'B' || d[1] != 1) return false;
+  *mode = d[2];
+  return true;
+}
+
+bool np_bg_save(int mode) {
+  uint8_t d[3] = {'B', 1, (uint8_t)mode};
+  return ef_write(BG_NAME, d, sizeof d);
+}
+
 /* ---------------------------------------------------------------- progress copy
  * Installing apps restarts the calculator, which empties its file system; the
  * NumWorks installer puts back the Python scripts only. So NumPlay keeps every
@@ -143,6 +158,7 @@ static bool lz_scratch(uint32_t largest) {
  * starts with the rest, like NumBlocks' regions); false when i is past the end */
 static bool save_name(int i, char out[64]) {
   if (i-- == 0) return strcpy(out, CONFIG_NAME), true;
+  if (i-- == 0) return strcpy(out, BG_NAME), true; /* the home screen's background */
   for (int g = 0; g < np_game_count; g++)
     for (const char *const *r = np_games[g].records; r && *r; r++) {
       bool seen = false;

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Packs a game's screenshots for the launcher's carousel.
 
-Each screenshot is scaled to 192x144 (60 %), reduced to at most 256 colours
+Each screenshot is scaled to 192x144 (60 %), reduced to at most 48 colours (by default)
 and compressed with raw DEFLATE; the launcher inflates it when the card is on
 screen. On the calculator everything goes in the game's block of flash, so
 uninstalling the game frees its screenshots too.
@@ -72,7 +72,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--id", required=True)
     ap.add_argument("--index", type=int, required=True)
-    ap.add_argument("--colors", type=int, default=64)
+    ap.add_argument("--colors", type=int, default=48)
     ap.add_argument("out")
     ap.add_argument("shots", nargs="+")
     a = ap.parse_args()

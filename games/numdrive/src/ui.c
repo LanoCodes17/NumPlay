@@ -215,7 +215,7 @@ void ui_capture_background(void) {
     }
   }
   /* soften: two separable box passes */
-  uint8_t(*t)[BW][3] = render_scratch();
+  uint8_t t[BH][BW][3];
   for (int pass = 0; pass < 2; pass++) {
     for (int y = 0; y < BH; y++)
       for (int x = 0; x < BW; x++)

@@ -16,7 +16,8 @@ ARM_OBJCOPY = arm-none-eabi-objcopy
 PY ?= python3
 CARGO ?= cargo
 B = build
-RAM_LIMIT = 153676
+# the RAM the oldest calculator software that runs apps gives them (23.2: 148928 bytes; 25.2 gives 153676)
+RAM_LIMIT = 148928
 # the calculator's space for installed apps (0x90200000 to 0x903F0000 in its flash)
 APP_SPACE = 2031616
 # Upsilon, the N0110 and N0115's custom software, gives .nwa apps less RAM: NumPlay-Upsilon.nwa has

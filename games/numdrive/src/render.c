@@ -26,7 +26,9 @@ static const float AMB[3] = {0.764f, 0.773f, 0.839f};
 static const float LEFF[3] = {0.444f, 0.423f, 0.304f};
 
 static uint16_t cbuf[SCREEN_W * STRIP_H] __attribute__((aligned(4)));
-static uint16_t zbuf[SCREEN_W * STRIP_H] __attribute__((aligned(4)));
+/* the depth of the strip being drawn: on render_strip's stack (the calculator gives apps 32 KB of it,
+ * the game uses a few), not in the RAM that calculator software since 23.2 gives apps (148928 bytes) */
+static uint16_t *zbuf;
 typedef uint32_t __attribute__((may_alias)) u32a;
 static int strip_y0, strip_y1; /* current strip rows [y0, y1) */
 static int clip_x0, clip_x1;
@@ -729,9 +731,10 @@ void render_prepare(int rx0, int rx1) {
 }
 
 uint16_t *render_buffer(void) { return cbuf; }
-void *render_scratch(void) { return zbuf; } /* depth buffer, free between frames */
 
 uint16_t *render_strip(int sy, int n, int x0, int x1) {
+  uint16_t depth[SCREEN_W * STRIP_H] __attribute__((aligned(4)));
+  zbuf = depth;
   strip_y0 = sy;
   strip_y1 = sy + n;
   clip_x0 = x0;
@@ -756,6 +759,7 @@ uint16_t *render_strip(int sy, int n, int x0, int x1) {
     draw_object(&objs[i], r);
   }
   draw_shadows();
+  zbuf = NULL;
   return cbuf;
 }
 

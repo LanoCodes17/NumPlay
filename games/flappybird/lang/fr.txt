@@ -1,0 +1,29 @@
+# Flappy Bird in French: the English text as in the source, a tab, the translation (see tools/lang.py).
+# The \0 separate a list's texts (nth() in the source): keep their number and order.
+Speed\0Speed up\0Pipes\0Gap\0Moving pipes\0Jump\0Events\0- Pipe surge\0- Wind\0- Narrow gaps\0- Wide gaps\0- Dense pipes\0- Gravity\0Stack events\0No collisions\0Bird\0Sky\0Reset all	Vitesse\0Accélérer\0Tuyaux\0Écart\0Tuyaux mobiles\0Saut\0Événements\0- Vague de tuyaux\0- Vent\0- Écarts serrés\0- Écarts larges\0- Tuyaux serrés\0- Gravité\0Cumul d'événements\0Sans collisions\0Oiseau\0Ciel\0Tout réinitialiser
+Very slow\0Slow\0Normal\0Fast\0Insane\0Impossible\0Never\0Every 15\0Every 10\0Every 5\0Each pipe\0Sparse\0Normal\0Dense\0Extreme\0Easy\0Normal\0Hard\0Off\0Rarely\0Sometimes\0Often\0Slow\0Fast\0Floaty\0Bouncy\0Normal\0Snappy\0Heavy\0Never\0Rare\0Normal\0Frequent\0Random\0Yellow\0Blue\0Red\0Random\0Day\0Night\0OK	Très lente\0Lente\0Normale\0Rapide\0Folle\0Impossible\0Jamais\0Tous les 15\0Tous les 10\0Tous les 5\0Chaque tuyau\0Espacés\0Normaux\0Denses\0Extrêmes\0Facile\0Normal\0Difficile\0Non\0Rarement\0Parfois\0Souvent\0Lents\0Rapides\0Planant\0Rebondissant\0Normal\0Vif\0Lourd\0Jamais\0Rares\0Normaux\0Fréquents\0Au hasard\0Jaune\0Bleu\0Rouge\0Au hasard\0Jour\0Nuit\0OK
+Off\0On	Non\0Oui
+\0Pipe surge!\0Tailwind!\0Headwind!\0Narrow gaps!\0Wide gaps!\0Dense pipes!\0Low gravity!\0High gravity!	\0Vague de tuyaux !\0Vent arrière !\0Vent de face !\0Écarts serrés !\0Écarts larges !\0Tuyaux serrés !\0Gravité faible !\0Gravité forte !
+Get Ready!	Prêt ?
+FlappyBird	FlappyBird
+Settings	Réglages
+Game Over	Perdu !
+SCORE	SCORE
+BEST	RECORD
+MEDAL	MÉDAILLE
+NEW	NOUVEAU
+TAP	TAPE
+For Custom games\0For both games\0Back to the defaults	Pour les parties Perso\0Pour les deux modes\0Revenir aux réglages par défaut
+Left/Right: change   Back: done	Gauche/Droite : changer   Retour : fini
+Quit game?	Quitter ?
+Yes	Oui
+No	Non
+Paused	Pause
+Resume\0Restart\0Quit game	Reprendre\0Recommencer\0Quitter
+Classic	Classique
+Custom	Perso
+Best 	Record 
+Based on Tatone26's version	D'après la version de Tatone26
+Play	Jouer
+Menu	Menu
+PRACTICE	ENTRAÎNEMENT

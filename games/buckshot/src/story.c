@@ -68,9 +68,9 @@ static int pills_choice(void) {
   for (;;) {
     bath_draw(1, 1);
     gfx_fill(96, 176, 128, 50, C_BLACK);
-    gfx_text_c(&font_small, "CONSUME PILLS?", 160, 182, C_WHITE);
-    gfx_text(&font_big, "YES", 112, 202, yes ? C_WHITE : C_GREY);
-    gfx_text(&font_big, "NO", 184, 202, yes ? C_GREY : C_WHITE);
+    gfx_text_c(&font_small, T("CONSUME PILLS?"), 160, 182, C_WHITE);
+    gfx_text(&font_big, T("YES"), 112, 202, yes ? C_WHITE : C_GREY);
+    gfx_text(&font_big, T("NO"), 184, 202, yes ? C_GREY : C_WHITE);
     gfx_present();
     int k = key_wait(-1);
     if (k == KEY_LEFT || k == KEY_RIGHT) yes = !yes;
@@ -86,7 +86,7 @@ int story_intro(void) {
   fade_to(0, 256, 900);
   for (;;) {
     bath_draw(sel, pills);
-    gfx_text(&font_small, pills ? "LEFT/RIGHT: CHOOSE   OK: INTERACT" : "OK: OPEN THE DOOR", 4, 3, C_GREY);
+    gfx_text(&font_small, pills ? T("LEFT/RIGHT: CHOOSE   OK: INTERACT") : T("OK: OPEN THE DOOR"), 4, 3, C_GREY);
     gfx_present();
     int k = key_wait(-1);
     if (k == KEY_BACK) return -1;
@@ -111,7 +111,7 @@ int story_intro(void) {
 
 static void hall_draw(void) {
   gfx_plate(IMG_PL_HALL);
-  gfx_text(&font_small, "OK: OPEN THE DOOR", 4, 3, C_GREY);
+  gfx_text(&font_small, T("OK: OPEN THE DOOR"), 4, 3, C_GREY);
 }
 
 static void hallway(void) {
@@ -193,7 +193,7 @@ static void waiver(void) {
   show_plate(IMG_PL_WAIVER, 600);
   for (;;) {
     waiver_draw(name, cur, 0);
-    gfx_text(&font_small, "ARROWS+OK OR LETTER KEYS  EXE: SIGN", 4, 3, C_GREY);
+    gfx_text(&font_small, T("ARROWS+OK OR LETTER KEYS  EXE: SIGN"), 4, 3, C_GREY);
     gfx_present();
     int k = key_wait(400);
     if (k < 0) continue;
@@ -238,7 +238,7 @@ static void waiver(void) {
 void story_enter(int mode) {
   (void)mode;
   hallway();
-  anim_dealer_arrives("PLEASE SIGN THE WAIVER.");
+  anim_dealer_arrives(T("PLEASE SIGN THE WAIVER."));
   waiver();
   table_reset();
   view_dealer();
@@ -250,7 +250,7 @@ void story_enter(int mode) {
 static void bath_door_draw(void) {
   gfx_plate(IMG_PL_BATH);
   gfx_brackets(DOOR[0], DOOR[1], DOOR[2], DOOR[3], C_WHITE);
-  gfx_text(&font_small, "OK: OPEN THE DOOR", 4, 3, C_GREY);
+  gfx_text(&font_small, T("OK: OPEN THE DOOR"), 4, 3, C_GREY);
 }
 
 /* the bathroom and the hallway again, the Dealer waiting */
@@ -273,20 +273,20 @@ void story_revive(void) {
   gfx_present();
   pause_ms(1500);
   show_plate(IMG_PL_REVIVE, 1500);
-  static char line[24];
-  char *o = cat(line, "GET UP, ");
+  static char line[NP_TEXT_EXTRA ? 48 : 24];
+  char *o = cat(line, T("GET UP, "));
   o = cat(o, G.name);
-  cat(o, "!");
-  const char *lines[3] = {"YOU'RE LUCKY IT LEFT YOU\nWITH A CHARGE!", line, "THE NIGHT IS YOUNG."};
+  cat(o, T("!"));
+  const char *lines[3] = {T("YOU'RE LUCKY IT LEFT YOU\nWITH A CHARGE!"), line, T("THE NIGHT IS YOUNG.")};
   redraw = revive_draw;
   for (int i = 0; i < 3; i++) {
     gfx_plate(IMG_PL_REVIVE);
-    ui_dialogue(lines[i], 99);
+    ui_dialogue(lines[i], NP_TEXT_EXTRA ? 999 : 99);
     gfx_present();
     pause_skip(i == 0 ? 3000 : 2400);
   }
   fade_to(256, 0, 800);
-  back_to_the_table("WELCOME BACK.");
+  back_to_the_table(T("WELCOME BACK."));
 }
 
 void story_retry(void) {
@@ -315,9 +315,9 @@ int story_death(void) {
   int retry = 1;
   for (;;) {
     gfx_plate(IMG_PL_HEAVEN);
-    gfx_text_shadow(&font_big, "YOU ARE DEAD", 160, 92, C_WHITE);
-    gfx_text_shadow(&font_small, "RETRY", 130, 124, retry ? C_WHITE : C_GREY);
-    gfx_text_shadow(&font_small, "EXIT", 190, 124, retry ? C_GREY : C_WHITE);
+    gfx_text_shadow(&font_big, T("YOU ARE DEAD"), 160, 92, C_WHITE);
+    gfx_text_shadow(&font_small, T("RETRY"), 130, 124, retry ? C_WHITE : C_GREY);
+    gfx_text_shadow(&font_small, T("EXIT"), 190, 124, retry ? C_GREY : C_WHITE);
     gfx_present();
     int k = key_wait(-1);
     if (k == KEY_LEFT || k == KEY_RIGHT) retry = !retry;
@@ -344,11 +344,11 @@ static void don_display(const char *s) {
 static int don_yes = 1;
 
 static void don_choice_draw(void) {
-  don_display("DOUBLE OR\nNOTHING?");
+  don_display(T("DOUBLE OR\nNOTHING?"));
   static const int16_t B[2][4] = {{58, 10, 104, 46}, {168, 10, 104, 46}};
   const int16_t *b = B[!don_yes];
   gfx_brackets(b[0], b[1], b[2], b[3], C_WHITE);
-  gfx_text_c(&font_small, "LEFT/RIGHT: CHOOSE   OK: PRESS", 160, 228, C_GREY);
+  gfx_text_c(&font_small, T("LEFT/RIGHT: CHOOSE   OK: PRESS"), 160, 228, C_GREY);
 }
 
 int story_double_or_nothing(void) {
@@ -365,7 +365,7 @@ int story_double_or_nothing(void) {
     if (pause_skip(60)) t = 39;
   }
   pause_ms(1200);
-  don_display("DOUBLE OR\nNOTHING?");
+  don_display(T("DOUBLE OR\nNOTHING?"));
   gfx_present();
   pause_ms(1500);
   don_yes = 1;
@@ -450,15 +450,15 @@ void story_ending(void) {
   }
   static char text[256];
   char *o = cat(text, "");
-  if (G.mode == MODE_STORY) o = stat(o, "SHOTS FIRED ........", G.shots);
-  else o = stat(o, "ROUNDS BEAT ........", G.rounds_beat);
-  o = stat(o, "SHELLS EJECTED .....", G.ejected);
-  o = stat(o, "DOORS KICKED .......", G.doors);
-  o = stat(o, "CIGARETTES SMOKED ..", G.cigs);
-  o = stat(o, "ML OF BEER DRANK ...", G.beer_ml);
-  static char title[32], total[32];
-  cat(cat(cat(title, "CONGRATULATIONS, "), G.name), "!");
-  cat(story_money(cat(total, "TOTAL CASH: "), cash), " $");
+  if (G.mode == MODE_STORY) o = stat(o, T("SHOTS FIRED ........"), G.shots);
+  else o = stat(o, T("ROUNDS BEAT ........"), G.rounds_beat);
+  o = stat(o, T("SHELLS EJECTED ....."), G.ejected);
+  o = stat(o, T("DOORS KICKED ......."), G.doors);
+  o = stat(o, T("CIGARETTES SMOKED .."), G.cigs);
+  o = stat(o, T("ML OF BEER DRANK ..."), G.beer_ml);
+  static char title[NP_TEXT_EXTRA ? 64 : 32], total[NP_TEXT_EXTRA ? 64 : 32];
+  cat(cat(cat(title, T("CONGRATULATIONS, ")), G.name), T("!"));
+  cat(story_money(cat(total, T("TOTAL CASH: ")), cash), " $");
   /* on the road, the cash on the seat */
   gfx_plate(IMG_PL_CAR);
   fade_to(0, 256, 2000);
@@ -468,7 +468,7 @@ void story_ending(void) {
   pause_ms(1500);
   const char *p = text;
   for (int line = 0; line < 5; line++) {
-    char one[40];
+    char one[NP_TEXT_EXTRA ? 96 : 40];
     int n = 0;
     while (*p && *p != '\n') one[n++] = *p++;
     one[n] = 0;
@@ -485,7 +485,7 @@ void story_ending(void) {
   gfx_present();
   pause_ms(1200);
   if (G.ended == 2) {
-    gfx_text_shadow(&font_small, "\"DOUBLE OR NOTHING\" UNLOCKED!", 160, 212, C_YELLOW);
+    gfx_text_shadow(&font_small, T("\"DOUBLE OR NOTHING\" UNLOCKED!"), 160, 212, C_YELLOW);
     gfx_present();
   }
   redraw = 0;

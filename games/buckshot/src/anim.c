@@ -50,7 +50,7 @@ static void careful(void) {
   if (G.hp[0] == 1 && !G.wire[0] && !G.careful_said) {
     G.careful_said = 1;
     view_dealer();
-    say("CAREFUL, NOW ...", 2500);
+    say(T("CAREFUL, NOW ..."), 2500);
   }
 }
 
@@ -225,7 +225,7 @@ static void dealer_item(int it, const act_t *a) {
     case IT_GLASS:
       d_pose(IMG_D_MAG0, 600);
       d_pose(IMG_D_MAG1, 900);
-      say("VERY INTERESTING ...", 1800);
+      say(T("VERY INTERESTING ..."), 1800);
       d_done();
       break;
     case IT_BEER:
@@ -314,7 +314,7 @@ int anim_player_aim(void) {
   T.pose = IMG_P_HOLD;
   T.lbl = 1;
   for (;;) {
-    T.hint = "UP: DEALER   DOWN: YOU   OK: FIRE";
+    T.hint = T("UP: DEALER   DOWN: YOU   OK: FIRE");
     table_show();
     int k;
     while ((k = idle_key()) < 0) {}
@@ -434,7 +434,7 @@ void anim_dealer_cuffed(int broke) {
 void anim_wire_cut(int side, int say_it) {
   view_dealer();
   frame(1200);
-  if (say_it) say("ARE YOU READY?", 3000);
+  if (say_it) say(T("ARE YOU READY?"), 3000);
   wire_cut(side);
 }
 
@@ -454,7 +454,7 @@ void anim_dealer_load(int n, int told, int fast) {
   T.gun_on_table = 0;
   d_pose(IMG_D_GUN_LIFT, 220);
   d_pose(IMG_D_GUN_LOAD, 700);
-  if (told >= 0) say(told == 0 ? "I INSERT THE SHELLS\nIN AN UNKNOWN ORDER." : "THEY ENTER THE CHAMBER\nIN A HIDDEN SEQUENCE.", 3000);
+  if (told >= 0) say(told == 0 ? T("I INSERT THE SHELLS\nIN AN UNKNOWN ORDER.") : T("THEY ENTER THE CHAMBER\nIN A HIDDEN SEQUENCE."), 3000);
   for (int i = 0; i < n; i++) {
     d_pose(IMG_D_GUN_LOAD1, fast ? 110 : 200);
     d_pose(IMG_D_GUN_LOAD, fast ? 60 : 120);

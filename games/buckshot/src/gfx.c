@@ -155,6 +155,42 @@ static int glyph(const font_t *f, int ch) {
   return ch - 32;
 }
 
+static void draw_glyph(const font_t *f, int g, int x, int y, uint8_t c);
+
+#if NP_TEXT_EXTRA
+/* Letters beyond ASCII, in NumPlay's language builds (games/common/np_text.h): an accented
+   letter is the font's capital with its accent above (a cedilla under it); Chinese comes from
+   the 12-pixel font, its middle on the capitals', twice as big for the dot-matrix font. */
+static void xplot(int x, int y, void *ctx) {
+  if ((unsigned)x < GFX_W && (unsigned)y < GFX_H) gfx_fb[y * GFX_W + x] = *(const uint8_t *)ctx;
+}
+
+/* the letter at *s (a UTF-8 lead byte), *s left at its last byte: its advance, and it is drawn
+   at (x, y) when draw */
+static int xletter(const font_t *f, const char **s, int x, int y, uint8_t c, int draw) {
+  const char *q = *s;
+  uint32_t cp = np_utf8(&q);
+  *s = q - 1;
+  char base, second;
+  int acc = np_latin(cp, &base, &second), dot = f->h > 16, sc = dot ? 2 : 1;
+  if (!base && np_xglyph(cp))
+    return draw ? np_xdraw(cp, x, y - (f->h > 10 ? dot : 1), sc, xplot, &c) : np_xadvance(cp, sc);
+  if (!base) base = '?';
+  int g = glyph(f, base), w = f->adv[g];
+  if (draw) {
+    draw_glyph(f, g, x, y, c);
+    if (acc)
+      np_accent(acc, x + (f->w[g] - 5 * sc) / 2, acc == NP_ACC_CEDIL ? y + f->h - (dot ? 5 : 1) : y - 3, sc, xplot, &c);
+  }
+  if (second) {
+    g = glyph(f, second);
+    if (draw) draw_glyph(f, g, x + w, y, c);
+    w += f->adv[g];
+  }
+  return w;
+}
+#endif
+
 int gfx_text_w(const font_t *f, const char *s) {
   int w = 0, best = 0;
   for (; *s; s++) {
@@ -163,6 +199,12 @@ int gfx_text_w(const font_t *f, const char *s) {
       w = 0;
       continue;
     }
+#if NP_TEXT_EXTRA
+    if ((uint8_t)*s >= 0xC0) {
+      w += xletter(f, &s, 0, 0, 0, 0);
+      continue;
+    }
+#endif
     w += f->adv[glyph(f, *s)];
   }
   return w > best ? w : best;
@@ -193,6 +235,12 @@ void gfx_text(const font_t *f, const char *s, int x, int y, uint8_t c) {
       y += f->h + 3;
       continue;
     }
+#if NP_TEXT_EXTRA
+    if ((uint8_t)*s >= 0xC0) {
+      x += xletter(f, &s, x, y, c, 1);
+      continue;
+    }
+#endif
     int g = glyph(f, *s);
     draw_glyph(f, g, x, y, c);
     x += f->adv[g];
@@ -200,10 +248,10 @@ void gfx_text(const font_t *f, const char *s, int x, int y, uint8_t c) {
 }
 
 void gfx_text_c(const font_t *f, const char *s, int cx, int y, uint8_t c) {
-  char line[64];
+  char line[NP_TEXT_EXTRA ? 160 : 64];
   while (*s) {
     int n = 0;
-    while (s[n] && s[n] != '\n' && n < 63) line[n] = s[n], n++;
+    while (s[n] && s[n] != '\n' && n < (int)sizeof line - 1) line[n] = s[n], n++;
     line[n] = 0;
     gfx_text(f, line, cx - gfx_text_w(f, line) / 2, y, c);
     s += n;

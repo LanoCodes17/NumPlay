@@ -49,6 +49,7 @@ jobs:
           python3 tests/test_uninstall.py build/NumPlay.nwa --game numdrive
           python3 tests/test_progress.py build/NumPlay.nwa
           python3 tests/test_numblocks_progress.py build/apps/NumBlocks.nwa
+          python3 tests/test_upsilon.py build/NumPlay-Upsilon.nwa
 
       - uses: actions/upload-artifact@v4
         with:

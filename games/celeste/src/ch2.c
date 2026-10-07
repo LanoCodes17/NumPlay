@@ -716,8 +716,8 @@ static bool switches_finished_check(void) {
     if (g_ents[i].cls == &TOUCHSWITCH && g_ents[i].dead != 1) touch_finish(&g_ents[i]);
   return true;
 }
-/* Switch.Check: the first switch is finished */
-static bool switch_check(void) {
+/* Switch.Check: the first switch is finished (the switch gates', and Mirror Temple's TouchSwitches gates': ch5.c) */
+bool level_switch_check(void) {
   for (int i = 0; i < g_nents; i++)
     if (g_ents[i].cls == &TOUCHSWITCH && g_ents[i].dead != 1) return ST(&g_ents[i], Touch)->finished;
   return false;
@@ -853,7 +853,7 @@ static void gate_update(Ent *e) {
   if (g->wait > 0) g->wait -= DT;
   else switch (g->step) {
       case 0:   /* while (!Switch.Check) */
-        if (!switch_check()) break;
+        if (!level_switch_check()) break;
         if (g->persistent) {
           char f[48];
           switch_flag_name(f, room_of(e));

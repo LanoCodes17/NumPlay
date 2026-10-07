@@ -1092,9 +1092,20 @@ static bool slip_check(float add_y) {
   return !point_solid(ax, ay) && !point_solid(ax, ay + (-4 + add_y));
 }
 
-static bool climb_hop_blocked_check(void) {
-  if (solid_at(0, -6)) return true;
+/* a LedgeBlocker Madeline would collide with at (x, y) (Tracker.GetComponents<LedgeBlocker>) */
+static bool ledge_blocked(float x, float y) {
+  if (spinners_hit_rect(x + E->cx, y + E->cy, x + E->cx + E->cw, y + E->cy + E->ch)) return true;
+  for (int i = 0; i < g_nents; i++) {
+    Ent *o = &g_ents[i];
+    if (o->cls && o->collidable && o->dead != 1 && (spikes_ledge(o) || dust_ledge(o) || tspikes_ledge(o, E, P->facing)) &&
+        collide_ent_at(E, x, y, o))
+      return true;
+  }
   return false;
+}
+/* ClimbHopBlockedCheck: no hop onto spikes, spinners or tendrils (LedgeBlocker.HopBlockCheck), nor with seeds following */
+static bool climb_hop_blocked_check(void) {
+  return leader_has_seed() || ledge_blocked(E->x + P->facing * 8, E->y) || solid_at(0, -6);
 }
 
 static void sweat_danger(int anim) {
@@ -2537,7 +2548,8 @@ static void player_update(Ent *e) {
   leader_update(v2(E->x, E->y - 8));   /* the Leader component, at (0, -8) */
   actor_update_lift(E);
 
-  if (!p->on_ground && p->speed.y <= 0 && (p->state != ST_CLIMB || p->last_climb_move == -1) && collide_jumpthru(E, E->x, E->y))
+  if (!p->on_ground && p->speed.y <= 0 && (p->state != ST_CLIMB || p->last_climb_move == -1) && collide_jumpthru(E, E->x, E->y) &&
+      !ledge_blocked(E->x, E->y - 2))   /* (JumpThruBoostBlockedCheck) */
     actor_move_v(E, JumpThruAssistSpeed * DT, NULL, NULL);
   if (!p->on_ground && player_dash_attacking(p) && p->dash_dir.y == 0)
     if (solid_at(0, DashVFloorSnapDist) || jumpthru_outside_at(0, DashVFloorSnapDist)) actor_move_v_exact(E, DashVFloorSnapDist, NULL, NULL);

@@ -8,11 +8,11 @@
 #define NOT_BP (!cx->blueprint)
 #define HAS(h) (cx->hi && (cx->hi->contains >> (h) & 1))
 
-static const char K_UPGRADE[] = "Upgrade!", K_AGAIN[] = "Again!", K_RESET[] = "Reset", K_SAVED[] = "Saved!",
-                  K_EATEN[] = "Eaten!", K_EXTINCT[] = "Extinct!", K_SAFE[] = "Safe!", K_MELTED[] = "Melted!",
-                  K_DRANK[] = "Drank!", K_PLUS_TAROT[] = "+1 Tarot", K_PLUS_SPECTRAL[] = "+1 Spectral",
-                  K_COPIED[] = "Copied!", K_GOLD[] = "Gold", K_LEVELUP[] = "Level Up!", K_VALUP[] = "Value Up!",
-                  K_DEBUFFED[] = "Debuffed", K_ACTIVE[] = "Active!";
+static const char K_UPGRADE[] = T("Upgrade!"), K_AGAIN[] = T("Again!"), K_RESET[] = T("Reset"), K_SAVED[] = T("Saved!"),
+                  K_EATEN[] = T("Eaten!"), K_EXTINCT[] = T("Extinct!"), K_SAFE[] = T("Safe!"), K_MELTED[] = T("Melted!"),
+                  K_DRANK[] = T("Drank!"), K_PLUS_TAROT[] = T("+1 Tarot"), K_PLUS_SPECTRAL[] = T("+1 Spectral"),
+                  K_COPIED[] = T("Copied!"), K_GOLD[] = T("Gold"), K_LEVELUP[] = T("Level Up!"), K_VALUP[] = T("Value Up!"),
+                  K_DEBUFFED[] = T("Debuffed"), K_ACTIVE[] = T("Active!");
 
 void joker_init(joker_t *j) {
   j->a = j->b = 0;
@@ -156,7 +156,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
     case CX_SELLING_SELF:
       if (id == J_LUCHADOR && R.phase == PH_ROUND && !R.blind_disabled && R.blind >= BL_OX) {
         R.blind_disabled = 2; /* a request: the caller disables the blind */
-        return msg(e, "Boss Disabled!", PC_ATTN);
+        return msg(e, T("Boss Disabled!"), PC_ATTN);
       }
       if (id == J_DIET_COLA) {
         add_tag(TAG_DOUBLE);
@@ -177,7 +177,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
             joker_on_added(&R.jokers[R.njokers - 1]);
             ev_t *v = ev_push(EV_JOKER_ADD);
             if (v) v->a = copy.uid, v->b = copy.id, v->c = copy.ed, v->d = (int16_t)(R.njokers - 1);
-            ev_popup(TG_JOKER, R.njokers - 1, "Duplicated!", PC_ATTN);
+            ev_popup(TG_JOKER, R.njokers - 1, T("Duplicated!"), PC_ATTN);
           }
         }
       }
@@ -191,7 +191,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
     case CX_REROLL:
       if (id == J_FLASH && NOT_BP) {
         j->a += 2;
-        return msg(e, "+2 Mult", PC_MULT); /* a_mult with the new total in the game: show the gain */
+        return msg(e, T("+2 Mult"), PC_MULT); /* a_mult with the new total in the game: show the gain */
       }
       return 0;
     case CX_ENDING_SHOP:
@@ -204,7 +204,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
           R.cons[R.ncons++] = c;
           ev_t *v = ev_push(EV_CONS_ADD);
           if (v) v->a = c.uid, v->b = c.id, v->c = c.ed;
-          return msg(e, "Duplicated!", PC_ATTN);
+          return msg(e, T("Duplicated!"), PC_ATTN);
         }
       }
       return 0;
@@ -229,7 +229,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
     case CX_SKIPPING_BOOSTER:
       if (id == J_RED_CARD && NOT_BP) {
         j->a += 3;
-        return msg(e, "+3 Mult", PC_MULT);
+        return msg(e, T("+3 Mult"), PC_MULT);
       }
       return 0;
     case CX_CARDS_ADDED:
@@ -257,7 +257,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
       if (id == J_CHICOT && NOT_BP && cx->boss) {
         if (!R.blind_disabled) {
           R.blind_disabled = 2; /* disable request */
-          return msg(e, "Boss Disabled!", PC_ATTN);
+          return msg(e, T("Boss Disabled!"), PC_ATTN);
         }
         return 0;
       }
@@ -266,7 +266,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
         int n = 0, pick[MAXJ];
         for (int i = 0; i < R.njokers; i++)
           if (i != ji && !(R.jokers[i].flags & JF_SLICED)) pick[n++] = i;
-        msg(e, "X1.5 Mult", PC_MULT);
+        msg(e, T("X1.5 Mult"), PC_MULT);
         {
           /* show the new total like the game: "X<new> Mult" */
           static char t[16];
@@ -277,7 +277,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
           if (w >= 10) *p++ = (char)('0' + w / 10 % 10);
           *p++ = (char)('0' + w % 10);
           if (f) *p++ = '.', *p++ = (char)('0' + f);
-          const char *s = " Mult";
+          const char *s = T(" Mult");
           while (*s) *p++ = *s++;
           *p = 0;
           e->msg = t;
@@ -288,13 +288,13 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
       if (id == J_BURGLAR) {
         R.discards_left = 0;
         R.hands_left += 3;
-        return msg(e, "+3 Hands", PC_CHIPS);
+        return msg(e, T("+3 Hands"), PC_CHIPS);
       }
       if (id == J_RIFF_RAFF && R.njokers < joker_slots()) {
         int k = joker_slots() - R.njokers;
         if (k > 2) k = 2;
         for (int i = 0; i < k; i++) joker_add(create_joker_id(1, 0), -1, 0);
-        return msg(e, "+2 Jokers", PC_CHIPS);
+        return msg(e, T("+2 Jokers"), PC_CHIPS);
       }
       if (id == J_CARTOMANCER && cons_room()) {
         give_cons(0);
@@ -313,7 +313,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
           int nd = 0;
           do d[nd++] = (char)('0' + m % 10); while (m /= 10);
           while (nd) *p++ = d[--nd];
-          const char *s = " Mult";
+          const char *s = T(" Mult");
           while (*s) *p++ = *s++;
           *p = 0;
           return msg(e, t, PC_MULT);
@@ -330,7 +330,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
           eff_t e2 = {0};
           jcalc(i, &c2, &e2);
         }
-        return msg(e, "+1 Stone", PC_CHIPS);
+        return msg(e, T("+1 Stone"), PC_CHIPS);
       }
       return 0;
     case CX_DESTROYING_CARD:
@@ -388,7 +388,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
           return msg(e, K_EATEN, PC_ATTN);
         }
         j->x -= 0.01f;
-        return msg(e, "-X0.01 Mult", PC_MULT);
+        return msg(e, T("-X0.01 Mult"), PC_MULT);
       }
       if (id == J_YORICK && NOT_BP) {
         if (j->b <= 1) {
@@ -420,7 +420,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
       if (id == J_GREEN_JOKER && NOT_BP && last) {
         int prev = j->a;
         j->a = j->a - 1 < 0 ? 0 : j->a - 1;
-        if (j->a != prev) return msg(e, "-1 Mult", PC_MULT);
+        if (j->a != prev) return msg(e, T("-1 Mult"), PC_MULT);
         return 0;
       }
       if (id == J_FACELESS && last) {
@@ -457,7 +457,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
           return msg(e, K_EATEN, PC_ATTN);
         }
         j->a -= 1;
-        return msg(e, "-1 Hand Size", PC_ATTN);
+        return msg(e, T("-1 Hand Size"), PC_ATTN);
       }
       if (id == J_INVISIBLE) {
         j->a++;
@@ -474,7 +474,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
           return msg(e, K_EATEN, PC_ATTN);
         }
         j->a -= 4;
-        return msg(e, "-4 Mult", PC_MULT);
+        return msg(e, T("-4 Mult"), PC_MULT);
       }
       if (id == J_TODO_LIST) {
         int n = 0, pick[NHANDS];
@@ -746,7 +746,7 @@ int jcalc(int ji, cx_t *cx, eff_t *e) {
       }
       if (id == J_GREEN_JOKER && NOT_BP) {
         j->a += 1;
-        return msg(e, "+1 Mult", PC_MULT);
+        return msg(e, T("+1 Mult"), PC_MULT);
       }
       return 0;
     case CX_AFTER:

@@ -11,6 +11,11 @@ PY ?= python3
 BUILD_DIR = output
 SRC = $(wildcard src/*.c)
 HDR = $(wildcard src/*.h)
+# NumPlay's language builds (NP_TEXT_EXTRA on in ../common/np_text.h): the names and descriptions,
+# translated in src/texts.h, become output/texts.c (tools/mktexts.py) instead of data.c's
+ifeq ($(shell grep -q 'define NP_TEXT_EXTRA 1' ../common/np_text.h && echo 1),1)
+SRC += $(BUILD_DIR)/texts.c
+endif
 
 CFLAGS = -std=c99 $(shell $(NWLINK) eadk-cflags-device)
 CFLAGS += -Os -Wall -fno-math-errno -fno-tree-loop-distribute-patterns -fno-reorder-functions -flto-partition=one
@@ -40,6 +45,9 @@ $(BUILD_DIR)/icon.o: src/icon.png | $(BUILD_DIR)
 
 $(BUILD_DIR):
 	$(Q) mkdir -p $@
+
+$(BUILD_DIR)/texts.c: src/texts.h tools/mktexts.py tools/mkdata.py | $(BUILD_DIR)
+	$(Q) $(PY) tools/mktexts.py src/texts.h $@
 
 assets:
 	$(Q) $(PY) tools/mkassets.py

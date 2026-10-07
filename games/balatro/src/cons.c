@@ -180,7 +180,7 @@ int use_cons_id(int id, int ed, int from) {
     case C_WHEEL_OF_FORTUNE: case C_ECTOPLASM: case C_HEX: {
       int pool[MAXJ], n = editionless_jokers(pool);
       if (id == C_WHEEL_OF_FORTUNE && !prob(4)) {
-        ev_message("Nope!");
+        ev_message(T("Nope!"));
         break;
       }
       if (!n) break;
@@ -308,12 +308,12 @@ int use_cons_id(int id, int ed, int from) {
       else if (R.jokers[i].id == J_FORTUNE_TELLER) {
         char *p = str_cat(t, "+");
         p = fmt_int(p, R.tarots_used);
-        str_cat(p, " Mult");
+        str_cat(p, T(" Mult"));
         ev_popup(TG_JOKER, i, t, PC_MULT);
       } else {
         char *p = str_cat(t, "X");
         p = fmt_short(p, R.jokers[i].x);
-        str_cat(p, " Mult");
+        str_cat(p, T(" Mult"));
         ev_popup(TG_JOKER, i, t, PC_MULT);
       }
     }

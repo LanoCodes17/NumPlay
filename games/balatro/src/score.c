@@ -188,10 +188,10 @@ static const char *j_msg(int ji, eff_t *e) {
   double x;
   joker_x_display(j, &x);
   if (j->id == J_FORTUNE_TELLER) {
-    text_num(t, "+", R.tarots_used, " Mult");
+    text_num(t, "+", R.tarots_used, T(" Mult"));
     return t;
   }
-  text_num(t, "X", j->id == J_CAINO ? j->x : x, " Mult");
+  text_num(t, "X", j->id == J_CAINO ? j->x : x, T(" Mult"));
   return t;
 }
 
@@ -301,7 +301,7 @@ void draw_phase(void) {
   for (int i = 0; i < R.ntags; i++)
     if (R.tags[i] == TAG_JUGGLE) {
       R.temp_handsize += 3;
-      ev_popup(TG_CENTER, 0, "+3 Hand Size", PC_ATTN);
+      ev_popup(TG_CENTER, 0, T("+3 Hand Size"), PC_ATTN);
       for (int k = i; k < R.ntags - 1; k++) R.tags[k] = R.tags[k + 1], R.tag_orbital[k] = R.tag_orbital[k + 1];
       R.ntags--;
       i--;
@@ -330,7 +330,7 @@ static void score_played_card(int ci, handinfo_t *hi, cx_t *base) {
   card_t *c = &R.cards[ci];
   if (c->flags & CF_DEBUFF) {
     R.blind_triggered = 1;
-    ev_popup(TG_PLAY, ci, "Debuffed", PC_MULT);
+    ev_popup(TG_PLAY, ci, T("Debuffed"), PC_MULT);
     return;
   }
   /* repetitions: red seal, then jokers */
@@ -341,7 +341,7 @@ static void score_played_card(int ci, handinfo_t *hi, cx_t *base) {
   } reps[24];
   reps[0].src_joker = -1;
   if (c->seal == SEAL_RED) {
-    reps[nreps].src_joker = -1, reps[nreps].src_card = ci, reps[nreps].msg = "Again!";
+    reps[nreps].src_joker = -1, reps[nreps].src_card = ci, reps[nreps].msg = T("Again!");
     nreps++;
   }
   for (int j = 0; j < R.njokers; j++) {
@@ -356,8 +356,8 @@ static void score_played_card(int ci, handinfo_t *hi, cx_t *base) {
   }
   for (int r = 0; r < nreps; r++) {
     if (r > 0) {
-      if (reps[r].src_joker >= 0) ev_popup(TG_JOKER, reps[r].src_joker, "Again!", PC_ATTN);
-      else ev_popup(TG_PLAY, reps[r].src_card, "Again!", PC_ATTN);
+      if (reps[r].src_joker >= 0) ev_popup(TG_JOKER, reps[r].src_joker, T("Again!"), PC_ATTN);
+      else ev_popup(TG_PLAY, reps[r].src_card, T("Again!"), PC_ATTN);
     }
     c->flags &= (uint8_t)~CF_LUCKY;
     /* the card's own effects: chips, mult, x_mult, dollars, edition */
@@ -378,7 +378,7 @@ static void score_played_card(int ci, handinfo_t *hi, cx_t *base) {
     }
     if (m) {
       mult += m;
-      text_num(t, "+", m, " Mult");
+      text_num(t, "+", m, T(" Mult"));
       ev_popup(TG_PLAY, ci, t, PC_MULT);
       hud();
     }
@@ -396,13 +396,13 @@ static void score_played_card(int ci, handinfo_t *hi, cx_t *base) {
     }
     if (c->enh == E_GLASS) {
       mult *= 2;
-      ev_popup(TG_PLAY, ci, "X2 Mult", PC_XMULT);
+      ev_popup(TG_PLAY, ci, T("X2 Mult"), PC_XMULT);
       hud();
     }
     if (c->ed) {
       if (c->ed == ED_FOIL) chips += 50, ev_popup(TG_PLAY, ci, "+50", PC_EDITION);
-      if (c->ed == ED_HOLO) mult += 10, ev_popup(TG_PLAY, ci, "+10 Mult", PC_EDITION);
-      if (c->ed == ED_POLY) mult *= 1.5, ev_popup(TG_PLAY, ci, "X1.5 Mult", PC_EDITION);
+      if (c->ed == ED_HOLO) mult += 10, ev_popup(TG_PLAY, ci, T("+10 Mult"), PC_EDITION);
+      if (c->ed == ED_POLY) mult *= 1.5, ev_popup(TG_PLAY, ci, T("X1.5 Mult"), PC_EDITION);
       hud();
     }
     /* jokers on this card */
@@ -422,7 +422,7 @@ static void score_played_card(int ci, handinfo_t *hi, cx_t *base) {
       if (e.has & EF_MULT) {
         mult += e.mult;
         ev_juice(TG_JOKER, who);
-        text_num(t, "+", e.mult, " Mult");
+        text_num(t, "+", e.mult, T(" Mult"));
         ev_popup(TG_PLAY, ci, t, PC_MULT);
         hud();
       }
@@ -441,7 +441,7 @@ static void score_played_card(int ci, handinfo_t *hi, cx_t *base) {
       if (e.has & EF_XMULT) {
         mult *= e.x;
         ev_juice(TG_JOKER, who);
-        text_num(t, "X", e.x, " Mult");
+        text_num(t, "X", e.x, T(" Mult"));
         ev_popup(TG_PLAY, ci, t, PC_XMULT);
         hud();
       }
@@ -455,8 +455,8 @@ static void score_held_card(int ci, cx_t *base) {
   char t[20];
   for (int r = 0; r < nreps; r++) {
     if (r > 0) {
-      if (src[r] >= 0) ev_popup(TG_JOKER, src[r], "Again!", PC_ATTN);
-      else ev_popup(TG_HAND, ci, "Again!", PC_ATTN);
+      if (src[r] >= 0) ev_popup(TG_JOKER, src[r], T("Again!"), PC_ATTN);
+      else ev_popup(TG_HAND, ci, T("Again!"), PC_ATTN);
     }
     int own = card_has_effect_held(ci), any = own;
     eff_t effs[MAXJ];
@@ -480,7 +480,7 @@ static void score_held_card(int ci, cx_t *base) {
     if (own) {
       mult *= 1.5;
       ev_juice(TG_HAND, ci);
-      ev_popup(TG_HAND, ci, "X1.5 Mult", PC_XMULT);
+      ev_popup(TG_HAND, ci, T("X1.5 Mult"), PC_XMULT);
       hud();
     }
     for (int k = 0; k < ne; k++) {
@@ -494,13 +494,13 @@ static void score_held_card(int ci, cx_t *base) {
       }
       if (e->has & EF_HMULT) {
         mult += e->mult;
-        text_num(t, "+", e->mult, " Mult");
+        text_num(t, "+", e->mult, T(" Mult"));
         ev_popup(TG_HAND, ci, t, PC_MULT);
         hud();
       }
       if (e->has & EF_XMULT) {
         mult *= e->x;
-        text_num(t, "X", e->x, " Mult");
+        text_num(t, "X", e->x, T(" Mult"));
         ev_popup(TG_HAND, ci, t, PC_XMULT);
         hud();
       }
@@ -696,7 +696,7 @@ int play_hand(void) {
       if (!deb && ed == ED_HOLO) {
         mult += 10;
         ev_juice(tg, idx);
-        ev_popup(tg, idx, "+10 Mult", PC_EDITION);
+        ev_popup(tg, idx, T("+10 Mult"), PC_EDITION);
         hud();
       }
       eff_t e = {0};
@@ -718,7 +718,7 @@ int play_hand(void) {
         int who = is_j ? e.card : idx;
         if (e.has & EF_MULT) {
           mult += e.mult;
-          text_num(t, "+", e.mult, " Mult");
+          text_num(t, "+", e.mult, T(" Mult"));
           ev_juice(tg, who);
           ev_popup(tg, who, t, PC_MULT);
         }
@@ -730,7 +730,7 @@ int play_hand(void) {
         }
         if (e.has & EF_XMULT) {
           mult *= e.x;
-          text_num(t, "X", e.x, " Mult");
+          text_num(t, "X", e.x, T(" Mult"));
           ev_juice(tg, who);
           ev_popup(tg, who, t, PC_XMULT);
         }
@@ -755,7 +755,7 @@ int play_hand(void) {
         eff_t e2 = {0};
         if (jcalc(k, &cx, &e2) && (e2.has & EF_XMULT)) {
           mult *= e2.x;
-          text_num(t, "X", e2.x, " Mult");
+          text_num(t, "X", e2.x, T(" Mult"));
           ev_juice(TG_JOKER, i);
           ev_popup(TG_JOKER, e2.card, t, PC_XMULT);
           hud();
@@ -764,7 +764,7 @@ int play_hand(void) {
       if (!deb && ed == ED_POLY) {
         mult *= 1.5;
         ev_juice(tg, idx);
-        ev_popup(tg, idx, "X1.5 Mult", PC_EDITION);
+        ev_popup(tg, idx, T("X1.5 Mult"), PC_EDITION);
         hud();
       }
     }
@@ -797,7 +797,7 @@ int play_hand(void) {
   } else {
     chips = 0, mult = 0;
     ev_push(EV_BLIND_FLASH);
-    ev_message("Not Allowed!");
+    ev_message(T("Not Allowed!"));
     hud();
     run_simple(CX_DEBUFFED_HAND, &base);
   }
@@ -859,7 +859,7 @@ static void discard_cards(const uint8_t *cards, int n, int hook) {
     /* purple seal */
     if (R.cards[ci].seal == SEAL_PURPLE && !(R.cards[ci].flags & CF_DEBUFF) && R.ncons < cons_slots()) {
       add_cons(create_cons_id(0), 0);
-      ev_popup(TG_HAND, ci, "+1 Tarot", PC_TAROT);
+      ev_popup(TG_HAND, ci, T("+1 Tarot"), PC_TAROT);
     }
     for (int j = 0; j < R.njokers; j++) {
       cx_t cx = base;
@@ -949,7 +949,7 @@ void end_round(void) {
   }
   if (saved) {
     game_over_ = 0;
-    ev_message("Saved by Mr. Bones");
+    ev_message(T("Saved by Mr. Bones"));
   }
   if (game_over_) {
     ev_delay(5);
@@ -970,8 +970,8 @@ void end_round(void) {
     int nreps = 1, src[16];
     for (int r = 0; r < nreps; r++) {
       if (r > 0) {
-        if (src[r] >= 0) ev_popup(TG_JOKER, src[r], "Again!", PC_ATTN);
-        else ev_popup(TG_HAND, ci, "Again!", PC_ATTN);
+        if (src[r] >= 0) ev_popup(TG_JOKER, src[r], T("Again!"), PC_ATTN);
+        else ev_popup(TG_HAND, ci, T("Again!"), PC_ATTN);
       }
       int any = 0;
       if (!(c->flags & CF_DEBUFF)) {
@@ -984,7 +984,7 @@ void end_round(void) {
           static const uint8_t planet_of[12] = {C_ERIS, C_CERES, C_PLANET_X, C_NEPTUNE, C_MARS, C_EARTH, C_JUPITER,
                                                 C_SATURN, C_VENUS, C_URANUS, C_MERCURY, C_PLUTO};
           add_cons(planet_of[R.last_hand], 0);
-          ev_popup(TG_HAND, ci, "+1 Planet", PC_PLANET);
+          ev_popup(TG_HAND, ci, T("+1 Planet"), PC_PLANET);
           any = 1;
         }
       }

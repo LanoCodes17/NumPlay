@@ -1,6 +1,7 @@
 #ifndef GFX_H
 #define GFX_H
 #include <stdint.h>
+#include "../../common/np_text.h"
 
 typedef uint16_t C;
 #define RGB(r, g, b) ((C)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))
@@ -23,6 +24,11 @@ enum {
   T_COND = 256,   /* condensed: large digits, or the whole medium size, one pixel narrower */
   T_ROT = 512     /* turned a quarter left, reading upwards; (x, y) is the bottom left */
 };
+/* NumPlay's language builds: XROWS rows more above a text, for accents over capitals; in the
+   Chinese one (a translated text tells), taller lines for its 12-pixel letters */
+#define XROWS (NP_TEXT_EXTRA ? 2 : 0)
+#define TXT_CJK (NP_TEXT_EXTRA && (unsigned char)T("Mult")[0] >= 0xE0)
+#define LINE_H (TXT_CJK ? 12 : 10) /* lines of the small size */
 /* inline colour codes in strings */
 #define TC_WHITE "\x01"
 #define TC_CHIPS "\x02"

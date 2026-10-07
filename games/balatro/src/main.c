@@ -131,7 +131,7 @@ static void draw_title(void) {
   g_sprite(SPR_F + 3 * 13 + 12, cx, cy, 0, LOGO_CARD);
   /* buttons, like the main menu (they make way for an open panel) */
   if (overlay) return;
-  static const char *const lbl[4] = {"PLAY", "OPTIONS", "QUIT", "CREDITS"};
+  static const char *const lbl[4] = {T("PLAY"), T("OPTIONS"), T("QUIT"), T("CREDITS")};
   static const C col[4] = {C_BLUE, C_ORANGE, C_RED, C_GREEN};
   g_rrect(20, 195, 280, 42, 7, HEXC(0x1A2224));
   g_rrect(21, 196, 278, 40, 6, HEXC(0x3A5055));
@@ -169,8 +169,8 @@ static void setup_row(int y, int h, int bh) {
 static void draw_setup(void) {
   big_panel(30, 10, 260, 214);
   int ntabs = has_save ? 2 : 1;
-  tab_button(ntabs == 1 ? 128 : 94, 20, 64, "New Run", ov_tab == 0);
-  if (ntabs == 2) tab_button(162, 20, 64, "Continue", ov_tab == 1);
+  tab_button(ntabs == 1 ? 128 : 94, 20, 64, T("New Run"), ov_tab == 0);
+  if (ntabs == 2) tab_button(162, 20, 64, T("Continue"), ov_tab == 1);
   char t[64];
   /* the deck: name, then its text or the run's numbers on white */
   int bh = ov_tab == 0 ? 25 : 45;
@@ -178,11 +178,11 @@ static void draw_setup(void) {
   g_sprite(SPR_E, 69, 53, FX_SHADOW, 256);
   g_sprite(SPR_E, 67, 51, 0, 256);
   int wy = 42 + 68 - 4 - bh; /* the white box */
-  g_text_box("Red Deck", 106, 45, 148, wy - 45, F_NAME, C_WHITE);
+  g_text_box(T("Red Deck"), 106, 45, 148, wy - 45, F_NAME, C_WHITE);
   if (ov_tab == 0)
-    g_text_box(TC_MULT "+1" TC_RESET " discard\nevery round", 109, wy, 142, bh, F_TEXT, C_TEXT_DARK);
+    g_text_box(T("\003+1\020 discard\nevery round"), 109, wy, 142, bh, F_TEXT, C_TEXT_DARK);
   else {
-    static const char *const lab[4] = {"Round", "Ante", "Money", "Best Hand"};
+    static const char *const lab[4] = {T("Round"), T("Ante"), T("Money"), T("Best Hand")};
     for (int i = 0; i < 4; i++) {
       int yy = wy + 3 + i * 10;
       g_text(lab[i], 170, yy, F_TEXT | T_RIGHT, C_TEXT_DARK);
@@ -198,66 +198,46 @@ static void draw_setup(void) {
   /* the stake */
   setup_row(115, 38, 19);
   g_sprite(SPR_STAKE, 76, 126, 0, 256);
-  g_text_box("White Stake", 106, 117, 148, 13, F_NAME, C_WHITE);
-  g_text_box("Base Difficulty", 109, 130, 142, 19, F_TEXT, C_TEXT_DARK);
+  g_text_box(T("White Stake"), 106, 117, 148, 13, F_NAME, C_WHITE);
+  g_text_box(T("Base Difficulty"), 109, 130, 142, 19, F_TEXT, C_TEXT_DARK);
   if (ov_tab == 0) {
-    char *o = str_cat(t, "Wins " TC_ATTN);
+    char *o = str_cat(t, T("Wins \004"));
     o = fmt_int(o, S.wins);
-    o = str_cat(o, TC_WHITE "   Best Ante " TC_ATTN);
+    o = str_cat(o, T("\001   Best Ante \004"));
     o = fmt_int(o, S.best_ante > 0 ? S.best_ante : 0);
-    o = str_cat(o, TC_WHITE "   Best Hand " TC_MULT);
+    o = str_cat(o, T("\001   Best Hand \003"));
     fmt_commas(o, S.best_hand);
   } else {
-    char *o = str_cat(t, "Seed " TC_ATTN);
+    char *o = str_cat(t, T("Seed \004"));
     str_cat(o, R.seed);
   }
   g_text(t, 160, 159, F_LABEL | T_CENTER, C_WHITE);
-  button(106, 172, 108, 24, C_BLUE, ov_tab == 0 ? "PLAY" : "CONTINUE", T_LARGE, ov_sel == 0, 1);
-  button(38, 202, 244, 16, C_ORANGE, "Back", T_MED, ov_sel == 1, 1);
+  button(106, 172, 108, 24, C_BLUE, ov_tab == 0 ? T("PLAY") : T("CONTINUE"), T_LARGE, ov_sel == 0, 1);
+  button(38, 202, 244, 16, C_ORANGE, T("Back"), T_MED, ov_sel == 1, 1);
 }
 
 static const char help_lines[] =
-    TC_ATTN "Arrows" TC_RESET "  move between cards, Jokers, buttons\n"
-    TC_ATTN "OK" TC_RESET "  select a card, or pick a Joker/item and\n"
-    "     choose " TC_GREEN "Sell" TC_RESET ", " TC_MULT "Use" TC_RESET ", " TC_MONEY "Buy" TC_RESET "...\n"
-    TC_ATTN "EXE" TC_RESET "  " TC_CHIPS "Play Hand" TC_RESET "      " TC_ATTN "DEL" TC_RESET "  " TC_MULT "Discard" TC_RESET "\n"
-    TC_ATTN "shift" TC_RESET "  sort the hand by rank or suit\n"
-    TC_ATTN "alpha" TC_RESET " + " TC_ATTN "left/right" TC_RESET "  move a Joker or card\n"
-    TC_ATTN "toolbox" TC_RESET "  Run Info      " TC_ATTN "var" TC_RESET "  view deck\n"
-    TC_ATTN "back" TC_RESET "  back / Options     " TC_ATTN "home" TC_RESET "  save, quit\n"
-    "Hold " TC_ATTN "OK" TC_RESET " or " TC_ATTN "EXE" TC_RESET " to speed up scoring.\n"
-    "\n"
-    "Play poker hands: score = " TC_CHIPS "Chips" TC_RESET " x " TC_MULT "Mult" TC_RESET ".\n"
-    "Beat each Blind's score before your\n"
-    "hands run out. Buy Jokers in the shop\n"
-    "and beat the Ante 8 Boss Blind to win!";
+    T("\004Arrows\020  move between cards, Jokers, buttons\n\004OK\020  select a card, or pick a Joker/item and\n     choose \006Sell\020, \003Use\020, \005Buy\020...\n\004EXE\020  \002Play Hand\020      \004DEL\020  \003Discard\020\n\004shift\020  sort the hand by rank or suit\n\004alpha\020 + \004left/right\020  move a Joker or card\n\004toolbox\020  Run Info      \004var\020  view deck\n\004back\020  back / Options     \004home\020  save, quit\nHold \004OK\020 or \004EXE\020 to speed up scoring.\n\nPlay poker hands: score = \002Chips\020 x \003Mult\020.\nBeat each Blind's score before your\nhands run out. Buy Jokers in the shop\nand beat the Ante 8 Boss Blind to win!");
 
 static void draw_help(void) {
   big_panel(10, 6, 300, 228);
-  panel_title("How to play", 10, 6, 300);
+  panel_title(T("How to play"), 10, 6, 300);
   g_rrect(18, 30, 284, 172, 4, HEXC(0x1F2B2D));
-  g_text(help_lines, 160 - g_textw(help_lines, F_TEXT) / 2, 30 + (172 - g_lines(help_lines) * 10 + 3) / 2, F_TEXT, C_WHITE);
-  button(120, 208, 80, 18, C_ORANGE, "Back", T_MED, 1, 1);
+  g_text(help_lines, 160 - g_textw(help_lines, F_TEXT) / 2, 30 + (172 - g_lines(help_lines) * LINE_H + 3) / 2, F_TEXT, C_WHITE);
+  button(120, 208, 80, 18, C_ORANGE, T("Back"), T_MED, 1, 1);
 }
 
 static void draw_credits(void) {
   big_panel(12, 10, 296, 220);
-  panel_title("Credits", 12, 10, 296);
+  panel_title(T("Credits"), 12, 10, 296);
   g_rrect(20, 34, 280, 166, 4, HEXC(0x1F2B2D));
-  g_text("Inspired by " TC_ATTN "Balatro" TC_RESET " by LocalThunk.\n"
-         "Not affiliated with LocalThunk or Playstack.\n\n"
-         "Card, Joker and interface art adapted\n"
-         "from Balatro by LocalThunk.\n"
-         "Rules and card texts follow the game.\n"
-         "Font: " TC_ATTN "m6x11" TC_RESET " by Daniel Linssen.\n\n"
-         "Made by " TC_ATTN "Mason Chen" TC_RESET " as part of NumPlay.\n\n"
-         "Please support the original game!",
+  g_text(T("Inspired by \004Balatro\020 by LocalThunk.\nNot affiliated with LocalThunk or Playstack.\n\nCard, Joker and interface art adapted\nfrom Balatro by LocalThunk.\nRules and card texts follow the game.\nFont: \004m6x11\020 by Daniel Linssen.\n\nMade by \004Mason Chen\020 as part of NumPlay.\n\nPlease support the original game!"),
          160, 53, F_TEXT | T_CENTER, C_WHITE);
-  button(120, 206, 80, 18, C_ORANGE, "Back", T_MED, 1, 1);
+  button(120, 206, 80, 18, C_ORANGE, T("Back"), T_MED, 1, 1);
 }
 
 enum { OPT_CONTINUE, OPT_SPEED, OPT_HELP, OPT_NEWRUN, OPT_MAINMENU, OPT_BACK };
-static const char *const opt_items[6] = {"Continue", "Game Speed", "How to Play", "New Run", "Main Menu", "Back"};
+static const char *const opt_items[6] = {T("Continue"), T("Game Speed"), T("How to Play"), T("New Run"), T("Main Menu"), T("Back")};
 static const uint8_t opt_game[5] = {OPT_CONTINUE, OPT_SPEED, OPT_HELP, OPT_NEWRUN, OPT_MAINMENU};
 static const uint8_t opt_title[3] = {OPT_SPEED, OPT_HELP, OPT_BACK};
 static int opt_count(void) { return in_game ? 5 : 3; }
@@ -271,14 +251,14 @@ static int opt_index(int id) {
 static void draw_options(void) {
   int n = opt_count(), h = 32 + n * 28, y0 = 120 - h / 2;
   big_panel(70, y0, 180, h);
-  panel_title("Options", 70, y0, 180);
+  panel_title(T("Options"), 70, y0, 180);
   static const char *const sp[4] = {"0.5", "1", "2", "4"};
   for (int i = 0; i < n; i++) {
     int id = opt_id(i), y = y0 + 28 + i * 28;
     C c = id == OPT_CONTINUE ? C_BLUE : id == OPT_SPEED || id == OPT_BACK ? C_ORANGE : id == OPT_HELP ? C_GREEN : C_RED;
     if (id == OPT_SPEED) {
       char t[24];
-      char *o = str_cat(t, "Game Speed < ");
+      char *o = str_cat(t, T("Game Speed < "));
       o = str_cat(o, sp[S.speed & 3]);
       str_cat(o, " >");
       button(84, y, 152, 21, c, t, T_MED, ov_sel == i, 1);
@@ -289,17 +269,17 @@ static void draw_options(void) {
 
 static void draw_confirm_new(void) {
   big_panel(60, 70, 200, 100);
-  panel_title("New run?", 60, 70, 200);
-  g_text_box("The current run will be lost.", 60, 96, 200, 16, F_LABEL, HEXC(0xDDDDDD));
-  button(80, 126, 70, 24, C_RED, "Yes", T_MED, ov_sel == 0, 1);
-  button(170, 126, 70, 24, C_BLUE, "No", T_MED, ov_sel == 1, 1);
+  panel_title(T("New run?"), 60, 70, 200);
+  g_text_box(T("The current run will be lost."), 60, 96, 200, 16, F_LABEL, HEXC(0xDDDDDD));
+  button(80, 126, 70, 24, C_RED, T("Yes"), T_MED, ov_sel == 0, 1);
+  button(170, 126, 70, 24, C_BLUE, T("No"), T_MED, ov_sel == 1, 1);
 }
 
 /* Run Info: poker hands, blinds, vouchers */
 static void draw_run_info(void) {
   char t[40];
   big_panel(6, 4, 308, 232);
-  static const char *const tabs[3] = {"Poker Hands", "Blinds", "Vouchers"};
+  static const char *const tabs[3] = {T("Poker Hands"), T("Blinds"), T("Vouchers")};
   for (int i = 0; i < 3; i++) tab_button(40 + i * 82, 12, 76, tabs[i], ov_tab == i);
   if (ov_tab == 0) {
     static const uint8_t order[12] = {H_FLUSH_FIVE, H_FLUSH_HOUSE, H_FIVE_KIND, H_STRAIGHT_FLUSH, H_FOUR_KIND,
@@ -315,7 +295,7 @@ static void draw_run_info(void) {
       /* lvl | name | chips X mult | # played, as in the game */
       g_rrect(14, y, 292, 16, 4, HEXC(0xDDE4E6));
       g_rrect(16, y + 2, 34, 12, 3, lc);
-      fmt_int(str_cat(t, "lvl."), lv);
+      fmt_int(str_cat(t, T("lvl.")), lv);
       g_text_box(t, 16, y + 2, 34, 12, F_TEXT, C_TEXT_DARK);
       g_text(hand_names[h], 56, y + 3, T_MED, C_TEXT_DARK);
       g_rrect(172, y + 2, 42, 12, 3, C_BLUE);
@@ -335,7 +315,7 @@ static void draw_run_info(void) {
     static char bd[80], bd2[96];
     desc_text(bd, sizeof bd, TK_BLIND, R.boss, 0);
     wrap_text(bd2, sizeof bd2, bd, 78, F_TEXT);
-    int colh = 131 + g_lines(bd2) * 10 + 5 + 4 - 34;
+    int colh = 131 + g_lines(bd2) * LINE_H + 5 + 4 - 34;
     for (int k = 0; k < 3; k++) {
       int b = k == 0 ? BL_SMALL : k == 1 ? BL_BIG : R.boss;
       int x = 16 + k * 98, w = 92;
@@ -345,13 +325,13 @@ static void draw_run_info(void) {
       g_text_box(blind_name(b), x + 3, 37, w - 6, 15, text_fit(blind_name(b), w - 12, T_MED) | T_SHADOW, C_WHITE);
       draw_blind_chip(b, x + w / 2 - 13, 57, 256);
       g_rrect(x + 4, 88, w - 8, 38, 3, HEXC(0x1D2B2C));
-      g_text("Score at least", x + w / 2, 91, F_LABEL | T_CENTER, C_WHITE);
+      g_text(T("Score at least"), x + w / 2, 91, F_LABEL | T_CENTER, C_WHITE);
       char n[24];
       int f = num_fit(n, blind_amount(R.ante) * blind_info[b].mult2 / 2, w - 14, T_LARGE);
       g_text(n, x + w / 2, 101 + (11 - g_cap(f) + 1) / 2, f | T_CENTER | T_SHADOW, C_RED);
-      label_dollars("Reward:", blind_info[b].dollars, x + w / 2, 116, w - 12);
+      label_dollars(T("Reward:"), blind_info[b].dollars, x + w / 2, 116, w - 12);
       if (b >= BL_OX) {
-        g_rrect(x + 4, 131, w - 8, g_lines(bd2) * 10 + 5, 3, C_WHITE);
+        g_rrect(x + 4, 131, w - 8, g_lines(bd2) * LINE_H + 5, 3, C_WHITE);
         g_text(bd2, x + w / 2, 134, F_TEXT | T_CENTER, C_TEXT_DARK);
       }
     }
@@ -363,17 +343,17 @@ static void draw_run_info(void) {
         g_sprite(SPR_V + v, x, y, 0, 256);
         n++;
       }
-    if (!n) g_text_box("No Vouchers redeemed yet", 6, 100, 308, 30, F_NAME, C_WHITE);
+    if (!n) g_text_box(T("No Vouchers redeemed yet"), 6, 100, 308, 30, F_NAME, C_WHITE);
   }
-  g_text("left/right: tabs     back: close", 160, 225, F_TEXT | T_CENTER, HEXC(0xBBBBBB));
+  g_text(T("left/right: tabs     back: close"), 160, 225, F_TEXT | T_CENTER, HEXC(0xBBBBBB));
 }
 
 /* View Deck: the cards by suit */
 static void draw_deck_view(void) {
   char t[24];
   big_panel(4, 4, 312, 232);
-  tab_button(96, 12, 62, "Remaining", ov_tab == 0);
-  tab_button(162, 12, 62, "Full Deck", ov_tab == 1);
+  tab_button(96, 12, 62, T("Remaining"), ov_tab == 0);
+  tab_button(162, 12, 62, T("Full Deck"), ov_tab == 1);
   static const uint8_t suit_order[4] = {S_SPADES, S_HEARTS, S_CLUBS, S_DIAMONDS};
   int counts[4] = {0};
   for (int s = 0; s < 4; s++) {
@@ -422,14 +402,14 @@ static void round_buttons(int show) {
   int can_play = n > 0 && n <= 5 && !ui_busy(), can_disc = n > 0 && R.discards_left > 0 && !ui_busy();
   int f = zone == Z_BTN ? zi : -1;
   const int px = HAND_X, pw = 52, sx = px + pw + 4, sw = 59, dx = sx + sw + 4, dw = 52;
-  button(px, BTN_Y, pw, 22, C_BLUE, "Play Hand", F_LABEL, f == 0, can_play);
+  button(px, BTN_Y, pw, 22, C_BLUE, T("Play Hand"), F_LABEL, f == 0, can_play);
   keycap(px + pw / 2, 229, "exe");
   panel(sx, BTN_Y - 1, sw, 23, 4, HEXC(0x4F6367), 0);
-  g_text("Sort Hand", sx + sw / 2, BTN_Y + 1, F_LABEL | T_CENTER, C_WHITE);
-  button(sx + 3, BTN_Y + 10, 25, 11, C_ORANGE, "Rank", F_LABEL, f == 1, 1);
-  button(sx + sw - 28, BTN_Y + 10, 25, 11, C_ORANGE, "Suit", F_LABEL, f == 2, 1);
+  g_text(T("Sort Hand"), sx + sw / 2, BTN_Y + 1, F_LABEL | T_CENTER, C_WHITE);
+  button(sx + 3, BTN_Y + 10, 25, 11, C_ORANGE, T("Rank"), F_LABEL, f == 1, 1);
+  button(sx + sw - 28, BTN_Y + 10, 25, 11, C_ORANGE, T("Suit"), F_LABEL, f == 2, 1);
   keycap(sx + sw / 2, 229, "shift");
-  button(dx, BTN_Y, dw, 22, C_RED, "Discard", F_LABEL, f == 3, can_disc);
+  button(dx, BTN_Y, dw, 22, C_RED, T("Discard"), F_LABEL, f == 3, can_disc);
   keycap(dx + dw / 2, 229, "del");
 }
 
@@ -475,10 +455,10 @@ static void draw_menu(void) {
     int yy = y + i * 19;
     if (kinds[i] == 1) {
       int val = zone == Z_JOKERS ? joker_sell_value(&R.jokers[menu_open]) : cons_sell_value(&R.cons[menu_open]);
-      fmt_money(str_cat(t, "SELL\n"), val);
+      fmt_money(str_cat(t, T("SELL\n")), val);
       button(x, yy, bw, 22, C_GREEN, t, F_LABEL, menu_sel == i, 1);
     } else
-      button(x, yy, bw, 15, C_RED, "USE", F_LABEL, menu_sel == i, cons_usable(R.cons[menu_open].id, 0));
+      button(x, yy, bw, 15, C_RED, T("USE"), F_LABEL, menu_sel == i, cons_usable(R.cons[menu_open].id, 0));
     if (kinds[i] == 2) y -= 1;
   }
 }
@@ -748,7 +728,7 @@ static void draw_blind_select(int dt) {
     if (st == BS_DEFEATED || st == BS_SKIPPED) main = C_BLACK;
     g_rrect(x - 2, yy - 2, w + 4, 184, 7, on ? C_WHITE : HEXC(0x1D2628));
     g_rrect(x, yy, w, 180, 6, mix565(main, C_BLACK, 16));
-    const char *lab = st == BS_SELECT ? "Select" : st == BS_DEFEATED ? "Defeated" : st == BS_SKIPPED ? "Skipped" : "Upcoming";
+    const char *lab = st == BS_SELECT ? T("Select") : st == BS_DEFEATED ? T("Defeated") : st == BS_SKIPPED ? T("Skipped") : T("Upcoming");
     int focused = on && zone == Z_BTN && kinds[zi] == 0;
     button(x + 5, yy + 4, w - 10, 16, on ? C_ORANGE : HEXC(0x4F6367), lab, F_LABEL, focused, on);
     /* the name: medium, smaller when it is long (the game shrinks it too) */
@@ -762,28 +742,28 @@ static void draw_blind_select(int dt) {
       desc_text(d, sizeof d, TK_BLIND, b, 0);
       wrap_text(d2, sizeof d2, d, w - 8, F_TEXT);
       g_text(d2, x + w / 2, dy, F_LABEL | T_CENTER, C_WHITE);
-      dy += g_lines(d2) * 10 + 2;
+      dy += g_lines(d2) * LINE_H + 2;
     }
     g_rrect(x + 2, dy, w - 4, 38, 3, HEXC(0x1D2B2C));
-    g_text("Score at least", x + w / 2, dy + 3, F_LABEL | T_CENTER, C_WHITE);
+    g_text(T("Score at least"), x + w / 2, dy + 3, F_LABEL | T_CENTER, C_WHITE);
     char n[24];
     int f = num_fit(n, blind_amount(R.ante) * blind_info[b].mult2 / 2, w - 12, T_LARGE);
     g_text(n, x + w / 2, dy + 13 + (11 - g_cap(f) + 1) / 2, f | T_CENTER | T_SHADOW, C_RED);
-    label_dollars("Reward:", blind_info[b].dollars, x + w / 2, dy + 28, w - 8);
+    label_dollars(T("Reward:"), blind_info[b].dollars, x + w / 2, dy + 28, w - 8);
     dy += 42;
     if (k < 2) {
-      g_text("or", x + w / 2, dy, F_LABEL | T_CENTER, C_WHITE);
+      g_text(T("or"), x + w / 2, dy, F_LABEL | T_CENTER, C_WHITE);
       int sf = on && zone == Z_BTN && kinds[zi] == 1;
       int tag = R.skip_tag[k];
       if (st == BS_SKIPPED || st == BS_DEFEATED) g_sprite(SPR_T + tag, x + w / 2 - 9, dy + 10, FX_GREY, 256);
       else {
-        button(x + 4, dy + 11, w - 29, 17, on ? C_RED : HEXC(0x7A2F2A), "Skip Blind", F_LABEL, sf, on);
+        button(x + 4, dy + 11, w - 29, 17, on ? C_RED : HEXC(0x7A2F2A), T("Skip Blind"), F_LABEL, sf, on);
         g_sprite(SPR_T + tag, x + w - 23, dy + 10, on ? 0 : FX_DIM, 256);
       }
       if (sf) tip_tag = tag, tip_x = x + w - 23, tip_y = dy + 10;
     } else if (on && (has_voucher(V_RETCON) || (has_voucher(V_DIRECTORS_CUT) && !R.boss_rerolled))) {
       int rf = zone == Z_BTN && kinds[zi] == 2;
-      button(x + 4, dy + 2, w - 8, 24, C_RED, "Reroll Boss\n$10", F_LABEL, rf, R.money >= 10);
+      button(x + 4, dy + 2, w - 8, 24, C_RED, T("Reroll Boss\n$10"), F_LABEL, rf, R.money >= 10);
     }
   }
   draw_menu();
@@ -860,13 +840,13 @@ static void draw_cashout(int dt) {
   g_rrect(x - 2, y - 2, w + 4, ph + 4, 7, HEXC(0x1A2224));
   g_rrect(x, y, w, ph, 6, HEXC(0x3A5055));
   g_rrect(x + 3, y + 3, w - 6, ph - 6, 5, HEXC(0x2B3A3D));
-  fmt_money(str_cat(t, "Cash Out: "), R.cash_total);
+  fmt_money(str_cat(t, T("Cash Out: ")), R.cash_total);
   button(x + 10, y + 8, w - 20, 24, C_ORANGE, t, T_LARGE, 1, 1);
   int yy = y + 40, appear = 250;
   const int lx = x + 8, rx = x + w - 8;
   if (cash_t < appear) goto done;
   draw_blind_chip(R.blind, lx - 2, yy, 256);
-  g_text("Score at least", lx + 28, yy + 1, F_LABEL, C_WHITE);
+  g_text(T("Score at least"), lx + 28, yy + 1, F_LABEL, C_WHITE);
   {
     char n[24];
     int f = num_fit(n, R.blind_chips, rx - 40 - (lx + 42), T_LARGE);
@@ -883,7 +863,7 @@ static void draw_cashout(int dt) {
     if (cash_t < (appear += 300)) goto done;
     fmt_int(t, R.cash_hands);
     g_text(t, lx, yy, F_VALUE, C_BLUE);
-    g_text("Remaining Hands ($1 each)", lx + 3 + g_textw(t, T_LARGE), yy + 4, F_LABEL, C_WHITE);
+    g_text(T("Remaining Hands ($1 each)"), lx + 3 + g_textw(t, T_LARGE), yy + 4, F_LABEL, C_WHITE);
     dollar_row(t, R.cash_hands);
     g_text(t, rx, yy + 2, F_NAME | T_RIGHT, C_MONEY);
     yy += 16;
@@ -899,7 +879,7 @@ static void draw_cashout(int dt) {
   if (R.cash_tag) {
     if (cash_t < (appear += 300)) goto done;
     g_sprite(SPR_T + TAG_INVESTMENT, lx - 2, yy - 2, 0, 256);
-    g_text("Defeat the Boss Blind", lx + 20, yy + 4, F_LABEL, C_WHITE);
+    g_text(T("Defeat the Boss Blind"), lx + 20, yy + 4, F_LABEL, C_WHITE);
     dollar_row(t, R.cash_tag);
     g_text(t, rx, yy + 2, F_NAME | T_RIGHT, C_MONEY);
     yy += 18;
@@ -911,9 +891,9 @@ static void draw_cashout(int dt) {
     g_text(t, lx, yy, F_VALUE, C_ATTN);
     int tx = lx + 3 + g_textw(t, T_LARGE);
     char *o = fmt_int(t, amt);
-    o = str_cat(o, " interest per $5 (");
+    o = str_cat(o, T(" interest per $5 ("));
     o = fmt_int(o, R.interest_cap / 5 * amt);
-    str_cat(o, " max)");
+    str_cat(o, T(" max)"));
     g_text(t, tx, yy + 4, F_LABEL, C_WHITE);
     dollar_row(t, R.cash_interest);
     g_text(t, rx, yy + 2, F_NAME | T_RIGHT, C_MONEY);
@@ -957,12 +937,12 @@ static void draw_shop(int dt) {
   g_rrect(x + 2, y + 2, w - 4, 174, 5, HEXC(0x3B4B4E));
   char t[24];
   int fb = zone == Z_SHOPBTN ? zi : -1;
-  button(x + 6, y + 6, 58, 36, C_RED, "Next\nRound", F_LABEL, fb == 0, 1);
+  button(x + 6, y + 6, 58, 36, C_RED, T("Next\nRound"), F_LABEL, fb == 0, 1);
   /* Reroll: the word small, the price large */
   int ok = affordable(R.reroll_cost);
   button(x + 6, y + 46, 58, 36, C_GREEN, "", F_LABEL, fb == 1, ok);
   int sx = x + 6 + (fb == 1 ? focus_shake : 0);
-  g_text("Reroll", sx + 29, y + 50, F_LABEL | T_CENTER, ok ? C_WHITE : HEXC(0xBBBBBB));
+  g_text(T("Reroll"), sx + 29, y + 50, F_LABEL | T_CENTER, ok ? C_WHITE : HEXC(0xBBBBBB));
   fmt_money(t, R.reroll_cost);
   g_text(t, sx + 29, y + 62, F_VALUE | T_CENTER, ok ? C_WHITE : HEXC(0xBBBBBB));
   g_shade(x + 68, y + 6, w - 74, 76, 4, 10);
@@ -977,9 +957,9 @@ static void draw_shop(int dt) {
   }
   /* the voucher box, its name along the left edge as in the game */
   g_shade(x + 4, y + 88, 88, 84, 4, 10);
-  char *o = str_cat(t, "ANTE ");
+  char *o = str_cat(t, T("ANTE "));
   o = fmt_int(o, R.ante);
-  str_cat(o, " VOUCHER");
+  str_cat(o, T(" VOUCHER"));
   g_text(t, x + 9, y + 130, T_SMALL | T_ROT | T_CENTER, HEXC(0x7D8E91));
   g_shade(x + 96, y + 88, w - 100, 84, 4, 10);
   for (int i = 0; i < bottom_n(); i++) {
@@ -996,10 +976,10 @@ static void draw_shop(int dt) {
     sitem_t *it = zone == Z_SHOP ? &R.shop[menu_open] : bottom_item(menu_open);
     int ix = zone == Z_SHOP ? shop_item_x(menu_open, R.nshop) : bottom_x(menu_open);
     int iy = zone == Z_SHOP ? y + 27 + CH - 4 : y + 111 + CH - 14;
-    const char *lab = it->kind == IT_VOUCHER ? "REDEEM" : it->kind == IT_PACK ? "OPEN" : "BUY";
+    const char *lab = it->kind == IT_VOUCHER ? T("REDEEM") : it->kind == IT_PACK ? T("OPEN") : T("BUY");
     button(ix - 4, iy, 43, 15, C_GREEN, lab, F_LABEL, menu_sel == 0, affordable(item_cost(it)));
     if (it->kind == IT_CONS)
-      button(ix - 4, iy + 18, 43, 22, C_RED, "BUY\n& USE", F_LABEL, menu_sel == 1, cons_usable(it->id, 1));
+      button(ix - 4, iy + 18, 43, 22, C_RED, T("BUY\n& USE"), F_LABEL, menu_sel == 1, cons_usable(it->id, 1));
   }
   draw_menu();
   draw_popups();
@@ -1135,9 +1115,11 @@ static void draw_pack(int dt) {
   draw_sidebar();
   draw_jokers_row(zone == Z_JOKERS ? zi : -1, zone == Z_CONS ? zi : -1, zone == Z_JOKERS ? menu_open : -1,
                   zone == Z_CONS ? menu_open : -1);
+#if !NP_TEXT_EXTRA
   static const char *const names[5] = {"Arcana Pack", "Celestial Pack", "Standard Pack", "Buffoon Pack",
                                        "Spectral Pack"};
   static const char *const sizes[3] = {"", "Jumbo ", "Mega "};
+#endif
   int py = 70;
   for (int i = 0; i < R.npack; i++) {
     int f = zone == Z_PACK && zi == i;
@@ -1147,13 +1129,18 @@ static void draw_pack(int dt) {
   int bw = 170, bx = AREA_X + (AREA_W - bw) / 2, by = with_hand ? 132 : 138, bh = 28;
   panel(bx, by, bw, bh, 5, HEXC(0x2F3A3C), 2);
   char t[32];
+#if NP_TEXT_EXTRA
+  /* (the packs' names among the texts: other languages put the size elsewhere) */
+  char *o = str_cat(t, text_get(TXT_EXTRA + 16 + R.pack_kind * 3 + R.pack_size, 0));
+#else
   char *o = str_cat(t, sizes[R.pack_size]);
   str_cat(o, names[R.pack_kind]);
+#endif
   g_text(t, bx + 6, by + 4, text_fit(t, bw - 56, T_MED) | T_SHADOW, C_WHITE);
-  o = str_cat(t, "Choose ");
+  o = str_cat(t, T("Choose "));
   fmt_int(o, R.pack_picks);
   g_text(t, bx + 6, by + 17, F_LABEL, C_WHITE);
-  button(bx + bw - 42, by + 6, 36, 16, C_RED, "Skip", F_LABEL, zone == Z_SKIP, 1);
+  button(bx + bw - 42, by + 6, 36, 16, C_RED, T("Skip"), F_LABEL, zone == Z_SKIP, 1);
   if (with_hand) draw_hand_cards(hand_focus());
   draw_menu();
   draw_popups();
@@ -1163,7 +1150,7 @@ static void draw_pack(int dt) {
       int ix = pack_x(zi);
       int ok = it->kind != IT_CONS || cons_usable(it->id, 1);
       if (it->kind == IT_JOKER && R.njokers >= joker_slots() && it->ed != ED_NEG) ok = 0;
-      button(ix - 4, py + CH - 3, 43, 15, it->kind == IT_CONS ? C_RED : C_GREEN, it->kind == IT_CONS ? "USE" : "SELECT",
+      button(ix - 4, py + CH - 3, 43, 15, it->kind == IT_CONS ? C_RED : C_GREEN, it->kind == IT_CONS ? T("USE") : T("SELECT"),
              F_LABEL, 1, ok);
       if (it->kind == IT_JOKER) {
         joker_t j = {0};
@@ -1239,8 +1226,9 @@ static void pack_input(void) {
 }
 
 /* ------------------------------------------------------------ game over / win */
-static const char *const quips_lose[] = {"Better luck\nnext time!", "Don't give up!", "So close!", "The house\nalways wins..."};
-static const char *const quips_win[] = {"You did it!", "Unbelievable!", "A true\ncard shark!"};
+static const char *const quips_lose[] = {T("Better luck\nnext time!"), T("Don't give up!"), T("So close!"),
+                                         T("The house\nalways wins...")};
+static const char *const quips_win[] = {T("You did it!"), T("Unbelievable!"), T("A true\ncard shark!")};
 
 static void stat_row(int x, int w, int y, const char *label, const char *value, C col) {
   g_text(label, x + 14, y + 2, F_LABEL, C_WHITE);
@@ -1253,43 +1241,43 @@ static void draw_end(int win) {
   draw_jokers_row(-1, -1, -1, -1);
   int x = AREA_X, w = AREA_W;
   big_panel(x, 20, w, 216);
-  g_text_box(win ? "YOU WIN!" : "GAME OVER", x, 26, w, 26, T_LARGE | T_X2 | T_SHADOW, win ? C_ATTN : C_RED);
+  g_text_box(win ? T("YOU WIN!") : T("GAME OVER"), x, 26, w, 26, T_LARGE | T_X2 | T_SHADOW, win ? C_ATTN : C_RED);
   draw_joker_sprite(J_JOKER, 0, x + 12, 56, 256, 0);
   const char *q = win ? quips_win[R.round % 3] : quips_lose[R.round % 4];
   panel(x + 54, 60, 104, 28, 5, C_WHITE, 1);
   g_rect(x + 50, 70, 5, 4, C_WHITE);
   g_text_box(q, x + 54, 60, 104, 28, F_TEXT, C_TEXT_DARK);
-  char *o = str_cat(t, "Ante " TC_ATTN);
+  char *o = str_cat(t, T("Ante \004"));
   o = fmt_int(o, win ? WIN_ANTE : R.ante);
-  o = str_cat(o, TC_WHITE "    Round " TC_ATTN);
+  o = str_cat(o, T("\001    Round \004"));
   fmt_int(o, R.round);
   g_text(t, x + 106, 93, F_LABEL | T_CENTER, C_WHITE);
   int yy = 106;
   g_rrect(x + 8, yy - 3, w - 16, 88, 4, HEXC(0x1F2B2D));
   fmt_commas(t, R.best_hand);
-  stat_row(x, w, yy, "Best Hand", t, C_RED);
+  stat_row(x, w, yy, T("Best Hand"), t, C_RED);
   int mp = 0;
   for (int h = 0; h < NHANDS; h++)
     if (R.hands[h].played > R.hands[mp].played) mp = h;
-  stat_row(x, w, yy + 12, "Most Played Hand", R.hands[mp].played ? hand_names[mp] : "-", C_ATTN);
+  stat_row(x, w, yy + 12, T("Most Played Hand"), R.hands[mp].played ? hand_names[mp] : "-", C_ATTN);
   fmt_int(t, R.cards_played);
-  stat_row(x, w, yy + 24, "Cards Played", t, C_BLUE);
+  stat_row(x, w, yy + 24, T("Cards Played"), t, C_BLUE);
   fmt_int(t, R.cards_discarded);
-  stat_row(x, w, yy + 36, "Cards Discarded", t, C_RED);
+  stat_row(x, w, yy + 36, T("Cards Discarded"), t, C_RED);
   fmt_int(t, R.cards_bought);
-  stat_row(x, w, yy + 48, "Cards Purchased", t, C_MONEY);
+  stat_row(x, w, yy + 48, T("Cards Purchased"), t, C_MONEY);
   fmt_int(t, R.rerolls);
-  stat_row(x, w, yy + 60, "Times Rerolled", t, C_GREEN);
-  stat_row(x, w, yy + 72, "Seed", R.seed, C_WHITE);
+  stat_row(x, w, yy + 60, T("Times Rerolled"), t, C_GREEN);
+  stat_row(x, w, yy + 72, T("Seed"), R.seed, C_WHITE);
   if (win) {
     int bw = (w - 16 - 8) / 3;
-    button(x + 8, 196, bw, 30, C_ORANGE, "Endless\nMode", T_MED, ov_sel == 0, 1);
-    button(x + 12 + bw, 196, bw, 30, C_BLUE, "New\nRun", T_MED, ov_sel == 1, 1);
-    button(x + 16 + 2 * bw, 196, bw, 30, C_RED, "Main\nMenu", T_MED, ov_sel == 2, 1);
+    button(x + 8, 196, bw, 30, C_ORANGE, T("Endless\nMode"), T_MED, ov_sel == 0, 1);
+    button(x + 12 + bw, 196, bw, 30, C_BLUE, T("New\nRun"), T_MED, ov_sel == 1, 1);
+    button(x + 16 + 2 * bw, 196, bw, 30, C_RED, T("Main\nMenu"), T_MED, ov_sel == 2, 1);
   } else {
     int bw = (w - 16 - 6) / 2;
-    button(x + 8, 196, bw, 30, C_BLUE, "New Run", T_MED, ov_sel == 0, 1);
-    button(x + 14 + bw, 196, bw, 30, C_RED, "Main Menu", T_MED, ov_sel == 1, 1);
+    button(x + 8, 196, bw, 30, C_BLUE, T("New Run"), T_MED, ov_sel == 0, 1);
+    button(x + 14 + bw, 196, bw, 30, C_RED, T("Main Menu"), T_MED, ov_sel == 1, 1);
   }
 }
 

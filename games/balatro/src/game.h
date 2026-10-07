@@ -5,6 +5,7 @@
 #ifndef GAME_H
 #define GAME_H
 #include <stdint.h>
+#include "../../common/np_text.h" /* T(): the texts players read */
 #include "data.h"
 
 #define MAXCARDS 160

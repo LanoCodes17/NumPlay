@@ -3,6 +3,8 @@
 - every room's hazard respawn points: ground under them, in the room
 - every gate: the Knight arrives in the next room, in control, on the ground, and can move; and spikes there send him
   back to a good place
+- every arena won: its fight over and the room's battle gates open, also as the Knight comes back and after a save and
+  a load
 - a long walk of made up keys from every room: the Knight never out of the room, without control, wedged, undrawn or
   out of the view
 - every room played with its enemies hit, in a new game and after the bosses, drawn whole and fast (as a slow
@@ -11,6 +13,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
 PLAY, DATA = sys.argv[1], sys.argv[2]
@@ -44,6 +47,9 @@ def main():
     results.append(report("hazard respawn points", rc, out, ("BAD",)))
     rc, out = play("--gates", "all")
     results.append(report("gates", rc, out, ("FAIL",)))
+    with tempfile.TemporaryDirectory() as saves:
+        rc, out = play("--gates", "arenas", env={"HKSAVES": saves})
+    results.append(report("arenas", rc, out, ("FAIL",)))
     with ThreadPoolExecutor(JOBS) as pool:
         walks = list(pool.map(lambda w: play("--gates", "wander:all:%d:%d" % w, env={"HKFAST": "1"} if w[0] % 2 else None), WALKS))
     for (seed, ticks), (rc, out) in zip(WALKS, walks):

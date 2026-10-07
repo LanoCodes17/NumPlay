@@ -150,8 +150,99 @@ static int wander_test(const char *which, int seed, int ticks) {
   return fails ? 1 : 0;
 }
 
+/* every arena (Battle Control; the False Knight's is enemy.c's own): started and its enemies beaten (each hit from
+ * afar, the sleeping woken, the Knight shielded); then its fight must be over and the room's battle gates open, and
+ * stay so as the Knight comes back to the room, and after a save and a load */
+static int gates_shut(float *gx, float *gy) {
+  int n, shut = 0;
+  const Ent *es = room_ents(&n);
+  for (int i = 0; i < n; i++) {
+    const Ent *g = &es[i];
+    if (g->type != ENT_OBJ || g->flags != OK_BGATE || !g->group) continue;
+    /* (rays across it, either way, at a few places: one meets a collider of its own) */
+    PhysHit hit;
+    bool on = false;
+    for (float d = -3; d <= 3 && !on; d += 0.5f)
+      for (int s = -1; s <= 1 && !on; s += 2)
+        on = (phys_ray(g->x0 - 4 * s, g->y0 + d, s, 0, 8, 0xFF, &hit) && hit.col >= g->a && hit.col < g->a + g->group) ||
+             (phys_ray(g->x0 + d, g->y0 - 4 * s, 0, s, 8, 0xFF, &hit) && hit.col >= g->a && hit.col < g->a + g->group);
+    if (on && !shut++) *gx = g->x0, *gy = g->y0;
+  }
+  return shut;
+}
+static int arenas_test(void) {
+  extern void enemies_debug_hit(int damage);
+  int fails = 0, total = 0;
+  setenv("HKHITR", "200", 1);   /* (every enemy of the room hit) */
+  if (getenv("HKSAVES")) {
+    extern void host_save_dir(const char *d);
+    host_save_dir(getenv("HKSAVES"));
+  }
+  for (int r = 0; r < NUM_ROOMS; r++) {
+    if (!room_load(r)) continue;
+    int n, ar = -1;
+    const Ent *es = room_ents(&n);
+    for (int i = 0; i < n; i++)
+      if (es[i].type == ENT_OBJ && es[i].flags == OK_ARENA) ar = i;
+    if (ar < 0) continue;
+    total++;
+    const Ent a = es[ar];
+    /* (in its trigger, else at the room's first gate) */
+    float x = (a.x0 + a.x1) / 2, y = (a.y0 + a.y1) / 2;
+    if (a.x1 <= a.x0)
+      for (int i = 0; i < n; i++)
+        if (es[i].type == ENT_GATE && !(es[i].flags & G_DOOR)) {
+          x = (es[i].x0 + es[i].x1) / 2, y = (es[i].y0 + es[i].y1) / 2;
+          x = x < 3 ? 3 : x > g_room.h->w - 3 ? g_room.h->w - 3 : x;
+          y = y < 3 ? 3 : y > g_room.h->h - 3 ? g_room.h->h - 3 : y;
+          break;
+        }
+    char name[64], why[256] = "";
+    snprintf(name, sizeof name, "%s", room_name(r));
+    game_new();
+    if (!game_enter(r, x, y, true)) continue;
+    shielded = true;
+    run_ticks(5, 0);
+    arena_start();            /* (START: from its trigger or an enemy) */
+    enemies_battle_start();   /* (sleepers woken) */
+    int t = 0, shut_in_fight = 0;
+    float gx = 0, gy = 0;
+    for (; t < 6000 && !persist_get(a.persist); t++) {
+      if (t % 10 == 0) enemies_debug_hit(30);
+      run_ticks(1, 0);
+      if (t == 10) shut_in_fight = gates_shut(&gx, &gy);
+    }
+    run_ticks(250, 0);   /* (End Wait, the gates opening) */
+    int shut = gates_shut(&gx, &gy);
+    if (!shut_in_fight) strcat(why, " no gate seen shut in the fight;");
+    if (!persist_get(a.persist)) strcat(why, " fight not over;");
+    if (shut) snprintf(why + strlen(why), sizeof why - strlen(why), " %d gates shut after it (at %.1f,%.1f);", shut, gx, gy);
+    /* (the room again, as the Knight comes back) */
+    game_enter(r, x, y, true);
+    run_ticks(100, 0);
+    if ((shut = gates_shut(&gx, &gy)))
+      snprintf(why + strlen(why), sizeof why - strlen(why), " back: %d gates shut (at %.1f,%.1f);", shut, gx, gy);
+    /* (saved, a new game, loaded, the room again) */
+    save_select(SAVE_SLOTS - 1);
+    if (!save_game()) strcat(why, " not saved;");
+    game_new();
+    if (!save_load(SAVE_SLOTS - 1)) strcat(why, " not loaded;");
+    if (!persist_get(a.persist)) strcat(why, " loaded: fight not over;");
+    game_enter(r, x, y, true);
+    run_ticks(100, 0);
+    if ((shut = gates_shut(&gx, &gy)))
+      snprintf(why + strlen(why), sizeof why - strlen(why), " loaded: %d gates shut (at %.1f,%.1f);", shut, gx, gy);
+    shielded = false;
+    fails += why[0] != 0;
+    printf("%s %s: won in %.1f s, %d gates shut in the fight%s\n", why[0] ? "FAIL" : "ok  ", name, t * 0.02f, shut_in_fight, why);
+  }
+  printf("arenas: %d, %d failing\n", total, fails);
+  return fails || !total ? 1 : 0;
+}
+
 static int gates_test(const char *which) {
   if (!strcmp(which, "markers")) return markers_test();
+  if (!strcmp(which, "arenas")) return arenas_test();
   if (!strncmp(which, "wander:", 7)) {   /* (wander:ROOM|all:seed:ticks) */
     char room[64];
     int seed = 1, ticks = 6000;

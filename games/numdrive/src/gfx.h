@@ -39,6 +39,7 @@ const Glyph *font_glyph(const Font *f, int ch);
 typedef struct {
   const Glyph *g, *g2;
   const np_xglyph_t *x;
+  uint32_t cp, bit; /* the letter; where the 12-pixel font's starts */
   int acc, adv, xs; /* the accent (np_latin), the advance, the 12-pixel font's scale */
 } Letter;
 Letter g_letter(const Font *f, const char **s);

@@ -545,7 +545,7 @@ void levels_draw(int sel, int scroll) {
       const Font *ft = &font_l;
       for (const char *s = tl; *s;) {
         Letter l = g_letter(ft, &s);
-        if (!l.g && (!l.x || l.x->cp < 0x2E80)) ft = &font_m;
+        if (!l.g && (!l.x || l.cp < 0x2E80)) ft = &font_m;
       }
       int ty = 22 - ft->base;
       for (int d = 0; d < 8; d++) {

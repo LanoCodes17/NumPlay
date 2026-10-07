@@ -90,14 +90,14 @@ int glyph_alpha(const Font *f, const Glyph *g, int x, int y) {
 #if NP_TEXT_EXTRA
 Letter g_letter(const Font *f, const char **s) {
   Letter l = {0};
-  uint32_t cp = np_utf8(s);
+  uint32_t cp = l.cp = np_utf8(s);
   char b = (char)cp, b2 = 0;
   if (cp >= 0x80) l.acc = np_latin(cp, &b, &b2);
   if ((l.g = b ? font_glyph(f, (unsigned char)b) : 0)) {
     l.g2 = b2 ? font_glyph(f, (unsigned char)b2) : 0;
     l.adv = l.g->adv + (l.g2 ? l.g2->adv : 0);
   } else if ((l.x = np_xglyph(cp))) {
-    l.acc = 0, l.xs = f->h > 28 ? 2 : 1, l.adv = l.x->adv * l.xs;
+    l.acc = 0, l.xs = f->h > 28 ? 2 : 1, l.adv = l.x->adv * l.xs, l.bit = np_xbit(cp);
   }
   return l;
 }
@@ -108,7 +108,7 @@ int g_letter_alpha(const Font *f, const Letter *l, int x, int y) {
   if (l->x) { /* its 12 rows on the middle of the capitals */
     int k = l->xs, dx = x - l->x->x * k, dy = y - ((f->cap_top + f->base) / 2 - 6 * k) - l->x->y * k;
     if (dx < 0 || dy < 0 || dx >= l->x->w * k || dy >= l->x->h * k) return 0;
-    uint32_t bit = (uint32_t)l->x->off * 8 + dy / k * l->x->w + dx / k;
+    uint32_t bit = l->bit + dy / k * l->x->w + dx / k;
     return np_xfont.rows[bit >> 3] >> (bit & 7) & 1 ? 3 : 0;
   }
   if (!l->g) return 0;

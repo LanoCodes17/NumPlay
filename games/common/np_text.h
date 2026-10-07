@@ -18,7 +18,9 @@
  *
  * Only NumPlay itself is built in other languages. NP_TEXT_EXTRA is 1 there
  * (tools/lang.py sets it): code that handles letters beyond ASCII sits behind
- * it, so the English apps carry none of it. */
+ * it, so the English apps carry none of it. There the functions below are in
+ * NumPlay once for all its games (launcher/src/xfont.c); in English each file
+ * keeps its own, the little it uses. */
 #ifndef NP_TEXT_H
 #define NP_TEXT_H
 #include <stdbool.h>
@@ -27,8 +29,48 @@
 #define T(s) (s)
 #define NP_TEXT_EXTRA 0
 
+/* Accents of np_latin() */
+enum { NP_ACC_NONE, NP_ACC_ACUTE, NP_ACC_GRAVE, NP_ACC_CIRC, NP_ACC_DIAER, NP_ACC_CEDIL, NP_ACC_TILDE, NP_ACC_RING };
+
+/* ---- the 12-pixel font
+ * Kept small, as the Chinese build holds a thousand letters and more: a letter is
+ * its code point, the index of its sizes (letters share a few dozen) and its
+ * bits, back to back with the others'; where they start is kept for every
+ * 16th letter, the others' found by adding the sizes before them. */
+typedef struct {
+  uint8_t adv, w, h;  /* advance; the bitmap's size */
+  int8_t x, y;        /* the bitmap's top-left from the pen, y down from the top of a 12-pixel line */
+} np_xglyph_t;
+typedef struct {
+  uint32_t count;
+  const uint16_t *cps;           /* the letters, sorted (Chinese and its punctuation are all below 0x10000) */
+  const uint8_t *size;           /* each one's in sizes */
+  const np_xglyph_t *sizes;
+  const uint32_t *start;         /* the first bit of letters 0, 16, 32... */
+  const uint8_t *rows;           /* w x h bits a letter, row by row, the first pixel first, lowest first in each byte */
+} np_xfont_t;
+
+extern const np_xfont_t np_xfont; /* the launcher's (launcher/src/np_xfont.h) */
+
+#if NP_TEXT_EXTRA && !defined(NP_TEXT_HERE)
+uint32_t np_utf8(const char **s);
+int np_text_cells(const char *s);
+int np_latin(uint32_t cp, char *base, char *second);
+void np_accent(int acc, int x, int y, int scale, void (*plot)(int x, int y, void *ctx), void *ctx);
+int np_xindex(uint32_t cp);
+const np_xglyph_t *np_xglyph(uint32_t cp);
+uint32_t np_xbit(uint32_t cp);
+int np_xdraw(uint32_t cp, int x, int top, int scale, void (*plot)(int x, int y, void *ctx), void *ctx);
+int np_xadvance(uint32_t cp, int scale);
+#else
+#if NP_TEXT_EXTRA
+#define NP_TEXT_FN
+#else
+#define NP_TEXT_FN static inline
+#endif
+
 /* The next code point of a UTF-8 string, *s moved past it (0 at the end). */
-static inline uint32_t np_utf8(const char **s) {
+NP_TEXT_FN uint32_t np_utf8(const char **s) {
   const uint8_t *p = (const uint8_t *)*s;
   uint32_t c = p[0];
   if (c < 0x80) {
@@ -50,7 +92,7 @@ static inline uint32_t np_utf8(const char **s) {
 
 /* The cells a text takes in a fixed-width font (games drawing with the firmware's font, 7 or 10 pixels a
  * letter): a letter each, two for a Chinese one (launcher/src/compat.c draws them in two cells). */
-static inline int np_text_cells(const char *s) {
+NP_TEXT_FN int np_text_cells(const char *s) {
   int n = 0;
   while (*s) {
     uint32_t c = NP_TEXT_EXTRA ? np_utf8(&s) : (uint8_t)*s++;
@@ -59,14 +101,11 @@ static inline int np_text_cells(const char *s) {
   return n;
 }
 
-/* Accents of np_latin() */
-enum { NP_ACC_NONE, NP_ACC_ACUTE, NP_ACC_GRAVE, NP_ACC_CIRC, NP_ACC_DIAER, NP_ACC_CEDIL, NP_ACC_TILDE, NP_ACC_RING };
-
 /* A Latin letter with an accent: returns the accent, *base the plain letter
  * (0 when cp is no such letter). Ligatures (œ, æ, ß) and a few signs give
  * *second too, a letter to draw after the first. Guillemets, typographic
  * quotes and others give plain ASCII stand-ins. */
-static inline int np_latin(uint32_t cp, char *base, char *second) {
+NP_TEXT_FN int np_latin(uint32_t cp, char *base, char *second) {
   static const char letters[] = "AAAAAAACEEEEIIIIDNOOOOOxOUUUUYTsaaaaaaaceeeeiiiidnooooo/ouuuuyty";
   static const uint8_t accents[] = {
       2, 1, 3, 6, 4, 7, 0, 5, 2, 1, 3, 4, 2, 1, 3, 4, 0, 6, 2, 1, 3, 6, 4, 0, 0, 2, 1, 3, 4, 1, 0, 0,
@@ -100,7 +139,7 @@ static inline int np_latin(uint32_t cp, char *base, char *second) {
  * game knows its letters: the accent goes centered over a letter (or under
  * it, for a cedilla), in the rows its font leaves free above lowercase
  * letters, or on the first rows of a capital, as small capitals do. */
-static inline void np_accent(int acc, int x, int y, int scale, void (*plot)(int x, int y, void *ctx), void *ctx) {
+NP_TEXT_FN void np_accent(int acc, int x, int y, int scale, void (*plot)(int x, int y, void *ctx), void *ctx) {
   /* bits 0-4 the upper row, 5-9 the lower one, left to right */
   static const uint16_t marks[] = {0, 0x088, 0x082, 0x144, 0x140, 0x0C4, 0x154, 0x14E};
   if (acc <= NP_ACC_NONE || acc > NP_ACC_RING) return;
@@ -111,28 +150,8 @@ static inline void np_accent(int acc, int x, int y, int scale, void (*plot)(int 
           for (int b = 0; b < scale; b++) plot(x + i * scale + b, y + j * scale + a, ctx);
 }
 
-/* ---- the 12-pixel font
- * Kept small, as the Chinese build holds a thousand letters and more: a letter is
- * its code point, the index of its sizes (letters share a few dozen) and its
- * bits, back to back with the others'; where they start is kept for every
- * 16th letter, the others' found by adding the sizes before them. */
-typedef struct {
-  uint8_t adv, w, h;  /* advance; the bitmap's size */
-  int8_t x, y;        /* the bitmap's top-left from the pen, y down from the top of a 12-pixel line */
-} np_xglyph_t;
-typedef struct {
-  uint32_t count;
-  const uint16_t *cps;           /* the letters, sorted (Chinese and its punctuation are all below 0x10000) */
-  const uint8_t *size;           /* each one's in sizes */
-  const np_xglyph_t *sizes;
-  const uint32_t *start;         /* the first bit of letters 0, 16, 32... */
-  const uint8_t *rows;           /* w x h bits a letter, row by row, the first pixel first, lowest first in each byte */
-} np_xfont_t;
-
-extern const np_xfont_t np_xfont; /* the launcher's (launcher/src/np_xfont.h) */
-
 /* The index of cp in the 12-pixel font, or -1. */
-static inline int np_xindex(uint32_t cp) {
+NP_TEXT_FN int np_xindex(uint32_t cp) {
   uint32_t lo = 0, hi = np_xfont.count;
   while (lo < hi) {
     uint32_t m = (lo + hi) / 2;
@@ -143,13 +162,13 @@ static inline int np_xindex(uint32_t cp) {
 }
 
 /* The glyph of cp in the 12-pixel font, or NULL. */
-static inline const np_xglyph_t *np_xglyph(uint32_t cp) {
+NP_TEXT_FN const np_xglyph_t *np_xglyph(uint32_t cp) {
   int k = np_xindex(cp);
   return k < 0 ? 0 : &np_xfont.sizes[np_xfont.size[k]];
 }
 
 /* The first bit of cp's rows (cp in the font). */
-static inline uint32_t np_xbit(uint32_t cp) {
+NP_TEXT_FN uint32_t np_xbit(uint32_t cp) {
   uint32_t k = (uint32_t)np_xindex(cp), bit = np_xfont.start[k / 16];
   for (uint32_t i = k & ~15u; i < k; i++) {
     const np_xglyph_t *g = &np_xfont.sizes[np_xfont.size[i]];
@@ -160,7 +179,7 @@ static inline uint32_t np_xbit(uint32_t cp) {
 
 /* Draws cp from the 12-pixel font with its line's top at (x, top), each font
  * pixel a scale x scale square; returns the advance (0 if the font has none). */
-static inline int np_xdraw(uint32_t cp, int x, int top, int scale, void (*plot)(int x, int y, void *ctx), void *ctx) {
+NP_TEXT_FN int np_xdraw(uint32_t cp, int x, int top, int scale, void (*plot)(int x, int y, void *ctx), void *ctx) {
   const np_xglyph_t *g = np_xglyph(cp);
   if (!g) return 0;
   uint32_t bit = np_xbit(cp);
@@ -171,8 +190,9 @@ static inline int np_xdraw(uint32_t cp, int x, int top, int scale, void (*plot)(
           for (int b = 0; b < scale; b++) plot(x + (g->x + i) * scale + b, top + (g->y + j) * scale + a, ctx);
   return g->adv * scale;
 }
-static inline int np_xadvance(uint32_t cp, int scale) {
+NP_TEXT_FN int np_xadvance(uint32_t cp, int scale) {
   const np_xglyph_t *g = np_xglyph(cp);
   return g ? g->adv * scale : 0;
 }
+#endif
 #endif

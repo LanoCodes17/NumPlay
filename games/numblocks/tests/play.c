@@ -1,6 +1,7 @@
 /* Plays NumBlocks on a computer with scripted keys and saves screenshots.
  *
  *   play [--frames N] [--ms-per-frame M] [--keys "10-40:fwd,50:use,..."] [--shots 30,60] [--out DIR]
+ *        [--showcase]   (the hotbar of the README's GIF: TNT, flint and steel, water and lava, blocks)
  *
  * Keys: left right up down fwd back sleft sright jump use attack inv sneak sprint pause 1..9. */
 #include <stdio.h>
@@ -33,7 +34,7 @@ static uint32_t key_bit(const char *s) {
 
 int main(int argc, char **argv) {
   const char *out = "build/play", *shots = "";
-  int give = 0, title_screen = 0, mobs = 0, start_time = -1, torches = 0, water = 0, creative = 0, build = 0, rain = 0;
+  int give = 0, showcase = 0, title_screen = 0, mobs = 0, start_time = -1, torches = 0, water = 0, creative = 0, build = 0, rain = 0;
   float hurt = 0;
   int frames = 60, mspf = 50;
   for (int i = 1; i < argc; i++) {
@@ -42,6 +43,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
     else if (!strcmp(argv[i], "--shots") && i + 1 < argc) shots = argv[++i];
     else if (!strcmp(argv[i], "--give")) give = 1;
+    else if (!strcmp(argv[i], "--showcase")) showcase = 1;
     else if (!strcmp(argv[i], "--title")) title_screen = 1;
     else if (!strcmp(argv[i], "--mobs")) mobs = 1;
     else if (!strcmp(argv[i], "--torches")) torches = 1;
@@ -80,6 +82,17 @@ int main(int argc, char **argv) {
                                  {I_BUCKET, 1}, {B_SAND, 20}, {I_APPLE, 2}};
     for (unsigned i = 0; i < sizeof kit / sizeof kit[0]; i++) inv_add(pl.inv, 36, kit[i][0], kit[i][1], 0);
     pl.inv[0].aux = 100;   /* a worn pickaxe */
+  }
+  if (showcase) {
+    /* the README's GIF: the hotbar first, then a full inventory to look at */
+    static const int kit[][2] = {{B_TNT, 16}, {I_FLINT_AND_STEEL, 1}, {I_WATER_BUCKET, 1}, {I_LAVA_BUCKET, 1},
+                                 {B_COBBLESTONE, 64}, {B_PLANKS_OAK, 48}, {B_GLASS, 32}, {I_DIAMOND_PICKAXE, 1},
+                                 {B_TORCH, 32}, {I_DIAMOND_SWORD, 1}, {I_BOW, 1}, {I_ARROW, 48}, {I_DIAMOND, 12},
+                                 {I_GOLD_INGOT, 21}, {I_IRON_INGOT, 30}, {I_COOKED_BEEF, 9}, {I_BREAD, 7},
+                                 {I_APPLE, 4}, {B_OBSIDIAN, 10}, {B_DIAMOND_BLOCK, 2}, {B_LOG_OAK, 24},
+                                 {B_CRAFTING_TABLE, 1}, {B_FURNACE, 2}, {B_CHEST, 3}, {I_IRON_HELMET, 1},
+                                 {I_IRON_CHESTPLATE, 1}, {B_SAND, 40}};
+    for (unsigned i = 0; i < sizeof kit / sizeof kit[0]; i++) inv_add(pl.inv, 36, kit[i][0], kit[i][1], 0);
   }
   if (start_time >= 0) {
     extern uint32_t game_time;

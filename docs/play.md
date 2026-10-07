@@ -51,7 +51,7 @@ Keep moving, or the eagle gets you. Coins add up across every run and stay saved
 
 ## NumBlocks
 
-<img src="media/numblocks.gif" width="320" align="right" alt="NumBlocks: chopping a birch tree, then building a pillar of planks">
+<img src="media/numblocks.gif" width="320" align="right" alt="NumBlocks: the inventory, TNT, water and lava">
 
 | Key | What it does |
 | --- | --- |

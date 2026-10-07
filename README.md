@@ -45,7 +45,7 @@ Want a game that isn't here? I'm open to requests: email me at [masonchen204@gma
 ## New: NumBlocks
 
 <p align="center">
-  <img src="docs/media/numblocks.gif" width="640" alt="NumBlocks: chopping a birch tree, then building a pillar of planks and looking out over the forest">
+  <img src="docs/media/numblocks.gif" width="640" alt="NumBlocks: walking across a meadow, the inventory, TNT blowing a crater, water poured into it and lava flowing towards it">
 </p>
 
 Mine, craft and survive in a world like Minecraft 1.8, right on your calculator.
@@ -53,6 +53,7 @@ Mine, craft and survive in a world like Minecraft 1.8, right on your calculator.
 - **Endless worlds:** the same biomes, caves and trees as Minecraft 1.8.8, for any seed.
 - **Survival:** chop trees, craft tools, build a shelter, and fight zombies, skeletons, creepers and spiders at night.
 - **Creative:** fly around and build with every block.
+- **TNT, water and lava:** blow craters, and watch water and lava flow (and turn to stone where they meet).
 - **Your worlds stay:** keep several, and they come back even after you install again.
 
 <p align="center">
@@ -324,7 +325,7 @@ Upsilon support is new. If it doesn't work on your calculator, please [email me]
     <td><img src="docs/media/crossyroad.gif" alt="Crossy Road gameplay"></td>
   </tr>
   <tr>
-    <td><img src="docs/media/numblocks.gif" alt="NumBlocks: chopping a birch tree, then building a pillar of planks"></td>
+    <td><img src="docs/media/numblocks.gif" alt="NumBlocks: the inventory, TNT, water and lava"></td>
     <td><img src="docs/media/numblocks_night.gif" alt="NumBlocks: sunset, then a zombie walks up and is beaten with an iron sword"></td>
   </tr>
   <tr>

@@ -6,7 +6,8 @@
 
 <p align="center">
   <b>17 free games for your NumWorks calculator, in one app.</b><br>
-  Plus <b>Hollow Knight</b>, <b>Celeste</b> and <b>Champion Island</b>, three big games that come as apps of their own.
+  Plus <b>Hollow Knight</b>, <b>Celeste</b> and <b>Champion Island</b>, three big games that come as apps of their own.<br>
+  For the N0110, N0115 and N0120, in English, <a href="#in-french-and-chinese">French and Chinese</a>, and for <a href="#on-upsilon">Upsilon</a>.
 </p>
 
 <p align="center">
@@ -158,6 +159,18 @@ Click a file to download it. Not sure which one? Take the first.
     <td><img src="docs/media/home_invisible.png" width="240" alt="The calculator's home screen with NumPlay-Invisible installed: the spot after Settings looks empty"> <img src="docs/media/home_matrices.png" width="240" alt="The calculator's home screen with NumPlay-Matrices installed, next to the calculator's own apps"><br><sub>On the home screen: the invisible one is really there, in the empty spot after Settings. The Matrices one sits among the calculator's own apps.</sub></td>
   </tr>
   <tr>
+    <td width="120" align="center"><img src="docs/media/icon.png" width="64" alt="NumPlay icon"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay-French.nwa">NumPlay-French.nwa</a><br>NumPlay en français : tous les jeux, en français.</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/icon.png" width="64" alt="NumPlay icon"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay-Chinese.nwa">NumPlay-Chinese.nwa</a><br>NumPlay 中文版：所有游戏，简体中文。</td>
+  </tr>
+  <tr>
+    <td width="120" align="center"><img src="docs/media/icon.png" width="64" alt="NumPlay icon"></td>
+    <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumPlay-Upsilon.nwa">NumPlay-Upsilon.nwa</a><br>For calculators running <b>Upsilon</b>: the 13 games that fit in the memory Upsilon gives apps. See <a href="#on-upsilon">On Upsilon</a>.</td>
+  </tr>
+  <tr>
     <td width="120" align="center"><img src="docs/media/thumb_numdash.png" width="112" alt="NumDash"></td>
     <td><a href="https://github.com/Mason363/NumPlay/releases/latest/download/NumDash.nwa">NumDash.nwa</a><br>Only NumDash: jump to the beat</td>
   </tr>
@@ -263,6 +276,46 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
 >
 > Nothing happens when you plug it in? Try another cable: some only charge.
 
+### Which calculators
+
+| Calculator | Software | What runs |
+| --- | --- | --- |
+| N0120 | Epsilon 23.2 or newer (the calculator's own software) | Everything |
+| N0110, N0115 | Epsilon 23.2 or newer | Everything. These models are about 2.5 times slower, so the big games (Hollow Knight, Celeste, NumDrive, NumBlocks, Champion Island) show fewer frames per second, but they keep their speed. |
+| N0110, N0115 | Upsilon | NumPlay-Upsilon.nwa: 13 games. See [On Upsilon](#on-upsilon). |
+
+Champion Island needs Epsilon 25.2 or newer. To see your calculator's model and software, open **Settings**, then **About**. To update the software, go to [my.numworks.com](https://my.numworks.com) with the calculator plugged in.
+
+### In French and Chinese
+
+**NumPlay-French.nwa** and **NumPlay-Chinese.nwa** are NumPlay with every game in French or in Chinese (simplified). Install them like NumPlay.nwa, instead of it. Your progress is the same in every language.
+
+### On Upsilon
+
+Upsilon is custom software for the N0110 and N0115. It gives apps less memory than the calculator's own software, so **NumPlay-Upsilon.nwa** has the 13 games that fit: Crossy Road, Portal Returns, Tetris, Chess, Flappy Bird, Pac-Man, Snake, Connect Four, Solitaire, 2048, Minesweeper, Block Breaker and NumVisuals.
+
+The NumWorks website doesn't install apps on Upsilon (it shows 0 KB free), and the "Local file" button of Upsilon's own app page only copies a file onto the calculator. Install it with `nwlink`, NumWorks' command-line tool, instead:
+
+1. Install [Node.js](https://nodejs.org) on your computer.
+2. Plug in the calculator and turn it on.
+3. In a terminal, in the folder where you downloaded the file, run: `npx nwlink install-nwa NumPlay-Upsilon.nwa`
+
+Upsilon support is new. If it doesn't work on your calculator, please [email me](mailto:masonchen204@gmail.com) what happens.
+
+### Keeping your saves
+
+- Your progress is saved in the calculator's memory, as files. Turning the calculator off keeps them.
+- **Installing apps erases these files**, all but the Python scripts. That's why NumPlay keeps a copy of every save in a Python script, `numplay_saves.py`: open NumPlay once after installing, and your progress comes back. NumBlocks on its own does the same with `numblocks_saves.py`. Don't delete these scripts.
+- **A restart erases every file**, scripts included: pressing the reset button on the back, or the calculator crashing and starting over. Nothing can bring progress back after that. If your calculator restarts by itself while you play, please [email me](mailto:masonchen204@gmail.com) which game and what you were doing, so I can fix it.
+- The calculator holds 42 KB of files in all. A big NumBlocks world can fill it, and then NumPlay has no room for its copy. Delete worlds you don't play anymore, or Python scripts you don't need, to make room.
+
+### The app doesn't show up after installing
+
+- **The calculator restarts once after installing**: it shows the NumWorks logo, then asks for your language. That's normal. Your apps are at the end of the home screen after that.
+- **Celeste, Hollow Knight and Champion Island each fill the whole space for apps.** Install one of them alone, without NumPlay and without each other: if you pick more than fits, they don't install.
+- **Installing replaces the apps you installed before.** To keep one, add it again with the new one.
+- Check your calculator's software is **Epsilon 23.2 or newer** (Settings, then About), and update it at [my.numworks.com](https://my.numworks.com) if not.
+
 ## Gameplay
 
 <table>
@@ -335,6 +388,9 @@ You need your calculator, its USB cable, and a computer with **Google Chrome** o
 - **[Portal Returns](https://www.cemetech.net/downloads/files/1313/x1313)** by MateoConLechuga for the TI-84 Plus CE, with sprites by CKH4 and Portal Prelude chambers ported by Unicorn from BuilderBoy's original.
 - The **Nunito** and **Rammetto One** fonts, under the SIL Open Font License ([LICENSES](LICENSES)).
 - **reversal_lava63**, a beta tester who plays NumPlay's apps on a real calculator and reports what's wrong.
+- **Gabriel** (tomcalif9-stack), who translated NumPlay into French first and tests it on Upsilon and an N0115.
+- The **Fusion Pixel** font by TakWolf (with glyphs from **Ark Pixel**), under the SIL Open Font License ([license](LICENSES/OFL-1.1-Fusion-Pixel.txt)), for the Chinese letters.
+- **[Upsilon](https://github.com/UpsilonNumworks/Upsilon)**, the custom software NumPlay-Upsilon.nwa runs on.
 
 ## License
 

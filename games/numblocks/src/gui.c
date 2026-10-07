@@ -560,7 +560,7 @@ static bool has(const char *n) {
     for (; csearch[k] && *p; k++) {
       uint32_t c = np_utf8(&p);
       char b = (char)c, b2;
-      if (c >= 0x80) np_latin(c, &b, &b2);
+      if (c >= 0x80 && (np_latin(c, &b, &b2), !b)) b = 1;   /* (a Chinese letter: none typed) */
       if (((b == '_' ? ' ' : b) | 32) != csearch[k]) break;
     }
     if (!csearch[k]) return true;

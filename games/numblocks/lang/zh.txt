@@ -224,3 +224,300 @@ Toggled downfall	已切换降水
 /tp [target player] <destination player> OR /tp [target player] <x> <y> <z> [<y-rot> <x-rot>]	/tp [目标玩家] <目的地玩家> 或 /tp [目标玩家] <x> <y> <z> [<y旋转> <x旋转>]
 /weather <clear|rain|thunder> [duration in seconds]	/weather <clear|rain|thunder> [持续秒数]
 /xp <amount> [player] OR /xp <amount>L [player]	/xp <数量> [玩家] 或 /xp <数量>L [玩家]
+# ---- blocks, items and the creative inventory's tabs: Minecraft's Simplified Chinese names (zh_CN)
+Stone	石头
+Granite	花岗岩
+Polished Granite	磨制花岗岩
+Diorite	闪长岩
+Polished Diorite	磨制闪长岩
+Andesite	安山岩
+Polished Andesite	磨制安山岩
+Grass Block	草方块
+Dirt	泥土
+Coarse Dirt	砂土
+Podzol	灰化土
+Cobblestone	圆石
+Oak Wood Planks	橡木木板
+Spruce Wood Planks	云杉木板
+Birch Wood Planks	白桦木板
+Jungle Wood Planks	丛林木板
+Acacia Wood Planks	金合欢木板
+Dark Oak Wood Planks	深色橡木木板
+Oak Sapling	橡树树苗
+Spruce Sapling	云杉树苗
+Birch Sapling	白桦树苗
+Jungle Sapling	丛林树苗
+Acacia Sapling	金合欢树苗
+Dark Oak Sapling	深色橡树树苗
+Bedrock	基岩
+Sand	沙子
+Red Sand	红沙
+Gravel	沙砾
+Gold Ore	金矿石
+Iron Ore	铁矿石
+Coal Ore	煤矿石
+Oak Wood	橡木
+Spruce Wood	云杉木
+Birch Wood	白桦木
+Jungle Wood	丛林木
+Oak Leaves	橡树树叶
+Spruce Leaves	云杉树叶
+Birch Leaves	白桦树叶
+Jungle Leaves	丛林树叶
+Sponge	海绵
+Glass	玻璃
+Lapis Lazuli Ore	青金石矿石
+Lapis Lazuli Block	青金石块
+Sandstone	砂岩
+Chiseled Sandstone	雕纹砂岩
+Smooth Sandstone	平滑砂岩
+Cobweb	蜘蛛网
+Shrub	灌木
+Grass	草丛
+Fern	蕨
+Dead Bush	枯死的灌木
+Wool	羊毛
+Orange Wool	橙色羊毛
+Magenta Wool	品红色羊毛
+Light Blue Wool	淡蓝色羊毛
+Yellow Wool	黄色羊毛
+Lime Wool	黄绿色羊毛
+Pink Wool	粉红色羊毛
+Gray Wool	灰色羊毛
+Light Gray Wool	淡灰色羊毛
+Cyan Wool	青色羊毛
+Purple Wool	紫色羊毛
+Blue Wool	蓝色羊毛
+Brown Wool	棕色羊毛
+Green Wool	绿色羊毛
+Red Wool	红色羊毛
+Black Wool	黑色羊毛
+Dandelion	蒲公英
+Poppy	虞美人
+Blue Orchid	兰花
+Allium	绒球葱
+Azure Bluet	茜草花
+Red Tulip	红色郁金香
+Orange Tulip	橙色郁金香
+White Tulip	白色郁金香
+Pink Tulip	粉红色郁金香
+Oxeye Daisy	滨菊
+Mushroom	蘑菇
+Block of Gold	金块
+Block of Iron	铁块
+Stone Slab	石台阶
+Sandstone Slab	砂岩台阶
+Wooden Slab	木台阶
+Cobblestone Slab	圆石台阶
+Bricks Slab	砖块台阶
+Stone Bricks Slab	石砖台阶
+Bricks	砖块
+TNT	TNT
+Bookshelf	书架
+Moss Stone	苔石
+Obsidian	黑曜石
+Torch	火把
+Monster Spawner	刷怪箱
+Oak Wood Stairs	橡木楼梯
+Diamond Ore	钻石矿石
+Block of Diamond	钻石块
+Crafting Table	工作台
+Farmland	耕地
+Ladder	梯子
+Rail	铁轨
+Cobblestone Stairs	圆石楼梯
+Redstone Ore	红石矿石
+Snow	雪
+Ice	冰
+Cactus	仙人掌
+Clay	粘土块
+Oak Fence	橡木栅栏
+Pumpkin	南瓜
+Jack o'Lantern	南瓜灯
+Stone Bricks	石砖
+Mossy Stone Bricks	苔石砖
+Cracked Stone Bricks	裂石砖
+Chiseled Stone Bricks	雕纹石砖
+Glass Pane	玻璃板
+Melon	西瓜
+Vines	藤蔓
+Mycelium	菌丝
+Lily Pad	睡莲
+Emerald Ore	绿宝石矿石
+Block of Emerald	绿宝石块
+Cobblestone Wall	圆石墙
+Hardened Clay	硬化粘土
+White Stained Clay	白色硬化粘土
+Orange Stained Clay	橙色硬化粘土
+Magenta Stained Clay	品红色硬化粘土
+Light Blue Stained Clay	淡蓝色硬化粘土
+Yellow Stained Clay	黄色硬化粘土
+Lime Stained Clay	黄绿色硬化粘土
+Pink Stained Clay	粉红色硬化粘土
+Gray Stained Clay	灰色硬化粘土
+Light Gray Stained Clay	淡灰色硬化粘土
+Cyan Stained Clay	青色硬化粘土
+Purple Stained Clay	紫色硬化粘土
+Blue Stained Clay	蓝色硬化粘土
+Brown Stained Clay	棕色硬化粘土
+Green Stained Clay	绿色硬化粘土
+Red Stained Clay	红色硬化粘土
+Black Stained Clay	黑色硬化粘土
+Acacia Wood	金合欢木
+Dark Oak Wood	深色橡木
+Acacia Leaves	金合欢树叶
+Dark Oak Leaves	深色橡树树叶
+Hay Bale	干草块
+Block of Coal	煤炭块
+Packed Ice	浮冰
+Sunflower	向日葵
+Lilac	丁香
+Double Tallgrass	高草丛
+Large Fern	大型蕨
+Rose Bush	玫瑰丛
+Peony	牡丹
+Red Sandstone	红砂岩
+Glowstone	萤石
+Oak Wood Slab	橡木台阶
+Spruce Wood Slab	云杉木台阶
+Birch Wood Slab	白桦木台阶
+Jungle Wood Slab	丛林木台阶
+Acacia Wood Slab	金合欢木台阶
+Dark Oak Wood Slab	深色橡木台阶
+Wooden Sword	木剑
+Wooden Shovel	木锹
+Wooden Pickaxe	木镐
+Wooden Axe	木斧
+Wooden Hoe	木锄
+Stone Sword	石剑
+Stone Shovel	石锹
+Stone Pickaxe	石镐
+Stone Axe	石斧
+Stone Hoe	石锄
+Iron Sword	铁剑
+Iron Shovel	铁锹
+Iron Pickaxe	铁镐
+Iron Axe	铁斧
+Iron Hoe	铁锄
+Diamond Sword	钻石剑
+Diamond Shovel	钻石锹
+Diamond Pickaxe	钻石镐
+Diamond Axe	钻石斧
+Diamond Hoe	钻石锄
+Golden Sword	金剑
+Golden Shovel	金锹
+Golden Pickaxe	金镐
+Golden Axe	金斧
+Golden Hoe	金锄
+Shears	剪刀
+Flint and Steel	打火石
+Bow	弓
+Arrow	箭
+Leather Cap	皮革帽子
+Leather Tunic	皮革外套
+Leather Pants	皮革裤子
+Leather Boots	皮革靴子
+Chain Helmet	锁链头盔
+Chain Chestplate	锁链胸甲
+Chain Leggings	锁链护腿
+Chain Boots	锁链靴子
+Iron Helmet	铁头盔
+Iron Chestplate	铁胸甲
+Iron Leggings	铁护腿
+Iron Boots	铁靴子
+Golden Helmet	金头盔
+Golden Chestplate	金胸甲
+Golden Leggings	金护腿
+Golden Boots	金靴子
+Diamond Helmet	钻石头盔
+Diamond Chestplate	钻石胸甲
+Diamond Leggings	钻石护腿
+Diamond Boots	钻石靴子
+Stick	木棍
+Coal	煤炭
+Charcoal	木炭
+Diamond	钻石
+Iron Ingot	铁锭
+Gold Ingot	金锭
+Gold Nugget	金粒
+Emerald	绿宝石
+Redstone	红石
+Flint	燧石
+Feather	羽毛
+String	线
+Bone	骨头
+Gunpowder	火药
+Leather	皮革
+Wheat	小麦
+Seeds	种子
+Sugar Canes	甘蔗
+Sugar	糖
+Paper	纸
+Book	书
+Brick	红砖
+Bowl	碗
+Snowball	雪球
+Egg	鸡蛋
+Slimeball	粘液球
+Glowstone Dust	萤石粉
+Bucket	桶
+Water Bucket	水桶
+Lava Bucket	熔岩桶
+Milk	牛奶
+Oak Door	橡木门
+Bed	床
+Compass	指南针
+Fishing Rod	钓鱼竿
+Clock	钟
+Ink Sac	墨囊
+Rose Red	玫瑰红
+Cactus Green	仙人掌绿
+Cocoa Beans	可可豆
+Lapis Lazuli	青金石
+Purple Dye	紫色染料
+Cyan Dye	青色染料
+Light Gray Dye	淡灰色染料
+Gray Dye	灰色染料
+Pink Dye	粉红色染料
+Lime Dye	黄绿色染料
+Dandelion Yellow	蒲公英黄
+Light Blue Dye	淡蓝色染料
+Magenta Dye	品红色染料
+Orange Dye	橙色染料
+Bone Meal	骨粉
+Apple	苹果
+Golden Apple	金苹果
+Bread	面包
+Raw Porkchop	生猪排
+Cooked Porkchop	熟猪排
+Raw Beef	生牛肉
+Steak	牛排
+Raw Chicken	生鸡肉
+Cooked Chicken	熟鸡肉
+Raw Mutton	生羊肉
+Cooked Mutton	熟羊肉
+Rotten Flesh	腐肉
+Spider Eye	蜘蛛眼
+Mushroom Stew	蘑菇煲
+Cookie	曲奇
+Carrot	胡萝卜
+Potato	马铃薯
+Baked Potato	烤马铃薯
+Poisonous Potato	毒马铃薯
+Pumpkin Pie	南瓜派
+Raw Fish	生鱼
+Raw Salmon	生鲑鱼
+Clownfish	小丑鱼
+Pufferfish	河豚
+Cooked Fish	熟鱼
+Cooked Salmon	熟鲑鱼
+Building Blocks	建筑方块
+Decoration Blocks	装饰性方块
+Transportation	交通运输
+Search Items	搜索物品
+Foodstuffs	食物
+Tools	工具
+Combat	战斗
+Brewing	酿造
+Materials	材料
+Survival Inventory	生存模式物品栏

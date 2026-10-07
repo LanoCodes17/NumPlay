@@ -224,3 +224,300 @@ Toggled downfall	Précipitations inversées
 /tp [target player] <destination player> OR /tp [target player] <x> <y> <z> [<y-rot> <x-rot>]	/tp [joueur ciblé] <joueur de destination> OU /tp [joueur ciblé] <x> <y> <z> [<rot-y> <rot-x>]
 /weather <clear|rain|thunder> [duration in seconds]	/weather <clear|rain|thunder> [durée en secondes]
 /xp <amount> [player] OR /xp <amount>L [player]	/xp <quantité> [joueur] OU /xp <quantité>L [joueur]
+# ---- blocks, items and the creative inventory's tabs: Minecraft 1.8's French names (fr_FR)
+Stone	Roche
+Granite	Granite
+Polished Granite	Granite poli
+Diorite	Diorite
+Polished Diorite	Diorite polie
+Andesite	Andésite
+Polished Andesite	Andésite polie
+Grass Block	Bloc d'herbe
+Dirt	Terre
+Coarse Dirt	Terre stérile
+Podzol	Podzol
+Cobblestone	Pierre
+Oak Wood Planks	Planches de chêne
+Spruce Wood Planks	Planches de sapin
+Birch Wood Planks	Planches de bouleau
+Jungle Wood Planks	Planches d'acajou
+Acacia Wood Planks	Planches d'acacia
+Dark Oak Wood Planks	Planches de chêne noir
+Oak Sapling	Pousse de chêne
+Spruce Sapling	Pousse de sapin
+Birch Sapling	Pousse de bouleau
+Jungle Sapling	Pousse d'acajou
+Acacia Sapling	Pousse d'acacia
+Dark Oak Sapling	Pousse de chêne noir
+Bedrock	Bedrock
+Sand	Sable
+Red Sand	Sable rouge
+Gravel	Gravier
+Gold Ore	Minerai d'or
+Iron Ore	Minerai de fer
+Coal Ore	Minerai de charbon
+Oak Wood	Bois de chêne
+Spruce Wood	Bois de sapin
+Birch Wood	Bois de bouleau
+Jungle Wood	Bois d'acajou
+Oak Leaves	Feuilles de chêne
+Spruce Leaves	Feuilles de sapin
+Birch Leaves	Feuilles de bouleau
+Jungle Leaves	Feuilles d'acajou
+Sponge	Éponge
+Glass	Verre
+Lapis Lazuli Ore	Minerai de lapis-lazuli
+Lapis Lazuli Block	Bloc de lapis-lazuli
+Sandstone	Grès
+Chiseled Sandstone	Grès sculpté
+Smooth Sandstone	Grès lisse
+Cobweb	Toile d'araignée
+Shrub	Arbuste
+Grass	Herbes hautes
+Fern	Fougère
+Dead Bush	Buisson mort
+Wool	Laine
+Orange Wool	Laine orange
+Magenta Wool	Laine magenta
+Light Blue Wool	Laine bleu clair
+Yellow Wool	Laine jaune
+Lime Wool	Laine vert clair
+Pink Wool	Laine rose
+Gray Wool	Laine grise
+Light Gray Wool	Laine gris clair
+Cyan Wool	Laine cyan
+Purple Wool	Laine violette
+Blue Wool	Laine bleue
+Brown Wool	Laine marron
+Green Wool	Laine verte
+Red Wool	Laine rouge
+Black Wool	Laine noire
+Dandelion	Pissenlit
+Poppy	Coquelicot
+Blue Orchid	Orchidée bleue
+Allium	Allium
+Azure Bluet	Houstonie bleue
+Red Tulip	Tulipe rouge
+Orange Tulip	Tulipe orange
+White Tulip	Tulipe blanche
+Pink Tulip	Tulipe rose
+Oxeye Daisy	Marguerite
+Mushroom	Champignon
+Block of Gold	Bloc d'or
+Block of Iron	Bloc de fer
+Stone Slab	Dalle de roche
+Sandstone Slab	Dalle de grès
+Wooden Slab	Dalle en bois
+Cobblestone Slab	Dalle de pierre
+Bricks Slab	Dalle de briques
+Stone Bricks Slab	Dalle de pierre taillée
+Bricks	Briques
+TNT	TNT
+Bookshelf	Bibliothèque
+Moss Stone	Pierre moussue
+Obsidian	Obsidienne
+Torch	Torche
+Monster Spawner	Générateur de monstres
+Oak Wood Stairs	Escalier en chêne
+Diamond Ore	Minerai de diamant
+Block of Diamond	Bloc de diamant
+Crafting Table	Établi
+Farmland	Terre labourée
+Ladder	Échelle
+Rail	Rails
+Cobblestone Stairs	Escalier en pierre
+Redstone Ore	Minerai de redstone
+Snow	Neige
+Ice	Glace
+Cactus	Cactus
+Clay	Argile
+Oak Fence	Barrière en chêne
+Pumpkin	Citrouille
+Jack o'Lantern	Citrouille-lanterne
+Stone Bricks	Pierre taillée
+Mossy Stone Bricks	Pierre taillée moussue
+Cracked Stone Bricks	Pierre taillée craquelée
+Chiseled Stone Bricks	Pierre taillée sculptée
+Glass Pane	Vitre
+Melon	Pastèque
+Vines	Lianes
+Mycelium	Mycélium
+Lily Pad	Nénuphar
+Emerald Ore	Minerai d'émeraude
+Block of Emerald	Bloc d'émeraude
+Cobblestone Wall	Muret de pierre
+Hardened Clay	Argile durcie
+White Stained Clay	Argile teinte blanche
+Orange Stained Clay	Argile teinte orange
+Magenta Stained Clay	Argile teinte magenta
+Light Blue Stained Clay	Argile teinte bleu clair
+Yellow Stained Clay	Argile teinte jaune
+Lime Stained Clay	Argile teinte vert clair
+Pink Stained Clay	Argile teinte rose
+Gray Stained Clay	Argile teinte grise
+Light Gray Stained Clay	Argile teinte gris clair
+Cyan Stained Clay	Argile teinte cyan
+Purple Stained Clay	Argile teinte violette
+Blue Stained Clay	Argile teinte bleue
+Brown Stained Clay	Argile teinte marron
+Green Stained Clay	Argile teinte verte
+Red Stained Clay	Argile teinte rouge
+Black Stained Clay	Argile teinte noire
+Acacia Wood	Bois d'acacia
+Dark Oak Wood	Bois de chêne noir
+Acacia Leaves	Feuilles d'acacia
+Dark Oak Leaves	Feuilles de chêne noir
+Hay Bale	Botte de foin
+Block of Coal	Bloc de charbon
+Packed Ice	Glace compactée
+Sunflower	Tournesol
+Lilac	Lilas
+Double Tallgrass	Hautes herbes
+Large Fern	Grande fougère
+Rose Bush	Rosier
+Peony	Pivoine
+Red Sandstone	Grès rouge
+Glowstone	Pierre lumineuse
+Oak Wood Slab	Dalle en chêne
+Spruce Wood Slab	Dalle en sapin
+Birch Wood Slab	Dalle en bouleau
+Jungle Wood Slab	Dalle en acajou
+Acacia Wood Slab	Dalle en acacia
+Dark Oak Wood Slab	Dalle en chêne noir
+Wooden Sword	Épée en bois
+Wooden Shovel	Pelle en bois
+Wooden Pickaxe	Pioche en bois
+Wooden Axe	Hache en bois
+Wooden Hoe	Houe en bois
+Stone Sword	Épée en pierre
+Stone Shovel	Pelle en pierre
+Stone Pickaxe	Pioche en pierre
+Stone Axe	Hache en pierre
+Stone Hoe	Houe en pierre
+Iron Sword	Épée en fer
+Iron Shovel	Pelle en fer
+Iron Pickaxe	Pioche en fer
+Iron Axe	Hache en fer
+Iron Hoe	Houe en fer
+Diamond Sword	Épée en diamant
+Diamond Shovel	Pelle en diamant
+Diamond Pickaxe	Pioche en diamant
+Diamond Axe	Hache en diamant
+Diamond Hoe	Houe en diamant
+Golden Sword	Épée en or
+Golden Shovel	Pelle en or
+Golden Pickaxe	Pioche en or
+Golden Axe	Hache en or
+Golden Hoe	Houe en or
+Shears	Cisailles
+Flint and Steel	Briquet
+Bow	Arc
+Arrow	Flèche
+Leather Cap	Casquette en cuir
+Leather Tunic	Tunique en cuir
+Leather Pants	Pantalon en cuir
+Leather Boots	Bottes en cuir
+Chain Helmet	Casque en mailles
+Chain Chestplate	Cotte de mailles
+Chain Leggings	Jambières en mailles
+Chain Boots	Bottes en mailles
+Iron Helmet	Casque en fer
+Iron Chestplate	Plastron en fer
+Iron Leggings	Jambières en fer
+Iron Boots	Bottes en fer
+Golden Helmet	Casque en or
+Golden Chestplate	Plastron en or
+Golden Leggings	Jambières en or
+Golden Boots	Bottes en or
+Diamond Helmet	Casque en diamant
+Diamond Chestplate	Plastron en diamant
+Diamond Leggings	Jambières en diamant
+Diamond Boots	Bottes en diamant
+Stick	Bâton
+Coal	Charbon
+Charcoal	Charbon de bois
+Diamond	Diamant
+Iron Ingot	Lingot de fer
+Gold Ingot	Lingot d'or
+Gold Nugget	Pépite d'or
+Emerald	Émeraude
+Redstone	Redstone
+Flint	Silex
+Feather	Plume
+String	Ficelle
+Bone	Os
+Gunpowder	Poudre à canon
+Leather	Cuir
+Wheat	Blé
+Seeds	Graines
+Sugar Canes	Cannes à sucre
+Sugar	Sucre
+Paper	Papier
+Book	Livre
+Brick	Brique
+Bowl	Bol
+Snowball	Boule de neige
+Egg	Œuf
+Slimeball	Boule de slime
+Glowstone Dust	Poudre lumineuse
+Bucket	Seau
+Water Bucket	Seau d'eau
+Lava Bucket	Seau de lave
+Milk	Lait
+Oak Door	Porte en chêne
+Bed	Lit
+Compass	Boussole
+Fishing Rod	Canne à pêche
+Clock	Montre
+Ink Sac	Poche d'encre
+Rose Red	Rouge de rose
+Cactus Green	Vert de cactus
+Cocoa Beans	Fèves de cacao
+Lapis Lazuli	Lapis-lazuli
+Purple Dye	Teinture violette
+Cyan Dye	Teinture cyan
+Light Gray Dye	Teinture gris clair
+Gray Dye	Teinture grise
+Pink Dye	Teinture rose
+Lime Dye	Teinture vert clair
+Dandelion Yellow	Jaune de pissenlit
+Light Blue Dye	Teinture bleu clair
+Magenta Dye	Teinture magenta
+Orange Dye	Teinture orange
+Bone Meal	Poudre d'os
+Apple	Pomme
+Golden Apple	Pomme dorée
+Bread	Pain
+Raw Porkchop	Côtelette de porc crue
+Cooked Porkchop	Côtelette de porc cuite
+Raw Beef	Bœuf cru
+Steak	Steak
+Raw Chicken	Poulet cru
+Cooked Chicken	Poulet cuit
+Raw Mutton	Mouton cru
+Cooked Mutton	Mouton cuit
+Rotten Flesh	Chair putréfiée
+Spider Eye	Œil d'araignée
+Mushroom Stew	Soupe de champignons
+Cookie	Cookie
+Carrot	Carotte
+Potato	Pomme de terre
+Baked Potato	Pomme de terre cuite
+Poisonous Potato	Pomme de terre empoisonnée
+Pumpkin Pie	Tarte à la citrouille
+Raw Fish	Poisson cru
+Raw Salmon	Saumon cru
+Clownfish	Poisson-clown
+Pufferfish	Poisson-globe
+Cooked Fish	Poisson cuit
+Cooked Salmon	Saumon cuit
+Building Blocks	Blocs de construction
+Decoration Blocks	Blocs décoratifs
+Transportation	Transport
+Search Items	Rechercher
+Foodstuffs	Nourriture
+Tools	Outils
+Combat	Combat
+Brewing	Alchimie
+Materials	Matériaux
+Survival Inventory	Inventaire de survie

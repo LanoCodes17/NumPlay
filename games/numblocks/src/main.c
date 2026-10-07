@@ -98,7 +98,7 @@ void game_init(void) {
 #endif
   last = plat_millis();
   if (start_in_world) {
-    new_world(1, start_seed, 0, false, start_type, "New World");
+    new_world(1, start_seed, 0, false, start_type, T("New World"));
     game_time = 1000;
 #ifdef BENCH_FALL
     pl.mode = 1, pl.y += BENCH_FALL;   /* (timing a fall from that high, in Creative: no harm) */

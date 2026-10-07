@@ -1,0 +1,29 @@
+# Flappy Bird in Chinese: the English text as in the source, a tab, the translation (see tools/lang.py).
+# The \0 separate a list's texts (nth() in the source): keep their number and order.
+Speed\0Speed up\0Pipes\0Gap\0Moving pipes\0Jump\0Events\0- Pipe surge\0- Wind\0- Narrow gaps\0- Wide gaps\0- Dense pipes\0- Gravity\0Stack events\0No collisions\0Bird\0Sky\0Reset all	速度\0加速\0管道\0间隙\0移动管道\0跳跃\0事件\0- 管道狂潮\0- 风\0- 窄间隙\0- 宽间隙\0- 密集管道\0- 重力\0事件叠加\0无碰撞\0小鸟\0天空\0全部重置
+Very slow\0Slow\0Normal\0Fast\0Insane\0Impossible\0Never\0Every 15\0Every 10\0Every 5\0Each pipe\0Sparse\0Normal\0Dense\0Extreme\0Easy\0Normal\0Hard\0Off\0Rarely\0Sometimes\0Often\0Slow\0Fast\0Floaty\0Bouncy\0Normal\0Snappy\0Heavy\0Never\0Rare\0Normal\0Frequent\0Random\0Yellow\0Blue\0Red\0Random\0Day\0Night\0OK	很慢\0慢\0正常\0快\0疯狂\0不可能\0从不\0每15根\0每10根\0每5根\0每根\0稀疏\0正常\0密集\0极限\0简单\0正常\0困难\0关\0很少\0有时\0经常\0慢速\0快速\0飘浮\0弹跳\0正常\0灵敏\0沉重\0从不\0少见\0正常\0频繁\0随机\0黄色\0蓝色\0红色\0随机\0白天\0夜晚\0OK
+Off\0On	关\0开
+\0Pipe surge!\0Tailwind!\0Headwind!\0Narrow gaps!\0Wide gaps!\0Dense pipes!\0Low gravity!\0High gravity!	\0管道狂潮！\0顺风！\0逆风！\0窄间隙！\0宽间隙！\0管道密集！\0低重力！\0高重力！
+Get Ready!	准备！
+FlappyBird	笨鸟先飞
+Settings	设置
+Game Over	游戏结束
+SCORE	得分
+BEST	最高分
+MEDAL	奖牌
+NEW	新纪录
+TAP	按
+For Custom games\0For both games\0Back to the defaults	用于自定义模式\0用于两种模式\0恢复默认设置
+Left/Right: change   Back: done	左/右：更改   返回：完成
+Quit game?	退出游戏？
+Yes	是
+No	否
+Paused	暂停
+Resume\0Restart\0Quit game	继续\0重新开始\0退出游戏
+Classic	经典
+Custom	自定义
+Best 	最高分 
+Based on Tatone26's version	基于 Tatone26 的版本
+Play	开始
+Menu	菜单
+PRACTICE	练习

@@ -63,7 +63,7 @@ static void fail(const char *f, const char *s1, long long d1, long long d2) { sa
 /* CommandException: the command stops, the chat says why (in red) */
 static bool failed;
 static void usage(const char *u) {
-  if (!failed) say(CHAT_RED, "Usage: %s", u, NULL, 0, 0);
+  if (!failed) say(CHAT_RED, T("Usage: %s"), u, NULL, 0, 0);
   failed = true;
 }
 static void error(const char *f, const char *s1, long long d1, long long d2) {
@@ -86,15 +86,15 @@ static bool is_num(const char *s, bool dec) {
 static long long num(const char *s, long long lo, long long hi) {
   if (failed) return lo;
   if (!is_num(s, false) || strlen(s) > 11) {
-    error("'%s' is not a valid number", s, 0, 0);
+    error(T("'%s' is not a valid number"), s, 0, 0);
     return lo;
   }
   long long v = 0;
   const char *p = s + (*s == '-' || *s == '+');
   for (; *p; p++) v = v * 10 + (*p - '0');
   if (*s == '-') v = -v;
-  if (v < lo) error("The number you have entered (%d) is too small, it must be at least %d", NULL, v, lo);
-  else if (v > hi) error("The number you have entered (%d) is too big, it must be at most %d", NULL, v, hi);
+  if (v < lo) error(T("The number you have entered (%d) is too small, it must be at least %d"), NULL, v, lo);
+  else if (v > hi) error(T("The number you have entered (%d) is too big, it must be at most %d"), NULL, v, hi);
   return v;
 }
 static float to_float(const char *s) {
@@ -114,7 +114,7 @@ static float coord(float base, const char *s, bool center) {
   if (rel) s++;
   if (rel && !*s) return base;
   if (!is_num(s, true)) {
-    error("'%s' is not a valid number", s - rel, 0, 0);
+    error(T("'%s' is not a valid number"), s - rel, 0, 0);
     return base;
   }
   float v = to_float(s);
@@ -126,7 +126,7 @@ static float coord(float base, const char *s, bool center) {
 static bool player(const char *s) {
   if (failed) return false;
   if (!strcmp(s, PLAYER) || (s[0] == '@' && strchr("pare", s[1]) && (!s[2] || s[2] == '['))) return true;
-  error("That player cannot be found", NULL, 0, 0);
+  error(T("That player cannot be found"), NULL, 0, 0);
   return false;
 }
 static int to_int(const char *s) {
@@ -177,39 +177,39 @@ static const char *const cmd_name[N_COMMANDS] = {"clear", "difficulty", "effect"
                                                  "help", "kill", "me", "say", "seed", "setblock", "spawnpoint",
                                                  "summon", "time", "toggledownfall", "tp", "weather", "xp"};
 static const char *const cmd_usage[N_COMMANDS] = {
-    "/clear [player] [item] [data] [maxCount] [dataTag]",
-    "/difficulty <new difficulty>",
-    "/effect <player> <effect> [seconds] [amplifier] [hideParticles] OR /effect <player> clear",
-    "/gamemode <mode> [player]",
-    "/gamerule <rule name> [value]",
-    "/give <player> <item> [amount] [data] [dataTag]",
-    "/help [page|command name]",
-    "/kill [player|entity]",
-    "/me <action ...>",
-    "/say <message ...>",
+    T("/clear [player] [item] [data] [maxCount] [dataTag]"),
+    T("/difficulty <new difficulty>"),
+    T("/effect <player> <effect> [seconds] [amplifier] [hideParticles] OR /effect <player> clear"),
+    T("/gamemode <mode> [player]"),
+    T("/gamerule <rule name> [value]"),
+    T("/give <player> <item> [amount] [data] [dataTag]"),
+    T("/help [page|command name]"),
+    T("/kill [player|entity]"),
+    T("/me <action ...>"),
+    T("/say <message ...>"),
     "/seed",
-    "/setblock <x> <y> <z> <TileName> [dataValue] [oldBlockHandling] [dataTag]",
-    "/spawnpoint [player] [<x> <y> <z>]",
-    "/summon <EntityName> [x] [y] [z] [dataTag]",
-    "/time <set|add|query> <value>",
+    T("/setblock <x> <y> <z> <TileName> [dataValue] [oldBlockHandling] [dataTag]"),
+    T("/spawnpoint [player] [<x> <y> <z>]"),
+    T("/summon <EntityName> [x] [y] [z] [dataTag]"),
+    T("/time <set|add|query> <value>"),
     "/toggledownfall",
-    "/tp [target player] <destination player> OR /tp [target player] <x> <y> <z> [<y-rot> <x-rot>]",
-    "/weather <clear|rain|thunder> [duration in seconds]",
-    "/xp <amount> [player] OR /xp <amount>L [player]"};
+    T("/tp [target player] <destination player> OR /tp [target player] <x> <y> <z> [<y-rot> <x-rot>]"),
+    T("/weather <clear|rain|thunder> [duration in seconds]"),
+    T("/xp <amount> [player] OR /xp <amount>L [player]")};
 /* (permission level 0, or /seed in a world of one's own) */
 static bool allowed(int c) { return cheats_on() || c == C_HELP || c == C_ME || c == C_SEED; }
 
-static const char *const mode_name[2] = {"Survival Mode", "Creative Mode"};
+static const char *const mode_name[2] = {T("Survival Mode"), T("Creative Mode")};
 static const char *const modes[4] = {"survival", "creative", "adventure", "spectator"};
 static const char *const diffs[4] = {"peaceful", "easy", "normal", "hard"};
-static const char *const diff_name[4] = {"Peaceful", "Easy", "Normal", "Hard"};
+static const char *const diff_name[4] = {T("Peaceful"), T("Easy"), T("Normal"), T("Hard")};
 static const char *const rule_name[8] = {"keepInventory", "doDaylightCycle", "doMobSpawning", "mobGriefing",
                                          "naturalRegeneration", "doTileDrops", "doMobLoot", "doFireTick"};
 static const char *const mob_name[8] = {"Zombie", "Skeleton", "Creeper", "Spider", "Pig", "Cow", "Sheep", "Chicken"};
 /* the effects NumBlocks has: Potion's ids and names */
 static const uint8_t eff_id[3] = {19, 17, 10};
 static const char *const eff_key[3] = {"poison", "hunger", "regeneration"};
-static const char *const eff_name[3] = {"Poison", "Hunger", "Regeneration"};
+static const char *const eff_name[3] = {T("Poison"), T("Hunger"), T("Regeneration")};
 
 /* /gamemode, /difficulty: a name, its first letter, or its number */
 static int choice(const char *s, const char *const *names, int n, const char *const *letters) {
@@ -224,12 +224,12 @@ static void cmd_gamemode(char **a, int n) {
   int m = choice(a[0], modes, 4, l);
   if (n > 1) player(a[1]);
   if (failed) return;
-  if (m > 1) return error("'%s' is not a valid number", a[0], 0, 0);   /* (NumBlocks has no adventure or spectator) */
+  if (m > 1) return error(T("'%s' is not a valid number"), a[0], 0, 0);   /* (NumBlocks has no adventure or spectator) */
   pl.mode = (uint8_t)m;
   pl.fall = 0;
   if (m == 0) pl.flying = false;
-  chat_add("Your game mode has been updated", CHAT_WHITE);
-  ok("Set own game mode to %s", mode_name[m], 0);
+  chat_add(T("Your game mode has been updated"), CHAT_WHITE);
+  ok(T("Set own game mode to %s"), mode_name[m], 0);
 }
 
 static void cmd_time(char **a, int n) {
@@ -238,15 +238,15 @@ static void cmd_time(char **a, int n) {
     long long v = !strcmp(a[1], "day") ? 1000 : !strcmp(a[1], "night") ? 13000 : num(a[1], 0, 0x7FFFFFFF);
     if (failed) return;
     game_time = (uint32_t)v;
-    ok("Set the time to %d", NULL, v);
+    ok(T("Set the time to %d"), NULL, v);
   } else if (!strcmp(a[0], "add")) {
     long long v = num(a[1], 0, 0x7FFFFFFF);
     if (failed) return;
     game_time += (uint32_t)v;
-    ok("Added %d to the time", NULL, v);
+    ok(T("Added %d to the time"), NULL, v);
   } else if (!strcmp(a[0], "query")) {
-    if (!strcmp(a[1], "daytime")) ok("Time is %d", NULL, game_time % 24000);
-    else if (!strcmp(a[1], "gametime")) ok("Time is %d", NULL, game_time);
+    if (!strcmp(a[1], "daytime")) ok(T("Time is %d"), NULL, game_time % 24000);
+    else if (!strcmp(a[1], "gametime")) ok(T("Time is %d"), NULL, game_time);
     else usage(cmd_usage[C_TIME]);
   } else
     usage(cmd_usage[C_TIME]);
@@ -259,13 +259,13 @@ static void cmd_weather(char **a, int n) {
   if (failed) return;
   if (!strcmp(a[0], "clear")) {
     weather.rain_time = weather.thunder_time = 0, weather.raining = weather.thundering = 0;
-    ok("Changing to clear weather", NULL, 0);
+    ok(T("Changing to clear weather"), NULL, 0);
   } else if (!strcmp(a[0], "rain")) {
     weather.rain_time = weather.thunder_time = t, weather.raining = 1, weather.thundering = 0;
-    ok("Changing to rainy weather", NULL, 0);
+    ok(T("Changing to rainy weather"), NULL, 0);
   } else if (!strcmp(a[0], "thunder")) {
     weather.rain_time = weather.thunder_time = t, weather.raining = weather.thundering = 1;
-    ok("Changing to rain and thunder", NULL, 0);
+    ok(T("Changing to rain and thunder"), NULL, 0);
   } else
     usage(cmd_usage[C_WEATHER]);
 }
@@ -275,13 +275,13 @@ static void cmd_give(char **a, int n) {
   player(a[0]);
   if (failed) return;
   int id = item_named(a[1]);
-  if (id < 0) return error("There is no such item with name %s", a[1], 0, 0);
+  if (id < 0) return error(T("There is no such item with name %s"), a[1], 0, 0);
   int count = n > 2 ? (int)num(a[2], 1, 64) : 1, data = n > 3 ? (int)num(a[3], -2147483647, 2147483647) : 0;
   if (failed) return;
   /* data: which kind (wool's colour), or for tools how worn */
   int it = data >= 0 && data <= 15 ? give_of(id, data) : -1;
   if (it < 0) it = give_of(id, 0);
-  if (it < 0) return error("There is no such item with name %s", a[1], 0, 0);
+  if (it < 0) return error(T("There is no such item with name %s"), a[1], 0, 0);
   int wear = item_dur(it) ? (data < 0 ? 0 : data > item_dur(it) ? item_dur(it) : data) : 0;
   /* InventoryPlayer.addItemStackToInventory; what does not fit falls at the player's feet */
   int left = inv_add(pl.inv, 36, it, count, wear);
@@ -289,7 +289,7 @@ static void cmd_give(char **a, int n) {
   char lab[40] = "[";
   strcat(lab, item_label(it));
   strcat(lab, "]");
-  say(CHAT_WHITE, "Given %s * %d to %s", lab, PLAYER, count, 0);
+  say(CHAT_WHITE, T("Given %s * %d to %s"), lab, PLAYER, count, 0);
 }
 
 static void cmd_tp(char **a, int n) {
@@ -300,7 +300,7 @@ static void cmd_tp(char **a, int n) {
   if (n - i == 1) {
     /* to a player: the only one is here */
     player(a[i]);
-    if (!failed) say(CHAT_WHITE, "Teleported %s to %s", PLAYER, PLAYER, 0, 0);
+    if (!failed) say(CHAT_WHITE, T("Teleported %s to %s"), PLAYER, PLAYER, 0, 0);
     return;
   }
   if (n - i != 3 && n - i != 5) return usage(cmd_usage[C_TP]);
@@ -309,7 +309,7 @@ static void cmd_tp(char **a, int n) {
   if (n - i == 5) yaw = coord(pl.yaw, a[i + 3], false), pitch = coord(pl.pitch, a[i + 4], false);
   if (failed) return;
   if (x < -30000000 || x > 30000000 || z < -30000000 || z > 30000000 || y < -512 || y > 512)
-    return error("'%s' is not a valid number", a[i], 0, 0);
+    return error(T("'%s' is not a valid number"), a[i], 0, 0);
   pl.x = x, pl.y = y, pl.z = z, pl.vx = pl.vy = pl.vz = 0, pl.fall = 0;
   yaw = fmodf(yaw, 360);
   if (yaw >= 180) yaw -= 360;
@@ -317,7 +317,7 @@ static void cmd_tp(char **a, int n) {
   pl.yaw = yaw, pl.pitch = pitch < -90 ? -90 : pitch > 90 ? 90 : pitch;
   camera_reset();
   out_n = 0;
-  put("Teleported " PLAYER " to "), put_num(x), put(", "), put_num(y), put(", "), put_num(z);
+  put(T("Teleported Player to ")), put_num(x), put(", "), put_num(y), put(", "), put_num(z);
   chat_add(out, CHAT_WHITE);
 }
 
@@ -326,7 +326,7 @@ static void cmd_kill(char **a, int n) {
   if (failed) return;
   /* EntityPlayer.onKillCommand: out of the world */
   player_hurt(3.4e38f, DMG_VOID);
-  ok("Killed %s", PLAYER, 0);
+  ok(T("Killed %s"), PLAYER, 0);
 }
 
 static void cmd_difficulty(char **a, int n) {
@@ -336,12 +336,12 @@ static void cmd_difficulty(char **a, int n) {
   if (failed) return;
   opt.difficulty = (uint8_t)d;
   save_options();
-  ok("Set game difficulty to %s", diff_name[d], 0);
+  ok(T("Set game difficulty to %s"), diff_name[d], 0);
 }
 
 static void cmd_seed(void) {
   out_n = 0;
-  put("Seed: "), put_int(world_seed);
+  put(T("Seed: ")), put_int(world_seed);
   chat_add(out, CHAT_WHITE);
 }
 
@@ -354,7 +354,7 @@ static void cmd_spawnpoint(char **a, int n) {
   if (failed) return;
   pl.spawn_x = x, pl.spawn_y = y, pl.spawn_z = z;
   out_n = 0;
-  put("Set " PLAYER "'s spawn point to ("), put_int(x), put(", "), put_int(y), put(", "), put_int(z), put(")");
+  put(T("Set Player's spawn point to (")), put_int(x), put(", "), put_int(y), put(", "), put_int(z), put(")");
   chat_add(out, CHAT_WHITE);
 }
 
@@ -372,12 +372,12 @@ static void cmd_xp(char **a, int n) {
     /* EntityPlayer.addExperienceLevel */
     pl.xp_level += (int)k;
     if (pl.xp_level < 0) pl.xp_level = 0, pl.xp = 0, pl.xp_total = 0;
-    if (k < 0) say(CHAT_WHITE, "Taken %d levels from %s", PLAYER, NULL, -k, 0);
-    else say(CHAT_WHITE, "Given %d levels to %s", PLAYER, NULL, k, 0);
+    if (k < 0) say(CHAT_WHITE, T("Taken %d levels from %s"), PLAYER, NULL, -k, 0);
+    else say(CHAT_WHITE, T("Given %d levels to %s"), PLAYER, NULL, k, 0);
   } else {
-    if (k < 0) return error("Cannot give player negative experience points", NULL, 0, 0);
+    if (k < 0) return error(T("Cannot give player negative experience points"), NULL, 0, 0);
     player_add_xp((int)k);
-    say(CHAT_WHITE, "Given %d experience to %s", PLAYER, NULL, k, 0);
+    say(CHAT_WHITE, T("Given %d experience to %s"), PLAYER, NULL, k, 0);
   }
 }
 
@@ -386,7 +386,7 @@ static void cmd_clear(char **a, int n) {
   int id = -1, data = -1, most = -1;
   if (n > 1) {
     id = item_named(a[1]);
-    if (id < 0 && !failed) error("There is no such item with name %s", a[1], 0, 0);
+    if (id < 0 && !failed) error(T("There is no such item with name %s"), a[1], 0, 0);
   }
   if (n > 2) data = (int)num(a[2], -1, 2147483647);
   if (n > 3) most = (int)num(a[3], -1, 2147483647);
@@ -413,8 +413,8 @@ static void cmd_clear(char **a, int n) {
     if (take == c) t->id = 0, t->aux = 0;
     else stack_take(t, take);
   }
-  if (!gone) return error("Could not clear the inventory of %s, no items to remove", PLAYER, 0, 0);
-  say(CHAT_WHITE, "Cleared the inventory of %s, removing %d items", PLAYER, NULL, gone, 0);
+  if (!gone) return error(T("Could not clear the inventory of %s, no items to remove"), PLAYER, 0, 0);
+  say(CHAT_WHITE, T("Cleared the inventory of %s, removing %d items"), PLAYER, NULL, gone, 0);
 }
 
 static void cmd_effect(char **a, int n) {
@@ -424,34 +424,34 @@ static void cmd_effect(char **a, int n) {
   if (!strcmp(a[1], "clear")) {
     bool any = false;
     for (int i = 0; i < 3; i++) any |= pl.eff[i] > 0, pl.eff[i] = 0, pl.eff_amp[i] = 0;
-    if (!any) return error("Couldn't take any effects from %s as they do not have any", PLAYER, 0, 0);
-    ok("Took all effects from %s", PLAYER, 0);
+    if (!any) return error(T("Couldn't take any effects from %s as they do not have any"), PLAYER, 0, 0);
+    ok(T("Took all effects from %s"), PLAYER, 0);
     return;
   }
   const char *e = strip_ns(a[1]);
   int k = -1;
   for (int i = 0; i < 3; i++)
     if (!strcmp(e, eff_key[i]) || (is_num(e, false) && to_int(e) == eff_id[i])) k = i;
-  if (k < 0) return error(is_num(e, false) ? "There is no such mob effect with ID %d" : "There is no such mob effect with ID %s",
+  if (k < 0) return error(is_num(e, false) ? T("There is no such mob effect with ID %d") : T("There is no such mob effect with ID %s"),
                           e, is_num(e, false) ? to_int(e) : 0, 0);
   int secs = n > 2 ? (int)num(a[2], 0, 1000000) : 30, amp = n > 3 ? (int)num(a[3], 0, 255) : 0;
   if (failed) return;
   if (!secs) {
     if (!pl.eff[k]) {
       out_n = 0;
-      put("Couldn't take "), put(eff_name[k]), put(" from " PLAYER " as they do not have the effect");
+      put(T("Couldn't take ")), put(eff_name[k]), put(T(" from Player as they do not have the effect"));
       return error("%s", out, 0, 0);
     }
     pl.eff[k] = 0;
     out_n = 0;
-    put("Took "), put(eff_name[k]), put(" from " PLAYER);
+    put(T("Took ")), put(eff_name[k]), put(T(" from Player"));
     chat_add(out, CHAT_WHITE);
     return;
   }
   pl.eff[k] = (uint16_t)(secs * 20 > 65535 ? 65535 : secs * 20), pl.eff_amp[k] = (uint8_t)amp;
   out_n = 0;
-  put("Given "), put(eff_name[k]), put(" (ID "), put_int(eff_id[k]), put(") * "), put_int(amp + 1);
-  put(" to " PLAYER " for "), put_int(secs), put(" seconds");
+  put(T("Given ")), put(eff_name[k]), put(T(" (ID ")), put_int(eff_id[k]), put(T(") * ")), put_int(amp + 1);
+  put(T(" to Player for ")), put_int(secs), put(T(" seconds"));
   chat_add(out, CHAT_WHITE);
 }
 
@@ -461,19 +461,19 @@ static void cmd_summon(char **a, int n) {
   if (n >= 4) x = coord(x, a[1], true), y = coord(y, a[2], false), z = coord(z, a[3], true);
   if (failed) return;
   if (y < 0 || y >= WORLD_H || !world_loaded((int)floorf(x), (int)floorf(y), (int)floorf(z)))
-    return error("Cannot summon the object out of the world", NULL, 0, 0);
+    return error(T("Cannot summon the object out of the world"), NULL, 0, 0);
   if (!strcmp(a[0], "LightningBolt")) {
     bolt_start(x, y, z);
-    ok("Object successfully summoned", NULL, 0);
+    ok(T("Object successfully summoned"), NULL, 0);
     return;
   }
   for (int i = 0; i < 8; i++)
     if (!strcmp(a[0], mob_name[i])) {
-      if (!mob_summon(E_ZOMBIE + i, x, y, z)) return error("Unable to summon object", NULL, 0, 0);
-      ok("Object successfully summoned", NULL, 0);
+      if (!mob_summon(E_ZOMBIE + i, x, y, z)) return error(T("Unable to summon object"), NULL, 0, 0);
+      ok(T("Object successfully summoned"), NULL, 0);
       return;
     }
-  error("Unable to summon object", NULL, 0, 0);
+  error(T("Unable to summon object"), NULL, 0, 0);
 }
 
 static void cmd_setblock(char **a, int n) {
@@ -482,28 +482,28 @@ static void cmd_setblock(char **a, int n) {
       z = (int)floorf(coord(floorf(pl.z), a[2], false));
   if (failed) return;
   int id = block_named(a[3]);
-  if (id < 0) return error("There is no such block with ID/name %s", a[3], 0, 0);
+  if (id < 0) return error(T("There is no such block with ID/name %s"), a[3], 0, 0);
   int data = n > 4 ? (int)num(a[4], 0, 15) : 0;
   if (failed) return;
-  if (y < 0 || y >= WORLD_H || !world_loaded(x, y, z)) return error("Cannot place block outside of the world", NULL, 0, 0);
+  if (y < 0 || y >= WORLD_H || !world_loaded(x, y, z)) return error(T("Cannot place block outside of the world"), NULL, 0, 0);
   /* the state: the block's with that data, else its first */
   int b = -1;
   for (int i = 0; i < B_COUNT && b < 0; i++)
     if (blk_id[i] == id && blk_meta[i] == data) b = i;
   for (int i = 0; i < B_COUNT && b < 0; i++)
     if (blk_id[i] == id) b = i;
-  if (b < 0) return error("There is no such block with ID/name %s", a[3], 0, 0);
+  if (b < 0) return error(T("There is no such block with ID/name %s"), a[3], 0, 0);
   int was = world_get(x, y, z);
   if (n > 5) {
-    if (!strcmp(a[5], "keep") && was != B_AIR) return error("The block couldn't be placed", NULL, 0, 0);
+    if (!strcmp(a[5], "keep") && was != B_AIR) return error(T("The block couldn't be placed"), NULL, 0, 0);
     if (!strcmp(a[5], "destroy")) break_block_at(x, y, z, true);
   }
-  if (world_get(x, y, z) == b) return error("The block couldn't be placed", NULL, 0, 0);
+  if (world_get(x, y, z) == b) return error(T("The block couldn't be placed"), NULL, 0, 0);
   /* (a chest or furnace replaced is emptied first, nothing falls out) */
   tiles_forget(x, y, z);
   world_set(x, y, z, b);
   neighbours_changed(x, y, z);
-  ok("Block placed", NULL, 0);
+  ok(T("Block placed"), NULL, 0);
 }
 
 static void cmd_gamerule(char **a, int n) {
@@ -517,7 +517,7 @@ static void cmd_gamerule(char **a, int n) {
   int r = -1;
   for (int i = 0; i < 8; i++)
     if (!strcmp(a[0], rule_name[i])) r = i;
-  if (r < 0) return error("No game rule called '%s' is available", a[0], 0, 0);
+  if (r < 0) return error(T("No game rule called '%s' is available"), a[0], 0, 0);
   if (n == 1) {
     out_n = 0;
     put(rule_name[r]), put(" = "), put(rule(1 << r) ? "true" : "false");
@@ -527,7 +527,7 @@ static void cmd_gamerule(char **a, int n) {
   /* (GameRules.setOrCreateGameRule: true is "true", anything else false) */
   if (!strcmp(a[1], "true")) game_rules |= (uint8_t)(1 << r);
   else game_rules &= (uint8_t)~(1 << r);
-  ok("Game rule has been updated", NULL, 0);
+  ok(T("Game rule has been updated"), NULL, 0);
 }
 
 static void cmd_help(char **a, int n) {
@@ -539,14 +539,14 @@ static void cmd_help(char **a, int n) {
   if (n > 0) {
     for (int c = 0; c < N_COMMANDS; c++)
       if (!strcmp(a[0], cmd_name[c]) && allowed(c)) return usage(cmd_usage[c]);
-    if (!is_num(a[0], false)) return error("Unknown command. Try /help for a list of commands", NULL, 0, 0);
+    if (!is_num(a[0], false)) return error(T("Unknown command. Try /help for a list of commands"), NULL, 0, 0);
     page = (int)num(a[0], 1, pages + 1) - 1;
     if (failed) return;
   }
-  say(CHAT_DARK_GREEN, "--- Showing help page %d of %d (/help <page>) ---", NULL, NULL, page + 1, pages + 1);
+  say(CHAT_DARK_GREEN, T("--- Showing help page %d of %d (/help <page>) ---"), NULL, NULL, page + 1, pages + 1);
   for (int i = page * 7; i < k && i < page * 7 + 7; i++) chat_add(cmd_usage[list[i]], CHAT_WHITE);
   if (page == 0)
-    chat_add("Tip: Use the toolbox key while typing a command to auto-complete the command or its arguments",
+    chat_add(T("Tip: Use the toolbox key while typing a command to auto-complete the command or its arguments"),
              CHAT_GREEN);
 }
 
@@ -579,8 +579,8 @@ void command_run(const char *line) {
     if (!strcmp(w[0], cmd_name[i])) c = i;
   if (n && !strcmp(w[0], "?")) c = C_HELP;
   failed = false;
-  if (c < 0) return error("Unknown command. Try /help for a list of commands", NULL, 0, 0);
-  if (!allowed(c)) return error("You do not have permission to use this command", NULL, 0, 0);
+  if (c < 0) return error(T("Unknown command. Try /help for a list of commands"), NULL, 0, 0);
+  if (!allowed(c)) return error(T("You do not have permission to use this command"), NULL, 0, 0);
   char **a = w + 1;
   n--;
   switch (c) {
@@ -607,7 +607,7 @@ void command_run(const char *line) {
     case C_TIME: cmd_time(a, n); break;
     case C_TOGGLEDOWNFALL:
       weather.raining = !weather.raining;
-      ok("Toggled downfall", NULL, 0);
+      ok(T("Toggled downfall"), NULL, 0);
       break;
     case C_TP: cmd_tp(a, n); break;
     case C_WEATHER: cmd_weather(a, n); break;

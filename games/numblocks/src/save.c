@@ -49,6 +49,7 @@ static void record_of(int s, char *out) {
 static void copy_name(char *d, const char *s) {
   int i = 0;
   for (; s[i] && i < WORLD_NAME; i++) d[i] = s[i];
+  while (NP_TEXT_EXTRA && i && (s[i] & 0xC0) == 0x80) i--;   /* (not a letter cut) */
   d[i] = 0;
 }
 
@@ -61,7 +62,7 @@ static const uint8_t *read_head(int s, Head *h, uint32_t *len, uint32_t *head_le
   memset(h, 0, sizeof *h);
   if (!memcmp(d, "NBW1", 4)) {
     memcpy(&h->h2.h, d, sizeof(Head1));
-    copy_name(h->h2.name, "New World");
+    copy_name(h->h2.name, T("New World"));
     *head_len = sizeof(Head1);
   } else if (!memcmp(d, "NBW2", 4) && *len >= sizeof(Head2)) {
     memcpy(&h->h2, d, sizeof(Head2));
@@ -113,7 +114,7 @@ static bool name_taken(const char *n) {
 
 void world_unique_name(const char *base, char *out) {
   char b[WORLD_NAME + 1];
-  copy_name(b, base[0] ? base : "New World");
+  copy_name(b, base[0] ? base : T("New World"));
   copy_name(out, b);
   for (int k = 2; name_taken(out) && k < 100; k++) {
     /* "New World (2)": the number kept whole, the name cut to fit */
@@ -123,6 +124,7 @@ void world_unique_name(const char *base, char *out) {
     sfx[n++] = (char)('0' + k % 10), sfx[n++] = ')', sfx[n] = 0;
     int bl = (int)strlen(b), room = WORLD_NAME - n;
     if (bl > room) bl = room;
+    while (NP_TEXT_EXTRA && bl && (b[bl] & 0xC0) == 0x80) bl--;
     memcpy(out, b, (size_t)bl);
     memcpy(out + bl, sfx, (size_t)n + 1);
   }

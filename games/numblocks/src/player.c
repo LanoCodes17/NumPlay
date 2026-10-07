@@ -554,14 +554,14 @@ static void eat_done(void) {
 /* EntityPlayer.trySleep: at night (or in a storm), with no monster within 8 blocks; the bed is the new spawn point */
 static void sleep_in(int x, int y, int z) {
   if (sky_sub() < 4) {
-    gui_message("You can only sleep at night");
+    gui_message(T("You can only sleep at night"));
     return;
   }
   for (int i = 0; i < N_ENT; i++) {
     const Entity *e = &ents[i];
     if (e->type >= E_ZOMBIE && e->type <= E_SPIDER && fabsf(e->x - x) < 8 && fabsf(e->y - y) < 5 &&
         fabsf(e->z - z) < 8) {
-      gui_message("You may not rest now, there are monsters nearby");
+      gui_message(T("You may not rest now, there are monsters nearby"));
       return;
     }
   }

@@ -74,6 +74,43 @@ def run(nwa, storage, keys, home, out, tag):
     return dict(records(open(storage, "rb").read())), problems
 
 
+def lz_unpack(data, size):
+    """games/common/np_lz.h's unpacker."""
+    out, i = bytearray(), 0
+    while i < len(data):
+        flags = data[i]
+        i += 1
+        for b in range(8):
+            if i >= len(data):
+                break
+            if flags >> b & 1:
+                out.append(data[i])
+                i += 1
+            else:
+                dist = (data[i] | (data[i + 1] & 15) << 8) + 1
+                n = (data[i + 1] >> 4) + 3
+                i += 2
+                for _ in range(n):
+                    out.append(out[-dist])
+    if len(out) != size:
+        raise ValueError(f"unpacked {len(out)} bytes, expected {size}")
+    return bytes(out)
+
+
+def copy_lines(text):
+    """The saves in a copy: "#>name:base64" as they are, "#=name:size:base64" packed."""
+    copied = {}
+    for line in text.split("\n"):
+        if line.startswith("#>"):
+            name, _, data = line[2:].partition(":")
+            copied[name] = base64.b64decode(data)
+        elif line.startswith("#="):
+            name, _, rest = line[2:].partition(":")
+            size, _, data = rest.partition(":")
+            copied[name] = lz_unpack(base64.b64decode(data), int(size))
+    return copied
+
+
 def check_copy(recs, expected):
     """The copy is a Python script holding exactly `expected`."""
     problems = []
@@ -86,13 +123,10 @@ def check_copy(recs, expected):
         text = c[1:-1].decode("ascii")
     except UnicodeDecodeError:
         return problems + [f"{COPY}: not plain text"]
-    copied = {}
     for line in text.split("\n"):
         if line and not line.startswith("#"):
             problems.append(f"{COPY}: a line that isn't a comment: {line[:40]!r}")
-        if line.startswith("#>"):
-            name, _, data = line[2:].partition(":")
-            copied[name] = base64.b64decode(data)
+    copied = copy_lines(text)
     if copied != expected:
         problems.append(f"{COPY} holds {sorted(copied)}, expected {sorted(expected)}"
                         + ("" if set(copied) != set(expected) else " (contents differ)"))
@@ -114,7 +148,12 @@ def main():
         for r in g["records"]:
             # a name ending with "*" stands for records starting with the rest (NumBlocks' regions: "nb1r-1_2.nbe")
             for n in ([r[:-1] + "0_0.nbe", r[:-1] + "-1_2.nbe"] if r.endswith("*") else [r]):
-                saves.setdefault(n, bytes(rnd.randrange(256) for _ in range(rnd.choice([1, 2, 8, 30, 64, 192, 700]))))
+                size = rnd.choice([1, 2, 8, 30, 64, 192, 700])
+                if rnd.random() < 0.5:  # random bytes: copied as they are
+                    data = bytes(rnd.randrange(256) for _ in range(size))
+                else:  # like real saves (zeros, repeats): copied packed
+                    data = bytes(rnd.choice([0, 0, 0, i % 13, rnd.randrange(256)]) for i in range(size))
+                saves.setdefault(n, data)
     first = games[0]
     reset_files = set(first.get("reset", first["records"]))
     problems = []

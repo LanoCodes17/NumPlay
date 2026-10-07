@@ -4,6 +4,7 @@
 #include <string.h>
 #include "np.h"
 #include "../../games/common/epsilon_files.h"
+#include "../../games/common/np_lz.h"
 
 /* A name ending with '*' stands for every record that starts with the rest
  * (a game that keeps its world in many records, like NumBlocks). */
@@ -79,8 +80,11 @@ bool np_config_save(const np_config_t *c) {
 /* ---------------------------------------------------------------- progress copy
  * Installing apps restarts the calculator, which empties its file system; the
  * NumWorks installer puts back the Python scripts only. So NumPlay keeps every
- * save in a script too, as comment lines "#>name:base64", and after an update
- * (none of those files left) writes them back. */
+ * save in a script too, as comment lines, and after an update (none of those
+ * files left) writes them back:
+ *   "#>name:base64"          the save as it is;
+ *   "#=name:size:base64"     packed (games/common/np_lz.h), when that is smaller: the file system holds
+ *                            42 KB, and a copy that takes less of it leaves more to the saves. */
 #define COPY_NAME "numplay_saves.py"
 static const char copy_head[] =
     "# NumPlay keeps a copy of your game progress here, so that\n"
@@ -104,6 +108,35 @@ static int b64_value(uint8_t c) {
   for (int i = 0; i < 64; i++)
     if ((uint8_t)b64[i] == c) return i;
   return -1;
+}
+/* decodes len characters (a multiple of 4) into out, at most cap bytes; the size, or -1 */
+static int32_t b64_decode(const uint8_t *in, uint32_t len, uint8_t *out, uint32_t cap) {
+  uint32_t o = 0;
+  for (uint32_t i = 0; i + 4 <= len; i += 4) {
+    int v[4];
+    for (int k = 0; k < 4; k++) v[k] = in[i + k] == '=' ? 0 : b64_value(in[i + k]);
+    if (v[0] < 0 || v[1] < 0 || v[2] < 0 || v[3] < 0) return -1;
+    uint32_t w = (uint32_t)(v[0] << 18 | v[1] << 12 | v[2] << 6 | v[3]);
+    int n = 3 - (in[i + 3] == '=') - (in[i + 2] == '=');
+    for (int k = 0; k < n; k++) {
+      if (o >= cap) return -1;
+      out[o++] = (uint8_t)(w >> (16 - 8 * k));
+    }
+  }
+  return (int32_t)o;
+}
+
+/* The packer's table and a buffer, from the arena: it is free while no game runs and no screen is
+ * up (the home screen and the settings take it back with ui_init). */
+static uint16_t *lz_table;
+static uint8_t *lz_buf;
+static uint32_t lz_cap;
+static bool lz_scratch(uint32_t largest) {
+  np_alloc_reset();
+  lz_table = np_alloc(NP_LZ_HASH * sizeof(uint16_t));
+  lz_cap = NP_LZ_BOUND(largest) + 4;
+  lz_buf = np_alloc(lz_cap);
+  return lz_table && lz_buf;
 }
 
 /* Every save file NumPlay knows, each name once (a name ending with '*': every record there is that
@@ -135,18 +168,28 @@ static bool save_name(int i, char out[64]) {
 
 static uint8_t *body(const char *name, uint32_t *len) { return (uint8_t *)(uintptr_t)ef_read(name, len); }
 
-/* The copy's lines: calls line(name, data, len, text, text_len) for each */
+/* One line of the copy: its name, its data (base64) and, packed ("#="), the size of the save
+ * (0 for a save as it is, "#>"); false when there are no more */
 static bool copy_line(const uint8_t *text, uint32_t n, uint32_t *at, char name[32], const uint8_t **data,
-                      uint32_t *len) {
+                      uint32_t *len, uint32_t *size) {
   while (*at < n) {
     const uint8_t *l = text + *at, *e = l;
     while (e < text + n && *e != '\n') e++;
     *at = (uint32_t)(e - text) + 1;
     const uint8_t *colon = l;
     while (colon < e && *colon != ':') colon++;
-    if (e - l < 3 || l[0] != '#' || l[1] != '>' || colon == e || colon - l - 2 >= 32) continue;
+    if (e - l < 3 || l[0] != '#' || (l[1] != '>' && l[1] != '=') || colon == e || colon - l - 2 >= 32) continue;
     for (int i = 0; i < colon - l - 2; i++) name[i] = (char)l[2 + i];
     name[colon - l - 2] = 0;
+    *size = 0;
+    if (l[1] == '=') {
+      const uint8_t *d = colon + 1;
+      uint32_t v = 0;
+      while (d < e && *d >= '0' && *d <= '9' && v < 0x10000) v = v * 10 + (uint32_t)(*d++ - '0');
+      if (d == e || *d != ':' || !v || v >= 0x10000) continue;
+      *size = v;
+      colon = d;
+    }
     *data = colon + 1;
     *len = (uint32_t)(e - colon - 1);
     return true;
@@ -165,15 +208,23 @@ void np_progress_restore(void) {
   c++, n--; /* the script's status byte */
   char name[32];
   const uint8_t *data;
-  uint32_t at = 0, len;
+  uint32_t at, len, size, largest = 0;
+  for (at = 0; copy_line(c, n, &at, name, &data, &len, &size);)
+    if (size && len / 4 * 3 > largest) largest = len / 4 * 3;
+  bool scratch = !largest || lz_scratch(largest);
   /* Each save that is missing comes back; the ones that are here are newer and
    * stay. Save by save, so that one file already made (a game played on its
    * own before NumPlay, after an update) does not keep the others away. */
-  for (at = 0; copy_line(c, n, &at, name, &data, &len);) {
+  for (at = 0; copy_line(c, n, &at, name, &data, &len, &size);) {
     if (ef_read(name, &(uint32_t){0})) continue;
-    uint32_t size = len / 4 * 3, off = (uint32_t)(data - c);
     if (len % 4 || !len) continue;
-    size -= (data[len - 1] == '=') + (data[len - 2] == '=');
+    int32_t packed = -1;
+    if (size) { /* unpacked from the scratch buffer, after the record is made */
+      if (!scratch || (packed = b64_decode(data, len, lz_buf, lz_cap)) < 0) continue;
+    } else {
+      size = len / 4 * 3 - (data[len - 1] == '=') - (data[len - 2] == '=');
+    }
+    uint32_t off = (uint32_t)(data - c);
     if (!ef_write(name, NULL, size)) { /* appended: the copy stays where it is */
       restore_incomplete = true;
       continue;
@@ -182,22 +233,55 @@ void np_progress_restore(void) {
     data = c + off;
     uint32_t got;
     uint8_t *out = body(name, &got);
-    for (uint32_t i = 0, o = 0; i < len && out; i += 4) {
-      int v[4];
-      for (int k = 0; k < 4; k++) v[k] = data[i + k] == '=' ? 0 : b64_value(data[i + k]);
-      if (v[0] < 0 || v[1] < 0 || v[2] < 0 || v[3] < 0) break;
-      uint32_t w = (uint32_t)(v[0] << 18 | v[1] << 12 | v[2] << 6 | v[3]);
-      for (int k = 0; k < 3 && o < got; k++) out[o++] = (uint8_t)(w >> (16 - 8 * k));
+    bool ok = out && got == size &&
+              (packed >= 0 ? np_lz_unpack(lz_buf, (uint32_t)packed, out, size) == (int32_t)size
+                           : b64_decode(data, len, out, size) == (int32_t)size);
+    if (!ok) { /* (a damaged line: no half save) */
+      ef_remove(name);
+      c = ef_read(COPY_NAME, &n) + 1, n--;
     }
   }
+}
+
+/* the copy's line for a save of len bytes at d: its length, and written at o if o is not NULL; packed
+ * when that is smaller (with the scratch buffer) */
+static uint32_t backup_line(const char *name, const uint8_t *d, uint32_t len, uint8_t *o) {
+  uint32_t nl = (uint32_t)strlen(name), packed = lz_buf && len <= lz_cap ? np_lz_pack(d, len, NULL, lz_table) : len;
+  char digits[8];
+  int nd = 0;
+  bool pack = packed < len && b64_len(packed) + 7 < b64_len(len);
+  if (pack)
+    for (uint32_t v = len; nd == 0 || v; v /= 10) digits[nd++] = (char)('0' + v % 10);
+  uint32_t total = 2 + nl + 1 + (pack ? (uint32_t)nd + 1 + b64_len(packed) : b64_len(len)) + 1;
+  if (!o) return total;
+  *o++ = '#', *o++ = pack ? '=' : '>';
+  for (uint32_t k = 0; k < nl; k++) *o++ = (uint8_t)name[k];
+  *o++ = ':';
+  if (pack) {
+    while (nd) *o++ = (uint8_t)digits[--nd];
+    *o++ = ':';
+    np_lz_pack(d, len, lz_buf, lz_table);
+    b64_encode(lz_buf, packed, o);
+    o += b64_len(packed);
+  } else {
+    b64_encode(d, len, o);
+    o += b64_len(len);
+  }
+  *o = '\n';
+  return total;
 }
 
 void np_progress_backup(void) {
   if (restore_incomplete) return;
   char name[64];
-  uint32_t total = 1 + sizeof copy_head - 1 + 1, len; /* status byte, text, terminating zero */
+  uint32_t total = 1 + sizeof copy_head - 1 + 1, len, largest = 0; /* status byte, text, terminating zero */
   for (int i = 0; save_name(i, name); i++)
-    if (ef_read(name, &len)) total += 2 + (uint32_t)strlen(name) + 1 + b64_len(len) + 1;
+    if (ef_read(name, &len) && len > largest) largest = len;
+  if (!largest || !lz_scratch(largest)) lz_buf = NULL, lz_table = NULL;
+  for (int i = 0; save_name(i, name); i++) {
+    const uint8_t *d = ef_read(name, &len);
+    if (d) total += backup_line(name, d, len, NULL);
+  }
   /* never lose the copy for want of room: keep the old one then */
   ef_fs_t fs;
   if (!ef_open(&fs)) return;
@@ -216,13 +300,10 @@ void np_progress_backup(void) {
   uint8_t *stop = o + total;
   for (int i = 0; save_name(i, name); i++) {
     const uint8_t *d = ef_read(name, &len);
-    if (!d || o + 2 + strlen(name) + 1 + b64_len(len) + 1 >= stop) continue;
-    *o++ = '#', *o++ = '>';
-    for (const char *q = name; *q; q++) *o++ = (uint8_t)*q;
-    *o++ = ':';
-    b64_encode(d, len, o);
-    o += b64_len(len);
-    *o++ = '\n';
+    if (!d) continue;
+    uint32_t l = backup_line(name, d, len, NULL);
+    if (o + l >= stop) continue;
+    o += backup_line(name, ef_read(name, &len), len, o);
   }
   *o = 0;
 }

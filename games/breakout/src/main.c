@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include "../../common/epsilon_app.h"
 #include "../../common/epsilon_files.h"
+#include "../../common/np_text.h"
 
 #ifdef __ELF__ /* app name and API level, for the calculator's installer */
 const char eadk_app_name[] __attribute__((section(".rodata.eadk_app_name"))) = "Block Breaker";
@@ -250,6 +251,45 @@ static int slen(const char *s) {
   while (s[n]) n++;
   return n;
 }
+#if NP_TEXT_EXTRA
+/* Other languages: an accented letter is the font's capital with np_accent() over it (a cedilla
+   under it); a Chinese one comes from the 12-pixel font, 12 pixels tall up to size 2, then 24. */
+static color pen_c;
+static void pen_px(int x, int y, void *ctx) { fill(x, y, 1, 1, pen_c); }
+static int xk(int k) { return (7 * k + 6) / 12; }
+static void glyph(char ch, int x, int y, int k) {
+  const uint8_t *g = font[glyph_of(ch)];
+  for (int i = 0; i < 5; i++)
+    for (int j = 0, b = g[i]; b; j++, b >>= 1)
+      if (b & 1) fill(x + i * k, y + j * k, k, k, pen_c);
+}
+/* draws (or only measures) the next letter of *s at x; returns its advance */
+static int letter(const char **s, int x, int y, int k, bool draw) {
+  uint32_t cp = np_utf8(s);
+  char b = (char)cp, b2 = 0;
+  int acc = 0;
+  if (cp >= 0x80 && (acc = np_latin(cp, &b, &b2), !b)) {
+    if (draw) np_xdraw(cp, x, y + (7 * k - 12 * xk(k)) / 2, xk(k), pen_px, 0);
+    return np_xadvance(cp, xk(k));
+  }
+  if (draw) {
+    glyph(b, x, y, k);
+    np_accent(acc, x, acc == NP_ACC_CEDIL ? y + 7 * k : y - 2 * k - 1, k, pen_px, 0);
+    if (b2) glyph(b2, x + 6 * k, y, k);
+  }
+  return (b2 ? 12 : 6) * k;
+}
+static int tw(const char *s, int k) {
+  int w = -k;
+  while (*s) w += letter(&s, 0, 0, k, false);
+  return w;
+}
+static void text(const char *s, int x, int y, int k, color c) {
+  if (!seen(x, y - 3 * k - 3, tw(s, k) + k, 11 * k + 6)) return;
+  pen_c = c;
+  while (*s) x += letter(&s, x, y, k, true);
+}
+#else
 static int tw(const char *s, int k) { return slen(s) * 6 * k - k; }
 static void text(const char *s, int x, int y, int k, color c) {
   if (!seen(x, y, tw(s, k) + k, 8 * k)) return;
@@ -260,6 +300,7 @@ static void text(const char *s, int x, int y, int k, color c) {
         if (b & 1) fill(x + n * 6 * k + i * k, y + j * k, k, k, c);
   }
 }
+#endif
 static void ctext(const char *s, int y, int k, color c) { text(s, 160 - tw(s, k) / 2, y, k, c); } /* centred */
 static char *cat(char *o, const char *t) {
   while ((*o = *t++)) o++;
@@ -380,8 +421,8 @@ static void hud(void) {
     else ring_(8 + i * 15, 6, 11, DIM);
   }
   score_at(demo ? (int32_t)sv.best : score, 130, 5, GREY);
-  char s[8];
-  itoa_(cat(s, "LV "), demo ? sv.reached : level + 1);
+  char s[NP_TEXT_EXTRA ? 16 : 8];
+  itoa_(cat(s, T("LV ")), demo ? sv.reached : level + 1);
   text(s, 312 - tw(s, 1), 9, 1, DIM);
 }
 
@@ -394,7 +435,7 @@ static void background(void) {
 }
 
 /* ------------------------------------------------------------------ overlays */
-static const char *const speed_names[3] = {"SLOW", "NORMAL", "FAST"};
+static const char *const speed_names[3] = {T("SLOW"), T("NORMAL"), T("FAST")};
 
 /* where each screen's text is, so a change redraws only that */
 static void ui_area(int s) {
@@ -429,6 +470,27 @@ static void keys_hint(int y) {
 
 static void logo(int y) {
   /* BLOCK BREAKER in bricks of Google's four colors */
+#if NP_TEXT_EXTRA /* (another language's name: its letters, a space skips a color as there) */
+  const char *name = T("BLOCK BREAKER");
+  int w = -3, x, c = 0;
+  for (const char *s = name; *s;) w += np_utf8(&s) >= 0x2E80 ? 38 : 18;
+  x = 160 - w / 2;
+  if (!seen(x - 2, y - 10, w + 4, 40)) return;
+  for (const char *s = name; *s; c++) {
+    uint32_t cp = np_utf8(&s);
+    char b = (char)cp, b2;
+    pen_c = BRICK[c & 3][0];
+    if (cp >= 0x2E80) { /* a Chinese letter, its pixels 3 x 3 too */
+      np_xdraw(cp, x, y - 8, 3, pen_px, 0);
+      x += 38;
+      continue;
+    }
+    if (cp >= 0x80) np_latin(cp, &b, &b2);
+    if (b == ' ') c++;
+    else glyph(b, x, y, 3);
+    x += 18;
+  }
+#else
   static const char name[] = "BLOCK BREAKER";
   int x0 = 160 - 13 * 18 / 2 + 2;
   if (!seen(x0 - 2, y - 2, 13 * 18 + 4, 28)) return;
@@ -438,6 +500,7 @@ static void logo(int y) {
       for (int j = 0; j < 7; j++)
         if (g[i] >> j & 1) fill(x0 + n * 18 + i * 3, y + j * 3, 3, 3, BRICK[(n + (n > 5)) & 3][0]);
   }
+#endif
 }
 
 static void overlay(void) {
@@ -445,58 +508,59 @@ static void overlay(void) {
   if (state == S_TITLE || state == S_SET) {
     logo(112);
     if (state == S_TITLE) {
-      static const char *const items[2] = {"PLAY", "SETTINGS"};
+      static const char *const items[2] = {T("PLAY"), T("SETTINGS")};
       for (int i = 0; i < 2; i++) item(items[i], 150 + i * 28, tsel == i);
       if (tsel == 0 && sv.reached > 1) {
-        cat(itoa_(cat(s, "< LEVEL "), (int32_t)start_lv), " >");
+        cat(itoa_(cat(s, T("< LEVEL ")), (int32_t)start_lv), T(" >"));
         ctext(s, 202, 1, PALE);
       }
-      itoa_(cat(s, "BEST "), (int32_t)sv.best);
+      itoa_(cat(s, T("BEST ")), (int32_t)sv.best);
       ctext(s, 214, 1, DIM);
     } else {
-      static const char *const names[2] = {"SPEED", "SHAKE"};
+      static const char *const names[2] = {T("SPEED"), T("SHAKE")};
       for (int i = 0; i < 2; i++) {
         bool on = sel == i;
         if (on) fill(40, 145 + i * 28, 240, 24, WHITE);
         text(names[i], 50, 150 + i * 28, 2, on ? BG : PALE);
-        const char *v = i == 0 ? speed_names[sv.speed] : sv.shake ? "ON" : "OFF";
+        const char *v = i == 0 ? speed_names[sv.speed] : sv.shake ? T("ON") : T("OFF");
         text(v, 270 - tw(v, 2), 150 + i * 28, 2, on ? BG : PALE);
       }
-      ctext("LEFT/RIGHT: CHANGE   BACK: DONE", 210, 1, DIM);
+      ctext(T("LEFT/RIGHT: CHANGE   BACK: DONE"), 210, 1, DIM);
     }
     return;
   }
   if (state == S_CLEAR) {
-    itoa_(cat(s, "LEVEL "), level + 1);
-    cat(s + slen(s), " CLEAR");
+    itoa_(cat(s, T("LEVEL ")), level + 1);
+    cat(s + slen(s), T(" CLEAR"));
     ctext(s, 146, 2, WHITE);
   }
   if (state == S_READY && !demo) {
     if (!hinted) keys_hint(104);
-    else if (st_t > 20) ctext("OK: LAUNCH", 160, 1, PALE);
+    else if (st_t > 20) ctext(T("OK: LAUNCH"), 160, 1, PALE);
   }
   if (state == S_PAUSE) {
-    static const char *const items[3] = {"RESUME", "RESTART", "QUIT GAME"};
+    static const char *const items[3] = {T("RESUME"), T("RESTART"), T("QUIT GAME")};
     panel(80, 58, 160, 124);
-    ctext("PAUSED", 70, 2, WHITE);
+    ctext(T("PAUSED"), 70, 2, WHITE);
     for (int i = 0; i < 3; i++) item(items[i], 104 + i * 26, sel == i);
   } else if (state == S_QUIT) {
     panel(80, 74, 160, 92);
-    ctext("QUIT GAME?", 88, 2, WHITE);
+    ctext(T("QUIT GAME?"), 88, 2, WHITE);
     for (int i = 0; i < 2; i++) {
       int x = 98 + i * 66;
       if (sel == i) fill(x, 123, 58, 24, WHITE);
-      text(i ? "YES" : "NO", x + 17 - i * 6, 128, 2, sel == i ? BG : PALE);
+      const char *v = i ? T("YES") : T("NO");
+      text(v, NP_TEXT_EXTRA ? x + 29 - tw(v, 2) / 2 : x + 17 - i * 6, 128, 2, sel == i ? BG : PALE);
     }
   } else if (state == S_OVER) {
     panel(60, 50, 200, 140);
-    ctext("GAME OVER", 64, 3, WHITE);
-    itoa_(cat(s, "SCORE "), score);
+    ctext(T("GAME OVER"), 64, 3, WHITE);
+    itoa_(cat(s, T("SCORE ")), score);
     ctext(s, 100, 2, PALE);
-    itoa_(cat(s, "BEST "), (int32_t)sv.best);
+    itoa_(cat(s, T("BEST ")), (int32_t)sv.best);
     ctext(s, 124, 2, fresh_best && (st_t & 16) ? BRICK[2][0] : DIM);
-    if (fresh_best) ctext("NEW BEST!", 146, 1, BRICK[2][0]);
-    ctext("OK: PLAY AGAIN   BACK: MENU", 170, 1, DIM);
+    if (fresh_best) ctext(T("NEW BEST!"), 146, 1, BRICK[2][0]);
+    ctext(T("OK: PLAY AGAIN   BACK: MENU"), 170, 1, DIM);
   }
 }
 

@@ -27,5 +27,7 @@ void plat_frame_done(void); /* host harness hook (captures frames) */
  * it ends (games/common/epsilon_app.h). plat_end returns `code`. */
 void plat_begin(void);
 int plat_end(int code);
+/* an N0110 or N0115 (216 MHz, the N0120 has 550): more catching up per frame */
+bool plat_slow(void);
 
 #endif

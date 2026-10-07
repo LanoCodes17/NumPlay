@@ -3,6 +3,7 @@
 #include "../../common/epsilon_app.h"
 
 void plat_begin(void) { np_app_begin(); }
+bool plat_slow(void) { return epsilon_slow_model(); }
 int plat_end(int code) {
   np_app_end();
   return code;

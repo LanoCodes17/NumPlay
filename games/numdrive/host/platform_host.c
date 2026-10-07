@@ -261,4 +261,5 @@ static void s_checkpoint(void) {
 #endif
 
 void plat_begin(void) {}
+bool plat_slow(void) { return false; }
 int plat_end(int code) { return code; }

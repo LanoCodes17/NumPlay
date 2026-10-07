@@ -6,6 +6,7 @@
 #include <string.h>
 #include "np.h"
 #include "sys.h"
+#include "../../games/common/np_text.h"
 
 #define C_BAR RGB(0xFF, 0xB6, 0x31)
 #define C_TAB RGB(0x63, 0x69, 0x73)
@@ -28,7 +29,7 @@ enum {
 static const int8_t digit_keys[10] = {48, 42, 43, 44, 36, 37, 38, 30, 31, 32};
 static const uint8_t secret_keys[NP_SECRET_COUNT] = {KEY_XNT, KEY_VAR, KEY_TOOLBOX, KEY_PI, KEY_SQRT, 255};
 /* the hint, if Settings keeps it: the secret's name, bottom left in light gray */
-static const char *const secret_hints[NP_SECRET_COUNT] = {"x,n,t", "var", "Toolbox", "\xCF\x80", "\xE2\x88\x9A", "Examples"};
+static const char *const secret_hints[NP_SECRET_COUNT] = {"x,n,t", "var", T("Toolbox"), "\xCF\x80", "\xE2\x88\x9A", T("Examples")};
 static const char *hint;
 
 static struct {
@@ -42,11 +43,12 @@ static void fill(int x, int y, int w, int h, color_t c) {
   if (w > 0 && h > 0) eadk_display_push_rect_uniform((eadk_rect_t){x, y, w, h}, c);
 }
 static void text(const char *s, int x, int y, bool big, color_t fg, color_t bg) {
-  eadk_display_draw_string(s, (eadk_point_t){x, y}, big, fg, bg);
+  np_display_draw_string(s, (eadk_point_t){x, y}, big, fg, bg);
 }
 static int width(const char *s, bool big) {
   int n = 0;
-  for (; *s; s++) n += (*s & 0xC0) != 0x80; /* characters, not UTF-8 bytes */
+  /* characters, not UTF-8 bytes; a Chinese one takes two cells (launcher/src/compat.c) */
+  for (; *s; s++) n += (*s & 0xC0) == 0x80 ? 0 : NP_TEXT_EXTRA && (uint8_t)*s >= 0xE3 ? 2 : 1;
   return n * (big ? 10 : 7);
 }
 static void ctext(const char *s, int cx, int y, bool big, color_t fg, color_t bg) {
@@ -153,7 +155,7 @@ static bool inverse(float m[MAXN][MAXN], int n, float out[MAXN][MAXN]) {
 static void status_bar(void) {
   fill(0, 0, SCREEN_W, 18, C_BAR);
   text("rad", 4, 2, false, C_WHITE, C_BAR);
-  ctext("MATRICES", 160, 2, false, C_WHITE, C_BAR);
+  ctext(T("MATRICES"), 160, 2, false, C_WHITE, C_BAR);
   /* battery */
   int level = np_battery_level();
   fill(296, 5, 15, 8, C_WHITE);
@@ -164,7 +166,7 @@ static void status_bar(void) {
 }
 
 static void tabs(void) {
-  static const char *const names[2] = {"Matrix", "Results"};
+  static const char *const names[2] = {T("Matrix"), T("Results")};
   for (int t = 0; t < 2; t++) {
     color_t bg = t == M.tab ? C_WHITE : C_TAB, fg = t == M.tab ? C_TAB : C_WHITE;
     fill(t * 160, 18, 160, 22, bg);
@@ -181,7 +183,7 @@ static int grid_x(void) { return (SCREEN_W - (24 + M.n * cell_w())) / 2 + 24; }
 static void dimension_line(void) {
   color_t bg = M.row < 0 ? C_SEL : C_WHITE;
   fill(0, 46, SCREEN_W, 30, bg);
-  text("Dimension", 10, 53, true, C_TEXT, bg);
+  text(T("Dimension"), 10, 53, true, C_TEXT, bg);
   char s[8] = "0\xC3\x97" "0"; /* n×n */
   s[0] = (char)('0' + M.n), s[3] = (char)('0' + M.n);
   text(s, SCREEN_W - 12 - width(s, true), 53, true, C_TEXT, bg);
@@ -252,12 +254,12 @@ static void results_tab(void) {
   char s[16];
   int y = 46;
   fill(0, y, SCREEN_W, 28, C_WHITE);
-  text("Determinant", 10, y + 7, false, C_GRAY, C_WHITE);
+  text(T("Determinant"), 10, y + 7, false, C_GRAY, C_WHITE);
   fmt(det(M.a, M.n), s);
   text(s, SCREEN_W - 12 - width(s, true), y + 5, true, C_TEXT, C_WHITE);
   y += 29;
   fill(0, y, SCREEN_W, 28, C_WHITE);
-  text("Trace", 10, y + 7, false, C_GRAY, C_WHITE);
+  text(T("Trace"), 10, y + 7, false, C_GRAY, C_WHITE);
   float tr = 0;
   for (int i = 0; i < M.n; i++) tr += M.a[i][i];
   fmt(tr, s);
@@ -265,13 +267,13 @@ static void results_tab(void) {
   y += 29;
   int h = M.n * 16 + 12;
   fill(0, y, SCREEN_W, SCREEN_H - y, C_WHITE);
-  text("Inverse", 10, y + 6, false, C_GRAY, C_WHITE);
+  text(T("Inverse"), 10, y + 6, false, C_GRAY, C_WHITE);
   float inv[MAXN][MAXN];
   if (inverse(M.a, M.n, inv)) small_matrix(inv, SCREEN_W - 20 - (8 + M.n * 46), y + 6);
-  else text("Not invertible", SCREEN_W - 12 - width("Not invertible", false), y + 6, false, C_TEXT, C_WHITE);
+  else text(T("Not invertible"), SCREEN_W - 12 - width(T("Not invertible"), false), y + 6, false, C_TEXT, C_WHITE);
   y += h;
   fill(0, y, SCREEN_W, 1, C_LINE);
-  text("Transpose", 10, y + 6, false, C_GRAY, C_WHITE);
+  text(T("Transpose"), 10, y + 6, false, C_GRAY, C_WHITE);
   float t[MAXN][MAXN];
   for (int r = 0; r < M.n; r++)
     for (int c = 0; c < M.n; c++) t[r][c] = M.a[c][r];
@@ -279,13 +281,13 @@ static void results_tab(void) {
 }
 
 /* ---- the Toolbox menu */
-static const char *const menu_items[3] = {"Identity matrix", "Clear", "Examples"};
+static const char *const menu_items[3] = {T("Identity matrix"), T("Clear"), T("Examples")};
 
 static void menu_draw(void) {
   int x = 150, y = 60, w = 162;
   fill(x - 1, y - 1, w + 2, 1 + 22 + 3 * 30 + 1, C_LINE);
   fill(x, y, w, 22, C_TAB);
-  text("Matrices", x + 8, y + 4, false, C_WHITE, C_TAB);
+  text(T("Matrices"), x + 8, y + 4, false, C_WHITE, C_TAB);
   for (int i = 0; i < 3; i++) {
     color_t bg = i == M.menu ? C_SEL : C_WHITE;
     fill(x, y + 22 + i * 30, w, 29, bg);

@@ -25,7 +25,7 @@ bool np_uninstall_supported(void) {
 #else
   /* The flash system calls have kept their numbers and arguments since
    * Epsilon 20; older or unknown software is left alone. */
-  return np_userland() && np_software_major() >= 21;
+  return np_userland() && !np_upsilon() && np_software_major() >= 21;
 #endif
 }
 

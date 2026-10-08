@@ -1,7 +1,7 @@
 /* Matrices: NumPlay dressed as a calculator app, drawn like the calculator's
  * own apps (their fonts, colours and layout): a matrix to fill in, its results,
- * and a menu on the Toolbox key. The secret chosen in Settings (a key, or the
- * Examples item of the menu) opens NumPlay; Home quits. */
+ * and a menu on the Toolbox key. The secret sequence (pi, var, EXE, x,n,t),
+ * or the Examples item of the menu, opens NumPlay; Home quits. */
 #include <eadk.h>
 #include <string.h>
 #include "np.h"
@@ -27,9 +27,13 @@ enum {
   KEY_DOT = 49, KEY_EXE = 52
 };
 static const int8_t digit_keys[10] = {48, 42, 43, 44, 36, 37, 38, 30, 31, 32};
-static const uint8_t secret_keys[NP_SECRET_COUNT] = {KEY_XNT, KEY_VAR, KEY_TOOLBOX, KEY_PI, KEY_SQRT, 255};
-/* the hint, if Settings keeps it: the secret's name, bottom left in light gray */
-static const char *const secret_hints[NP_SECRET_COUNT] = {"x,n,t", "var", T("Toolbox"), "\xCF\x80", "\xE2\x88\x9A", T("Examples")};
+
+/* the secret sequence: pi, var, EXE, x,n,t */
+static const uint8_t seq_keys[] = {KEY_PI, KEY_VAR, KEY_EXE, KEY_XNT};
+#define SEQ_LEN ((int)sizeof seq_keys)
+static int seq_pos;
+
+/* the hint, if Settings keeps it: the sequence, bottom left in light gray */
 static const char *hint;
 
 static struct {
@@ -320,8 +324,9 @@ bool np_matrices(const np_config_t *cfg) {
   memset(&M, 0, sizeof M);
   M.n = 3;
   M.menu = -1;
+  seq_pos = 0;
   for (int i = 0; i < MAXN; i++) M.a[i][i] = 1;
-  hint = cfg->hint ? secret_hints[cfg->secret] : NULL;
+  hint = cfg->hint ? "\xCF\x80 var exe x,n,t" : NULL;
   status_bar();
   redraw();
   uint64_t prev = eadk_keyboard_scan();
@@ -335,8 +340,14 @@ bool np_matrices(const np_config_t *cfg) {
     prev = k;
 #define HIT(key) ((hit >> (key)) & 1)
     if (HIT(KEY_HOME) || HIT(KEY_ONOFF)) return false;
-    uint8_t sk = secret_keys[cfg->secret];
-    if (sk != 255 && HIT(sk)) return true;
+    /* the secret sequence: any wrong key starts it over */
+    if (hit) {
+      if (HIT(seq_keys[seq_pos])) {
+        if (++seq_pos == SEQ_LEN) return true;
+      } else {
+        seq_pos = HIT(seq_keys[0]) ? 1 : 0;
+      }
+    }
     if (frame % 600 == 0) status_bar(); /* the battery, now and then */
     if (!hit) {
       np_sleep(16);

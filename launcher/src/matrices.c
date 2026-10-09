@@ -1,7 +1,6 @@
 /* Matrices: NumPlay dressed as a calculator app, drawn like the calculator's
  * own apps (their fonts, colours and layout): a matrix to fill in, its results,
- * and a menu on the Toolbox key. The secret sequence (pi, var, EXE, x,n,t),
- * or the Examples item of the menu, opens NumPlay; Home quits. */
+ * and a menu on the Toolbox key.  * A secret sequence opens NumPlay; Home quits. */
 #include <eadk.h>
 #include <string.h>
 #include "np.h"
@@ -28,13 +27,13 @@ enum {
 };
 static const int8_t digit_keys[10] = {48, 42, 43, 44, 36, 37, 38, 30, 31, 32};
 
-/* the secret sequence: pi, var, EXE, x,n,t */
-static const uint8_t seq_keys[] = {KEY_PI, KEY_VAR, KEY_EXE, KEY_XNT};
+/* the secret sequence: konami code */
+static const uint8_t seq_keys[] = {KEY_UP, KEY_UP, KEY_DOWN, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_LEFT, KEY_RIGHT};
 #define SEQ_LEN ((int)sizeof seq_keys)
 static int seq_pos;
 
-/* the hint, if Settings keeps it: the sequence, bottom left in light gray */
-static const char *hint;
+/* no hint shown: the sequence stays invisible on screen */
+static const char *hint = NULL;
 
 static struct {
   int n, tab, row, col; /* row -1: the dimension line */
@@ -326,7 +325,7 @@ bool np_matrices(const np_config_t *cfg) {
   M.menu = -1;
   seq_pos = 0;
   for (int i = 0; i < MAXN; i++) M.a[i][i] = 1;
-  hint = cfg->hint ? "\xCF\x80 var exe x,n,t" : NULL;
+hint = NULL;
   status_bar();
   redraw();
   uint64_t prev = eadk_keyboard_scan();
@@ -341,13 +340,13 @@ bool np_matrices(const np_config_t *cfg) {
 #define HIT(key) ((hit >> (key)) & 1)
     if (HIT(KEY_HOME) || HIT(KEY_ONOFF)) return false;
     /* the secret sequence: any wrong key starts it over */
-    if (hit) {
-      if (HIT(seq_keys[seq_pos])) {
-        if (++seq_pos == SEQ_LEN) return true;
-      } else {
-        seq_pos = HIT(seq_keys[0]) ? 1 : 0;
-      }
-    }
+if (hit && (hit & (hit - 1)) == 0) {
+  if (HIT(seq_keys[seq_pos])) {
+    if (++seq_pos == SEQ_LEN) return true;
+  } else {
+    seq_pos = HIT(seq_keys[0]) ? 1 : 0;
+  }
+}
     if (frame % 600 == 0) status_bar(); /* the battery, now and then */
     if (!hit) {
       np_sleep(16);
